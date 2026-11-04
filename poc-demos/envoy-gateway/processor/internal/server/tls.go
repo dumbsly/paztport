@@ -22,7 +22,8 @@ var oidCommonName = asn1.ObjectIdentifier{2, 5, 4, 3}
 
 // The handshake's refusals of a verified client certificate that is not the edge's.
 var (
-	errNotEdge = errors.New("server: the client certificate's subject is not the common name " + EdgeName + " alone")
+	errNotEdge = errors.New("server: the client certificate's subject is not the common name " + EdgeName +
+		" alone")
 	errNotLeaf = errors.New("server: the client certificate is a CA's, or does not name client authentication")
 )
 

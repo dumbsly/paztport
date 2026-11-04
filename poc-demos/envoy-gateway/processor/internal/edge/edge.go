@@ -6,7 +6,6 @@ package edge
 import (
 	"errors"
 	"io"
-	"os"
 	"strings"
 	"time"
 	"unicode"
@@ -66,7 +65,7 @@ type Observation struct {
 type Config struct {
 	// Material is the edge's policy material, loaded and checked. It is required.
 	Material *material.Set
-	// Inst is the instance the edge's stamps name, such as [InstFromEnv] gives. It is required.
+	// Inst is the instance the edge's stamps name: the pod's name, from [InstEnv]. It is required.
 	Inst string
 	// MaxBody is the most bytes of body the edge stamps; a longer one is refused. It is required.
 	MaxBody int
@@ -76,8 +75,6 @@ type Config struct {
 	// Now is the edge's clock, or nil for time.Now. It is what each stamp's time and the material's
 	// readiness are judged by.
 	Now func() time.Time
-	// NewRID returns each request's rid, or nil for [NewRID].
-	NewRID func() string
 }
 
 // Processor is the edge's external processor: Envoy's ext_proc filter streams each request to it, and it
@@ -109,27 +106,14 @@ func New(cfg Config) (*Processor, error) {
 	if p.observe == nil {
 		p.observe = func(Observation) {}
 	}
-	newRID := cfg.NewRID
-	if newRID == nil {
-		newRID = NewRID
-	}
 	p.caller = &paztporthttp.Caller{
 		Stamper: &stamp.Stamper{
 			Svc: material.Service, Inst: cfg.Inst, Key: cfg.Material.Key(), Origin: true,
-			NewRID: newRID, Now: func() int64 { return p.now().UnixMilli() },
+			NewRID: NewRID, Now: func() int64 { return p.now().UnixMilli() },
 		},
 		Bundle: cfg.Material.Bundle(),
 	}
 	return p, nil
-}
-
-// InstFromEnv returns the instance named by [InstEnv], and refuses it unset or blank.
-func InstFromEnv() (string, error) {
-	inst := os.Getenv(InstEnv)
-	if strings.TrimFunc(inst, unicode.IsSpace) == "" {
-		return "", errors.New("edge: " + InstEnv + " is unset or blank")
-	}
-	return inst, nil
 }
 
 // Process serves one ext_proc stream: one request and its response.
@@ -158,8 +142,9 @@ func InstFromEnv() (string, error) {
 // timeout refuses it.
 //
 // At the response headers and trailers, it removes every Paztport header; it passes the response body as
-// it is. Response headers that arrive before the stamp are Envoy's own local reply, such as its 413 for a body
-// over its buffer limit: the request never went on, and the reply is passed on in the same way.
+// it is. Response headers that arrive before the stamp are passed on in the same way: while Envoy honours
+// the mode override they are Envoy's own local reply, such as its 413 for a body over its buffer limit,
+// and the request never went on (see [request.localReply] for what they are otherwise).
 func (p *Processor) Process(stream extprocv3.ExternalProcessor_ProcessServer) error {
 	r := &request{p: p}
 	for {
@@ -255,17 +240,23 @@ func (r *request) handle(msg *extprocv3.ProcessingRequest) (*extprocv3.Processin
 	}
 }
 
-// localReply takes response headers that arrive before the request was stamped. They can only be Envoy's own
-// local reply: until the processor answers, Envoy holds the request's headers back from the router, so no
-// upstream has the request. Envoy sends such a reply here when it refuses a body over its buffer limit (413)
-// while the body is awaited, and, before the request's headers were ever sent, when a filter ahead of ext_proc
-// refused the request (Envoy Gateway places its security filters there). The reply is passed on, with its
-// Paztport headers removed, rather than replaced with the processor's 500; a request whose body was awaited is
-// decided refused, for its body when the reply is a 413.
+// localReply takes response headers that arrive before the request was stamped. While Envoy honours the
+// processor's mode override and the body mode Buffered, they can only be Envoy's own local reply: until the
+// processor answers, Envoy holds the request's headers back from the router, so no upstream has the
+// request. Envoy sends such a reply here when it refuses a body over its buffer limit (413) while the body
+// is awaited, and, before the request's headers were ever sent, when a filter ahead of ext_proc refused the
+// request (Envoy Gateway places its security filters and its request buffer there). The reply is passed on,
+// with its Paztport headers removed, rather than replaced with the processor's 500; a request whose body was
+// awaited is decided refused, for its body when the reply is a 413.
+//
+// Were Envoy to ignore the mode override (a filter that does not allow overrides), a request of headers and
+// trailers with no body would go on without the stamp and with its Paztport headers removed, so its
+// receiver refuses it as unstamped; that refusal's headers then arrive here while the body is awaited, and
+// the request is decided refused for an error. It still never reaches a receiver stamped.
 func (r *request) localReply(hs *corev3.HeaderMap) {
 	if r.phase == awaitingBody {
 		outcome := RefusedError
-		if status(hs) == "413" {
+		if s, ok := only(hs, ":status"); ok && s == "413" {
 			outcome = RefusedBody
 		}
 		r.decide(Observation{Outcome: outcome, BodyBytes: len(r.body)})
@@ -273,18 +264,21 @@ func (r *request) localReply(hs *corev3.HeaderMap) {
 	r.phase = localReply
 }
 
-// status returns the response's :status, or "" when hs do not carry exactly one.
-func status(hs *corev3.HeaderMap) string {
-	var found []string
+// only returns the value of the header name, which must be in lower case, when hs carry it exactly once, in
+// any case. Envoy sends each header's value in raw_value, and that alone is read.
+func only(hs *corev3.HeaderMap, name string) (string, bool) {
+	var value string
+	n := 0
 	for _, h := range hs.GetHeaders() {
-		if h.GetKey() == ":status" {
-			found = append(found, string(h.GetRawValue()))
+		if lowerASCII(h.GetKey()) == name {
+			value = string(h.GetRawValue())
+			n++
 		}
 	}
-	if len(found) != 1 {
-		return ""
+	if n != 1 {
+		return "", false
 	}
-	return found[0]
+	return value, true
 }
 
 // requestHeaders answers the request's headers: it refuses the request, stamps it when the headers end
@@ -415,18 +409,18 @@ type refusal struct {
 	text string
 }
 
-// refuse decides the request refused for outcome, if it is not yet decided, and answers with the
-// refusal with; the stream is then over for the processor.
-func (r *request) refuse(outcome Outcome, with refusal) (*extprocv3.ProcessingResponse, bool) {
+// refuse decides the request refused for outcome, if it is not yet decided, and answers with Envoy's
+// immediate response carrying ref's status and text; the stream is then over for the processor.
+func (r *request) refuse(outcome Outcome, ref refusal) (*extprocv3.ProcessingResponse, bool) {
 	r.decide(Observation{Outcome: outcome, BodyBytes: len(r.body)})
 	return &extprocv3.ProcessingResponse{Response: &extprocv3.ProcessingResponse_ImmediateResponse{
 		ImmediateResponse: &extprocv3.ImmediateResponse{
-			Status: &typev3.HttpStatus{Code: with.code},
+			Status: &typev3.HttpStatus{Code: ref.code},
 			Headers: &extprocv3.HeaderMutation{SetHeaders: []*corev3.HeaderValueOption{{
 				Header:       &corev3.HeaderValue{Key: "content-type", RawValue: []byte("text/plain; charset=utf-8")},
 				AppendAction: corev3.HeaderValueOption_OVERWRITE_IF_EXISTS_OR_ADD,
 			}}},
-			Body:    []byte(with.text),
+			Body:    []byte(ref.text),
 			Details: "paztport_edge_" + string(outcome),
 		},
 	}}, true
@@ -456,39 +450,27 @@ const maxRequestID = 128
 // digits and the marks - _ and ., and "" otherwise. Envoy sets it, as a UUID; the form is checked all the
 // same, since it is logged.
 func requestID(hs *corev3.HeaderMap) string {
-	var ids []string
-	for _, h := range hs.GetHeaders() {
-		if lowerASCII(h.GetKey()) == "x-request-id" {
-			ids = append(ids, string(h.GetRawValue()))
-		}
-	}
-	if len(ids) != 1 || len(ids[0]) == 0 || len(ids[0]) > maxRequestID {
+	id, ok := only(hs, "x-request-id")
+	if !ok || len(id) == 0 || len(id) > maxRequestID {
 		return ""
 	}
-	for _, c := range []byte(ids[0]) {
-		if !('a' <= c && c <= 'z' || 'A' <= c && c <= 'Z' || '0' <= c && c <= '9' || c == '-' || c == '_' || c == '.') {
+	for _, c := range []byte(id) {
+		if !('a' <= c && c <= 'z' || 'A' <= c && c <= 'Z' || '0' <= c && c <= '9' || c == '-' || c == '_' ||
+			c == '.') {
 			return ""
 		}
 	}
-	return ids[0]
+	return id
 }
 
 // methodAndTarget returns the request's :method and :path, each of which must appear once, not empty.
-// Envoy sends each header's value in raw_value, and that alone is read.
 func methodAndTarget(hs *corev3.HeaderMap) (method, target string, ok bool) {
-	var methods, paths []string
-	for _, h := range hs.GetHeaders() {
-		switch h.GetKey() {
-		case ":method":
-			methods = append(methods, string(h.GetRawValue()))
-		case ":path":
-			paths = append(paths, string(h.GetRawValue()))
-		}
-	}
-	if len(methods) != 1 || len(paths) != 1 || methods[0] == "" || paths[0] == "" {
+	method, okMethod := only(hs, ":method")
+	target, okTarget := only(hs, ":path")
+	if !okMethod || !okTarget || method == "" || target == "" {
 		return "", "", false
 	}
-	return methods[0], paths[0], true
+	return method, target, true
 }
 
 // paztportNames returns the names in hs that [wire.IsPaztport] names, in lower case, each once, in the

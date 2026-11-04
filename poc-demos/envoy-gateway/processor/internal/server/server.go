@@ -88,7 +88,9 @@ func New(cfg Config, log *slog.Logger, now func() time.Time) (*Server, error) {
 		grpc.MaxRecvMsgSize(cfg.BodyLimit+headroom),
 		// Envoy keeps one connection open between requests: let it ping every 10 s, even with no stream,
 		// and ping it ourselves, so that a connection that died silently is closed, not waited on.
-		grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{MinTime: 10 * time.Second, PermitWithoutStream: true}),
+		grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
+			MinTime: 10 * time.Second, PermitWithoutStream: true,
+		}),
 		grpc.KeepaliveParams(keepalive.ServerParameters{Time: 30 * time.Second, Timeout: 10 * time.Second}),
 	)
 	extprocv3.RegisterExternalProcessorServer(s.grpc, p)
@@ -98,7 +100,9 @@ func New(cfg Config, log *slog.Logger, now func() time.Time) (*Server, error) {
 		ErrorLog: slog.NewLogLogger(log.Handler(), slog.LevelError),
 	}))
 	mux.HandleFunc("GET /readyz", s.readyz)
-	mux.HandleFunc("GET /livez", func(w http.ResponseWriter, _ *http.Request) { text(w, http.StatusOK, "live\n") })
+	mux.HandleFunc("GET /livez", func(w http.ResponseWriter, _ *http.Request) {
+		text(w, http.StatusOK, "live\n")
+	})
 	s.admin = &http.Server{
 		Handler:           mux,
 		ReadHeaderTimeout: 5 * time.Second,

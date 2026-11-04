@@ -188,6 +188,7 @@ func (l *logBuffer) String() string {
 type harness struct {
 	m         *materialtest.Material
 	cfg       server.Config
+	srv       *server.Server
 	ca        *authority
 	edge      *leaf
 	clock     atomic.Int64
@@ -232,6 +233,7 @@ func start(t *testing.T, change func(*server.Config)) *harness {
 	if err != nil {
 		t.Fatal(err)
 	}
+	h.srv = s
 	grpcLis, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -265,7 +267,9 @@ func (h *harness) clientTLS(cert *leaf) *tls.Config {
 	pool.AddCert(h.ca.cert)
 	c := &tls.Config{RootCAs: pool, ServerName: "paztport-processor", NextProtos: []string{"h2"}}
 	if cert != nil {
-		c.GetClientCertificate = func(*tls.CertificateRequestInfo) (*tls.Certificate, error) { return &cert.tls, nil }
+		c.GetClientCertificate = func(*tls.CertificateRequestInfo) (*tls.Certificate, error) {
+			return &cert.tls, nil
+		}
 	}
 	return c
 }
@@ -370,16 +374,12 @@ func request(route string, endOfStream bool, hs ...header) *extprocv3.Processing
 	for _, h := range hs {
 		m.Headers = append(m.Headers, &corev3.HeaderValue{Key: h.name, RawValue: []byte(h.value)})
 	}
-	metadata := `filter_metadata { key: "envoy-gateway" value { fields { key: "resources" value { list_value { ` +
-		`values { struct_value { fields { key: "kind" value { string_value: "HTTPRoute" } } ` +
-		`fields { key: "name" value { string_value: "` + route + `" } } ` +
-		`fields { key: "namespace" value { string_value: "shop" } } } } } } } } } `
 	return &extprocv3.ProcessingRequest{
 		Request: &extprocv3.ProcessingRequest_RequestHeaders{RequestHeaders: &extprocv3.HttpHeaders{
 			Headers: m, EndOfStream: endOfStream,
 		}},
 		Attributes: map[string]*structpb.Struct{"envoy.filters.http.ext_proc": {Fields: map[string]*structpb.Value{
-			"xds.route_metadata": structpb.NewStringValue(metadata),
+			"xds.route_metadata": structpb.NewStringValue(materialtest.RouteMetadata("shop", route)),
 		}}},
 		ProtocolConfig: &extprocv3.ProtocolConfiguration{
 			RequestBodyMode:  extprocfilterv3.ProcessingMode_BUFFERED,
@@ -397,8 +397,12 @@ func body(b []byte) *extprocv3.ProcessingRequest {
 
 // get and post are the pseudo-headers of a GET and a POST.
 var (
-	get  = []header{{":method", "GET"}, {":path", "/orders/7"}, {":authority", "shop.example"}, {":scheme", "https"}}
-	post = []header{{":method", "POST"}, {":path", "/orders"}, {":authority", "shop.example"}, {":scheme", "https"}}
+	get = []header{
+		{":method", "GET"}, {":path", "/orders/7"}, {":authority", "shop.example"}, {":scheme", "https"},
+	}
+	post = []header{
+		{":method", "POST"}, {":path", "/orders"}, {":authority", "shop.example"}, {":scheme", "https"},
+	}
 )
 
 // stampedChain returns the chain header a stamp answer sets, failing the test for any other answer.
@@ -458,13 +462,15 @@ func TestRefusesEveryClientButTheEdge(t *testing.T) {
 		{"CN=edge twice", h.ca.issue(t, dir, "edge-edge", cn("edge", "edge"))},
 		{"CN=Edge", h.ca.issue(t, dir, "Edge", pkix.Name{CommonName: "Edge"})},
 		{"no CN, O=edge", h.ca.issue(t, dir, "o-edge", pkix.Name{Organization: []string{"edge"}})},
-		{"CN=edge from another CA of the same name", sameName.issue(t, dir, "same-name-edge", pkix.Name{CommonName: "edge"})},
+		{"CN=edge from another CA of the same name",
+			sameName.issue(t, dir, "same-name-edge", pkix.Name{CommonName: "edge"})},
 		{"CN=edge, expired", h.ca.issueWith(t, dir, "expired-edge", func(c *x509.Certificate) {
 			c.NotBefore, c.NotAfter = time.Now().Add(-2*time.Hour), time.Now().Add(-time.Hour)
 		})},
-		{"CN=edge, for server authentication only", h.ca.issueWith(t, dir, "server-edge", func(c *x509.Certificate) {
-			c.ExtKeyUsage = []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}
-		})},
+		{"CN=edge, for server authentication only",
+			h.ca.issueWith(t, dir, "server-edge", func(c *x509.Certificate) {
+				c.ExtKeyUsage = []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}
+			})},
 		{"CN=orders+CN=edge in one RDN", h.ca.issueWith(t, dir, "rdn-edge", func(c *x509.Certificate) {
 			c.RawSubject = rdn(t, "orders", "edge")
 		})},
@@ -550,7 +556,8 @@ func TestMetricsMoveWithEachRequest(t *testing.T) {
 	}
 
 	order := []byte(`{"item":"tea","qty":2}`)
-	if out, err := h.process(t, h.edge, request("orders", false, post...), body(order)); err != nil || len(out) != 2 {
+	out, err := h.process(t, h.edge, request("orders", false, post...), body(order))
+	if err != nil || len(out) != 2 {
 		t.Fatalf("Process = %v, %v; want the headers answer and the stamp", out, err)
 	}
 	if out, err := h.process(t, h.edge, request("pay", true, get...)); err != nil || len(out) != 1 ||
@@ -680,9 +687,10 @@ func TestNewRefusesWhatItCannotServe(t *testing.T) {
 		now    func() time.Time
 		want   string
 	}{
-		{"no server key", func(c *server.Config) { c.TLSKey = filepath.Join(dir, "absent.key") }, now, "server certificate"},
-		{"a client CA with no certificate", func(c *server.Config) { c.ClientCA = filepath.Join(dir, "empty.crt") }, now,
-			"client CA"},
+		{"no server key", func(c *server.Config) { c.TLSKey = filepath.Join(dir, "absent.key") }, now,
+			"server certificate"},
+		{"a client CA with no certificate",
+			func(c *server.Config) { c.ClientCA = filepath.Join(dir, "empty.crt") }, now, "client CA"},
 		{"no routes", func(c *server.Config) { c.Routes = filepath.Join(dir, "absent.txt") }, now, "routes"},
 		{"expired material", func(c *server.Config) {},
 			func() time.Time { return time.UnixMilli(materialtest.Now + materialtest.Lifetime + 1) }, "notAfter"},
@@ -698,6 +706,76 @@ func TestNewRefusesWhatItCannotServe(t *testing.T) {
 	}
 	if _, err := server.New(good, slog.New(slog.NewJSONHandler(io.Discard, nil)), now); err != nil {
 		t.Fatalf("New with good config = %v", err)
+	}
+}
+
+// TestDrainsWhenItShutsDown reports not ready from the moment Shutdown begins, while a request in flight
+// finishes: it is stamped once its body arrives, and only then does Shutdown return.
+func TestDrainsWhenItShutsDown(t *testing.T) {
+	h := start(t, nil)
+	creds := credentials.NewTLS(h.clientTLS(h.edge))
+	conn, err := grpc.NewClient(h.grpcAddr, grpc.WithTransportCredentials(creds))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	stream, err := extprocv3.NewExternalProcessorClient(conn).Process(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := stream.Send(request("orders", false, post...)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := stream.Recv(); err != nil {
+		t.Fatalf("the headers answer: %v", err)
+	}
+
+	stopped := make(chan error, 1)
+	go func() {
+		stopCtx, stop := context.WithTimeout(context.Background(), 5*time.Second)
+		defer stop()
+		stopped <- h.srv.Shutdown(stopCtx)
+	}()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		code, _ := h.get(t, "/readyz")
+		if code == http.StatusServiceUnavailable {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("/readyz = %d while shutting down, want 503", code)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	select {
+	case err := <-stopped:
+		t.Fatalf("Shutdown = %v with a request in flight, want it to wait", err)
+	default:
+	}
+
+	if err := stream.Send(body([]byte(`{"item":"tea"}`))); err != nil {
+		t.Fatalf("the body, sent while shutting down: %v", err)
+	}
+	r, err := stream.Recv()
+	if err != nil {
+		t.Fatalf("the stamp, while shutting down: %v", err)
+	}
+	stampedChain(t, r)
+	if err := stream.CloseSend(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := stream.Recv(); !errors.Is(err, io.EOF) {
+		t.Fatalf("after the stamp, Recv = %v, want the stream's end", err)
+	}
+	select {
+	case err := <-stopped:
+		if err != nil {
+			t.Fatalf("Shutdown = %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Shutdown did not return once the request finished")
 	}
 }
 

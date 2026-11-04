@@ -4,7 +4,7 @@
 // Package materialtest writes the edge's policy material for tests, as the Java tools would: a policy key
 // and its pin, the edge's private key, a keyring and a root signed under the policy key, a proof bundle
 // for the edge's routes, and a routes file. Each test gets its own files, which it may rewrite to break
-// one check at a time.
+// one check at a time. It also gives the route metadata Envoy sends with a request on a mapped route.
 package materialtest
 
 import (
@@ -141,7 +141,9 @@ func (m *Material) AddKeyring(
 }
 
 // AddRoot signs another root with key, writes it to a new file and adds that file to Config.RootPaths.
-func (m *Material) AddRoot(t testing.TB, root []byte, rootID string, notAfter int64, key ed25519.PrivateKey) policy.Root {
+func (m *Material) AddRoot(
+	t testing.TB, root []byte, rootID string, notAfter int64, key ed25519.PrivateKey,
+) policy.Root {
 	t.Helper()
 	m.Config.RootPaths = append(m.Config.RootPaths,
 		filepath.Join(m.Dir, fmt.Sprintf("root-%d.json", len(m.Config.RootPaths))))
@@ -149,7 +151,9 @@ func (m *Material) AddRoot(t testing.TB, root []byte, rootID string, notAfter in
 }
 
 // WriteRoot signs a root with key and writes it over the first root file.
-func (m *Material) WriteRoot(t testing.TB, root []byte, rootID string, notAfter int64, key ed25519.PrivateKey) policy.Root {
+func (m *Material) WriteRoot(
+	t testing.TB, root []byte, rootID string, notAfter int64, key ed25519.PrivateKey,
+) policy.Root {
 	t.Helper()
 	return m.writeRoot(t, 0, root, rootID, notAfter, key)
 }
@@ -215,6 +219,16 @@ func (m *Material) Load(t testing.TB) *material.Set {
 		t.Fatal(err)
 	}
 	return s
+}
+
+// RouteMetadata returns the xds.route_metadata attribute Envoy sends for a request on the HTTPRoute
+// ns/name, in the text form the captured fixture in the routes package shows, with no policies attached.
+// ns and name must be plain ASCII with no quote or backslash, which is written as it is.
+func RouteMetadata(ns, name string) string {
+	return `filter_metadata { key: "envoy-gateway" value { fields { key: "resources" value { list_value { ` +
+		`values { struct_value { fields { key: "kind" value { string_value: "HTTPRoute" } } ` +
+		`fields { key: "name" value { string_value: "` + name + `" } } ` +
+		`fields { key: "namespace" value { string_value: "` + ns + `" } } } } } } } } } `
 }
 
 // genKey returns a new Ed25519 key pair.

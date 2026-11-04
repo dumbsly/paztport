@@ -104,7 +104,9 @@ func (f *fixture) processor(t *testing.T, change func(*edge.Config)) *edge.Proce
 
 // run streams reqs to the processor, then end (io.EOF when nil), and returns its responses and what
 // Process returned.
-func (f *fixture) run(end error, reqs ...*extprocv3.ProcessingRequest) ([]*extprocv3.ProcessingResponse, error) {
+func (f *fixture) run(
+	end error, reqs ...*extprocv3.ProcessingRequest,
+) ([]*extprocv3.ProcessingResponse, error) {
 	s := &fakeStream{in: reqs, end: end}
 	err := f.p.Process(s)
 	return s.out, err
@@ -117,15 +119,6 @@ func (f *fixture) observed(t *testing.T, want edge.Outcome) edge.Observation {
 		t.Fatalf("observed %+v, want one %s", f.obs, want)
 	}
 	return f.obs[0]
-}
-
-// routeMetadata returns the xds.route_metadata attribute for the HTTPRoute ns/name, in the text form the
-// captured fixture in the routes package shows, with no policies attached.
-func routeMetadata(ns, name string) string {
-	return `filter_metadata { key: "envoy-gateway" value { fields { key: "resources" value { list_value { ` +
-		`values { struct_value { fields { key: "kind" value { string_value: "HTTPRoute" } } ` +
-		`fields { key: "name" value { string_value: "` + name + `" } } ` +
-		`fields { key: "namespace" value { string_value: "` + ns + `" } } } } } } } } } `
 }
 
 // attributes returns the ext_proc attributes with metadata as xds.route_metadata.
@@ -151,7 +144,7 @@ func requestHeaders(endOfStream bool, hs ...header) *extprocv3.ProcessingRequest
 		Request: &extprocv3.ProcessingRequest_RequestHeaders{RequestHeaders: &extprocv3.HttpHeaders{
 			Headers: headerMap(hs), EndOfStream: endOfStream,
 		}},
-		Attributes: attributes(routeMetadata("shop", "orders")),
+		Attributes: attributes(materialtest.RouteMetadata("shop", "orders")),
 		ProtocolConfig: &extprocv3.ProtocolConfiguration{
 			RequestBodyMode:  extprocfilterv3.ProcessingMode_BUFFERED,
 			ResponseBodyMode: extprocfilterv3.ProcessingMode_NONE,
@@ -175,8 +168,12 @@ func responseHeaders(hs ...header) *extprocv3.ProcessingRequest {
 
 // get and post are the pseudo-headers of a GET and a POST to an orders path.
 var (
-	get  = []header{{":method", "GET"}, {":path", "/orders/7?x=%2F"}, {":authority", "shop.example"}, {":scheme", "https"}}
-	post = []header{{":method", "POST"}, {":path", "/orders"}, {":authority", "shop.example"}, {":scheme", "https"}}
+	get = []header{
+		{":method", "GET"}, {":path", "/orders/7?x=%2F"}, {":authority", "shop.example"}, {":scheme", "https"},
+	}
+	post = []header{
+		{":method", "POST"}, {":path", "/orders"}, {":authority", "shop.example"}, {":scheme", "https"},
+	}
 )
 
 // with returns base followed by more, as a new slice.
@@ -198,7 +195,8 @@ func apply(t *testing.T, hs []header, m *extprocv3.HeaderMutation) []header {
 		//lint:ignore SA1019 Envoy v1.39.1's ext_proc decides append or replace by this field alone.
 		appends := o.GetAppend()
 		if appends != nil || o.GetAppendAction() != corev3.HeaderValueOption_OVERWRITE_IF_EXISTS_OR_ADD {
-			t.Fatalf("set header %q does not overwrite: append %v, action %v", o.GetHeader().GetKey(), appends, o.GetAppendAction())
+			t.Fatalf("set header %q does not overwrite: append %v, action %v",
+				o.GetHeader().GetKey(), appends, o.GetAppendAction())
 		}
 		if o.GetHeader().GetValue() != "" {
 			t.Fatalf("set header %q carries its value in value, which Envoy ignores", o.GetHeader().GetKey())
@@ -403,7 +401,8 @@ func TestStampsAHeadersOnlyRequestAtItsHeaders(t *testing.T) {
 	}
 	c := sentChain(t, sent)
 	s := c[0]
-	if len(c) != 1 || s.Svc != "edge" || s.Inst != "edge-7f9c" || s.TS != now || s.Rcv != "orders" || s.Sess != "" || s.Prev != "" {
+	if len(c) != 1 || s.Svc != "edge" || s.Inst != "edge-7f9c" || s.TS != now || s.Rcv != "orders" ||
+		s.Sess != "" || s.Prev != "" {
 		t.Fatalf("the chain is %+v, want one origin stamp by edge for orders", c)
 	}
 	if ok, code := acceptedByOrders(t, f.m, sent, ""); !ok {
@@ -433,7 +432,8 @@ func TestStampsABodyRequestOnceAtTheEndOfItsBody(t *testing.T) {
 	if ok, code := acceptedByOrders(t, f.m, sent, body); !ok {
 		t.Fatalf("orders refuses the stamped request: %s", code)
 	}
-	if ok, code := acceptedByOrders(t, f.m, sent, `{"item":"tea","qty":20}`); ok || code != reason.BindingMismatch {
+	ok, code := acceptedByOrders(t, f.m, sent, `{"item":"tea","qty":20}`)
+	if ok || code != reason.BindingMismatch {
 		t.Fatalf("orders, given another body, answers %t, %s, want BINDING_MISMATCH", ok, code)
 	}
 	if o := f.observed(t, edge.Stamped); o.BodyBytes != len(body) {
@@ -538,7 +538,8 @@ func TestTheHeadersAnswerAsksForTrailers(t *testing.T) {
 // the mode override makes Envoy send to the processor.
 func TestRefusesTrailersAfterHeadersWithNoBody(t *testing.T) {
 	f := newFixture(t)
-	out, err := f.run(nil, requestHeaders(false, with(post, header{"x-path-chain", "forged"})...), requestTrailers())
+	headers := requestHeaders(false, with(post, header{"x-path-chain", "forged"})...)
+	out, err := f.run(nil, headers, requestTrailers())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -564,7 +565,8 @@ func TestStripsTheClientsPaztportHeaders(t *testing.T) {
 	}
 	check := func(t *testing.T, m *extprocv3.HeaderMutation, before []header) []header {
 		t.Helper()
-		if got := m.GetRemoveHeaders(); !slices.Equal(got, []string{"x-path-anything", "x-path-influence", "x-path-session"}) {
+		want := []string{"x-path-anything", "x-path-influence", "x-path-session"}
+		if got := m.GetRemoveHeaders(); !slices.Equal(got, want) {
 			t.Fatalf("remove_headers = %q, want each other Paztport name once, in lower case", got)
 		}
 		if got := m.GetSetHeaders(); len(got) != 2 || got[0].GetHeader().GetKey() != "x-path-chain" ||
@@ -638,7 +640,9 @@ func TestStripsPaztportHeadersFromTheResponse(t *testing.T) {
 	hs := []header{{":status", "200"}, {"X-Path-Response", "r"}, {"x-path-chain", "c1"}, {"X-PATH-CHAIN", "c2"},
 		{"content-type", "application/json"}}
 	trailers := &extprocv3.ProcessingRequest{Request: &extprocv3.ProcessingRequest_ResponseTrailers{
-		ResponseTrailers: &extprocv3.HttpTrailers{Trailers: headerMap([]header{{"x-path-proof", "p"}, {"grpc-status", "0"}})},
+		ResponseTrailers: &extprocv3.HttpTrailers{
+			Trailers: headerMap([]header{{"x-path-proof", "p"}, {"grpc-status", "0"}}),
+		},
 	}}
 	body := &extprocv3.ProcessingRequest{Request: &extprocv3.ProcessingRequest_ResponseBody{
 		ResponseBody: &extprocv3.HttpBody{Body: []byte(`{}`), EndOfStream: false},
@@ -651,10 +655,12 @@ func TestStripsPaztportHeadersFromTheResponse(t *testing.T) {
 		t.Fatalf("got %d responses, want 4", len(out))
 	}
 	rh := out[1].GetResponseHeaders().GetResponse()
-	if rh == nil || rh.GetStatus() != extprocv3.CommonResponse_CONTINUE || rh.GetHeaderMutation().GetSetHeaders() != nil {
+	if rh == nil || rh.GetStatus() != extprocv3.CommonResponse_CONTINUE ||
+		rh.GetHeaderMutation().GetSetHeaders() != nil {
 		t.Fatalf("the response headers answer is %v", out[1])
 	}
-	if got := rh.GetHeaderMutation().GetRemoveHeaders(); !slices.Equal(got, []string{"x-path-response", "x-path-chain"}) {
+	got := rh.GetHeaderMutation().GetRemoveHeaders()
+	if !slices.Equal(got, []string{"x-path-response", "x-path-chain"}) {
 		t.Fatalf("remove_headers = %q, want each Paztport name once, in lower case", got)
 	}
 	if got := paztportNames(apply(t, hs, rh.GetHeaderMutation())); len(got) != 0 {
@@ -675,7 +681,7 @@ func TestStripsPaztportHeadersFromTheResponse(t *testing.T) {
 // request whose route metadata is absent, malformed or names two resources (500), or names an HTTPRoute
 // the routes do not map (403); never with a Paztport refusal.
 func TestRefusesWhatRouteMetadataDoesNotMap(t *testing.T) {
-	two := strings.Replace(routeMetadata("shop", "orders"), `values { struct_value`,
+	two := strings.Replace(materialtest.RouteMetadata("shop", "orders"), `values { struct_value`,
 		`values { struct_value { fields { key: "kind" value { string_value: "HTTPRoute" } } `+
 			`fields { key: "name" value { string_value: "pay" } } `+
 			`fields { key: "namespace" value { string_value: "shop" } } } } values { struct_value`, 1)
@@ -687,8 +693,9 @@ func TestRefusesWhatRouteMetadataDoesNotMap(t *testing.T) {
 		{"absent", nil, typev3.StatusCode_InternalServerError},
 		{"malformed", attributes(`filter_metadata { key: `), typev3.StatusCode_InternalServerError},
 		{"two resources", attributes(two), typev3.StatusCode_InternalServerError},
-		{"unmapped", attributes(routeMetadata("shop", "pay")), typev3.StatusCode_Forbidden},
-		{"mapped in another namespace", attributes(routeMetadata("billing", "orders")), typev3.StatusCode_Forbidden},
+		{"unmapped", attributes(materialtest.RouteMetadata("shop", "pay")), typev3.StatusCode_Forbidden},
+		{"mapped in another namespace", attributes(materialtest.RouteMetadata("billing", "orders")),
+			typev3.StatusCode_Forbidden},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newFixture(t)
@@ -813,19 +820,25 @@ func TestRefusesARequestWithoutOneMethodAndPath(t *testing.T) {
 	inValue.GetRequestHeaders().Headers.Headers = append(inValue.GetRequestHeaders().Headers.Headers,
 		&corev3.HeaderValue{Key: ":path", Value: "/orders"})
 	for name, req := range map[string]*extprocv3.ProcessingRequest{
-		"no method":       requestHeaders(true, header{":path", "/orders"}),
-		"no path":         requestHeaders(true, header{":method", "GET"}),
-		"an empty path":   requestHeaders(true, header{":method", "GET"}, header{":path", ""}),
-		"two paths":       requestHeaders(true, header{":method", "GET"}, header{":path", "/a"}, header{":path", "/b"}),
-		"two methods":     requestHeaders(true, header{":method", "GET"}, header{":method", "POST"}, header{":path", "/a"}),
-		"path in value":   inValue,
-		"no headers kept": {Request: &extprocv3.ProcessingRequest_RequestHeaders{RequestHeaders: &extprocv3.HttpHeaders{EndOfStream: true}}},
+		"no method":     requestHeaders(true, header{":path", "/orders"}),
+		"no path":       requestHeaders(true, header{":method", "GET"}),
+		"an empty path": requestHeaders(true, header{":method", "GET"}, header{":path", ""}),
+		"two paths": requestHeaders(true,
+			header{":method", "GET"}, header{":path", "/a"}, header{":path", "/b"}),
+		"two methods": requestHeaders(true,
+			header{":method", "GET"}, header{":method", "POST"}, header{":path", "/a"}),
+		"path in value": inValue,
+		"no headers kept": {Request: &extprocv3.ProcessingRequest_RequestHeaders{
+			RequestHeaders: &extprocv3.HttpHeaders{EndOfStream: true},
+		}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			f := newFixture(t)
 			if req.Attributes == nil {
-				req.Attributes = attributes(routeMetadata("shop", "orders"))
-				req.ProtocolConfig = &extprocv3.ProtocolConfiguration{RequestBodyMode: extprocfilterv3.ProcessingMode_BUFFERED}
+				req.Attributes = attributes(materialtest.RouteMetadata("shop", "orders"))
+				req.ProtocolConfig = &extprocv3.ProtocolConfiguration{
+					RequestBodyMode: extprocfilterv3.ProcessingMode_BUFFERED,
+				}
 			}
 			out, err := f.run(nil, req)
 			if err != nil {
@@ -843,10 +856,12 @@ func TestRefusesMessagesOutOfOrder(t *testing.T) {
 	for name, reqs := range map[string][]*extprocv3.ProcessingRequest{
 		"a body first":           {requestBody(`{}`, true)},
 		"request trailers first": {requestTrailers()},
-		"a response body before a stamp": {requestHeaders(false, post...), {Request: &extprocv3.ProcessingRequest_ResponseBody{
-			ResponseBody: &extprocv3.HttpBody{Body: []byte(`{}`), EndOfStream: true}}}},
-		"response trailers before a stamp": {requestHeaders(false, post...), {Request: &extprocv3.ProcessingRequest_ResponseTrailers{
-			ResponseTrailers: &extprocv3.HttpTrailers{Trailers: headerMap([]header{{"grpc-status", "0"}})}}}},
+		"a response body before a stamp": {requestHeaders(false, post...),
+			{Request: &extprocv3.ProcessingRequest_ResponseBody{
+				ResponseBody: &extprocv3.HttpBody{Body: []byte(`{}`), EndOfStream: true}}}},
+		"response trailers before a stamp": {requestHeaders(false, post...),
+			{Request: &extprocv3.ProcessingRequest_ResponseTrailers{
+				ResponseTrailers: &extprocv3.HttpTrailers{Trailers: headerMap([]header{{"grpc-status", "0"}})}}}},
 		"headers twice":    {requestHeaders(false, post...), requestHeaders(true, post...)},
 		"an empty message": {{}},
 	} {
@@ -856,7 +871,8 @@ func TestRefusesMessagesOutOfOrder(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if len(out) == 0 || out[len(out)-1].GetImmediateResponse().GetStatus().GetCode() != typev3.StatusCode_InternalServerError {
+			if len(out) == 0 ||
+				out[len(out)-1].GetImmediateResponse().GetStatus().GetCode() != typev3.StatusCode_InternalServerError {
 				t.Fatalf("responses %v, want a refusal last", out)
 			}
 			for _, r := range out[:len(out)-1] {
@@ -869,14 +885,16 @@ func TestRefusesMessagesOutOfOrder(t *testing.T) {
 	}
 }
 
-// TestPassesEnvoysLocalReplyBeforeTheStamp passes on, with its Paztport headers removed, response headers that
-// arrive before the request was stamped: Envoy's own local reply, such as its 413 for a body over the buffer
-// limit, or a refusal by a filter before ext_proc. The request never went on, so the reply is let through as
-// Envoy made it, never replaced by the processor's 500; a request whose body was awaited is decided refused,
-// for its body when the reply is a 413.
+// TestPassesEnvoysLocalReplyBeforeTheStamp passes on, with its Paztport headers removed, response headers
+// that arrive before the request was stamped: Envoy's own local reply, such as its 413 for a body over the
+// buffer limit, or a refusal by a filter before ext_proc. The request never went on, so the reply is let
+// through as Envoy made it, never replaced by the processor's 500; a request whose body was awaited is
+// decided refused, for its body when the reply is a 413.
 func TestPassesEnvoysLocalReplyBeforeTheStamp(t *testing.T) {
 	reply := func(status string) []header {
-		return []header{{":status", status}, {"x-path-response", "r"}, {"X-Path-Chain", "c"}, {"content-type", "text/plain"}}
+		return []header{
+			{":status", status}, {"x-path-response", "r"}, {"X-Path-Chain", "c"}, {"content-type", "text/plain"},
+		}
 	}
 	body := &extprocv3.ProcessingRequest{Request: &extprocv3.ProcessingRequest_ResponseBody{
 		ResponseBody: &extprocv3.HttpBody{Body: []byte("Payload Too Large"), EndOfStream: true},
@@ -931,18 +949,22 @@ func TestPassesEnvoysLocalReplyBeforeTheStamp(t *testing.T) {
 }
 
 // TestRefusesARequestAfterEnvoysLocalReply refuses any request message after Envoy's local reply: Envoy has
-// answered the request itself, so a request message then is not a stream the processor may stamp. Each case ends
-// in the processor's refusal, with no answer before it that sets a header, and no request observed stamped.
+// answered the request itself, so a request message then is not a stream the processor may stamp. Each case
+// ends in the processor's refusal, with no answer before it that sets a header, and no request observed
+// stamped.
 func TestRefusesARequestAfterEnvoysLocalReply(t *testing.T) {
-	tooLarge := []*extprocv3.ProcessingRequest{requestHeaders(false, post...), responseHeaders(header{":status", "413"})}
+	tooLarge := []*extprocv3.ProcessingRequest{
+		requestHeaders(false, post...), responseHeaders(header{":status", "413"}),
+	}
 	unauthorised := []*extprocv3.ProcessingRequest{responseHeaders(header{":status", "401"})}
 	for name, reqs := range map[string][]*extprocv3.ProcessingRequest{
-		"a 413, then request headers":         append(slices.Clone(tooLarge), requestHeaders(true, get...)),
-		"a 413, then a request body":          append(slices.Clone(tooLarge), requestBody(`{}`, true)),
-		"a 413, then request trailers":        append(slices.Clone(tooLarge), requestTrailers()),
-		"a 401, then request headers":         append(slices.Clone(unauthorised), requestHeaders(true, get...)),
-		"a 401, then headers and then a body": append(slices.Clone(unauthorised), requestHeaders(false, post...), requestBody(`{}`, true)),
-		"a 401, then a request body":          append(slices.Clone(unauthorised), requestBody(`{}`, true)),
+		"a 413, then request headers":  append(slices.Clone(tooLarge), requestHeaders(true, get...)),
+		"a 413, then a request body":   append(slices.Clone(tooLarge), requestBody(`{}`, true)),
+		"a 413, then request trailers": append(slices.Clone(tooLarge), requestTrailers()),
+		"a 401, then request headers":  append(slices.Clone(unauthorised), requestHeaders(true, get...)),
+		"a 401, then headers and then a body": append(slices.Clone(unauthorised),
+			requestHeaders(false, post...), requestBody(`{}`, true)),
+		"a 401, then a request body": append(slices.Clone(unauthorised), requestBody(`{}`, true)),
 	} {
 		t.Run(name, func(t *testing.T) {
 			f := newFixture(t)
@@ -1011,18 +1033,6 @@ func TestNewRefuses(t *testing.T) {
 	}
 }
 
-// TestInstFromEnv reads the instance from POD_NAME, and refuses it unset or blank.
-func TestInstFromEnv(t *testing.T) {
-	t.Setenv("POD_NAME", "edge-5d8f-x2")
-	if got, err := edge.InstFromEnv(); err != nil || got != "edge-5d8f-x2" {
-		t.Fatalf("InstFromEnv = %q, %v", got, err)
-	}
-	t.Setenv("POD_NAME", "  ")
-	if got, err := edge.InstFromEnv(); err == nil {
-		t.Fatalf("InstFromEnv with POD_NAME blank = %q", got)
-	}
-}
-
 // uuidV4 is the text of a random UUID: lower-case hex, version 4, variant 10.
 var uuidV4 = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
 
@@ -1050,17 +1060,6 @@ func TestNewRIDIsARandomUUID(t *testing.T) {
 	}
 }
 
-// TestOutcomesAreTheirMetricLabels keeps each outcome's text, which metrics label requests with.
-func TestOutcomesAreTheirMetricLabels(t *testing.T) {
-	var got []string
-	for _, o := range []edge.Outcome{edge.Stamped, edge.RefusedRoute, edge.RefusedMaterial, edge.RefusedBody, edge.RefusedError} {
-		got = append(got, string(o))
-	}
-	if want := "stamped refused_route refused_material refused_body refused_error"; strings.Join(got, " ") != want {
-		t.Fatalf("outcomes %q, want %q", got, want)
-	}
-}
-
 // TestObservesTheStampsRID reports a stamped request with the rid its stamp carries, and a refused one
 // with none.
 func TestObservesTheStampsRID(t *testing.T) {
@@ -1076,7 +1075,7 @@ func TestObservesTheStampsRID(t *testing.T) {
 
 	f = newFixture(t)
 	req := requestHeaders(true, get...)
-	req.Attributes = attributes(routeMetadata("shop", "pay"))
+	req.Attributes = attributes(materialtest.RouteMetadata("shop", "pay"))
 	if _, err := f.run(nil, req); err != nil {
 		t.Fatal(err)
 	}
@@ -1110,7 +1109,7 @@ func TestObservesEnvoysRequestID(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newFixture(t)
 			req := requestHeaders(true, tc.hs...)
-			req.Attributes = attributes(routeMetadata("shop", tc.route))
+			req.Attributes = attributes(materialtest.RouteMetadata("shop", tc.route))
 			if _, err := f.run(nil, req); err != nil {
 				t.Fatal(err)
 			}

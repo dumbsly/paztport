@@ -178,6 +178,10 @@ discover() {
         ;;
     esac
     echo "$module $version" >>"$prefix.modules"
+    if [ "$pdir" != "$root" ] && [ "${pdir#"$root"/}" = "$pdir" ]; then
+      fail "the package directory $pdir is not under its module's root, $root"
+      continue
+    fi
     x="$pdir"
     while [ "$x" != "$root" ] && [ "${x#"$root"/}" != "$x" ]; do
       licence_files "$x" notices >"$work/found"

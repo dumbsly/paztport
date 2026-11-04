@@ -69,8 +69,8 @@ func FromEnv(getenv func(string) string) (Config, error) {
 		Inst:        r.required(edge.InstEnv),
 	}
 	if r.err == nil && samePort(c.Listen, c.AdminListen) {
-		r.fail("PROCESSOR_ADMIN_LISTEN " + strconv.Quote(c.AdminListen) + " is on the gRPC port, PROCESSOR_LISTEN " +
-			strconv.Quote(c.Listen))
+		r.fail("PROCESSOR_ADMIN_LISTEN " + strconv.Quote(c.AdminListen) + " is on the gRPC port, " +
+			"PROCESSOR_LISTEN " + strconv.Quote(c.Listen))
 	}
 	if r.err != nil {
 		return Config{}, r.err
@@ -142,5 +142,6 @@ func samePort(a, b string) bool {
 	if errA != nil || errB != nil {
 		return a == b
 	}
-	return ap == bp && (ah == bh || ah == "" || bh == "" || ah == "0.0.0.0" || bh == "0.0.0.0" || ah == "::" || bh == "::")
+	every := func(h string) bool { return h == "" || h == "0.0.0.0" || h == "::" }
+	return ap == bp && (ah == bh || every(ah) || every(bh))
 }

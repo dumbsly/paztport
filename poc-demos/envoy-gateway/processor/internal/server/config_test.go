@@ -63,7 +63,8 @@ func TestConfigFromEnvReadsListsAndAddresses(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := []string{"/policy/old/keyring.json", "/policy/new/keyring.json"}; !reflect.DeepEqual(got.Keyrings, want) {
+	want := []string{"/policy/old/keyring.json", "/policy/new/keyring.json"}
+	if !reflect.DeepEqual(got.Keyrings, want) {
 		t.Errorf("Keyrings = %q, want %q", got.Keyrings, want)
 	}
 	if want := []string{"/policy/old/root.json", "/policy/new/root.json"}; !reflect.DeepEqual(got.Roots, want) {
@@ -79,7 +80,8 @@ func TestConfigFromEnvReadsListsAndAddresses(t *testing.T) {
 func TestConfigFromEnvRefuses(t *testing.T) {
 	for _, name := range []string{
 		"PROCESSOR_TLS_CERT", "PROCESSOR_TLS_KEY", "PROCESSOR_CLIENT_CA", "PROCESSOR_KEY", "PROCESSOR_KEYRINGS",
-		"PROCESSOR_ROOTS", "PROCESSOR_PIN", "PROCESSOR_BUNDLE", "PROCESSOR_ROUTES", "PROCESSOR_BODY_LIMIT", "POD_NAME",
+		"PROCESSOR_ROOTS", "PROCESSOR_PIN", "PROCESSOR_BUNDLE", "PROCESSOR_ROUTES", "PROCESSOR_BODY_LIMIT",
+		"POD_NAME",
 	} {
 		for _, value := range []string{"", "  "} {
 			e := env()

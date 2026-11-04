@@ -24,8 +24,8 @@ import (
 var checks = []error{
 	material.ErrKey, material.ErrPin, material.ErrKeyring, material.ErrKeyringPin, material.ErrKeyringExpired,
 	material.ErrRoot, material.ErrRootPin, material.ErrRootExpired, material.ErrEdgeKey, material.ErrBundle,
-	material.ErrBundleService, material.ErrBundleRoot, material.ErrRoutes, material.ErrNoProof, material.ErrProof,
-	material.ErrExpired,
+	material.ErrBundleService, material.ErrBundleRoot, material.ErrRoutes, material.ErrNoProof,
+	material.ErrProof, material.ErrExpired,
 }
 
 // loadFails loads m's material at materialtest.Now and fails the test unless it is refused with want,
@@ -318,6 +318,34 @@ func TestReadyFollowsTheBundlesRoot(t *testing.T) {
 	}
 	if err := s.Ready(materialtest.Now + 3*hour + 1); !errors.Is(err, material.ErrExpired) {
 		t.Errorf("Ready past the bundle's latest root = %v, want ErrExpired", err)
+	}
+}
+
+// TestReadyFollowsEachMappedProofsRoot counts the root of a mapped receiver's proof where it is not the
+// bundle's: the bundle names root-1, the proof of edge/orders names root-2, a root of the same tree, and
+// root-2 expires first, so the material is ready only until then.
+func TestReadyFollowsEachMappedProofsRoot(t *testing.T) {
+	const hour = materialtest.Lifetime
+	m := materialtest.New(t)
+	m.WriteKeyring(t, m.Services(), materialtest.Now+5*hour, m.PolicyKey)
+	root, err := m.Root.Bytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.WriteRoot(t, root, materialtest.RootID, materialtest.Now+3*hour, m.PolicyKey)
+	m.AddRoot(t, root, "root-2", materialtest.Now+hour/2, m.PolicyKey)
+	p := m.Proofs["edge/orders"]
+	p.RootID = "root-2"
+	m.WriteBundle(t, "edge", materialtest.RootID, map[string]policy.Proof{"edge/orders": p})
+	s := m.Load(t)
+	if got := s.TimeLeft(materialtest.Now); got != 30*time.Minute {
+		t.Errorf("TimeLeft = %v, want 30m, the proof's root", got)
+	}
+	if err := s.Ready(materialtest.Now + hour/2); err != nil {
+		t.Errorf("Ready at the proof's root's notAfter = %v", err)
+	}
+	if err := s.Ready(materialtest.Now + hour/2 + 1); !errors.Is(err, material.ErrExpired) {
+		t.Errorf("Ready past the proof's root = %v, want ErrExpired", err)
 	}
 }
 

@@ -47,10 +47,10 @@ func httpRoute(namespace, name string) map[string]any {
 	return map[string]any{"kind": "HTTPRoute", "name": name, "namespace": namespace}
 }
 
-// TestFromAttributesReadsACapturedRoute reads the route from route metadata as Envoy v1.39.1 sent it to the
-// processor under Envoy Gateway v1.9.2, for the HTTPRoute paztport/orders with a BackendTrafficPolicy attached: one
-// line, ending in a space, with the attached policies listed before the route's resources. Only the policy's kind
-// and name are masked; the rest is as captured.
+// TestFromAttributesReadsACapturedRoute reads the route from route metadata exactly as Envoy v1.39.1 sent it
+// to the processor under Envoy Gateway v1.9.2, for the HTTPRoute paztport/orders with the
+// BackendTrafficPolicy orders-routes attached: one line, ending in a space, with the attached policies listed
+// before the route's resources.
 func TestFromAttributesReadsACapturedRoute(t *testing.T) {
 	b, err := os.ReadFile(filepath.Join("testdata", "route-metadata.captured.txtpb"))
 	if err != nil {
@@ -75,11 +75,15 @@ func TestFromAttributesIgnoresWhatItDoesNotRead(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	other, err := structpb.NewStruct(map[string]any{"resources": []any{httpRoute("x", "y"), httpRoute("x", "z")}})
+	other, err := structpb.NewStruct(map[string]any{
+		"resources": []any{httpRoute("x", "y"), httpRoute("x", "z")},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	md := &corev3.Metadata{FilterMetadata: map[string]*structpb.Struct{"envoy-gateway": s, "another-filter": other}}
+	md := &corev3.Metadata{FilterMetadata: map[string]*structpb.Struct{
+		"envoy-gateway": s, "another-filter": other,
+	}}
 	b, err := prototext.Marshal(md)
 	if err != nil {
 		t.Fatal(err)
@@ -116,16 +120,21 @@ func TestFromAttributesRefuses(t *testing.T) {
 		{"no resources", text(map[string]any{"policies": []any{}})},
 		{"resources that are not a list", text(map[string]any{"resources": httpRoute("shop", "orders")})},
 		{"no resource", text(map[string]any{"resources": []any{}})},
-		{"two resources", text(map[string]any{"resources": []any{httpRoute("shop", "orders"), httpRoute("shop", "pay")}})},
-		{"two copies of one resource", text(map[string]any{"resources": []any{httpRoute("shop", "orders"), httpRoute("shop", "orders")}})},
+		{"two resources", text(map[string]any{"resources": []any{
+			httpRoute("shop", "orders"), httpRoute("shop", "pay")}})},
+		{"two copies of one resource", text(map[string]any{"resources": []any{
+			httpRoute("shop", "orders"), httpRoute("shop", "orders")}})},
 		{"a resource that is not a struct", text(map[string]any{"resources": []any{"shop/orders"}})},
 		{"a GRPCRoute", text(map[string]any{"resources": []any{
 			map[string]any{"kind": "GRPCRoute", "name": "orders", "namespace": "shop"}}})},
 		{"a kind in another case", text(map[string]any{"resources": []any{
 			map[string]any{"kind": "httproute", "name": "orders", "namespace": "shop"}}})},
-		{"no kind", text(map[string]any{"resources": []any{map[string]any{"name": "orders", "namespace": "shop"}}})},
-		{"no name", text(map[string]any{"resources": []any{map[string]any{"kind": "HTTPRoute", "namespace": "shop"}}})},
-		{"no namespace", text(map[string]any{"resources": []any{map[string]any{"kind": "HTTPRoute", "name": "orders"}}})},
+		{"no kind", text(map[string]any{"resources": []any{
+			map[string]any{"name": "orders", "namespace": "shop"}}})},
+		{"no name", text(map[string]any{"resources": []any{
+			map[string]any{"kind": "HTTPRoute", "namespace": "shop"}}})},
+		{"no namespace", text(map[string]any{"resources": []any{
+			map[string]any{"kind": "HTTPRoute", "name": "orders"}}})},
 		{"an empty name", text(map[string]any{"resources": []any{httpRoute("shop", "")}})},
 		{"an empty namespace", text(map[string]any{"resources": []any{httpRoute("", "orders")}})},
 		{"a name that is not a string", text(map[string]any{"resources": []any{
@@ -154,8 +163,8 @@ func writeRoutes(t *testing.T, text string) string {
 // TestLoadReadsEachRoute reads one route a line, skipping comments and blank lines and the white space
 // around each part, and gives no receiver for a route it does not map.
 func TestLoadReadsEachRoute(t *testing.T) {
-	m, err := routes.Load(writeRoutes(t, "# routes the edge stamps\n\nshop/orders=orders\n  shop/orders-v2 = orders \r\n"+
-		"\t# a comment\nbilling/pay.api=payment\n"))
+	m, err := routes.Load(writeRoutes(t, "# routes the edge stamps\n\nshop/orders=orders\n"+
+		"  shop/orders-v2 = orders \r\n\t# a comment\nbilling/pay.api=payment\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -166,7 +175,9 @@ func TestLoadReadsEachRoute(t *testing.T) {
 			t.Errorf("Receiver(%q, %q) = %q, %t, want %q", tc.ns, tc.name, got, ok, tc.want)
 		}
 	}
-	for _, tc := range []struct{ ns, name string }{{"shop", "pay.api"}, {"billing", "orders"}, {"", ""}, {"shop/orders", ""}} {
+	for _, tc := range []struct{ ns, name string }{
+		{"shop", "pay.api"}, {"billing", "orders"}, {"", ""}, {"shop/orders", ""},
+	} {
 		if got, ok := m.Receiver(tc.ns, tc.name); ok || got != "" {
 			t.Errorf("Receiver(%q, %q) = %q, %t, want none", tc.ns, tc.name, got, ok)
 		}

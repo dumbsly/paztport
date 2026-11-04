@@ -50,7 +50,8 @@ func FromAttributes(attrs map[string]*structpb.Struct) (ns, name string, err err
 	if err := prototext.Unmarshal([]byte(text.StringValue), &md); err != nil {
 		return "", "", errors.New("routes: the route metadata is not text-format Metadata")
 	}
-	resources, ok := md.GetFilterMetadata()[gatewayNamespace].GetFields()["resources"].GetKind().(*structpb.Value_ListValue)
+	fields := md.GetFilterMetadata()[gatewayNamespace].GetFields()
+	resources, ok := fields["resources"].GetKind().(*structpb.Value_ListValue)
 	if !ok {
 		return "", "", errors.New("routes: the route metadata lists no Envoy Gateway resources")
 	}

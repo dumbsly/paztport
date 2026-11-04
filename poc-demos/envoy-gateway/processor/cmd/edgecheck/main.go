@@ -1,8 +1,8 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-// Command edgecheck is a client the proof of concept's checks use for the two requests curl cannot make. It is
-// not part of the processor's image.
+// Command edgecheck is a client the proof of concept's checks use for the two requests curl cannot make. It
+// is not part of the processor's image.
 //
 //	edgecheck trailers <host:port> <authority> <path>
 //
@@ -13,8 +13,8 @@
 //
 // calls the processor as Envoy would, over mutual TLS with the client certificate cert and key, checking the
 // processor's certificate against ca for the name paztport-processor: it sends the request's headers with the
-// route metadata Envoy Gateway writes for the HTTPRoute, then the body, and prints each header the processor sets
-// as one "name: value" line. A refused handshake, or any answer but the stamp, is an error.
+// route metadata Envoy Gateway writes for the HTTPRoute, then the body, and prints each header the processor
+// sets as one "name: value" line. A refused handshake, or any answer but the stamp, is an error.
 //
 // Each exits 1, with one line on standard error, when the request cannot be made.
 package main
@@ -77,9 +77,9 @@ func run(args []string) error {
 	}
 }
 
-// trailers sends a POST to path at addr, over HTTP/2 with prior knowledge and no TLS, as one HEADERS frame without
-// END_STREAM and then a trailers HEADERS frame with it, so that the request has trailers and no body, and returns
-// the response's :status.
+// trailers sends a POST to path at addr, over HTTP/2 with prior knowledge and no TLS, as one HEADERS frame
+// without END_STREAM and then a trailers HEADERS frame with it, so that the request has trailers and no body,
+// and returns the response's :status.
 func trailers(addr, authority, path string) (string, error) {
 	conn, err := net.DialTimeout("tcp", addr, timeout)
 	if err != nil {
@@ -154,7 +154,8 @@ func trailers(addr, authority, path string) (string, error) {
 	}
 }
 
-// stamp asks the processor at addr to stamp a request on the HTTPRoute route, and returns the headers it sets.
+// stamp asks the processor at addr to stamp a request on the HTTPRoute route, and returns the headers it
+// sets.
 func stamp(addr, caFile, certFile, keyFile, route, method, path, body string) ([]*corev3.HeaderValue, error) {
 	ns, name, ok := strings.Cut(route, "/")
 	if !ok {
@@ -242,8 +243,8 @@ func expect[T any](s extprocv3.ExternalProcessor_ProcessClient) (T, error) {
 	return answer, nil
 }
 
-// routeMetadata returns the route metadata Envoy Gateway writes for the HTTPRoute ns/name, in the text form Envoy
-// sends it in.
+// routeMetadata returns the route metadata Envoy Gateway writes for the HTTPRoute ns/name, in the text form
+// Envoy sends it in.
 func routeMetadata(ns, name string) (string, error) {
 	resources, err := structpb.NewStruct(map[string]any{"resources": []any{
 		map[string]any{"kind": "HTTPRoute", "name": name, "namespace": ns},
@@ -251,6 +252,7 @@ func routeMetadata(ns, name string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	b, err := prototext.Marshal(&corev3.Metadata{FilterMetadata: map[string]*structpb.Struct{"envoy-gateway": resources}})
+	md := &corev3.Metadata{FilterMetadata: map[string]*structpb.Struct{"envoy-gateway": resources}}
+	b, err := prototext.Marshal(md)
 	return string(b), err
 }
