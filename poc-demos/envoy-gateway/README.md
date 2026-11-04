@@ -48,8 +48,8 @@ requests it is sent per host, with and without an `X-Path-Chain` header, so a su
 `echo` reached it unstamped.
 
 Each suite starts from the same baseline, and prints it: two processor replicas with the autoscaler off, `orders` and
-`payment` in enforce mode, only the routes `orders`, `orders-unmapped`, `echo` and `echo-plain`, no delay added to any
-pod's network, and every pod's keys and policy those in `out/` (the run stops if they are not). Load comes from k6
+`payment` in enforce mode with no environment variable `kind/backends.yaml` does not set, only the routes `orders`,
+`orders-unmapped`, `echo` and `echo-plain`, no delay added to any pod's network, and every pod's keys and policy those in `out/` (the run stops if they are not). Load comes from k6
 (`measure/k6/edge.js`, `grafana/k6:2.2.0` by digest) in a Job in the cluster, which counts every response by its
 status, a reset or a timeout included, and lists the time of each one that was not the status expected (up to
 20000 a run; a window drawn from a list that stopped there says so). A comparison
@@ -60,10 +60,11 @@ every run, the median of each side's runs with their lowest and highest, and the
 |---|---|
 | `load` | the latency the processor adds: plain Envoy (`echo-plain`) against Envoy and the processor (`echo`) at the same offered rate, well below either one's ceiling (`LOAD_RATE_SMALL`, 1000 requests a second, with a 400-byte body; `LOAD_RATE_LARGE`, 500, with a 256 KiB one), each run saying whether k6 kept to that rate; first, from Envoy's own configuration (its admin `/config_dump`), that the twins share one listener's filter chain and differ only in the processor's filter being enabled on `echo`; last, that `echo` was sent no request unstamped and `echo-plain` none stamped |
 | `ceiling` | what the processor sustains, against plain Envoy: with one, two and four processor replicas (`helm upgrade`, the autoscaler off), stages of rising offered rate on `echo`, then the same stages on `echo-plain`, each stage a run at its own constant rate with the small body, in a table of offered and achieved rate, p50, p99, dropped and statuses; a stage is sustained when it achieved within 5% of its offered rate with every response a 200, and the highest sustained stage of each twin and replica count is printed and written to `ceiling-sustained` in the run's directory (`<route> <replicas> <rate>` a line) for later suites to read. Then, on one replica, 1.5 and 2 times its highest sustained stage (saturation): statuses, the window of responses other than 200, what the processor decided, what Envoy counted of its streams to the processor, and its restarts; and memory: 1 MiB bodies (the body limit) from 10, 25, 50 and 100 users, with the processor's peak resident memory (read from its `/metrics` once a second) and its restarts and how it last ended, an OOM kill included. Last, as `load` does, that `echo` was sent no request unstamped |
+| `edge` | the whole edge: `orders` and `payment` with Paztport installed (the route `orders`, stamped by the processor, both backends in enforce mode with the Spring starter) against the same images without it (the starter's auto-configuration excluded through `SPRING_AUTOCONFIGURE_EXCLUDE`, `orders` given Spring Boot's own mutual TLS client to `payment` through `SPRING_HTTP_CLIENTS_SSL_BUNDLE=mesh`, and the requests on `orders-plain`, a twin of `orders` the processor is not attached to, from `kind/orders-plain.yaml`), alternated at `EDGE_RATE` (500 requests a second), each switch a change to the Deployments' environment, a rollout and a discarded warm-up; first the exact list of what differs, then each run, the medians, spread and what Paztport adds. `orders-plain` exists only while this runs: it is deleted (on any exit too) and shown gone from the cluster and from Envoy's routes. Last, the route `orders` past what it sustains (`EDGE_STAGES`), with every reason other than OK that `orders` and `payment` counted, by name |
 
 `ROUNDS` (3), `DURATION` (20s), `WARMUP` (10s), `VUS` (10), `LOAD_RATE_SMALL` and `LOAD_RATE_LARGE` set the runs;
 `CEILING_STAGES_1`, `CEILING_STAGES_2` and `CEILING_STAGES_4` (each a list of rates), `SATURATION_DURATION` (60s) and
-`MEMORY_VUS` (`10 25 50 100`) set `ceiling`'s. Everything printed, each run's
+`MEMORY_VUS` (`10 25 50 100`) set `ceiling`'s; `EDGE_RATE` and `EDGE_STAGES` set `edge`'s. Everything printed, each run's
 responses other than the expected, and the Envoy configuration read go to `out/measurements/<UTC time>/`. Every
 number is indicative: one kind node on one machine runs Envoy, the processor, the backends and k6 alike, and each
 run prints the machine's CPUs and memory. The cluster is deleted at the end, unless `--keep`. `./run envoy-gateway
@@ -99,7 +100,7 @@ macOS and Linux; on Windows use WSL.
 | `envoy-gateway.sh` | `up`, `check` and `down`: the cluster, the checks, and its removal |
 | `measure.sh`, `measure/` | the measurements: `common.sh` (k6 runs, alternation, the baseline), a file for each group of suites, k6's script (`k6/edge.js`) and `summary.py` (medians, spread and error windows) |
 | `lib.sh` | what `envoy-gateway.sh` and `measure.sh` share |
-| `kind/` | the cluster (`cluster.yaml`), the Gateway as an existing cluster would have it (`gateway.yaml`), `orders` and `payment` (`backends.yaml`), their routes (`routes.yaml`), the pod the checks send requests from (`checks.yaml`), and what the measurements add (`measure.yaml`) |
+| `kind/` | the cluster (`cluster.yaml`), the Gateway as an existing cluster would have it (`gateway.yaml`), `orders` and `payment` (`backends.yaml`), their routes (`routes.yaml`), the pod the checks send requests from (`checks.yaml`), what the measurements add (`measure.yaml`), and the route the `edge` suite makes for its baseline and then deletes (`orders-plain.yaml`) |
 | `chart/` | the Helm chart: everything Paztport adds to a cluster that already runs Envoy Gateway |
 
 `material.sh` refuses to write over an existing `out/`; `--fresh` makes everything again. `PAZTPORT_POLICY_DAYS` sets

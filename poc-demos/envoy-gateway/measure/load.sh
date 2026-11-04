@@ -10,6 +10,10 @@
 #   ceiling what one, two and four processor replicas sustain on echo, against echo-plain at the same stages, written
 #           to $RUN_DIR/ceiling-sustained; then, on one replica, past what it sustains (saturation), and its memory
 #           with bodies at the limit.
+#   edge    the whole edge: orders and payment with Paztport installed (the route orders, the processor, both in
+#           enforce mode) against the same images without it (orders-plain, the starter's auto-configuration
+#           excluded), alternated at EDGE_RATE, with what differs printed; orders-plain then deleted and shown gone;
+#           then the route orders past what it sustains (EDGE_STAGES), with every reason orders and payment counted.
 # shellcheck shell=bash
 
 twin_plain() { RUN_VARS=(HOST="$PLAIN_HOST"); }
@@ -390,4 +394,240 @@ suite_ceiling() {
 # ceiling_undo: two processor replicas again, the baseline's.
 ceiling_undo() {
   processor_replicas 2 >/dev/null || echo "error: could not put the processor back to two replicas" >&2
+}
+
+# --- edge: the whole edge, with Paztport installed and without ---
+#
+# Without Paztport is the application as it would run had Paztport never been installed: the starter's
+# auto-configuration excluded on orders and payment (Spring Boot's SPRING_AUTOCONFIGURE_EXCLUDE, payment's own
+# exclusion kept beside it), orders given Spring Boot's own mutual TLS client for its call to payment
+# (SPRING_HTTP_CLIENTS_SSL_BUNDLE=mesh, the bundle the starter's client presents), and the requests sent on
+# orders-plain (kind/orders-plain.yaml), a twin of the route orders that the processor is not attached to. With
+# Paztport is the baseline: the route orders, stamped by the processor, and both backends in enforce mode with the
+# starter. Each switch is a change to the Deployments' environment and a rollout.
+
+PAZTPORT_AUTOCONFIGURATION=org.paztport.spring.PaztportAutoConfiguration
+PLAIN_ORDERS_HOST=orders-plain.example
+# Which side the backends run now: with (kind/backends.yaml's) or without.
+EDGE_SIDE=with
+
+# edge_differs: what differs between the two sides, and what does not, with what the cluster shows of it.
+edge_differs() {
+  local targets
+  targets=$(kn get envoyextensionpolicy paztport-processor -o jsonpath='{.spec.targetRefs[*].name}')
+  cat <<EOT
+  What differs, with Paztport installed (paztport) and without (plain):
+    route        paztport: orders, the processor's filter enabled (the routes of its policy: $targets)
+                 plain: orders-plain (host $PLAIN_ORDERS_HOST), no ext_proc: Envoy never calls the processor
+    orders       paztport: the starter's inbound filter verifies each request (enforce) and refuses what fails;
+                 it stamps its call to payment and checks payment's attested response; a trace line and a metric
+                 for each
+                 plain: no inbound filter, no verification, no stamp on its call, no check of the response
+    payment      paztport: the starter's inbound filter verifies each request (enforce) and attests its response;
+                 a trace line and a metric for each
+                 plain: no inbound filter, no verification, no attestation
+    the client   paztport: orders calls payment through the starter's client: the JDK's HttpClient, HTTP/1.1 only,
+    orders uses  pooled, presenting the bundle mesh, reading each response whole within its read timeout (30 s)
+                 plain: through Spring Boot's own client for the same bundle (SPRING_HTTP_CLIENTS_SSL_BUNDLE=mesh):
+                 the JDK's HttpClient through Spring's request factory, HTTP/1.1 with payment (payment's Tomcat
+                 offers no HTTP/2), the response read as the handler reads it, no read timeout set
+    Host         paztport: the Gateway Service's name; plain: $PLAIN_ORDERS_HOST
+  The same on both: the images, mutual TLS on every hop (Envoy to orders by its BackendTLSPolicy, orders to
+  payment), Envoy and its listener, the routes' retries and request buffer, replicas and resources.
+EOT
+}
+
+# edge_plain_make: applies kind/orders-plain.yaml, waits until its BackendTrafficPolicy is accepted, and shows that
+# it has orders-routes' retries and request buffer.
+edge_plain_make() {
+  local want got
+  apply_routes kind/orders-plain.yaml >/dev/null && policy_attached backendtrafficpolicy/orders-plain-routes || return 1
+  want=$(kn get backendtrafficpolicy orders-routes -o jsonpath='{.spec.retry} {.spec.requestBuffer}')
+  got=$(kn get backendtrafficpolicy orders-plain-routes -o jsonpath='{.spec.retry} {.spec.requestBuffer}')
+  if [ -z "$want" ] || [ "$want" != "$got" ]; then
+    echo "error: orders-plain-routes is not orders-routes' settings: [$got], not [$want]" >&2
+    return 1
+  fi
+  echo "  orders-plain made; its BackendTrafficPolicy has orders-routes' retries and request buffer: $got"
+}
+
+# edge_plain_remove: deletes orders-plain and its BackendTrafficPolicy, the route first.
+edge_plain_remove() {
+  kn delete httproute orders-plain --ignore-not-found >/dev/null &&
+    kn delete backendtrafficpolicy orders-plain-routes --ignore-not-found >/dev/null
+}
+
+# edge_plain_gone: the line that shows orders-plain gone: neither it nor its BackendTrafficPolicy is in the cluster,
+# and Envoy serves no virtual host for its host (waited for up to 30 s, as Envoy takes the change a moment late).
+# A request for that host now matches the route orders, and is stamped. Returns 1 on FAIL.
+edge_plain_gone() {
+  local route policy hosts="" dump
+  route=$(kn get httproute orders-plain -o name --ignore-not-found 2>&1)
+  policy=$(kn get backendtrafficpolicy orders-plain-routes -o name --ignore-not-found 2>&1)
+  envoy_admin || return 1
+  for _ in $(seq 1 30); do
+    dump=$(curl -sf "http://$ENVOY_ADMIN/config_dump?resource=dynamic_route_configs") || dump=""
+    hosts=$(printf '%s' "$dump" | python3 -c 'import json, sys
+host = sys.argv[1]
+for c in json.load(sys.stdin).get("configs", []):
+    for vh in c.get("route_config", {}).get("virtual_hosts", []):
+        if any(d.split(":")[0] == host for d in vh.get("domains", [])):
+            print(vh["name"])' "$PLAIN_ORDERS_HOST" 2>/dev/null) || hosts="(Envoy's routes could not be read)"
+    [ -n "$hosts" ] || break
+    sleep 1
+  done
+  if [ -z "$route" ] && [ -z "$policy" ] && [ -z "$hosts" ]; then
+    echo "  PASS orders-plain is gone: no HTTPRoute orders-plain, no BackendTrafficPolicy orders-plain-routes, and no" \
+      "virtual host for $PLAIN_ORDERS_HOST in Envoy's routes"
+  else
+    echo "  FAIL orders-plain is gone: expected none, got [${route:-no route}] [${policy:-no policy}]" \
+      "[Envoy's virtual hosts for $PLAIN_ORDERS_HOST: ${hosts:-none}]"
+    return 1
+  fi
+}
+
+# edge_side with|without: the backends' environment for that side, rolled out, and Envoy answering 200 on the side's
+# route; then, when the side changed, a discarded warm-up (WARMUP long) on it, since every pod is new. Sets RUN_VARS
+# for alternate: the host of the side's route.
+edge_side() {
+  local side="$1" exclude host="" code line
+  if [ "$side" = without ]; then RUN_VARS=(HOST="$PLAIN_ORDERS_HOST"); host="$PLAIN_ORDERS_HOST"; else RUN_VARS=(); fi
+  [ "$side" != "$EDGE_SIDE" ] || return 0
+  exclude=$(backends_env file | sed -n 's/^payment SPRING_AUTOCONFIGURE_EXCLUDE=//p')
+  if [ "$side" = without ]; then
+    kn set env deployment/orders SPRING_AUTOCONFIGURE_EXCLUDE="$PAZTPORT_AUTOCONFIGURATION" \
+      SPRING_HTTP_CLIENTS_SSL_BUNDLE=mesh >/dev/null &&
+      kn set env deployment/payment SPRING_AUTOCONFIGURE_EXCLUDE="${exclude:+$exclude,}$PAZTPORT_AUTOCONFIGURATION" \
+        >/dev/null || return 1
+  else
+    edge_env_back || return 1
+  fi
+  EDGE_SIDE="$side"
+  kn rollout status deployment/orders --timeout=300s >/dev/null &&
+    kn rollout status deployment/payment --timeout=300s >/dev/null || {
+    echo "error: orders and payment did not roll out $side Paztport" >&2
+    return 1
+  }
+  for _ in $(seq 1 60); do
+    code=$(kn exec checks -- curl -s -o /dev/null -w '%{http_code}' -X POST ${host:+-H "host: $host"} \
+      -H 'content-type: application/json' -d '{}' "$EDGE/orders" 2>/dev/null)
+    [ "$code" = 200 ] && break
+    sleep 1
+  done
+  [ "$code" = 200 ] || { echo "error: $side Paztport, the edge answers $code, not 200" >&2; return 1; }
+  line=$(k6_run "edge-switch-$side-$(date +%s)" TARGET="$EDGE/orders" ${host:+HOST="$host"} BODY=small \
+    EXECUTOR=rate RATE="$EDGE_RATE" PREALLOC="$CEILING_PREALLOC" DURATION="$WARMUP") || return 1
+  printf '  rolled   %-8s %s (discarded)\n' "$([ "$side" = with ] && echo paztport || echo plain)" "$line"
+}
+edge_plain() { edge_side without; }
+edge_paztport() { edge_side with; }
+
+# edge_env_back: orders and payment back to kind/backends.yaml's environment: the variables the suite added removed,
+# payment's own exclusion put back, and the result checked.
+edge_env_back() {
+  kn set env deployment/orders SPRING_AUTOCONFIGURE_EXCLUDE- SPRING_HTTP_CLIENTS_SSL_BUNDLE- >/dev/null &&
+    k apply -f kind/backends.yaml >/dev/null && backends_env_matches
+}
+
+# edge_undo: orders-plain deleted and the backends as their file has them, rolled out.
+edge_undo() {
+  edge_plain_remove || echo "error: could not delete orders-plain" >&2
+  if [ "$EDGE_SIDE" != with ] || ! backends_env_matches 2>/dev/null; then
+    edge_env_back && kn rollout status deployment/orders --timeout=300s >/dev/null &&
+      kn rollout status deployment/payment --timeout=300s >/dev/null ||
+      echo "error: could not put orders and payment back as kind/backends.yaml has them" >&2
+    EDGE_SIDE=with
+  fi
+}
+
+# backend_reasons: what orders and payment counted, added up over their pods, read from /actuator/prometheus with
+# the operator's certificate: each request they decided, by mode, outcome and reason, and each response orders
+# checked, by reason; "<app> <series> <count>" a line.
+backend_reasons() {
+  local app ip text
+  for app in orders payment; do
+    for ip in $(kn get pods -l "app=$app" --field-selector=status.phase=Running \
+      -o jsonpath='{.items[*].status.podIP}'); do
+      text=$(kn exec checks -- curl -sf --max-time 10 --cacert /tls/ca.crt --cert /tls/operator.crt \
+        --key /tls/operator.key --resolve "$app:8080:$ip" "https://$app:8080/actuator/prometheus" 2>/dev/null) || {
+        echo "error: $app at $ip did not answer /actuator/prometheus" >&2
+        return 1
+      }
+      printf '%s\n' "$text" | grep -E '^paztport_(request|response)_seconds_count\{' | sed "s/^/$app /"
+    done
+  done | awk '{ n[$1 " " $2] += $3 } END { for (k in n) printf "%s %d\n", k, n[k] }' | LC_ALL=C sort
+}
+
+# reasons_added <before> <after>: what backend_reasons counted between two readings, each series that grew, and
+# then every reason but OK by name, or that there was none.
+reasons_added() {
+  python3 -c 'import re, sys
+def read(text):
+    out = {}
+    for line in text.splitlines():
+        if line.strip():
+            app, series, n = line.split()
+            out[(app, series)] = int(n)
+    return out
+before, after = read(sys.argv[1]), read(sys.argv[2])
+bad = []
+for (app, series), n in sorted(after.items()):
+    added = n - before.get((app, series), 0)
+    if not added:
+        continue
+    labels = dict(re.findall(r"(\w+)=\"([^\"]*)\"", series))
+    name = "request" if series.startswith("paztport_request") else "response checked"
+    shown = " ".join("%s=%s" % (k, labels[k]) for k in ("mode", "outcome", "reason") if k in labels)
+    print("    %-8s %-16s %-40s +%d" % (app, name, shown, added))
+    if labels.get("reason", "OK") != "OK":
+        bad.append("%s %s %s (+%d)" % (app, name, labels["reason"], added))
+print("  reasons other than OK: " + ("; ".join(bad) if bad else "none"))' "$1" "$2"
+}
+
+# edge_compare: what differs, orders-plain made, then the two sides alternated at EDGE_RATE, each switch a
+# rollout and a discarded warm-up; each run, the medians and spread, what Paztport adds, and whether k6 kept to
+# the rate.
+edge_compare() {
+  echo "-- the whole edge: $EDGE_RATE requests a second offered to each side (from up to $CEILING_PREALLOC k6 users)," \
+    "small body, DURATION=$DURATION a run, WARMUP=$WARMUP, ROUNDS=$ROUNDS; each switch a rollout and a discarded" \
+    "warm-up"
+  edge_differs
+  edge_plain_make || return 1
+  edge_side without || return 1
+  echo "  the environment that differs, as the cluster runs it without Paztport (with it, kind/backends.yaml's):"
+  diff <(backends_env file) <(backends_env) | sed -n 's/^</    with:    /p; s/^>/    without: /p'
+  alternate edge plain edge_plain paztport edge_paztport TARGET="$EDGE/orders" BODY=small EXECUTOR=rate \
+    RATE="$EDGE_RATE" PREALLOC="$CEILING_PREALLOC" DURATION="$DURATION" || return 1
+  python3 "$here/measure/summary.py" rate "$RUN_DIR/edge.runs" "$EDGE_RATE"
+}
+
+# edge_ramp: with Paztport (the route orders, both backends in enforce), stages past what it sustains, and what
+# orders and payment counted meanwhile, every reason but OK by name: a stamp that waited longer than orders'
+# maxAgeMs shows here as its own reason.
+edge_ramp() {
+  local before after
+  edge_side with || return 1
+  echo "-- the route orders with Paztport: stages of DURATION=$DURATION at $(echo $EDGE_STAGES | sed 's/ /, /g')" \
+    "requests a second (WARMUP=$WARMUP first, from up to $CEILING_PREALLOC k6 users)"
+  before=$(backend_reasons) || return 1
+  # shellcheck disable=SC2086 # the stages split on space
+  ceiling_ramp orders "" 2 $EDGE_STAGES || return 1
+  after=$(backend_reasons) || return 1
+  echo "  what orders and payment counted during the ramp (its warm-up included):"
+  reasons_added "$before" "$after"
+}
+
+suite_edge() {
+  local status
+  echo "== edge: the whole edge, orders and payment with Paztport installed and without"
+  baseline_reset
+  EDGE_SIDE=with
+  UNDO="edge_undo"
+  edge_compare
+  status=$?
+  edge_plain_remove || status=1
+  edge_plain_gone || status=1
+  [ "$status" -ne 0 ] || edge_ramp || status=1
+  undo
+  return "$status"
 }

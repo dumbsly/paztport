@@ -376,8 +376,9 @@ material_matches() {
 # baseline_reset: puts the cluster back as every suite starts from it, and prints that state. Any HTTPRoute but
 # orders, orders-unmapped, echo and echo-plain is taken off the Gateway first, then the chart is the measurements'
 # (two replicas, the autoscaler off), echo and its twin routes and the backends are as their files have them (enforce
-# mode), no processor pod has a netem queue (cleared first of all, since a delayed pod may not be ready, and every
-# wait would then time out), and everything is ready. A step that fails stops the whole run, and so
+# mode, and no environment variable the file does not set: the run stops on one), no processor pod has a netem
+# queue (cleared first of all, since a delayed pod may not be ready, and every wait would then time out), and
+# everything is ready. A step that fails stops the whole run, and so
 # does material in any pod that is not out/'s: a suite that broke must not leave the next one measuring something
 # else. Nothing is rolled when nothing changed.
 baseline_reset() {
@@ -394,6 +395,10 @@ baseline_reset() {
   quietly "resetting echo and the twin routes" apply_routes kind/measure.yaml
   quietly "resetting the backends" k apply -f kind/backends.yaml
   quietly "waiting for the baseline" wait_measure
+  backends_env_matches || {
+    echo "error: the backends do not run as kind/backends.yaml has them; stopping" >&2
+    exit 1
+  }
   material_matches || { echo "error: the cluster's material is not out/'s; stopping" >&2; exit 1; }
   modes=$(kn get deployment orders payment \
     -o jsonpath='{range .items[*]}{.metadata.name}={.spec.template.spec.containers[0].env[?(@.name=="PAZTPORT_MODE")].value} {end}')
@@ -530,4 +535,40 @@ envoy_extproc_stats() {
       $1 ~ /\.upstream_rq_(active_overflow|pending_overflow|timeout)$/ {
       sub(/^.*\.upstream_rq_/, "cluster_rq_", $1); s[$1] += $2 }
     END { for (k in s) printf "%s=%d ", k, s[k] }' | tr ' ' '\n' | LC_ALL=C sort | paste -sd ' ' -
+}
+
+# backends_env [file]: the environment of orders' and payment's containers, "<deployment> <name>=<value>" a line in
+# their order: as the cluster runs them, or with file, as kind/backends.yaml sets them.
+backends_env() {
+  local json
+  if [ "${1:-}" = file ]; then
+    json=$(k create --dry-run=client -o json -f kind/backends.yaml) || return 1
+  else
+    json=$(kn get deployment orders payment -o json) || return 1
+  fi
+  python3 -c 'import json, sys
+text, docs, at = sys.stdin.read(), [], 0
+decoder = json.JSONDecoder()
+while text[at:].strip():
+    while text[at].isspace():
+        at += 1
+    doc, at = decoder.raw_decode(text, at)
+    docs += doc.get("items", [doc]) if doc.get("kind") == "List" else [doc]
+for d in docs:
+    if d.get("kind") == "Deployment" and d["metadata"]["name"] in ("orders", "payment"):
+        for e in d["spec"]["template"]["spec"]["containers"][0].get("env", []):
+            print("%s %s=%s" % (d["metadata"]["name"], e["name"], e.get("value", "")))' <<<"$json"
+}
+
+# backends_env_matches: whether orders and payment run exactly kind/backends.yaml's environment; prints what
+# differs when they do not. kubectl apply puts back a variable the file sets, but leaves one it does not set (a
+# Spring setting a suite added with kubectl set env, say), so this is checked, not assumed.
+backends_env_matches() {
+  local want got
+  want=$(backends_env file) && got=$(backends_env) || return 1
+  [ "$want" = "$got" ] && return 0
+  echo "error: orders' and payment's environment is not kind/backends.yaml's:" >&2
+  diff <(printf '%s\n' "$want") <(printf '%s\n' "$got") |
+    sed -n 's/^</  the file has:    /p; s/^>/  the cluster has: /p' >&2
+  return 1
 }

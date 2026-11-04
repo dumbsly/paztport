@@ -1,0 +1,39 @@
+# Copyright 2026 The Paztport Authors
+# SPDX-License-Identifier: Apache-2.0
+#
+# The whole edge's baseline: a twin of the route orders that the processor is not attached to, for the host
+# orders-plain.example, with a BackendTrafficPolicy of orders-routes' settings (kind/routes.yaml): the same confined
+# retries, and the edge's body limit as the request buffer's limit, which measure.sh writes over @BODY_LIMIT@.
+#
+# It is a route to orders without the processor, so it exists only while the edge suite measures orders and payment
+# without Paztport installed (measure/load.sh): the suite makes it, deletes it in a trap on any exit, and shows that
+# it is gone. Nothing else applies it.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: orders-plain
+  namespace: paztport
+spec:
+  parentRefs:
+    - name: edge
+  hostnames: [orders-plain.example]
+  rules:
+    - matches:
+        - path: {type: PathPrefix, value: /orders}
+      backendRefs:
+        - {name: orders, port: 8080}
+---
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: BackendTrafficPolicy
+metadata:
+  name: orders-plain-routes
+  namespace: paztport
+spec:
+  targetRefs:
+    - {group: gateway.networking.k8s.io, kind: HTTPRoute, name: orders-plain}
+  retry:
+    numRetries: 2
+    retryOn:
+      triggers: [connect-failure, refused-stream]
+  requestBuffer:
+    limit: "@BODY_LIMIT@"
