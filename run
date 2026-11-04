@@ -17,7 +17,8 @@ Usage: ./run <command> [options]
   agents-mcp   Install the TypeScript SDK and the agents demo, set up demo keys, and start the demo page.
   test         The name and link checks, the Java SDK and Java demo suites, a check of what the built jars
                carry, the TypeScript type checks and the TypeScript SDK and demo suites, then gofmt, go vet
-               and the Go SDK's suite. No Docker and no model.
+               and the Go SDK's suite, and gofmt, go vet, staticcheck and the race-checked suite of the
+               Envoy Gateway processor. No Docker and no model.
   bench        Build the Java SDK's benchmarks and time the primitives a verifying hop pays for (JMH, a few
                minutes), on the JDK Maven uses. Options after it go to JMH, e.g. ./run bench -f 3; JMH's own
                help is ./run bench -h. Not part of test.
@@ -68,6 +69,14 @@ need_go() {
   command -v go >/dev/null 2>&1 || missing go "$want" "https://go.dev/dl or your package manager"
   found="$(go version 2>/dev/null | sed -n 's/^go version go\([0-9.]*\).*/\1/p' || true)"
   [ -n "$found" ] && at_least "$found" "$want" || missing go "$want" "https://go.dev/dl or your package manager"
+}
+
+need_staticcheck() {
+  # 2026.2 is the first release for Go 1.27, and 2026.2.2 the first to read the export data of Go 1.27.2 and later.
+  local found
+  command -v staticcheck >/dev/null 2>&1 || missing staticcheck 2026.2.2 "https://staticcheck.dev/docs/getting-started/ or your package manager"
+  found="$(tool_version staticcheck staticcheck -version)"
+  [ -n "$found" ] && at_least "$found" 2026.2.2 || missing staticcheck 2026.2.2 "https://staticcheck.dev/docs/getting-started/ or your package manager"
 }
 
 need_docker() {
@@ -135,6 +144,17 @@ test_go() (
   go test -count=1 ./...
 )
 
+# The Envoy Gateway processor's checks: formatting, vet, staticcheck, then its tests under the race detector.
+test_processor() (
+  cd poc-demos/envoy-gateway/processor
+  local unformatted
+  unformatted="$(gofmt -l .)"
+  [ -z "$unformatted" ] || { printf 'gofmt would change:\n%s\n' "$unformatted"; exit 1; }
+  go vet ./...
+  staticcheck ./...
+  go test -count=1 -race ./...
+)
+
 cmd_java_mesh() {
   need_java
   need_docker
@@ -180,6 +200,7 @@ cmd_bench() {
 cmd_test() {
   need_unzip
   need_go
+  need_staticcheck
   need_java
   need_node
   [ -x "$maven_java" ] || missing java 25 "https://adoptium.net or your package manager (mvn -v must report the JDK's runtime)"
@@ -201,6 +222,7 @@ cmd_test() {
   (cd poc-sdks/typescript && PAZTPORT_JAVA_KEYRING="$test_keys/keyring.json" npm test)
   (cd poc-demos/agents-mcp && npm test)
   PAZTPORT_JAVA_KEYRING="$test_keys/keyring.json" test_go
+  test_processor
   echo "all suites passed"
 }
 

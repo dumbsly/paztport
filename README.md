@@ -535,11 +535,12 @@ These are design directions, not implementations.
 
 **Prerequisites:** JDK 25 or newer and Maven for the Java side, Docker with Compose
 for the mesh demo, Node 22.19 or newer with npm for the TypeScript side, Go 1.27 or
-newer for the Go SDK, and unzip for `./run test`'s jar check. macOS and Linux; on
-Windows use WSL.
+newer for the Go SDK, staticcheck 2026.2.2 or newer for `./run test`'s checks of the
+Envoy Gateway processor, and unzip for its jar check. macOS and Linux; on Windows use
+WSL.
 
 ```bash
-./run test        # the name and link checks, the TypeScript type checks, gofmt and go vet, every suite and a check of the built jars; no Docker and no model
+./run test        # the name and link checks, the TypeScript type checks, gofmt, go vet and staticcheck, every suite and a check of the built jars; no Docker and no model
 ./run java-mesh   # build the Java SDK and the mesh demo, then run every scenario
 ./run agents-mcp  # install the TypeScript SDK and the agents demo, set up demo keys, start the demo page
 ./run bench       # time the primitives a verifying hop pays for (JMH, a few minutes); not part of test

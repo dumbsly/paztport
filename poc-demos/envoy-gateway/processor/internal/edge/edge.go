@@ -1,0 +1,442 @@
+// Copyright 2026 The Paztport Authors
+// SPDX-License-Identifier: Apache-2.0
+
+package edge
+
+import (
+	"errors"
+	"io"
+	"os"
+	"strings"
+	"time"
+	"unicode"
+
+	corev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
+	extprocfilterv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/ext_proc/v3"
+	extprocv3 "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
+	typev3 "github.com/envoyproxy/go-control-plane/envoy/type/v3"
+
+	"github.com/dumbsly/paztport/poc-sdks/go/paztporthttp"
+	"github.com/dumbsly/paztport/poc-sdks/go/paztporthttp/wire"
+	"github.com/dumbsly/paztport/poc-sdks/go/stamp"
+
+	"github.com/dumbsly/paztport/poc-demos/envoy-gateway/processor/internal/material"
+	"github.com/dumbsly/paztport/poc-demos/envoy-gateway/processor/internal/routes"
+)
+
+// InstEnv is the environment variable the edge's instance is read from: the pod's name, which Kubernetes
+// sets from the downward API.
+const InstEnv = "POD_NAME"
+
+// Outcome is what became of one request. Its text is the label metrics count requests by.
+type Outcome string
+
+// The outcomes of a request.
+const (
+	// Stamped is a request the edge stamped and let go on.
+	Stamped Outcome = "stamped"
+	// RefusedRoute is a request whose route the edge could not name, or does not stamp for.
+	RefusedRoute Outcome = "refused_route"
+	// RefusedMaterial is a request refused because the edge's policy material has expired.
+	RefusedMaterial Outcome = "refused_material"
+	// RefusedBody is a request whose body the edge could not stamp whole: over the limit, never ending,
+	// or ending in trailers.
+	RefusedBody Outcome = "refused_body"
+	// RefusedError is a request refused for anything else: a stream that is not one buffered request, no
+	// single :method or :path, or a request the SDK would not stamp.
+	RefusedError Outcome = "refused_error"
+)
+
+// Observation is what the edge reports of one request, once it is decided.
+type Observation struct {
+	// Outcome is what became of the request.
+	Outcome Outcome
+	// StampDuration is how long stamping took, or 0 for a request not stamped.
+	StampDuration time.Duration
+	// BodyBytes is the size of the body received, whole or as far as it was read.
+	BodyBytes int
+}
+
+// Config is what a [Processor] is built from.
+type Config struct {
+	// Material is the edge's policy material, loaded and checked. It is required.
+	Material *material.Set
+	// Inst is the instance the edge's stamps name, such as [InstFromEnv] gives. It is required.
+	Inst string
+	// MaxBody is the most bytes of body the edge stamps; a longer one is refused. It is required.
+	MaxBody int
+	// Observe is told of each request once it is decided, or nil to tell nothing. It must be safe for
+	// concurrent use: each stream calls it from its own goroutine.
+	Observe func(Observation)
+	// Now is the edge's clock, or nil for time.Now. It is what each stamp's time and the material's
+	// readiness are judged by.
+	Now func() time.Time
+	// NewRID returns each request's rid, or nil for [NewRID].
+	NewRID func() string
+}
+
+// Processor is the edge's external processor: Envoy's ext_proc filter streams each request to it, and it
+// stamps the request as the origin service edge, for the receiver its HTTPRoute maps to, or refuses it.
+// It is safe for concurrent use, one stream per request.
+type Processor struct {
+	set     *material.Set
+	caller  *paztporthttp.Caller
+	maxBody int
+	now     func() time.Time
+	observe func(Observation)
+}
+
+// New returns a processor over cfg. It refuses a config with no material, a blank instance or a body
+// limit below one byte.
+func New(cfg Config) (*Processor, error) {
+	switch {
+	case cfg.Material == nil:
+		return nil, errors.New("edge: no policy material")
+	case strings.TrimFunc(cfg.Inst, unicode.IsSpace) == "":
+		return nil, errors.New("edge: the instance is blank")
+	case cfg.MaxBody < 1:
+		return nil, errors.New("edge: the body limit is below one byte")
+	}
+	p := &Processor{set: cfg.Material, maxBody: cfg.MaxBody, now: cfg.Now, observe: cfg.Observe}
+	if p.now == nil {
+		p.now = time.Now
+	}
+	if p.observe == nil {
+		p.observe = func(Observation) {}
+	}
+	newRID := cfg.NewRID
+	if newRID == nil {
+		newRID = NewRID
+	}
+	p.caller = &paztporthttp.Caller{
+		Stamper: &stamp.Stamper{
+			Svc: material.Service, Inst: cfg.Inst, Key: cfg.Material.Key(), Origin: true,
+			NewRID: newRID, Now: func() int64 { return p.now().UnixMilli() },
+		},
+		Bundle: cfg.Material.Bundle(),
+	}
+	return p, nil
+}
+
+// InstFromEnv returns the instance named by [InstEnv], and refuses it unset or blank.
+func InstFromEnv() (string, error) {
+	inst := os.Getenv(InstEnv)
+	if strings.TrimFunc(inst, unicode.IsSpace) == "" {
+		return "", errors.New("edge: " + InstEnv + " is unset or blank")
+	}
+	return inst, nil
+}
+
+// Process serves one ext_proc stream: one request and its response.
+//
+// The filter must send the request headers, with the attribute xds.route_metadata, and buffer the request
+// body (processing mode request body Buffered), which Envoy reports in the first message's protocol
+// configuration. Then Envoy holds the request headers until the body is answered, and sends the body
+// whole, in one message, once it has all of it. The one exception is a request that ends in trailers with
+// no body: Envoy lets it on when the trailers arrive, without asking.
+//
+// At the request headers, Process names the receiver from the route metadata alone (see
+// [routes.FromAttributes]) and refuses a route its routes do not map. When the headers end the stream it
+// stamps there. Otherwise it answers them with no stamp, only removing every Paztport header the client
+// sent, so that a request Envoy lets on unanswered carries none and its receiver refuses it as unstamped;
+// then it waits for the message that ends the stream, answers no body message before that one, and stamps
+// over the whole body. The stamp's answer removes every Paztport header the request carries but the ones
+// it sets, and sets each of those, replacing every value.
+//
+// Process refuses, with Envoy's immediate response, its own status and a plain-text body, and never a
+// Paztport refusal: 403 for a route it does not stamp for, 413 for a body over the limit, and 500 for
+// anything else: route metadata it cannot read, material that has expired, a request that ends in
+// trailers, a stream that is not one buffered request, or a request the SDK would not stamp. It never
+// lets a request go on without the stamp. A body that never ends is never answered, so Envoy's message
+// timeout refuses it.
+//
+// At the response headers and trailers, it removes every Paztport header; it passes the response body as
+// it is.
+func (p *Processor) Process(stream extprocv3.ExternalProcessor_ProcessServer) error {
+	r := &request{p: p}
+	for {
+		msg, err := stream.Recv()
+		if err != nil {
+			r.ended()
+			if errors.Is(err, io.EOF) {
+				return nil
+			}
+			return err
+		}
+		resp, done := r.handle(msg)
+		if resp != nil {
+			if err := stream.Send(resp); err != nil {
+				return err
+			}
+		}
+		if done {
+			return nil
+		}
+	}
+}
+
+// phase is where a request's stream has reached.
+type phase int
+
+const (
+	awaitingHeaders phase = iota // nothing received yet
+	awaitingBody                 // headers answered; waiting for the message that ends the stream
+	passed                       // stamped and let go on; the response may follow
+)
+
+// request is one stream's state.
+type request struct {
+	p        *Processor
+	phase    phase
+	decided  bool
+	method   string
+	target   string
+	receiver string
+	paztport []string // the Paztport header names the client sent, in lower case, each once
+	body     []byte
+}
+
+// handle answers one message, and reports whether the stream is over for the processor.
+func (r *request) handle(msg *extprocv3.ProcessingRequest) (*extprocv3.ProcessingResponse, bool) {
+	switch m := msg.GetRequest().(type) {
+	case *extprocv3.ProcessingRequest_RequestHeaders:
+		if r.phase != awaitingHeaders {
+			return r.refuse(RefusedError, refusedOther)
+		}
+		return r.requestHeaders(msg, m.RequestHeaders)
+	case *extprocv3.ProcessingRequest_RequestBody:
+		if r.phase != awaitingBody {
+			return r.refuse(RefusedError, refusedOther)
+		}
+		return r.requestBody(m.RequestBody)
+	case *extprocv3.ProcessingRequest_RequestTrailers:
+		if r.phase != awaitingBody {
+			return r.refuse(RefusedError, refusedOther)
+		}
+		// The answer to trailers can no longer set the request's headers.
+		return r.refuse(RefusedBody, refusedOther)
+	case *extprocv3.ProcessingRequest_ResponseHeaders:
+		if r.phase != passed {
+			return r.refuse(RefusedError, refusedOther)
+		}
+		return &extprocv3.ProcessingResponse{Response: &extprocv3.ProcessingResponse_ResponseHeaders{
+			ResponseHeaders: &extprocv3.HeadersResponse{Response: &extprocv3.CommonResponse{
+				HeaderMutation: removeOnly(paztportNames(m.ResponseHeaders.GetHeaders())),
+			}},
+		}}, false
+	case *extprocv3.ProcessingRequest_ResponseBody:
+		if r.phase != passed {
+			return r.refuse(RefusedError, refusedOther)
+		}
+		return &extprocv3.ProcessingResponse{Response: &extprocv3.ProcessingResponse_ResponseBody{
+			ResponseBody: &extprocv3.BodyResponse{},
+		}}, false
+	case *extprocv3.ProcessingRequest_ResponseTrailers:
+		if r.phase != passed {
+			return r.refuse(RefusedError, refusedOther)
+		}
+		return &extprocv3.ProcessingResponse{Response: &extprocv3.ProcessingResponse_ResponseTrailers{
+			ResponseTrailers: &extprocv3.TrailersResponse{
+				HeaderMutation: removeOnly(paztportNames(m.ResponseTrailers.GetTrailers())),
+			},
+		}}, false
+	default:
+		return r.refuse(RefusedError, refusedOther)
+	}
+}
+
+// requestHeaders answers the request's headers: it refuses the request, stamps it when the headers end
+// the stream, or else strips the client's Paztport headers and waits for the body.
+func (r *request) requestHeaders(
+	msg *extprocv3.ProcessingRequest, h *extprocv3.HttpHeaders,
+) (*extprocv3.ProcessingResponse, bool) {
+	// Only a buffered body holds the headers until the body is answered: under any other mode they would
+	// go on unstamped once answered here.
+	if msg.GetProtocolConfig().GetRequestBodyMode() != extprocfilterv3.ProcessingMode_BUFFERED {
+		return r.refuse(RefusedError, refusedOther)
+	}
+	ns, name, err := routes.FromAttributes(msg.GetAttributes())
+	if err != nil {
+		return r.refuse(RefusedRoute, refusedOther)
+	}
+	rcv, ok := r.p.set.Routes().Receiver(ns, name)
+	if !ok {
+		return r.refuse(RefusedRoute, refusedRoute)
+	}
+	method, target, ok := methodAndTarget(h.GetHeaders())
+	if !ok {
+		return r.refuse(RefusedError, refusedOther)
+	}
+	r.method, r.target, r.receiver = method, target, rcv
+	r.paztport = paztportNames(h.GetHeaders())
+	if h.GetEndOfStream() {
+		return r.stamp(func(m *extprocv3.HeaderMutation) *extprocv3.ProcessingResponse {
+			return &extprocv3.ProcessingResponse{Response: &extprocv3.ProcessingResponse_RequestHeaders{
+				RequestHeaders: &extprocv3.HeadersResponse{Response: &extprocv3.CommonResponse{HeaderMutation: m}},
+			}}
+		})
+	}
+	// No stamp yet; but the client's Paztport headers go now, so that if Envoy ever lets these headers
+	// on without the body's answer, as it does for a request that ends in trailers with no body, they
+	// carry no Paztport header at all.
+	r.phase = awaitingBody
+	return &extprocv3.ProcessingResponse{Response: &extprocv3.ProcessingResponse_RequestHeaders{
+		RequestHeaders: &extprocv3.HeadersResponse{Response: &extprocv3.CommonResponse{
+			HeaderMutation: removeOnly(r.paztport),
+		}},
+	}}, false
+}
+
+// requestBody takes one body message: it refuses a body over the limit, stamps at the message that ends
+// the stream, and answers no other.
+func (r *request) requestBody(b *extprocv3.HttpBody) (*extprocv3.ProcessingResponse, bool) {
+	if len(r.body)+len(b.GetBody()) > r.p.maxBody {
+		r.body = append(r.body, b.GetBody()...)
+		return r.refuse(RefusedBody, refusedLarge)
+	}
+	r.body = append(r.body, b.GetBody()...)
+	if !b.GetEndOfStream() {
+		return nil, false
+	}
+	return r.stamp(func(m *extprocv3.HeaderMutation) *extprocv3.ProcessingResponse {
+		return &extprocv3.ProcessingResponse{Response: &extprocv3.ProcessingResponse_RequestBody{
+			RequestBody: &extprocv3.BodyResponse{Response: &extprocv3.CommonResponse{HeaderMutation: m}},
+		}}
+	})
+}
+
+// stamp stamps the whole request and answers with answer's response, carrying the stamp's header
+// mutation, or refuses it.
+func (r *request) stamp(
+	answer func(*extprocv3.HeaderMutation) *extprocv3.ProcessingResponse,
+) (*extprocv3.ProcessingResponse, bool) {
+	if r.p.set.Ready(r.p.now().UnixMilli()) != nil {
+		return r.refuse(RefusedMaterial, refusedOther)
+	}
+	start := time.Now()
+	out, err := r.p.caller.Stamp(r.method, r.target, r.receiver, r.body, nil, nil)
+	took := time.Since(start)
+	if err != nil {
+		return r.refuse(RefusedError, refusedOther)
+	}
+	m := &extprocv3.HeaderMutation{}
+	set := make(map[string]bool, len(out.Headers))
+	for _, h := range out.Headers {
+		name := lowerASCII(h.Name)
+		set[name] = true
+		m.SetHeaders = append(m.SetHeaders, &corev3.HeaderValueOption{
+			Header:       &corev3.HeaderValue{Key: name, RawValue: []byte(h.Value)},
+			AppendAction: corev3.HeaderValueOption_OVERWRITE_IF_EXISTS_OR_ADD,
+		})
+	}
+	for _, name := range r.paztport {
+		if !set[name] {
+			m.RemoveHeaders = append(m.RemoveHeaders, name)
+		}
+	}
+	r.phase = passed
+	r.decide(Observation{Outcome: Stamped, StampDuration: took, BodyBytes: len(r.body)})
+	return answer(m), false
+}
+
+// The processor's own refusals: a status, and a plain-text body that names nothing of Paztport's.
+var (
+	refusedRoute = refusal{typev3.StatusCode_Forbidden, "The edge does not serve this route.\n"}
+	refusedLarge = refusal{typev3.StatusCode_PayloadTooLarge, "The request body is too large.\n"}
+	refusedOther = refusal{typev3.StatusCode_InternalServerError, "The edge could not stamp this request.\n"}
+)
+
+// refusal is one of the processor's own refusals.
+type refusal struct {
+	code typev3.StatusCode
+	text string
+}
+
+// refuse decides the request refused for outcome, if it is not yet decided, and answers with the
+// refusal with; the stream is then over for the processor.
+func (r *request) refuse(outcome Outcome, with refusal) (*extprocv3.ProcessingResponse, bool) {
+	r.decide(Observation{Outcome: outcome, BodyBytes: len(r.body)})
+	return &extprocv3.ProcessingResponse{Response: &extprocv3.ProcessingResponse_ImmediateResponse{
+		ImmediateResponse: &extprocv3.ImmediateResponse{
+			Status: &typev3.HttpStatus{Code: with.code},
+			Headers: &extprocv3.HeaderMutation{SetHeaders: []*corev3.HeaderValueOption{{
+				Header:       &corev3.HeaderValue{Key: "content-type", RawValue: []byte("text/plain; charset=utf-8")},
+				AppendAction: corev3.HeaderValueOption_OVERWRITE_IF_EXISTS_OR_ADD,
+			}}},
+			Body:    []byte(with.text),
+			Details: "paztport_edge_" + string(outcome),
+		},
+	}}, true
+}
+
+// ended decides a request whose stream ended before it was decided: one whose body never ended. A stream
+// that ended before any message carried no request.
+func (r *request) ended() {
+	if r.phase == awaitingBody {
+		r.decide(Observation{Outcome: RefusedBody, BodyBytes: len(r.body)})
+	}
+}
+
+// decide reports the request's observation, the first time only.
+func (r *request) decide(o Observation) {
+	if !r.decided {
+		r.decided = true
+		r.p.observe(o)
+	}
+}
+
+// methodAndTarget returns the request's :method and :path, each of which must appear once, not empty.
+// Envoy sends each header's value in raw_value, and that alone is read.
+func methodAndTarget(hs *corev3.HeaderMap) (method, target string, ok bool) {
+	var methods, paths []string
+	for _, h := range hs.GetHeaders() {
+		switch h.GetKey() {
+		case ":method":
+			methods = append(methods, string(h.GetRawValue()))
+		case ":path":
+			paths = append(paths, string(h.GetRawValue()))
+		}
+	}
+	if len(methods) != 1 || len(paths) != 1 || methods[0] == "" || paths[0] == "" {
+		return "", "", false
+	}
+	return methods[0], paths[0], true
+}
+
+// paztportNames returns the names in hs that [wire.IsPaztport] names, in lower case, each once, in the
+// order they first appear.
+func paztportNames(hs *corev3.HeaderMap) []string {
+	var names []string
+	seen := make(map[string]bool)
+	for _, h := range hs.GetHeaders() {
+		if !wire.IsPaztport(h.GetKey()) {
+			continue
+		}
+		name := lowerASCII(h.GetKey())
+		if !seen[name] {
+			seen[name] = true
+			names = append(names, name)
+		}
+	}
+	return names
+}
+
+// removeOnly returns a mutation that removes names, every value of each, or nil when there are none.
+func removeOnly(names []string) *extprocv3.HeaderMutation {
+	if len(names) == 0 {
+		return nil
+	}
+	return &extprocv3.HeaderMutation{RemoveHeaders: names}
+}
+
+// lowerASCII returns s with its ASCII letters A to Z in lower case, and every other byte as it is, as
+// Envoy lower-cases a header name.
+func lowerASCII(s string) string {
+	b := []byte(s)
+	for i, c := range b {
+		if 'A' <= c && c <= 'Z' {
+			b[i] = c + ('a' - 'A')
+		}
+	}
+	return string(b)
+}

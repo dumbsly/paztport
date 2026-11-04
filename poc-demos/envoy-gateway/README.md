@@ -5,8 +5,8 @@ cluster. A Go `ext_proc` processor stamps each request as the origin service `ed
 [java-mesh](../java-mesh/README.md) services `orders` and `payment` verify it. The idea and the concepts are in the
 [root README](../../README.md).
 
-This is work in progress: the processor, the cluster scaffold and the checks arrive in later commits, and there are
-no results here yet.
+This is work in progress: the processor's core is here, and its server, the cluster scaffold and the checks arrive in
+later commits; there are no results here yet.
 
 ## Prerequisites
 
@@ -30,6 +30,7 @@ macOS and Linux; on Windows use WSL.
 | `paths.yaml` | the routes the policy allows: `edge → orders` and `edge → orders → payment` |
 | `material.sh` | makes the keys and the signed policy into `out/`, standing in for CI |
 | `out/` | what `material.sh` wrote; holds private keys and is not committed |
+| `processor/` | the Go `ext_proc` processor: `internal/routes` names each request's receiver from its HTTPRoute, `internal/material` loads and checks the edge's keys and policy, `internal/edge` stamps each request or refuses it |
 
 `material.sh` refuses to write over an existing `out/`; `--fresh` makes everything again. `PAZTPORT_POLICY_DAYS` sets
 how long the keyring and the policy root last (default 7 days).

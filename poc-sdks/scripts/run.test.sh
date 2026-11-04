@@ -35,14 +35,15 @@ basic_tools() {
   echo "$bin"
 }
 
-# missing_stops_early [-with <tool>] <tool> <arguments> [mvn -v text]: with only the basic tools on PATH, the
-# tool after -with too, and an mvn that prints the given text if one is given, ./run with <arguments> (split on
-# spaces) prints one 'missing: <tool>' line and exits 1.
+# missing_stops_early [-with <tools>] <tool> <arguments> [mvn -v text]: with only the basic tools on PATH, the
+# tools after -with too (split on spaces), and an mvn that prints the given text if one is given, ./run with
+# <arguments> (split on spaces) prints one 'missing: <tool>' line and exits 1.
 missing_stops_early() {
-  local bin out status args with=""
-  if [ "$1" = -with ]; then with="$2"; shift 2; fi
+  local bin out status args with=()
+  if [ "$1" = -with ]; then read -ra with <<<"$2"; shift 2; fi
   read -ra args <<<"$2"
-  bin="$(basic_tools ${with:+"$with"})"
+  # The guarded expansion: an empty array under set -u is an error in bash before 4.4, which macOS ships.
+  bin="$(basic_tools ${with[@]+"${with[@]}"})"
   if [ $# -ge 3 ]; then
     printf '%s\n' "$3" >"$bin/mvn-v.txt"
     printf '#!%s\ncat "%s"\n' "$bin/bash" "$bin/mvn-v.txt" >"$bin/mvn"
@@ -128,6 +129,9 @@ check "bench -h goes to bench, which without mvn prints one 'missing: mvn' line"
 check "test without unzip prints one 'missing: unzip' line and exits 1" missing_stops_early unzip test
 # The jar check's unzip is checked first, so this case has one.
 check "test without go prints one 'missing: go' line and exits 1" missing_stops_early -with unzip go test
+# The processor's checks need staticcheck; unzip and go are checked before it, so this case has both.
+check "test without staticcheck prints one 'missing: staticcheck' line and exits 1" \
+  missing_stops_early -with "unzip go" staticcheck test
 check "bench with no java at Maven's JDK prints one 'missing: java' line and exits 1" \
   missing_stops_early java bench "Java version: 25.0.1, vendor: Test, runtime: /nonexistent"
 check "envoy-gateway -h prints usage" help_after envoy-gateway
