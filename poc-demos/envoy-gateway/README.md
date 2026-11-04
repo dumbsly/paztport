@@ -264,6 +264,6 @@ Envoy's 413 with its own 500 (11), and the request buffer taken off the routes' 
 
 - `golang.org/x/net` is at v0.61.0, which has two OSV advisories, both in `x/net/html`; the processor does not compile
   that package. Move to v0.62.0 on or after 2026-11-10, when it has been released two weeks.
-- java-mesh's services run on `eclipse-temurin:25.0.4_7-jre`, pinned by digest in `../java-mesh/Dockerfile`, which
-  predates the October 2026 Java critical patch update. Move to a 25.0.5 image once one has been pushed two weeks:
+- java-mesh's services run on `eclipse-temurin:25.0.4.1_1-jre`, pinned by digest in `../java-mesh/Dockerfile`,
+  which predates the October 2026 Java critical patch update. Move to a 25.0.5 image once one has been pushed two weeks:
   `25.0.5_8-jre` was first pushed on 2026-10-29, so on or after 2026-11-12.

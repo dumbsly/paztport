@@ -641,7 +641,7 @@ adds Spring Boot's. The libraries, the test jars of core and http, the bench jar
 the tools' unshaded module jars bundle nothing and carry just the two files.
 `./run test` checks every one of these jars.
 
-The mesh demo's images are `eclipse-temurin:25.0.4_7-jre` (pinned by digest)
+The mesh demo's images are `eclipse-temurin:25.0.4.1_1-jre` (pinned by digest)
 with one of the jars added, so an image's licences are the base image's (the
 Temurin JRE and its operating system packages) plus those its jar carries. The
 TypeScript packages bundle nothing; npm installs their dependencies as
