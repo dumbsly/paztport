@@ -447,8 +447,9 @@ class VectorsV3Test {
 
     /**
      * A member's {@code notAfter}, or {@code absent} where it gives none. It is read strictly, as the TypeScript
-     * replay's {@code isNotAfter} reads it: a value that is not an integral number fitting a long, such as 1.5, is
-     * {@link Long#MIN_VALUE}, a window no clock is within, never one truncated or rounded into range.
+     * core's {@code currentAt} reads a window that is not an integer: the window must be an integral number that
+     * fits a long, else it is never current. Such a value, 1.5 for one, is {@link Long#MIN_VALUE}, a window no clock
+     * is within, never one truncated or rounded into range.
      */
     private static long window(JsonNode member, long absent) {
         if (!member.has("notAfter")) {
