@@ -930,6 +930,49 @@ func TestPassesEnvoysLocalReplyBeforeTheStamp(t *testing.T) {
 	}
 }
 
+// TestRefusesARequestAfterEnvoysLocalReply refuses any request message after Envoy's local reply: Envoy has
+// answered the request itself, so a request message then is not a stream the processor may stamp. Each case ends
+// in the processor's refusal, with no answer before it that sets a header, and no request observed stamped.
+func TestRefusesARequestAfterEnvoysLocalReply(t *testing.T) {
+	tooLarge := []*extprocv3.ProcessingRequest{requestHeaders(false, post...), responseHeaders(header{":status", "413"})}
+	unauthorised := []*extprocv3.ProcessingRequest{responseHeaders(header{":status", "401"})}
+	for name, reqs := range map[string][]*extprocv3.ProcessingRequest{
+		"a 413, then request headers":         append(slices.Clone(tooLarge), requestHeaders(true, get...)),
+		"a 413, then a request body":          append(slices.Clone(tooLarge), requestBody(`{}`, true)),
+		"a 413, then request trailers":        append(slices.Clone(tooLarge), requestTrailers()),
+		"a 401, then request headers":         append(slices.Clone(unauthorised), requestHeaders(true, get...)),
+		"a 401, then headers and then a body": append(slices.Clone(unauthorised), requestHeaders(false, post...), requestBody(`{}`, true)),
+		"a 401, then a request body":          append(slices.Clone(unauthorised), requestBody(`{}`, true)),
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newFixture(t)
+			out, err := f.run(nil, reqs...)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(out) == 0 || out[len(out)-1].GetImmediateResponse() == nil {
+				t.Fatalf("responses %v, want a refusal last", out)
+			}
+			for _, r := range out[:len(out)-1] {
+				for _, m := range []*extprocv3.HeaderMutation{
+					r.GetRequestHeaders().GetResponse().GetHeaderMutation(),
+					r.GetRequestBody().GetResponse().GetHeaderMutation(),
+					r.GetResponseHeaders().GetResponse().GetHeaderMutation(),
+				} {
+					if len(m.GetSetHeaders()) > 0 {
+						t.Fatalf("before the refusal, an answer sets %v", m.GetSetHeaders())
+					}
+				}
+			}
+			for _, o := range f.obs {
+				if o.Outcome == edge.Stamped {
+					t.Fatalf("observed %+v, want no request stamped", f.obs)
+				}
+			}
+		})
+	}
+}
+
 // TestRefusesARequestAfterItWasStamped refuses any request message after the stamp: there is none in a
 // stream Envoy sends, so one means the stream is not what the processor stamped.
 func TestRefusesARequestAfterItWasStamped(t *testing.T) {

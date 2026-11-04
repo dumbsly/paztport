@@ -71,15 +71,20 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- /*
 Refuses values the processor would not start with, or that would leave the edge without a limit: no route mapped,
 no keyring or root, and a body limit that is not a whole number of bytes from 1 to 1 GiB (1073741824), the processor's
-own bounds. bodyLimit is a plain number of bytes, such as 1048576: a quantity such as 1Mi is not read as one.
+own bounds. bodyLimit is a plain number of bytes, such as 1048576, as a number or a string of digits: a quantity such
+as 1Mi, a fraction or anything else is refused.
 */ -}}
 {{- define "edge.validate" -}}
 {{- if not .Values.routes }}{{ fail "routes must map at least one HTTPRoute" }}{{ end }}
 {{- if not .Values.material.keyrings }}{{ fail "material.keyrings needs at least one keyring" }}{{ end }}
 {{- if not .Values.material.roots }}{{ fail "material.roots needs at least one root" }}{{ end }}
-{{- $limit := .Values.bodyLimit | int64 }}
-{{- $whole := eq (float64 .Values.bodyLimit) (float64 $limit) }}
-{{- if kindIs "string" .Values.bodyLimit }}{{ $whole = regexMatch "^[0-9]+$" .Values.bodyLimit }}{{ end }}
+{{- $v := .Values.bodyLimit }}
+{{- $limit := $v | int64 }}
+{{- $whole := false }}
+{{- if kindIs "string" $v }}{{ $whole = regexMatch "^[0-9]+$" $v }}
+{{- else if kindIs "float64" $v }}{{ $whole = eq $v (float64 $limit) }}
+{{- else if or (kindIs "int" $v) (kindIs "int64" $v) }}{{ $whole = true }}
+{{- end }}
 {{- if or (not $whole) (le $limit 0) (gt $limit 1073741824) }}
 {{- fail (printf "bodyLimit %v is not a whole number of bytes from 1 to 1073741824, such as 1048576"
   .Values.bodyLimit) }}
