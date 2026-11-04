@@ -277,4 +277,59 @@ class StamperTest {
         assertThrows(IllegalArgumentException.class, () -> Bindings.response("h", "a\nb", List.of()));
     }
 
+    // --- Refusing what could never verify: nothing is signed for a name no policy can hold ---
+
+    private static final List<String> BAD_NODES = java.util.Arrays.asList(null, "", ".", "..", "a/b", "a\\b", "a|b");
+
+    @Test
+    void nextRefusesAReceiverThatIsNotARouteNode() {
+        Stamper gateway = stamper("gateway", gatewayKey, true);
+        for (String bad : BAD_NODES) {
+            assertThrows(IllegalArgumentException.class, () -> gateway.next(null, bad, "b1", List.of(), null),
+                    String.valueOf(bad));
+        }
+    }
+
+    @Test
+    void everySigningPathRefusesASvcThatIsNotARouteNode() {
+        List<Stamp> inbound = stamper("gateway", gatewayKey, true).next(null, "orders", "b1", List.of(), null)
+                .chain();
+        for (String bad : BAD_NODES) {
+            Stamper s = new Stamper(bad, "i", ordersKey.getPrivate(), false, () -> RID, () -> NOW);
+            assertThrows(IllegalArgumentException.class, () -> s.next(inbound, "payment", "b2", List.of(), null),
+                    "next " + bad);
+            assertThrows(IllegalArgumentException.class,
+                    () -> s.boundary(inbound, SESS, "psp", "b3", List.of(), null), "boundary " + bad);
+            assertThrows(IllegalArgumentException.class, () -> s.respond(inbound, "h", "c", List.of()),
+                    "respond " + bad);
+        }
+    }
+
+    @Test
+    void boundaryRefusesAPartnerEntryThatIsNotARouteNode() {
+        Stamper payment = stamper("payment", paymentKey, false);
+        List<Stamp> inbound = stamper("gateway", gatewayKey, true).next(null, "payment", "b1", List.of(), null)
+                .chain();
+        for (String bad : BAD_NODES) {
+            assertThrows(IllegalArgumentException.class,
+                    () -> payment.boundary(inbound, SESS, bad, "b3", List.of(), null), String.valueOf(bad));
+        }
+    }
+
+    @Test
+    void respondRefusesACallerThatIsNotARouteNode() {
+        // An unverified chain whose last svc is empty: the response would name an empty receiver.
+        Stamp odd = Stamp.sign("", "i", RID, NOW, "", "orders", "b1", Influence.commit(List.of()), "",
+                gatewayKey.getPrivate());
+        Stamper orders = stamper("orders", ordersKey, false);
+        assertThrows(IllegalArgumentException.class, () -> orders.respond(List.of(odd), "h", "c", List.of()));
+    }
+
+    @Test
+    void aStampOverAnEmptyRcvStillReadsAndSignsAtTheLowLevel() {
+        // The route-node rule is the stamper's; Stamp itself is what verifiers rebuild signing bytes with.
+        Stamp s = Stamp.sign("gateway", "i", RID, NOW, "", "", "b1", Influence.commit(List.of()), "",
+                gatewayKey.getPrivate());
+        assertEquals("", s.rcv());
+    }
 }

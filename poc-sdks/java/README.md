@@ -31,7 +31,9 @@ has one, the authenticated peer.
   surrogate or a noncharacter, or a `ts` outside [0, 2^53 − 1]. `Chains` reads a
   chain off the wire strictly, from its bytes, as checks 1 and 2 of the live order,
   and never throws; a `ts` is a protocol integer, so `1.0` is refused. A stamp whose
-  `v` is not 3 is `CHAIN_MISSING`.
+  `v` is not 3 is `CHAIN_MISSING`. `Stamper` signs only for a service name and a
+  receiver that are route nodes, since a policy can hold nothing else; `Stamp`
+  itself does not check, so a verifier reaches its own reason codes.
 - **Verifying.** A `VerifierConfig` pins one or more keyrings (`PinnedKeyring`) and
   roots (`PinnedRoot`), each with its own `notAfter`, so a rollover can pin the old and
   the new together. `Verifier` runs the live order: first its own policy's window
@@ -141,7 +143,10 @@ another language logs the same line wherever it checks a response. It
 names the receiver by its policy name: the URI's host with its ASCII letters in
 lower case, unless its builder's `receivers(Map)` maps that host to another name.
 A host with a character outside ASCII (or none) gets no name, and `stamp` refuses
-the call (`IllegalArgumentException`) before anything is signed.
+the call (`IllegalArgumentException`) before anything is signed; so does a null or
+empty method. An empty path binds as `/` (`http://host?q=1` binds `/?q=1`), as a
+client sends it. The stamper behind it refuses a signing name or receiver that is not
+a route node, on every path (`next`, `boundary`, `respond`).
 `stampFromContext(method, uri, body)` and `recordToContext(...)` are the same two
 in the blocking binding below, which read and add to the request's context, and
 record nothing outside a scope.

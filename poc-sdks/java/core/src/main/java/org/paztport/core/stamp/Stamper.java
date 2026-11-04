@@ -52,7 +52,12 @@ public final class Stamper {
     public record Stamped(List<Stamp> chain, MerkleProof proof) {
     }
 
-    /** Stamps an outbound call to {@code receiver}, committing the influence that shaped it. */
+    /**
+     * Stamps an outbound call to {@code receiver}, committing the influence that shaped it.
+     *
+     * @throws IllegalArgumentException when this service's name or {@code receiver} is not a route node (see
+     *     {@link Routes#requireValidNode}); nothing is signed
+     */
     public Stamped next(List<Stamp> inbound, String receiver, String bind, List<InfluenceEntry> influence,
             ProofBundle bundle) {
         List<Stamp> chain = new ArrayList<>();
@@ -71,8 +76,7 @@ public final class Stamper {
             sess = last.sess();
             prev = last.sig();
         }
-        chain.add(Stamp.sign(svc, inst, rid, clock.getAsLong(), sess, receiver, bind,
-                Influence.commit(influence), prev, key));
+        chain.add(sign(rid, sess, receiver, bind, Influence.commit(influence), prev));
 
         MerkleProof proof = null;
         if (bundle != null) {
@@ -94,6 +98,9 @@ public final class Stamper {
      * <p>This checks nothing about {@code verifiedInternal}, only that it is there. The boundary stamp vouches for
      * the request that led to it, so on a chain nobody verified it signs for a request this service never
      * accepted. Pass only a chain that verified at this service.
+     *
+     * @throws IllegalArgumentException when {@code sess} is empty, or this service's name or {@code partnerEntry} is
+     *     not a route node; nothing is signed
      */
     public Stamped boundary(List<Stamp> verifiedInternal, String sess, String partnerEntry, String bind,
             List<InfluenceEntry> influence, ProofBundle bundle) {
@@ -101,8 +108,7 @@ public final class Stamper {
         if (sess == null || sess.isEmpty()) {
             throw new IllegalArgumentException("a boundary stamp needs a session id");
         }
-        Stamp stamp = Stamp.sign(svc, inst, verifiedInternal.get(0).rid(), clock.getAsLong(), sess, partnerEntry,
-                bind, Influence.commit(influence), "", key);
+        Stamp stamp = sign(verifiedInternal.get(0).rid(), sess, partnerEntry, bind, Influence.commit(influence), "");
         MerkleProof proof = bundle == null ? null : bundle.proofFor(Routes.join(List.of(svc, partnerEntry)));
         return new Stamped(List.of(stamp), proof);
     }
@@ -117,12 +123,37 @@ public final class Stamper {
      * nobody verified it can be a valid stamp the sender could never have made: on a forged one-stamp chain with
      * an empty {@code sig}, an origin's response is a genuine origin stamp. Pass only a chain that verified at this
      * service, and never respond from an origin.
+     *
+     * @throws IllegalArgumentException when this service's name, or the last stamp's {@code svc} that the response
+     *     is for, is not a route node; nothing is signed
      */
     public Stamp respond(List<Stamp> inbound, String resultHash, String callId, List<ContentLabel> labels) {
         requireInbound(inbound);
         Stamp last = inbound.get(inbound.size() - 1);
-        return Stamp.sign(svc, inst, inbound.get(0).rid(), clock.getAsLong(), last.sess(), last.svc(),
-                Bindings.response(resultHash, callId, labels), Influence.commit(List.of()), last.sig(), key);
+        return sign(inbound.get(0).rid(), last.sess(), last.svc(), Bindings.response(resultHash, callId, labels),
+                Influence.commit(List.of()), last.sig());
+    }
+
+    /**
+     * The one place a stamp is signed. Both names must be route nodes, as a policy can hold nothing else: a stamp
+     * over any other could never verify, so none is made. {@link Stamp} does not check this, because verifiers
+     * rebuild signing bytes with it and must refuse such a stamp by their own checks, not by an exception.
+     */
+    private Stamp sign(String rid, String sess, String receiver, String bind, String infl, String prev) {
+        requireNode(svc, "the signing service");
+        requireNode(receiver, "the receiver");
+        return Stamp.sign(svc, inst, rid, clock.getAsLong(), sess, receiver, bind, infl, prev, key);
+    }
+
+    /** Names the rule and the role, never the value: a name here may be a peer's, and may hold anything. */
+    private static void requireNode(String name, String role) {
+        try {
+            Routes.requireValidNode(name);
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException(role
+                    + " must be a route node: non-empty, not \".\" or \"..\", and none of '/', '\\', '|' or a lone"
+                    + " surrogate; nothing is signed");
+        }
     }
 
     private void requireInbound(List<Stamp> inbound) {

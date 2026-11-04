@@ -577,4 +577,61 @@ class HttpCallerTest {
                 "PAZTPORT_TRACE response rid=rid-1 from=orders reason=CHAIN_MISSING receiver=gateway ✗ labels=-"),
                 traceLines());
     }
+
+    // --- What is sent is what is bound ---
+
+    @Test
+    void anEmptyRawPathIsBoundAsASlash() {
+        HttpCaller caller = gatewayCaller();
+        assertEquals(RequestBinding.compute("GET", "/", NO_BODY),
+                caller.stampFromContext("GET", URI.create("http://search"), NO_BODY).sent().chain().get(0).bind());
+        assertEquals(RequestBinding.compute("GET", "/?q=1", NO_BODY),
+                caller.stampFromContext("GET", URI.create("http://search?q=1"), NO_BODY).sent().chain().get(0)
+                        .bind());
+        assertEquals(RequestBinding.compute("GET", "/", NO_BODY),
+                caller.stampFromContext("GET", URI.create("http://search/"), NO_BODY).sent().chain().get(0).bind());
+    }
+
+    @Test
+    void theClientSendsASlashForAnEmptyPathSoThatIsWhatIsBound() throws Exception {
+        // RFC 9112 section 3.2.1: a request line's target is never empty; a client sends "/" for an empty path.
+        // The receiver below recomputes the binding from the request line it actually got.
+        List<String> targets = new java.util.concurrent.CopyOnWriteArrayList<>();
+        com.sun.net.httpserver.HttpServer server = com.sun.net.httpserver.HttpServer.create(
+                new java.net.InetSocketAddress(java.net.InetAddress.getLoopbackAddress(), 0), 0);
+        server.createContext("/", exchange -> {
+            targets.add(exchange.getRequestMethod() + " " + exchange.getRequestURI().getRawPath()
+                    + (exchange.getRequestURI().getRawQuery() == null ? ""
+                            : "?" + exchange.getRequestURI().getRawQuery()));
+            exchange.sendResponseHeaders(204, -1);
+            exchange.close();
+        });
+        server.start();
+        try {
+            java.net.http.HttpClient client = java.net.http.HttpClient.newHttpClient();
+            String base = "http://localhost:" + server.getAddress().getPort();
+            for (String suffix : List.of("", "?q=1")) {
+                URI uri = URI.create(base + suffix);
+                HttpCaller.Outbound sent = gatewayCaller().stampFromContext("GET", uri, NO_BODY);
+                client.send(java.net.http.HttpRequest.newBuilder(uri).GET().build(),
+                        java.net.http.HttpResponse.BodyHandlers.discarding());
+                String line = targets.get(targets.size() - 1);
+                String target = line.substring(line.indexOf(' ') + 1);
+                assertEquals("/" + suffix, target);
+                assertEquals(RequestBinding.compute("GET", target, NO_BODY), sent.sent().chain().get(0).bind());
+            }
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void aNullOrEmptyMethodIsRefusedBeforeAnythingIsSigned() {
+        HttpCaller caller = gatewayCaller();
+        URI uri = URI.create("http://search/x");
+        assertThrows(IllegalArgumentException.class, () -> caller.stamp(null, uri, NO_BODY, null, List.of()));
+        assertThrows(IllegalArgumentException.class, () -> caller.stamp("", uri, NO_BODY, null, List.of()));
+        assertThrows(IllegalArgumentException.class, () -> caller.stampFromContext(null, uri, NO_BODY));
+        assertThrows(IllegalArgumentException.class, () -> caller.stampFromContext("", uri, NO_BODY));
+    }
 }

@@ -237,13 +237,15 @@ public final class HttpCaller {
      * Stamps a call to {@code uri}, after {@code inbound} and committing to {@code influence}. This touches no
      * thread-local.
      *
-     * @param method the request method, as sent
-     * @param uri the request URI, as sent: its raw path and raw query are bound as they stand
+     * @param method the request method, as sent; not null or empty
+     * @param uri the request URI, as sent: its raw path and raw query are bound as they stand, except that an empty
+     *     path is bound as {@code /}, which is what a client sends for it ({@code http://host?q=1} binds
+     *     {@code /?q=1})
      * @param body the request body, whole
      * @param inbound the chain this request received, or null where there is none (an origin, or no request)
      * @param influence what has shaped the call so far; empty for none
-     * @throws IllegalArgumentException when the URI's host has no receiver name (see {@link #receiver}); nothing is
-     *     signed
+     * @throws IllegalArgumentException when the method is null or empty, the URI's host has no receiver name (see
+     *     {@link #receiver}), or the receiver or this service is not a route node; nothing is signed
      */
     public Outbound stamp(String method, URI uri, byte[] body, List<Stamp> inbound,
             List<InfluenceEntry> influence) {
@@ -255,7 +257,8 @@ public final class HttpCaller {
      * after the request's inbound chain and commits to its influence so far; outside one, with neither, and its
      * response will not be recorded.
      *
-     * @throws IllegalArgumentException when the URI's host has no receiver name; nothing is signed
+     * @throws IllegalArgumentException when the method is null or empty, the URI's host has no receiver name, or the
+     *     receiver or this service is not a route node; nothing is signed
      */
     public Outbound stampFromContext(String method, URI uri, byte[] body) {
         // Outside a scope the context belongs to no unit of work, so it is neither read nor written.
@@ -266,12 +269,17 @@ public final class HttpCaller {
 
     private Outbound stamp(String method, URI uri, byte[] body, List<Stamp> inbound,
             List<InfluenceEntry> influence, RequestContext.Scope scope) {
-        String query = uri.getRawQuery();
-        String target = query == null || query.isEmpty() ? uri.getRawPath() : uri.getRawPath() + "?" + query;
+        if (method == null || method.isEmpty()) {
+            throw new IllegalArgumentException("the method of a call must not be empty");
+        }
         String receiver = receiver(uri);
         if (receiver == null) {
             throw new IllegalArgumentException("the host of a call has no receiver name");
         }
+        // An empty path is sent as "/" (RFC 9112 section 3.2.1), and the receiver binds what it was sent.
+        String rawPath = uri.getRawPath() == null || uri.getRawPath().isEmpty() ? "/" : uri.getRawPath();
+        String query = uri.getRawQuery();
+        String target = query == null || query.isEmpty() ? rawPath : rawPath + "?" + query;
         Stamper.Stamped stamped = stamper.next(inbound, receiver, RequestBinding.compute(method, target, body),
                 influence, bundle);
 
