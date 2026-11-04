@@ -193,6 +193,8 @@ public final class InboundFilter extends OncePerRequestFilter {
      * before the handler. The mode is known at the start; the reason and the outcome only once it is made. If an
      * observation handler throws once the decision is made, as its scope closes or as it stops, the request's scope
      * is ended before the exception goes on, since nothing else would close it and it holds the chain verified here.
+     * One that throws as it stops while the decision's exception, or its scope's, is going on is added to that
+     * exception as suppressed, so the first exception is the one that goes on.
      */
     private RequestContext.Entered<Accepted> observed(InboundRequest inbound, Peer peer, VerificationMode mode) {
         Observation observation = Observation.createNotStarted(PaztportObservation.REQUEST.getName(), observations)
@@ -202,6 +204,7 @@ public final class InboundFilter extends OncePerRequestFilter {
         String reason = ObservedValues.NONE;
         String outcome = ObservedValues.REFUSED;
         RequestContext.Entered<Accepted> entered = null;
+        Throwable failure = null;
         try {
             try (Observation.Scope open = observation.openScope()) {
                 entered = RequestContext.accept(receiver, inbound, peer, mode);
@@ -209,12 +212,20 @@ public final class InboundFilter extends OncePerRequestFilter {
                 reason = ObservedValues.reason(accepted.result());
                 outcome = accepted.refusal() == null ? ObservedValues.SERVED : ObservedValues.REFUSED;
             } catch (Throwable t) {
+                failure = t;
                 observation.error(t);
                 throw t;
             } finally {
-                observation.lowCardinalityKeyValue(PaztportObservation.Keys.REASON.withValue(reason))
-                        .lowCardinalityKeyValue(PaztportObservation.Keys.OUTCOME.withValue(outcome))
-                        .stop();
+                try {
+                    observation.lowCardinalityKeyValue(PaztportObservation.Keys.REASON.withValue(reason))
+                            .lowCardinalityKeyValue(PaztportObservation.Keys.OUTCOME.withValue(outcome))
+                            .stop();
+                } catch (Throwable stopping) {
+                    if (failure == null) {
+                        throw stopping;
+                    }
+                    failure.addSuppressed(stopping);
+                }
             }
             return entered;
         } catch (Throwable t) {

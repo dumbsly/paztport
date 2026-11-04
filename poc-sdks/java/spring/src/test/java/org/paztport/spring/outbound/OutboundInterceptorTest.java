@@ -6,6 +6,7 @@ package org.paztport.spring.outbound;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
@@ -322,5 +323,44 @@ class OutboundInterceptorTest {
 
         assertThrows(ResourceAccessException.class, () -> fetchOrders(client));
         assertTrue(closed[0], "the connection is released even though the response could not be checked");
+    }
+
+    // Not every failure to read a response is an IOException: a client library may throw an unchecked one.
+    @Test
+    void aResponseWhoseBodyFailsUncheckedIsClosed() {
+        IllegalStateException failure = new IllegalStateException("body lost");
+        boolean[] closed = {false};
+        ClientHttpResponse broken = new ClientHttpResponse() {
+            @Override
+            public HttpStatusCode getStatusCode() {
+                return HttpStatus.OK;
+            }
+
+            @Override
+            public String getStatusText() {
+                return "OK";
+            }
+
+            @Override
+            public HttpHeaders getHeaders() {
+                return new HttpHeaders();
+            }
+
+            @Override
+            public InputStream getBody() {
+                throw failure;
+            }
+
+            @Override
+            public void close() {
+                closed[0] = true;
+            }
+        };
+        RestClient client = client(gatewayInterceptor(), "http://orders:8080/orders", request -> broken);
+
+        IllegalStateException thrown = assertThrows(IllegalStateException.class, () -> fetchOrders(client));
+
+        assertSame(failure, thrown);
+        assertTrue(closed[0], "the connection is released even though the body could not be read");
     }
 }

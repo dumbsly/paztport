@@ -5,12 +5,18 @@ package org.paztport.spring.outbound;
 
 import static io.micrometer.observation.tck.TestObservationRegistryAssert.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
+import io.micrometer.observation.Observation;
+import io.micrometer.observation.ObservationHandler;
+import io.micrometer.observation.ObservationRegistry;
 import io.micrometer.observation.tck.TestObservationRegistry;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
 import java.util.List;
@@ -34,7 +40,9 @@ import org.paztport.http.RequestContext;
 import org.paztport.http.wire.HttpWire;
 import org.paztport.http.wire.PaztportHeaders;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
+import org.springframework.http.client.ClientHttpResponse;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.test.web.client.ResponseCreator;
 import org.springframework.web.client.ResourceAccessException;
@@ -68,9 +76,13 @@ class ResponseObservationTest {
     }
 
     private OutboundInterceptor interceptor(Verifier verifier) {
+        return interceptor(verifier, registry);
+    }
+
+    private OutboundInterceptor interceptor(Verifier verifier, ObservationRegistry observations) {
         return new OutboundInterceptor(
                 new Stamper("gateway", "gw-1", gateway.getPrivate(), true, () -> "rid-1", () -> 1000L),
-                policy.bundles().get("gateway"), verifier, "gateway", registry);
+                policy.bundles().get("gateway"), verifier, "gateway", observations);
     }
 
     /** A RestClient carrying {@code interceptor}, whose one expected call to orders is answered by {@code answer}. */
@@ -179,5 +191,59 @@ class ResponseObservationTest {
 
         fetchInScope(client(interceptor(gatewayVerifier()), attested()));
         assertThat(registry).hasNumberOfObservationsEqualTo(1).hasSingleObservationThat().hasBeenStopped();
+    }
+
+    // The response holds the connection: an error while its check is recorded must still release it.
+    @Test
+    void anErrorWhileRecordingClosesTheResponse() {
+        Error failure = new Error("handler failed");
+        ObservationRegistry throwing = ObservationRegistry.create();
+        throwing.observationConfig().observationHandler(new ObservationHandler<>() {
+            @Override
+            public void onStop(Observation.Context context) {
+                throw failure;
+            }
+
+            @Override
+            public boolean supportsContext(Observation.Context context) {
+                return true;
+            }
+        });
+        boolean[] closed = {false};
+        RestClient client = client(interceptor(gatewayVerifier(), throwing), request -> {
+            ClientHttpResponse answer = withSuccess("hello", MediaType.TEXT_PLAIN).createResponse(request);
+            return new ClientHttpResponse() {
+                @Override
+                public HttpStatusCode getStatusCode() throws IOException {
+                    return answer.getStatusCode();
+                }
+
+                @Override
+                public String getStatusText() throws IOException {
+                    return answer.getStatusText();
+                }
+
+                @Override
+                public HttpHeaders getHeaders() {
+                    return answer.getHeaders();
+                }
+
+                @Override
+                public InputStream getBody() throws IOException {
+                    return answer.getBody();
+                }
+
+                @Override
+                public void close() {
+                    closed[0] = true;
+                    answer.close();
+                }
+            };
+        });
+
+        Error thrown = assertThrows(Error.class, () -> fetchInScope(client));
+
+        assertSame(failure, thrown);
+        assertTrue(closed[0], "the connection is released even though recording the check failed");
     }
 }

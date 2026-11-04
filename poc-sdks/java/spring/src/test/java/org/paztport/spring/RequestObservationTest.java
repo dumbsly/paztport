@@ -4,6 +4,7 @@
 package org.paztport.spring;
 
 import static io.micrometer.observation.tck.TestObservationRegistryAssert.assertThat;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -102,11 +103,26 @@ class RequestObservationTest {
 
     /** A registry whose one handler throws {@code failure} as each observation stops, as a faulty handler might. */
     private static ObservationRegistry throwingOnStop(RuntimeException failure) {
+        return throwing(null, failure);
+    }
+
+    /**
+     * A registry whose one handler throws {@code onScopeClosed}, where it is not null, as an observation's scope
+     * closes, and {@code onStop} as the observation stops, as a faulty handler might.
+     */
+    private static ObservationRegistry throwing(RuntimeException onScopeClosed, RuntimeException onStop) {
         ObservationRegistry throwing = ObservationRegistry.create();
         throwing.observationConfig().observationHandler(new ObservationHandler<>() {
             @Override
+            public void onScopeClosed(Observation.Context context) {
+                if (onScopeClosed != null) {
+                    throw onScopeClosed;
+                }
+            }
+
+            @Override
             public void onStop(Observation.Context context) {
-                throw failure;
+                throw onStop;
             }
 
             @Override
@@ -431,6 +447,26 @@ class RequestObservationTest {
         assertNull(RequestContext.verifiedChain());
     }
 
+    // A handler that throws as the observation stops must not hide why the decision failed.
+    @Test
+    void aThrowingDecisionKeepsItsExceptionWhenAHandlerThrowsOnStop() {
+        IllegalStateException failure = new IllegalStateException("listener failed");
+        IllegalStateException stopping = new IllegalStateException("handler failed");
+        ReceivedRequestListener listener = (chain, proof, influence, method, target, body) -> {
+            throw failure;
+        };
+        InboundFilter filter = new InboundFilter(paymentVerifier(), true, false, "payment",
+                new ModeHolder(VerificationMode.ENFORCE), event -> { }, listener, null, throwingOnStop(stopping));
+
+        IllegalStateException thrown = assertThrows(IllegalStateException.class,
+                () -> run(filter, paymentRequest(validHeaders())));
+
+        assertSame(failure, thrown);
+        assertArrayEquals(new Throwable[] {stopping}, thrown.getSuppressed());
+        assertFalse(RequestContext.isOpen());
+        assertNull(RequestContext.verifiedChain());
+    }
+
     // The partner's observations ------------------------------------------------------------------------------
 
     @Test
@@ -499,6 +535,29 @@ class RequestObservationTest {
         assertSame(failure, thrown);
         assertFalse(RequestContext.isOpen());
         assertNull(RequestContext.verifiedChain());
+    }
+
+    // Once the call is decided its scope is open: a handler that throws as the observation's scope closes must still
+    // leave it ended, and one that then throws as the observation stops must not hide the first exception.
+    @Test
+    void aFailingScopeCloseKeepsItsExceptionWhenAHandlerThrowsOnStop() throws Exception {
+        IllegalStateException closing = new IllegalStateException("handler failed as the scope closed");
+        IllegalStateException stopping = new IllegalStateException("handler failed as it stopped");
+        ObservationRegistry throwing = throwing(closing, stopping);
+        PartnerFilter filter = new PartnerFilter(sessions, "psp", throwing);
+        MockHttpServletRequest call = charge(handshake(true), CHARGE);
+        try {
+            IllegalStateException thrown = assertThrows(IllegalStateException.class,
+                    () -> filter.doFilter(call, new MockHttpServletResponse(), new MockFilterChain()));
+
+            assertSame(closing, thrown);
+            assertArrayEquals(new Throwable[] {stopping}, thrown.getSuppressed());
+            assertFalse(RequestContext.isOpen());
+            assertNull(RequestContext.verifiedChain());
+        } finally {
+            // Micrometer restores the thread's current observation only after its handlers are told the scope closed.
+            throwing.setCurrentObservationScope(null);
+        }
     }
 
     @Test

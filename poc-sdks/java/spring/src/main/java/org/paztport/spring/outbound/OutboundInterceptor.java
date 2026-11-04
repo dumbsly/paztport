@@ -88,15 +88,16 @@ public final class OutboundInterceptor implements ClientHttpRequestInterceptor {
             response.getStatusCode();
             InputStream in = response.getBody();
             buffered = new Buffered(response, in == null ? new byte[0] : in.readAllBytes());
-        } catch (IOException e) {
+        } catch (Throwable t) {
+            // Whatever is thrown, the response is not handed on, so nothing else would release its connection.
             response.close();
-            throw e;
+            throw t;
         }
         try {
             observed(sent, buffered);
-        } catch (IOException | RuntimeException e) {
+        } catch (Throwable t) {
             buffered.close();
-            throw e;
+            throw t;
         }
         return buffered;
     }

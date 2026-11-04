@@ -100,7 +100,9 @@ public final class PartnerFilter extends OncePerRequestFilter {
      * recorded as an observation that is open while the decision runs and stopped before this returns, so before the
      * handler. Every tag is known only once it is made. If an observation handler throws once the decision is made,
      * as its scope closes or as it stops, the call's scope is ended before the exception goes on, since nothing else
-     * would close it and in an attested session it holds the verified chain and influence.
+     * would close it and in an attested session it holds the verified chain and influence. One that throws as it stops
+     * while the decision's exception, or its scope's, is going on is added to that exception as suppressed, so the
+     * first exception is the one that goes on.
      */
     private RequestContext.Entered<PartnerAccepted> observed(InboundRequest inbound, PeerCert peer) {
         Observation observation = Observation
@@ -109,6 +111,7 @@ public final class PartnerFilter extends OncePerRequestFilter {
         String reason = ObservedValues.NONE;
         String outcome = ObservedValues.REFUSED;
         RequestContext.Entered<PartnerAccepted> entered = null;
+        Throwable failure = null;
         try {
             try (Observation.Scope open = observation.openScope()) {
                 entered = RequestContext.accept(receiver, inbound, peer);
@@ -118,13 +121,21 @@ public final class PartnerFilter extends OncePerRequestFilter {
                 reason = ObservedValues.reason(accepted.result());
                 outcome = accepted.refusal() == null ? ObservedValues.SERVED : ObservedValues.REFUSED;
             } catch (Throwable t) {
+                failure = t;
                 observation.error(t);
                 throw t;
             } finally {
-                observation.lowCardinalityKeyValue(PaztportObservation.Keys.SESSION.withValue(session))
-                        .lowCardinalityKeyValue(PaztportObservation.Keys.REASON.withValue(reason))
-                        .lowCardinalityKeyValue(PaztportObservation.Keys.OUTCOME.withValue(outcome))
-                        .stop();
+                try {
+                    observation.lowCardinalityKeyValue(PaztportObservation.Keys.SESSION.withValue(session))
+                            .lowCardinalityKeyValue(PaztportObservation.Keys.REASON.withValue(reason))
+                            .lowCardinalityKeyValue(PaztportObservation.Keys.OUTCOME.withValue(outcome))
+                            .stop();
+                } catch (Throwable stopping) {
+                    if (failure == null) {
+                        throw stopping;
+                    }
+                    failure.addSuppressed(stopping);
+                }
             }
             return entered;
         } catch (Throwable t) {
