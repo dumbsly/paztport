@@ -5,8 +5,8 @@ cluster. A Go `ext_proc` processor stamps each request as the origin service `ed
 [java-mesh](../java-mesh/README.md) services `orders` and `payment` verify it. The idea and the concepts are in the
 [root README](../../README.md).
 
-This is the proof of concept and its behavioural checks. The load, failure, route-change and rotation measurements,
-and the full write-up, are not here yet.
+This is the proof of concept, its behavioural checks, and the harness for its measurements (see
+[Measuring it](#measuring-it)). Most of the measurements, and their write-up, are not here yet.
 
 ## Running it
 
@@ -28,6 +28,43 @@ poc-demos/envoy-gateway/envoy-gateway.sh down    # delete the cluster
 `./run envoy-gateway` and `envoy-gateway.sh up` refuse to run while the cluster exists, since it holds the keys it
 was made with; run `down` first to make it again. Every `kubectl` and `helm` call names the cluster's own context, so no
 other cluster is touched.
+
+## Measuring it
+
+```bash
+./run envoy-gateway measure            # every suite
+./run envoy-gateway measure load       # the suites named
+./run envoy-gateway measure --keep     # and leave the cluster up afterwards
+```
+
+does the same builds, and makes new keys and a new policy, then runs `measure.sh` on a cluster of its own: it refuses
+to run while `paztport-envoy-gateway` exists, makes it with `envoy-gateway.sh up`, and adds an upstream that does as
+little as it can, `echo` (`processor/cmd/echo`, from the image `paztport-echo:dev`, the processor's `Dockerfile`'s
+target `echo`), with two twin routes to it on the Gateway's one listener (`kind/measure.yaml`). The processor is
+attached to `echo` (host `echo.example`), which its chart maps to the receiver `orders`, and never to `echo-plain`
+(host `echo-plain.example`); one BackendTrafficPolicy gives both the same request buffer and retries as
+`orders-routes`. So a run on each, alternated, measures what the processor adds to plain Envoy. `echo` counts the
+requests it is sent per host, with and without an `X-Path-Chain` header, so a suite can show that no request on
+`echo` reached it unstamped.
+
+Each suite starts from the same baseline, and prints it: two processor replicas with the autoscaler off, `orders` and
+`payment` in enforce mode, only the routes `orders`, `orders-unmapped`, `echo` and `echo-plain`, no delay added to any
+pod's network, and every pod's keys and policy those in `out/` (the run stops if they are not). Load comes from k6
+(`measure/k6/edge.js`, `grafana/k6:2.2.0` by digest) in a Job in the cluster, which counts every response by its
+status, a reset or a timeout included, and lists the time of each one that was not the status expected (up to
+20000 a run; a window drawn from a list that stopped there says so). A comparison
+runs a discarded warm-up of each side, then rounds of one run each, the side that goes first alternating, and prints
+every run, the median of each side's runs with their lowest and highest, and the difference.
+
+| Suite | What it measures |
+|---|---|
+| `load` | plain Envoy (`echo-plain`) against Envoy and the processor (`echo`), with a 400-byte and a 256 KiB body, under `VUS` users each sending its next request when the last is answered; first, from Envoy's own configuration (its admin `/config_dump`), that the twins share one listener's filter chain and differ only in the processor's filter being enabled on `echo`; last, that `echo` was sent no request unstamped and `echo-plain` none stamped |
+
+`ROUNDS` (3), `DURATION` (20s), `WARMUP` (10s) and `VUS` (10) set the runs. Everything printed, each run's
+responses other than the expected, and the Envoy configuration read go to `out/measurements/<UTC time>/`. Every
+number is indicative: one kind node on one machine runs Envoy, the processor, the backends and k6 alike, and each
+run prints the machine's CPUs and memory. The cluster is deleted at the end, unless `--keep`. `./run envoy-gateway
+measure` needs `python3` (3.9 or later) as well as the tools below.
 
 ## Prerequisites
 
@@ -55,8 +92,11 @@ macOS and Linux; on Windows use WSL.
 | `processor/Dockerfile` | the processor's image: a static binary on distroless, as nonroot, with its licences in `/licenses/` |
 | `processor/THIRD-PARTY.txt` | every module the processor's binary is built from, each with its licence, and every licence file within those modules over code the binary holds; `processor/third-party.sh` checks it and gathers the licence texts into the image |
 | `processor/cmd/edgecheck` | a client the checks use for the two requests curl cannot make; not in the image |
+| `processor/cmd/echo` | the measurements' upstream: answers 200 and counts each host's requests with and without a stamp; the image's target `echo` |
 | `envoy-gateway.sh` | `up`, `check` and `down`: the cluster, the checks, and its removal |
-| `kind/` | the cluster (`cluster.yaml`), the Gateway as an existing cluster would have it (`gateway.yaml`), `orders` and `payment` (`backends.yaml`), their routes (`routes.yaml`), and the pod the checks send requests from (`checks.yaml`) |
+| `measure.sh`, `measure/` | the measurements: `common.sh` (k6 runs, alternation, the baseline), a file for each group of suites, k6's script (`k6/edge.js`) and `summary.py` (medians, spread and error windows) |
+| `lib.sh` | what `envoy-gateway.sh` and `measure.sh` share |
+| `kind/` | the cluster (`cluster.yaml`), the Gateway as an existing cluster would have it (`gateway.yaml`), `orders` and `payment` (`backends.yaml`), their routes (`routes.yaml`), the pod the checks send requests from (`checks.yaml`), and what the measurements add (`measure.yaml`) |
 | `chart/` | the Helm chart: everything Paztport adds to a cluster that already runs Envoy Gateway |
 
 `material.sh` refuses to write over an existing `out/`; `--fresh` makes everything again. `PAZTPORT_POLICY_DAYS` sets

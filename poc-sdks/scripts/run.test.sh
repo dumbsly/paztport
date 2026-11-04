@@ -18,7 +18,7 @@ check() { # name, then a command that succeeds when the case passes
 help_lists_subcommands() {
   local out
   out="$("$repo/run" --help)" || return 1
-  for word in java-mesh agents-mcp envoy-gateway test bench "macOS and Linux; on Windows use WSL"; do
+  for word in java-mesh agents-mcp envoy-gateway "envoy-gateway measure" test bench "macOS and Linux; on Windows use WSL"; do
     grep -qF "$word" <<<"$out" || return 1
   done
 }
@@ -54,21 +54,24 @@ missing_stops_early() {
   [ "$status" -eq 1 ] && grep -q "^missing: $1 " <<<"$out" && [ "$(wc -l <<<"$out")" -eq 1 ]
 }
 
-# help_after <command>: with only the basic tools on PATH, ./run <command> -h prints the usage and exits 0, so it
-# stops before the command checks for anything.
+# help_after <command>: with only the basic tools on PATH, ./run <command> -h (the command split on spaces) prints
+# the usage and exits 0, so it stops before the command checks for anything.
 help_after() {
-  local bin out status
+  local bin out status args
+  read -ra args <<<"$1"
   bin="$(basic_tools)"
-  out="$(PATH="$bin" "$bin/bash" "$repo/run" "$1" -h 2>&1)"; status=$?
+  out="$(PATH="$bin" "$bin/bash" "$repo/run" "${args[@]}" -h 2>&1)"; status=$?
   rm -rf "$bin"
   [ "$status" -eq 0 ] && grep -q "^Usage: " <<<"$out"
 }
 
-# envoy_missing <tool> [fake kubectl version text]: with fake mvn (Java 25), docker, go, kind and, when the text is
-# given, kubectl, that pass their checks, ./run envoy-gateway prints one 'missing: <tool>' line and exits 1: the
-# earlier checks pass, and the later ones are not reached.
+# envoy_missing [-measure] <tool> [fake kubectl version text [fake helm version text]]: with fake mvn (Java 25),
+# docker, go, kind and, when the texts are given, kubectl and helm, that pass their checks, ./run envoy-gateway (or
+# ./run envoy-gateway measure) prints one 'missing: <tool>' line and exits 1: the earlier checks pass, and the later
+# ones are not reached.
 envoy_missing() {
-  local bin out status
+  local bin out status args=(envoy-gateway)
+  if [ "$1" = -measure ]; then args+=(measure); shift; fi
   bin="$(basic_tools)"
   printf '#!%s\necho "Java version: 25.0.1, vendor: Test, runtime: /nonexistent"\n' "$bin/bash" >"$bin/mvn"
   printf '#!%s\nexit 0\n' "$bin/bash" >"$bin/docker"
@@ -82,7 +85,11 @@ envoy_missing() {
     printf '#!%s\necho "%s"\n' "$bin/bash" "$2" >"$bin/kubectl"
     chmod +x "$bin/kubectl"
   fi
-  out="$(PATH="$bin" "$bin/bash" "$repo/run" envoy-gateway 2>&1)"; status=$?
+  if [ $# -ge 3 ]; then
+    printf '#!%s\necho "%s"\n' "$bin/bash" "$3" >"$bin/helm"
+    chmod +x "$bin/helm"
+  fi
+  out="$(PATH="$bin" "$bin/bash" "$repo/run" "${args[@]}" 2>&1)"; status=$?
   rm -rf "$bin"
   [ "$status" -eq 1 ] && grep -q "^missing: $1 " <<<"$out" && [ "$(wc -l <<<"$out")" -eq 1 ]
 }
@@ -143,6 +150,9 @@ check "envoy-gateway -h prints usage" help_after envoy-gateway
 check "envoy-gateway without kind prints one 'missing: kind' line and exits 1" envoy_missing kind
 check "envoy-gateway with a kubectl below 1.35 prints one 'missing: kubectl' line and exits 1" \
   envoy_missing kubectl "Client Version: v1.34.9"
+check "envoy-gateway measure -h prints usage" help_after "envoy-gateway measure"
+check "envoy-gateway measure without python3 prints one 'missing: python3' line and exits 1" \
+  envoy_missing -measure python3 "Client Version: v1.36.0" "v4.2.0"
 check "material.sh will not write over an existing directory" material_refuses "exists; the cluster's keys" taken
 check "material.sh will not take an empty directory name, with or without --fresh" material_refuses_empty
 check "material.sh --fresh will not delete /" material_refuses "will not delete" --fresh /

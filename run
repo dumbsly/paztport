@@ -16,6 +16,11 @@ Usage: ./run <command> [options]
                Envoy Gateway proof of concept on a local kind cluster and run its checks (needs Docker, Go,
                kind, kubectl and helm). The cluster stays up; poc-demos/envoy-gateway/envoy-gateway.sh down
                removes it (see poc-demos/envoy-gateway/README.md).
+  envoy-gateway measure [--keep] [suite...]
+               The same builds, keys and policy, then poc-demos/envoy-gateway/measure.sh on a cluster of its own:
+               the measurement suites (every one, or those named), their results under
+               poc-demos/envoy-gateway/out/measurements/, and the cluster deleted at the end unless --keep
+               (needs python3 too).
   agents-mcp   Install the TypeScript SDK and the agents demo, set up demo keys, and start the demo page.
   test         The name and link checks, the Java SDK and Java demo suites, a check of what the built jars
                carry, the TypeScript type checks and the TypeScript SDK and demo suites, then gofmt, go vet
@@ -79,6 +84,14 @@ need_staticcheck() {
   command -v staticcheck >/dev/null 2>&1 || missing staticcheck 2026.2.2 "https://staticcheck.dev/docs/getting-started/ or your package manager"
   found="$(tool_version staticcheck staticcheck -version)"
   [ -n "$found" ] && at_least "$found" 2026.2.2 || missing staticcheck 2026.2.2 "https://staticcheck.dev/docs/getting-started/ or your package manager"
+}
+
+need_python3() {
+  # The measurements' summaries; 3.9 is the one macOS ships.
+  local found
+  command -v python3 >/dev/null 2>&1 || missing python3 3.9 "https://www.python.org/downloads/ or your package manager"
+  found="$(tool_version Python python3 --version)"
+  [ -n "$found" ] && at_least "$found" 3.9 || missing python3 3.9 "https://www.python.org/downloads/ or your package manager"
 }
 
 need_docker() {
@@ -168,12 +181,22 @@ cmd_java_mesh() {
 }
 
 cmd_envoy_gateway() {
+  local measure=""
+  if [ "${1:-}" = measure ]; then
+    measure=1
+    shift
+  fi
   need_java
   need_docker
   need_go
   need_kind
   need_kubectl
   need_helm
+  if [ -n "$measure" ]; then
+    need_python3
+    # The suites named, before anything is built.
+    poc-demos/envoy-gateway/measure.sh --check "$@"
+  fi
   # A running cluster holds the keys it was made with, so it is checked or removed, never made again over them.
   if kind get clusters 2>/dev/null | grep -qx paztport-envoy-gateway; then
     echo "the cluster paztport-envoy-gateway is up already; check it with poc-demos/envoy-gateway/envoy-gateway.sh" \
@@ -185,6 +208,7 @@ cmd_envoy_gateway() {
   (cd poc-sdks/java && mvn -q install -DskipTests)
   (cd poc-demos/java-mesh && mvn -q package -DskipTests)
   PAZTPORT_JAVA="$maven_java" poc-demos/envoy-gateway/material.sh --fresh
+  [ -z "$measure" ] || exec poc-demos/envoy-gateway/measure.sh "$@"
   poc-demos/envoy-gateway/envoy-gateway.sh up
   exec poc-demos/envoy-gateway/envoy-gateway.sh check
 }
@@ -241,14 +265,16 @@ cmd_test() {
 }
 
 # -h after a command prints this usage, except after bench, whose options all go to JMH.
-[ "${1:-}" = bench ] || case "${2:-}" in
-  -h|--help) usage; exit 0 ;;
-esac
+if [ "${1:-}" != bench ]; then
+  for arg in "${@:2}"; do
+    case "$arg" in -h|--help) usage; exit 0 ;; esac
+  done
+fi
 
 case "${1:-}" in
   java-mesh) cmd_java_mesh ;;
   agents-mcp) cmd_agents_mcp ;;
-  envoy-gateway) cmd_envoy_gateway ;;
+  envoy-gateway) shift; cmd_envoy_gateway "$@" ;;
   test) cmd_test ;;
   bench) shift; cmd_bench "$@" ;;
   -h|--help|help) usage ;;

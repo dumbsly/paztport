@@ -32,7 +32,10 @@ cd "$(dirname "$0")"
 : "${PAZTPORT_ADMIN_TOKEN:?set PAZTPORT_ADMIN_TOKEN to the token payment was started with}"
 
 MESH="paztport-mesh"
-CURL="curlimages/curl:latest"
+# Each image pinned by the digest of its index: curl 8.22.0, as the Envoy Gateway checks run it, and k6 2.2.0
+# (released 2026-08-10).
+CURL="docker.io/curlimages/curl:8.22.0@sha256:58adaa4e8dca9c988bae2aba4ab3434a0bb2da16bbe3f92dec39ec7785166777"
+K6="docker.io/grafana/k6:2.2.0@sha256:9bd01d6941fca969cb61bb57d2da5ee9b385fe2aa8881df3798c196564d6ace6"
 VUS="${VUS:-10}"
 DURATION="${DURATION:-20s}"
 WARMUP="${WARMUP:-10s}"
@@ -63,7 +66,7 @@ run_load() { # $1 = duration; echoes the run's RESULT line
   # k6 gets only the operator's certificate and key: it cannot be given a CA (see load.js).
   docker run --rm --user 0:0 --network "$MESH" "${OPERATOR[@]}" \
     -e TARGET=https://gateway:8080/checkout -e VUS="$VUS" -e DURATION="$1" \
-    -v "$PWD/load.js:/scripts/load.js:ro" grafana/k6 run /scripts/load.js 2>/dev/null | grep RESULT
+    -v "$PWD/load.js:/scripts/load.js:ro" "$K6" run /scripts/load.js 2>/dev/null | grep RESULT
 }
 
 echo "== latency: payment off vs enforce (VUS=$VUS DURATION=$DURATION WARMUP=$WARMUP ROUNDS=$ROUNDS) =="

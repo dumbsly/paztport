@@ -1,0 +1,107 @@
+# Copyright 2026 The Paztport Authors
+# SPDX-License-Identifier: Apache-2.0
+#
+# What the measurements add to the cluster: the upstream echo (processor/cmd/echo), and two twin routes to it on
+# the Gateway's one listener, echo and echo-plain, alike but for their name and host. The processor is attached to
+# echo, which its chart maps to the receiver orders, so every request on it is stamped as one for orders is; it is
+# never attached to echo-plain. So the difference between the two is the processor alone, and a run on each, one
+# after the other, measures what the edge adds to Envoy.
+#
+# measure.sh applies this file after the chart names echo in its routes, so that Envoy never serves echo without
+# the processor, as kind/routes.yaml is applied after the chart names orders.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: echo
+  namespace: paztport
+spec:
+  replicas: 2
+  selector:
+    matchLabels: {app: echo}
+  template:
+    metadata:
+      labels: {app: echo}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile: {type: RuntimeDefault}
+      automountServiceAccountToken: false
+      containers:
+        - name: echo
+          image: paztport-echo:dev
+          imagePullPolicy: Never
+          ports:
+            - {name: http, containerPort: 8080}
+          # GET /counts is not counted, so the probe leaves the counts alone.
+          readinessProbe:
+            httpGet: {path: /counts, port: http}
+            periodSeconds: 2
+          resources:
+            requests: {cpu: 100m, memory: 32Mi}
+            limits: {cpu: "1", memory: 128Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: echo
+  namespace: paztport
+spec:
+  selector: {app: echo}
+  ports:
+    - {name: http, port: 8080, targetPort: http}
+---
+# The twin the processor is attached to: the chart's routes map it to the receiver orders.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: echo
+  namespace: paztport
+spec:
+  parentRefs:
+    - name: edge
+  hostnames: [echo.example]
+  rules:
+    - matches:
+        - path: {type: PathPrefix, value: /orders}
+      backendRefs:
+        - {name: echo, port: 8080}
+---
+# The twin without the processor: plain Envoy.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: echo-plain
+  namespace: paztport
+spec:
+  parentRefs:
+    - name: edge
+  hostnames: [echo-plain.example]
+  rules:
+    - matches:
+        - path: {type: PathPrefix, value: /orders}
+      backendRefs:
+        - {name: echo, port: 8080}
+---
+# One BackendTrafficPolicy on both twins, with orders-routes' settings (kind/routes.yaml): the same confined
+# retries, and the edge's body limit as the request buffer's limit, which measure.sh writes over @BODY_LIMIT@.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: BackendTrafficPolicy
+metadata:
+  name: echo-routes
+  namespace: paztport
+spec:
+  targetRefs:
+    - {group: gateway.networking.k8s.io, kind: HTTPRoute, name: echo}
+    - {group: gateway.networking.k8s.io, kind: HTTPRoute, name: echo-plain}
+  retry:
+    numRetries: 2
+    retryOn:
+      triggers: [connect-failure, refused-stream]
+  requestBuffer:
+    limit: "@BODY_LIMIT@"
