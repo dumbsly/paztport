@@ -78,16 +78,16 @@ func lowerASCII(s string) string {
 }
 
 // Name returns the receiver's policy name for a call to host, which may carry a port, and whether the
-// host has one. A host holding a byte outside ASCII has no name, mapped or not, and the call is not
-// stamped. Otherwise the name is the one the host is mapped to or, when it is mapped to none, the host
-// itself with its ASCII letters in lower case. The port is ignored, and the host matched in any case, as
+// host has one. A host with nothing before its port, or a byte outside ASCII, has no name, mapped or not,
+// and the call is not stamped. Otherwise the name is the one the host is mapped to or, when it is mapped
+// to none, the host itself with its ASCII letters in lower case. The port is ignored, and the host matched in any case, as
 // DNS matches it, but otherwise exactly: an IPv6 address keeps its brackets ("[::1]:8443" is the host
 // "[::1]") and a trailing dot is kept, so "orders." is not "orders". The name is also the call's target:
 // its response must be stamped by it, and what the response adds to the influence comes from
 // "http:<name>".
 func (r Receivers) Name(host string) (string, bool) {
 	host = hostOf(host)
-	if !isASCII(host) {
+	if host == "" || !isASCII(host) {
 		return "", false
 	}
 	host = lowerASCII(host)
@@ -172,11 +172,15 @@ type Received struct {
 // carries that [wire.IsPaztport] names, all values, then sets each header Stamp returns, replacing and
 // never appending; a gateway's external processor also removes them from the response it passes back.
 //
-// Stamp refuses a method or target that is not valid UTF-8, which has no binding (see [wire.Bind]), and
-// whatever the stamper refuses.
+// Stamp refuses an empty method or target, which no request has, a method or target that is not valid
+// UTF-8, which has no binding (see [wire.Bind]), and whatever the stamper refuses: a stamper whose svc, or
+// a receiver, is not a route node (see [policy.ValidNode]).
 func (c *Caller) Stamp(
 	method, target, receiver string, body []byte, inbound stamp.Chain, infl []influence.Entry,
 ) (Outbound, error) {
+	if method == "" || target == "" {
+		return Outbound{}, errors.New("paztport http: can't stamp a call with an empty method or target")
+	}
 	bind, err := wire.Bind(method, target, body)
 	if err != nil {
 		return Outbound{}, err

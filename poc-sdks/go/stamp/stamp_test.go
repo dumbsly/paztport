@@ -763,3 +763,51 @@ func TestAnOriginNeverResponds(t *testing.T) {
 		t.Fatalf("the origin responded with %+v", s)
 	}
 }
+
+// TestStamperRefusesWhatIsNotARouteNode: a stamp names its signer and its receiver as route nodes, and one
+// that is not a node (empty, a dot, with a separator) could never be on a verified route. Next, Boundary
+// and Respond refuse it, sign nothing, and do not quote it.
+func TestStamperRefusesWhatIsNotARouteNode(t *testing.T) {
+	inbound := stamp.Chain{signed(t)}
+	named := func(svc string) *stamp.Stamper { return stamper(svc, ordersKey, false) }
+	for _, bad := range []string{"", ".", "a/b"} {
+		for name, f := range map[string]func() (stamp.Chain, error){
+			"Next with svc": func() (stamp.Chain, error) {
+				c, _, err := named(bad).Next(inbound, "payment", "b", nil, bundle())
+				return c, err
+			},
+			"Next with rcv": func() (stamp.Chain, error) {
+				c, _, err := named("orders").Next(inbound, bad, "b", nil, bundle())
+				return c, err
+			},
+			"Boundary with svc": func() (stamp.Chain, error) {
+				c, _, err := named(bad).Boundary(inbound, "sess-1", "psp", "b", nil, bundle())
+				return c, err
+			},
+			"Boundary with partner": func() (stamp.Chain, error) {
+				c, _, err := named("orders").Boundary(inbound, "sess-1", bad, "b", nil, bundle())
+				return c, err
+			},
+			"Respond with svc": func() (stamp.Chain, error) {
+				s, err := named(bad).Respond(inbound, "rh", rid, nil)
+				if s != (stamp.Stamp{}) {
+					return stamp.Chain{s}, err
+				}
+				return nil, err
+			},
+		} {
+			t.Run(name+" "+bad, func(t *testing.T) {
+				c, err := f()
+				if err == nil {
+					t.Fatalf("stamped %+v", c)
+				}
+				if len(bad) > 1 && strings.Contains(err.Error(), bad) {
+					t.Errorf("the error quotes the value: %v", err)
+				}
+				if len(c) != 0 {
+					t.Errorf("returned %+v with an error", c)
+				}
+			})
+		}
+	}
+}

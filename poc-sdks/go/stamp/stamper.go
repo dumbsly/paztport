@@ -46,7 +46,8 @@ type Stamper struct {
 // An origin starts a chain of one stamp, with a new rid, sess "" and prev "", and ignores inbound. Any
 // other service appends a stamp to inbound with inbound's rid, its last stamp's sess and that stamp's sig
 // as prev; inbound itself is not changed, and without it there is nothing to stamp onto. Next also
-// refuses fields that Sign refuses and influence that influence.Commit refuses.
+// refuses fields that Sign refuses, influence that influence.Commit refuses, and a Svc or receiver that is
+// not a route node ([policy.ValidNode]), since no verified chain holds a stamp by or to one.
 func (s *Stamper) Next(
 	inbound Chain, receiver, bind string, infl []influence.Entry, bundle policy.ProofBundle,
 ) (Chain, *policy.Proof, error) {
@@ -85,7 +86,7 @@ func (s *Stamper) Next(
 // The stamp stands alone: prev is "", because the partner holds only this service's key, not the keys of
 // the internal chain's signers, whose stamps stay here as evidence. It carries the internal chain's rid.
 // Boundary refuses an empty sess, since a stamp with prev "" and no session would be a valid in-mesh
-// origin stamp, and an empty chain.
+// origin stamp, an empty chain, and a Svc or partnerEntry that is not a route node ([policy.ValidNode]).
 //
 // Boundary checks nothing about verified but that it has stamps. The boundary stamp vouches for the
 // request that led to it, so pass only a chain that passed the live order at this service.
@@ -114,8 +115,9 @@ func (s *Stamper) Boundary(
 // A response stamp is shaped like a request stamp, so on a chain nobody checked it would let anyone mint
 // stamps under this service's key: an origin's response to a forged one-stamp chain with an empty sig is
 // a valid origin stamp. So an origin never responds, and Respond refuses to; any other service passes
-// only a chain that passed the live order here. Respond also refuses an empty chain and a binding that
-// ResponseBinding refuses.
+// only a chain that passed the live order here. Respond also refuses an empty chain, a binding that
+// ResponseBinding refuses, and a Svc that is not a route node ([policy.ValidNode]), or a last stamp whose
+// svc is not one.
 func (s *Stamper) Respond(inbound Chain, resultHash, callID string, labels []influence.Label) (Stamp, error) {
 	if s.Origin {
 		return Stamp{}, errors.New("paztport stamp: an origin never responds")
@@ -135,6 +137,12 @@ func (s *Stamper) Respond(inbound Chain, resultHash, callID string, labels []inf
 func (s *Stamper) sign(rid, sess, rcv, bind string, infl []influence.Entry, prev string) (Stamp, error) {
 	if s.Now == nil {
 		return Stamp{}, errors.New("paztport stamp: Stamper.Now must be a clock")
+	}
+	if err := policy.ValidNode(s.Svc); err != nil {
+		return Stamp{}, fmt.Errorf("paztport stamp: can't sign: the svc is not a route node: %w", err)
+	}
+	if err := policy.ValidNode(rcv); err != nil {
+		return Stamp{}, fmt.Errorf("paztport stamp: can't sign: the rcv is not a route node: %w", err)
 	}
 	commit, err := influence.Commit(infl)
 	if err != nil {

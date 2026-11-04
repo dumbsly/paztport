@@ -552,6 +552,20 @@ func TestBeginRefusesUnstampable(t *testing.T) {
 	}
 }
 
+// TestBeginRefusesAnEmptyPath: a call with no path has no request line to bind, so it is refused with
+// nothing to send, whether or not a session is open.
+func TestBeginRefusesAnEmptyPath(t *testing.T) {
+	f := newFixture(t, []string{"attested"}, "unsafe", ok200)
+	before := len(f.partner.render(t))
+	x, step, err := f.e.Begin(f.a, f.a.Influence, "", charge)
+	if err == nil || x != nil || !reflect.DeepEqual(step, boundary.Step{}) {
+		t.Errorf("Begin with an empty path = %v, %+v, %v; want a refusal", x, step, err)
+	}
+	if got := f.partner.render(t); len(got) != before {
+		t.Errorf("the partner received %q", got[before:])
+	}
+}
+
 // TestCallToTheSessionPath: a call whose path is the handshake's endpoint is still a call, and its step
 // says so.
 func TestCallToTheSessionPath(t *testing.T) {

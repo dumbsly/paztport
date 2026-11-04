@@ -239,8 +239,8 @@ type Exchange struct {
 //
 // Begin refuses, with ErrNotVerified, a request whose chain did not pass the live order at this hop: the
 // boundary stamp vouches for the request that led to it, so a hop that did not verify it signs nothing,
-// and sends nothing, the handshake included. It also refuses a path that is not valid UTF-8, which has no
-// binding, and a call it cannot stamp, such as one whose influence the boundary key cannot blind: it
+// and sends nothing, the handshake included. It also refuses an empty path, a path that is not valid
+// UTF-8, which has no binding, and a call it cannot stamp, such as one whose influence the boundary key cannot blind: it
 // blinds the influence and checks that the call can be stamped before it gives the first step, whether a
 // session is open or not. A refusal comes with no exchange and nothing to send.
 //
@@ -251,6 +251,9 @@ func (e *Egress) Begin(
 ) (*Exchange, Step, error) {
 	if !a.Verified || len(a.Inbound) == 0 {
 		return nil, Step{}, ErrNotVerified
+	}
+	if path == "" {
+		return nil, Step{}, errors.New("paztport boundary: can't call an empty path")
 	}
 	bind, err := wire.Bind("POST", path, body)
 	if err != nil {

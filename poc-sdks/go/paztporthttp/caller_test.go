@@ -46,10 +46,14 @@ func TestReceiversName(t *testing.T) {
 		"[FE80::1]:8443":       "[fe80::1]",
 		"catalogue:80":         "catalogue",
 		"pay.internal.example": "pay.internal.example",
-		"":                     "",
 	} {
 		if got, ok := r.Name(host); !ok || got != want {
 			t.Errorf("Name(%q) = %q, %t, want %q, true", host, got, ok, want)
+		}
+	}
+	for _, host := range []string{"", ":8080"} {
+		if got, ok := r.Name(host); ok || got != "" {
+			t.Errorf("Name(%q) = %q, %t, want no name: a host with no name is no receiver", host, got, ok)
 		}
 	}
 	var none paztporthttp.Receivers
@@ -216,7 +220,7 @@ func TestCallerStampBindsTheTarget(t *testing.T) {
 	if o.Sent[0].Bind != bind {
 		t.Fatalf("/pay? binds as %s, /pay as %s", o.Sent[0].Bind, bind)
 	}
-	for _, tc := range []struct{ method, target string }{{"GET", "/p\xff"}, {"GET", "/p\xed\xa0\x80"}, {"G\xffT", "/p"}} {
+	for _, tc := range []struct{ method, target string }{{"GET", "/p\xff"}, {"GET", "/p\xed\xa0\x80"}, {"G\xffT", "/p"}, {"", "/p"}, {"GET", ""}} {
 		o, err := caller.Stamp(tc.method, tc.target, "orders", nil, nil, nil)
 		if err == nil {
 			t.Errorf("Stamp(%q, %q) = %+v, want an error", tc.method, tc.target, o)
