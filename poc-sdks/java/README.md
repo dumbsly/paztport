@@ -121,12 +121,13 @@ labels)` once the framework holds the answer whole. `Accepted.result()` is the
 verification result the decision rests on, or null where none ran, for an adapter
 to report; `PartnerAccepted.result()` is the same for a partner's call. The caller
 is never told it. `PartnerReceiver.accept(InboundRequest, PeerCert)` does the same
-for a partner, in the session the caller names. `PeerCert.of(certificate, address)` reads the peer and its issuer from a
-client certificate. `PartnerSessions` keeps a partner's sessions; its `builder()`
-refuses own material no client could accept, naming each `Fault`.
-`HttpSessions.serve` answers one handshake, and `UnsafeOperations` says what an
-unsafe session may not do. The starter's filters, gate and handshake endpoint are
-adapters over these, and another framework would adapt the same functions.
+for a partner, in the session the caller names. `PeerCert.of(certificate,
+address)` reads the peer and its issuer from a client certificate.
+`PartnerSessions` keeps a partner's sessions; its `builder()` refuses own material
+no client could accept, naming each `Fault`. `HttpSessions.serve` answers one
+handshake, and `UnsafeOperations` says what an unsafe session may not do. The
+starter's filters, gate and handshake endpoint are adapters over these, and
+another framework would adapt the same functions.
 
 `HttpCaller` is a service's side of its own calls.
 `HttpCaller.stamp(method, uri, body, inbound, influence)` stamps one call over its
@@ -543,20 +544,22 @@ carries the error and is stopped before the exception goes on.
 Actuator with a Prometheus registry exports each as a timer, such as
 `paztport_request_seconds_count`, `_sum` and `_max`, labelled `mode`, `reason` and
 `outcome` and also `error`, which Micrometer adds. The count is the number of
-requests. A `paztport.request.active` long-task timer goes with it; it is created
-when the observation starts, so it carries only the tags known then (`mode`, and
-none for a response), not `reason` or `outcome`.
+requests. A long-task timer goes with each, created when the observation starts, so
+it carries only the tags known then: `paztport.request.active` carries `mode` and
+`paztport.response.active` carries none, since `reason` and `outcome` are set at
+stop.
 
 Each timer spans the decision only: `RequestContext.accept` for the filters and the
 response check for the interceptor. It is stopped before the handler runs, so it
 says nothing of how long the handler takes or of an answer written later.
 
-Nothing from a request is a tag: no service name, request id, suspect, peer or target.
-A tag from traffic would make a series for each value, and a count that names a service
-or a peer is more than a metric needs to know; every value is one of the fixed words
-above or a reason code's name, so the series stay few whatever arrives. Those values
-are in the `PAZTPORT_EVENT` and `PAZTPORT_TRACE` logs, which are unchanged. The control
-plane (the handshake endpoint and the unverified paths) is not observed.
+Nothing from a request is a tag: no service name, request id, suspect, peer or
+target. A tag from traffic would make a series for each value, and a count that
+names a service or a peer is more than a metric needs to know; every value is one of
+the fixed words above or a reason code's name, so the series stay few whatever
+arrives. Those values are in the `PAZTPORT_EVENT` and `PAZTPORT_TRACE` logs, which
+are unchanged. The control plane (the handshake endpoint and the unverified paths)
+is not observed.
 
 Boot's standard property switches an observation off by name:
 `management.observations.enable.paztport.request=false`, or
