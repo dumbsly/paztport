@@ -18,7 +18,10 @@ import org.springframework.test.web.servlet.MockMvc;
 // test covers the controller contract. End-to-end verification is proven by the
 // glue tests and the Docker scenario-1 run.
 // The TLS client is off (paztport.tls-bundle=false): these MOCK-environment tests exercise no TLS, and none is mounted.
-@SpringBootTest(properties = {"paztport.verify=false", "paztport.tls-bundle=false"})
+// Actuator's SSL expiry meters read the mesh bundle at start-up, and its certificate files are not mounted here.
+@SpringBootTest(properties = {"paztport.verify=false", "paztport.tls-bundle=false",
+        "spring.autoconfigure.exclude="
+                + "org.springframework.boot.micrometer.metrics.autoconfigure.ssl.SslMetricsAutoConfiguration"})
 @AutoConfigureMockMvc
 class PaymentControllerTest {
 
