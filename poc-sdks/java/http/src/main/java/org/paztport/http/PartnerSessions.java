@@ -205,8 +205,8 @@ public final class PartnerSessions {
                 // The client's keyring whole, its window included, so its signature is checked over its window. A
                 // session pins its client's one keyring and one root.
                 verifier = new Verifier(VerifierConfig.pinned(List.of(req.clientKeyringFile()),
-                        List.of(req.clientRoot()), req.clientPolicyKey(), clientOrigins, sess, nonces, clock,
-                        callMaxAgeMs, runMaxAgeMs));
+                        List.of(req.clientRoot()), req.clientPolicyKey(), clock.getAsLong(), clientOrigins, sess,
+                        nonces, clock, callMaxAgeMs, runMaxAgeMs));
             } catch (IllegalArgumentException e) {
                 verifier = null;
             }

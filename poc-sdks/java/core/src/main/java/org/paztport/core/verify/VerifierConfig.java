@@ -84,8 +84,10 @@ public record VerifierConfig(
 
     /**
      * Pins the policy key, a base64url SPKI string (the {@code policy.pub} text): every keyring file must name it and
-     * verify under it, and so must every signed root. Each must also be current by {@code clock}: the policy owner no
-     * longer vouches for an expired one. Throws {@link IllegalArgumentException} otherwise, naming the member by its
+     * verify under it, and so must every signed root. Each must also be current at {@code at}, the time it is judged
+     * (milliseconds since the epoch): the policy owner no longer vouches for an expired one. The verifier keeps
+     * {@code clock}, which it reads live for every request, so {@code at} is a reading taken once, as at startup, and
+     * never the clock itself. Throws {@link IllegalArgumentException} otherwise, naming the member by its
      * place in its list ({@code keyrings[1]}), so a verifier is never built on material the pin does not vouch for
      * now; and for an empty list. Each member keeps its own window, and {@link #policyNotAfter(List, List)} of them is
      * recorded as {@code policyNotAfter}.
@@ -94,6 +96,7 @@ public record VerifierConfig(
             List<KeyringFile> keyrings,
             List<SignedRoot> roots,
             String pinnedPolicyKey,
+            long at,
             Set<String> allowedOrigins,
             String sess,
             NonceCache nonces,
@@ -102,10 +105,9 @@ public record VerifierConfig(
             long runMaxAgeMs) {
         ChainChecks.members(keyrings, "keyrings");
         ChainChecks.members(roots, "roots");
-        long now = clock.getAsLong();
         List<PinnedKeyring> pinnedKeyrings = new ArrayList<>();
         for (int i = 0; i < keyrings.size(); i++) {
-            pinnedKeyrings.add(keyring(keyrings.get(i), "keyrings[" + i + "]", pinnedPolicyKey, now));
+            pinnedKeyrings.add(keyring(keyrings.get(i), "keyrings[" + i + "]", pinnedPolicyKey, at));
         }
         PublicKey pin;
         try {
@@ -115,7 +117,7 @@ public record VerifierConfig(
         }
         List<PinnedRoot> pinnedRoots = new ArrayList<>();
         for (int i = 0; i < roots.size(); i++) {
-            pinnedRoots.add(root(roots.get(i), "roots[" + i + "]", pin, now));
+            pinnedRoots.add(root(roots.get(i), "roots[" + i + "]", pin, at));
         }
         return new VerifierConfig(pinnedKeyrings, pinnedRoots, policyNotAfter(pinnedKeyrings, pinnedRoots),
                 allowedOrigins, sess, nonces, clock, callMaxAgeMs, runMaxAgeMs);

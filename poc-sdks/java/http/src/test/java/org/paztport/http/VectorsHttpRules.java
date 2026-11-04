@@ -818,7 +818,7 @@ final class VectorsHttpRules {
             InMemoryNonceCache nonces = new InMemoryNonceCache(c.get("nonceTtlMs").asLong());
             c.get("spent").forEach(k -> nonces.seenBefore(k.asText(), now));
             b.verifier(new Verifier(VerifierConfig.pinned(List.of(m.keyring()), List.of(m.root()), m.policyKey(),
-                    textSet(c.get("allowedOrigins")), "", nonces, () -> now, c.get("callMaxAgeMs").asLong(),
+                    now, textSet(c.get("allowedOrigins")), "", nonces, () -> now, c.get("callMaxAgeMs").asLong(),
                     c.get("runMaxAgeMs").asLong())));
         }
         return b.stamper(new Stamper(svc, s.get("inst").asText(), fx.privateKey(svc), origin, () -> "unused",
@@ -1156,7 +1156,7 @@ final class VectorsHttpRules {
         HttpCaller.Builder b = HttpCaller.builder(svc, stamper).bundle(m.bundle(svc)).receivers(receivers);
         if (s.get("verifier").asBoolean()) {
             b.verifier(new Verifier(VerifierConfig.pinned(List.of(m.keyring()), List.of(m.root()), m.policyKey(),
-                    textSet(c.get("allowedOrigins")), "", new InMemoryNonceCache(c.get("nonceTtlMs").asLong()),
+                    now, textSet(c.get("allowedOrigins")), "", new InMemoryNonceCache(c.get("nonceTtlMs").asLong()),
                     () -> now, c.get("callMaxAgeMs").asLong(), c.get("runMaxAgeMs").asLong())));
         }
         HttpCaller caller = b.build();

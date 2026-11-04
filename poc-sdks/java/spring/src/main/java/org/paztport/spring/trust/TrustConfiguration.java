@@ -66,7 +66,7 @@ public class TrustConfiguration {
         SignedRoot root = OwnMaterial.loadRoot(Path.of(props.getRootPath()));
         String pin = KeyFiles.loadPolicyPin(Path.of(props.getPolicyKeyPath()));
         // One reading of the clock judges every file at startup and pins them, so none can pass one check and
-        // expire before the next. The pinned members, judged at that reading, then go to a config on the live clock.
+        // expire before the next. The verifier itself keeps the live clock.
         long startup = System.currentTimeMillis();
         Path keyringFile = Path.of(props.getKeyringPath());
         Path rootFile = Path.of(props.getRootPath());
@@ -89,19 +89,17 @@ public class TrustConfiguration {
                     rootFiles.size() == 1 ? "root" : "roots", keyringFiles.size(),
                     keyringFiles.size() == 1 ? "keyring" : "keyrings");
         }
-        VerifierConfig pinned = VerifierConfig.pinned(
+        return new Verifier(VerifierConfig.pinned(
                 keyrings,
                 roots,
                 pin,
+                startup,
                 Set.copyOf(props.getOrigins()),
                 "",
                 new InMemoryNonceCache(VerifierConfig.nonceTtlFor(props.getMaxAgeMs())),
-                () -> startup,
+                System::currentTimeMillis,
                 props.getMaxAgeMs(),
-                runMaxAgeMs);
-        return new Verifier(new VerifierConfig(pinned.keyrings(), pinned.roots(), pinned.policyNotAfter(),
-                pinned.allowedOrigins(), pinned.sess(), pinned.nonces(), System::currentTimeMillis,
-                pinned.callMaxAgeMs(), pinned.runMaxAgeMs()));
+                runMaxAgeMs));
     }
 
     private static List<Path> paths(List<String> names) {

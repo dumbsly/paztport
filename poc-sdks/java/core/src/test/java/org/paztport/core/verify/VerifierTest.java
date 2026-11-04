@@ -110,15 +110,15 @@ class VerifierTest {
         SignedRoot signed = SignedRoot.sign(root, "v1", NOT_AFTER, policy.getPrivate());
         KeyringFile unsigned = new KeyringFile(Map.of(), pin, null, NOT_AFTER);
         assertThrows(IllegalArgumentException.class, () -> VerifierConfig.pinned(List.of(unsigned),
-                List.of(signed), pin, Set.of("session"), "s", new InMemoryNonceCache(), () -> 0L, 5000, 5000));
+                List.of(signed), pin, 0L, Set.of("session"), "s", new InMemoryNonceCache(), () -> 0L, 5000, 5000));
         KeyringFile good = KeyringFile.sign(Map.of(), pin, NOT_AFTER, policy.getPrivate());
-        VerifierConfig cfg = VerifierConfig.pinned(List.of(good), List.of(signed), pin, Set.of("session"), "s",
+        VerifierConfig cfg = VerifierConfig.pinned(List.of(good), List.of(signed), pin, 0L, Set.of("session"), "s",
                 new InMemoryNonceCache(), () -> 0L, 5000, 5000);
         assertEquals("v1", cfg.roots().get(0).rootId());
         KeyPair other = Crypto.generateEd25519KeyPair();
         SignedRoot forged = SignedRoot.sign(root, "v1", NOT_AFTER, other.getPrivate());
         assertThrows(IllegalArgumentException.class, () -> VerifierConfig.pinned(List.of(good), List.of(forged),
-                pin, Set.of("session"), "s", new InMemoryNonceCache(), () -> 0L, 5000, 5000));
+                pin, 0L, Set.of("session"), "s", new InMemoryNonceCache(), () -> 0L, 5000, 5000));
     }
 
     @Test
@@ -280,7 +280,7 @@ class VerifierTest {
                 "pi", Base64Url.encode(Crypto.encodePublicKey(PI.getPublic())));
         KeyringFile ring = KeyringFile.sign(services, pin, ringNotAfter, policy.getPrivate());
         SignedRoot root = SignedRoot.sign(TREE.root(), "vtest", rootNotAfter, policy.getPrivate());
-        return new Verifier(VerifierConfig.pinned(List.of(ring), List.of(root), pin, Set.of("session"), "s",
+        return new Verifier(VerifierConfig.pinned(List.of(ring), List.of(root), pin, clock[0], Set.of("session"), "s",
                 new InMemoryNonceCache(2 * CALL), () -> clock[0], CALL, RUN));
     }
 

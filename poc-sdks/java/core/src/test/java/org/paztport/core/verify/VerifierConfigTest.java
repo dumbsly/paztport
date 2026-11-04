@@ -43,8 +43,8 @@ class VerifierConfigTest {
     }
 
     private static VerifierConfig pinned(List<KeyringFile> keyrings, List<SignedRoot> roots, long now) {
-        return VerifierConfig.pinned(keyrings, roots, PIN, Set.of("session"), "s", new InMemoryNonceCache(),
-                () -> now, 5000, 5000);
+        return VerifierConfig.pinned(keyrings, roots, PIN, now, Set.of("session"), "s",
+                new InMemoryNonceCache(), () -> now, 5000, 5000);
     }
 
     private static VerifierConfig pinned(KeyringFile keyring, SignedRoot root, long now) {
@@ -71,6 +71,19 @@ class VerifierConfigTest {
     @Test
     void expiredRootRefusedAtBuild() {
         refused(ring(NOW + 1000), root(NOW - 1), "root", "expired", Long.toString(NOW - 1));
+    }
+
+    @Test
+    void membersAreJudgedAtTheGivenTimeAndTheConfigKeepsTheLiveClock() {
+        long[] clock = {NOW + 5000};
+        VerifierConfig cfg = VerifierConfig.pinned(List.of(ring(NOW + 1000)), List.of(root(NOW + 1000)), PIN, NOW,
+                Set.of("session"), "s", new InMemoryNonceCache(), () -> clock[0], 5000, 5000);
+        assertEquals(NOW + 5000, cfg.clock().getAsLong(), "judging at NOW did not read the clock");
+        clock[0] = NOW + 6000;
+        assertEquals(NOW + 6000, cfg.clock().getAsLong(), "the config's clock is the live one");
+        assertThrows(IllegalArgumentException.class, () -> VerifierConfig.pinned(List.of(ring(NOW + 1000)),
+                List.of(root(NOW + 1000)), PIN, NOW + 1001, Set.of("session"), "s", new InMemoryNonceCache(),
+                () -> NOW, 5000, 5000));
     }
 
     @Test

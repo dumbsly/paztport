@@ -121,6 +121,34 @@ class OverlapPathsTest {
         }, "paztport.overlap.root-paths=" + dir.resolve("renewed.json"));
     }
 
+    /**
+     * The starter has no clock seam: its verifier reads the wall clock, so this test lets a real window run out
+     * (a few seconds) rather than add a seam to production code for one test. A verifier pinned to the time it
+     * started would go on accepting after its material expired.
+     */
+    @Test
+    void theVerifierKeepsALiveClockAndRefusesOnceItsMaterialHasExpired(@TempDir Path dir) throws Exception {
+        long notAfter = System.currentTimeMillis() + 4_000;
+        PolicyBuilder.Result brief = PolicyBuilder.build(List.of(List.of("gateway", "orders")), 4, notAfter,
+                policy.getPrivate());
+        Files.writeString(dir.resolve("policy.pub"), pub(policy) + "\n");
+        keyring(dir.resolve("keyring.json"), gateway, notAfter, policy);
+        JSON.writeValue(dir.resolve("root.json").toFile(), brief.signedRoot());
+
+        runWith(dir, context -> {
+            Verifier verifier = context.getBean(Verifier.class);
+            assertThat(verdict(verifier, gateway, brief, "t-1")).as("current at startup").isEqualTo(ReasonCode.OK);
+            try {
+                Thread.sleep(Math.max(0, notAfter - System.currentTimeMillis()) + 100);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new AssertionError(e);
+            }
+            assertThat(verdict(verifier, gateway, brief, "t-2")).as("the same verifier, once its window has passed")
+                    .isEqualTo(ReasonCode.POLICY_EXPIRED);
+        });
+    }
+
     @Test
     void aStampUnderAKeyOnlyInAnOverlapKeyringIsAccepted(@TempDir Path dir) throws Exception {
         writeOwn(dir);

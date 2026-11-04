@@ -165,7 +165,7 @@ class StamperTest {
         KeyringFile ring = KeyringFile.sign(Map.of("payment", Base64Url.encode(Crypto.encodePublicKey(
                 paymentKey.getPublic()))), pin, NOT_AFTER, policyKey.getPrivate());
         Verifier partner = new Verifier(VerifierConfig.pinned(List.of(ring), List.of(egress.signedRoot()), pin,
-                Set.of("payment"), sess, new InMemoryNonceCache(60_000), () -> NOW, 30_000, 300_000));
+                NOW, Set.of("payment"), sess, new InMemoryNonceCache(60_000), () -> NOW, 30_000, 300_000));
         return partner.verify(new VerifyInput(json(b.chain()), "b3", Influence.toJson(BOUNDARY_INFLUENCE),
                 json(b.proof()), "psp", true, RID + "|payment|req", new Peer("payment", "10.0.0.1")));
     }
