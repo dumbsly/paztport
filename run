@@ -17,8 +17,8 @@ Usage: ./run <command> [options]
   agents-mcp   Install the TypeScript SDK and the agents demo, set up demo keys, and start the demo page.
   test         The name and link checks, the Java SDK and Java demo suites, a check of what the built jars
                carry, the TypeScript type checks and the TypeScript SDK and demo suites, then gofmt, go vet
-               and the Go SDK's suite, and gofmt, go vet, staticcheck and the race-checked suite of the
-               Envoy Gateway processor. No Docker and no model.
+               and the Go SDK's suite, and gofmt, go vet, staticcheck, the race-checked suite and the
+               third-party list of the Envoy Gateway processor. No Docker and no model.
   bench        Build the Java SDK's benchmarks and time the primitives a verifying hop pays for (JMH, a few
                minutes), on the JDK Maven uses. Options after it go to JMH, e.g. ./run bench -f 3; JMH's own
                help is ./run bench -h. Not part of test.
@@ -144,7 +144,8 @@ test_go() (
   go test -count=1 ./...
 )
 
-# The Envoy Gateway processor's checks: formatting, vet, staticcheck, then its tests under the race detector.
+# The Envoy Gateway processor's checks: formatting, vet, staticcheck, its tests under the race detector, then
+# that THIRD-PARTY.txt lists exactly the modules its binary is built from.
 test_processor() (
   cd poc-demos/envoy-gateway/processor
   local unformatted
@@ -153,6 +154,7 @@ test_processor() (
   go vet ./...
   staticcheck ./...
   go test -count=1 -race ./...
+  bash third-party.sh check
 )
 
 cmd_java_mesh() {

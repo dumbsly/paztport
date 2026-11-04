@@ -958,3 +958,63 @@ func TestOutcomesAreTheirMetricLabels(t *testing.T) {
 		t.Fatalf("outcomes %q, want %q", got, want)
 	}
 }
+
+// TestObservesTheStampsRID reports a stamped request with the rid its stamp carries, and a refused one
+// with none.
+func TestObservesTheStampsRID(t *testing.T) {
+	f := newFixture(t)
+	out, err := f.run(nil, requestHeaders(true, get...))
+	if err != nil || len(out) != 1 {
+		t.Fatalf("Process = %v, with %d responses", err, len(out))
+	}
+	rid := sentChain(t, apply(t, get, headersMutation(t, out[0])))[0].RID
+	if o := f.observed(t, edge.Stamped); o.RID != rid {
+		t.Fatalf("observed the rid %q, want the stamp's %q", o.RID, rid)
+	}
+
+	f = newFixture(t)
+	req := requestHeaders(true, get...)
+	req.Attributes = attributes(routeMetadata("shop", "pay"))
+	if _, err := f.run(nil, req); err != nil {
+		t.Fatal(err)
+	}
+	if o := f.observed(t, edge.RefusedRoute); o.RID != "" {
+		t.Fatalf("observed the rid %q for a refused request, want none", o.RID)
+	}
+}
+
+// TestObservesEnvoysRequestID reports Envoy's x-request-id with each request, stamped or refused, when
+// it is one value of the form Envoy gives it, and nothing otherwise: it is logged, and a value of any
+// other form is not Envoy's.
+func TestObservesEnvoysRequestID(t *testing.T) {
+	const id = "0f8b2c1e-6a4d-4b7e-9c3f-2d5e8a1b7c40"
+	for _, tc := range []struct {
+		name  string
+		route string
+		hs    []header
+		want  edge.Outcome
+		id    string
+	}{
+		{"stamped", "orders", with(get, header{"x-request-id", id}), edge.Stamped, id},
+		{"refused", "pay", with(get, header{"x-request-id", id}), edge.RefusedRoute, id},
+		{"in another case", "orders", with(get, header{"X-Request-Id", id}), edge.Stamped, id},
+		{"absent", "orders", get, edge.Stamped, ""},
+		{"twice", "orders", with(get, header{"x-request-id", id}, header{"x-request-id", id}), edge.Stamped, ""},
+		{"empty", "orders", with(get, header{"x-request-id", ""}), edge.Stamped, ""},
+		{"with a space", "orders", with(get, header{"x-request-id", "a b"}), edge.Stamped, ""},
+		{"with a quote", "orders", with(get, header{"x-request-id", `a"b`}), edge.Stamped, ""},
+		{"too long", "orders", with(get, header{"x-request-id", strings.Repeat("a", 129)}), edge.Stamped, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFixture(t)
+			req := requestHeaders(true, tc.hs...)
+			req.Attributes = attributes(routeMetadata("shop", tc.route))
+			if _, err := f.run(nil, req); err != nil {
+				t.Fatal(err)
+			}
+			if o := f.observed(t, tc.want); o.RequestID != tc.id {
+				t.Fatalf("observed the request id %q, want %q", o.RequestID, tc.id)
+			}
+		})
+	}
+}

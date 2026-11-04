@@ -1,0 +1,6 @@
+# The image's build context is the repository's root; it needs only these.
+*
+!LICENSE
+!NOTICE
+!poc-sdks/go/
+!poc-demos/envoy-gateway/processor/

@@ -55,6 +55,11 @@ type Observation struct {
 	StampDuration time.Duration
 	// BodyBytes is the size of the body received, whole or as far as it was read.
 	BodyBytes int
+	// RID is the rid of the request's stamp, or "" for a request not stamped.
+	RID string
+	// RequestID is Envoy's x-request-id for the request, or "" when the request's headers do not carry
+	// exactly one, of 1 to 128 letters, digits and the marks - _ and .: Envoy's own is a UUID.
+	RequestID string
 }
 
 // Config is what a [Processor] is built from.
@@ -141,8 +146,9 @@ func InstFromEnv() (string, error) {
 // stamps there. Otherwise it answers them with no stamp, only removing every Paztport header the client
 // sent, so that a request Envoy lets on unanswered carries none and its receiver refuses it as unstamped,
 // and with a mode override that sends the request's trailers; then it waits for the message that ends the
-// stream, answers no body message before that one, and stamps over the whole body. The stamp's answer removes every Paztport header the request carries but the ones
-// it sets, and sets each of those, replacing every value.
+// stream, answers no body message before that one, and stamps over the whole body. The stamp's answer
+// removes every Paztport header the request carries but the ones it sets, and sets each of those,
+// replacing every value.
 //
 // Process refuses, with Envoy's immediate response, its own status and a plain-text body, and never a
 // Paztport refusal: 403 for a route it does not stamp for, 413 for a body over the limit, and 500 for
@@ -195,6 +201,7 @@ type request struct {
 	receiver string
 	paztport []string // the Paztport header names the client sent, in lower case, each once
 	body     []byte
+	id       string // Envoy's x-request-id, or ""
 }
 
 // handle answers one message, and reports whether the stream is over for the processor.
@@ -251,6 +258,7 @@ func (r *request) handle(msg *extprocv3.ProcessingRequest) (*extprocv3.Processin
 func (r *request) requestHeaders(
 	msg *extprocv3.ProcessingRequest, h *extprocv3.HttpHeaders,
 ) (*extprocv3.ProcessingResponse, bool) {
+	r.id = requestID(h.GetHeaders())
 	// Only a buffered body holds the headers until the body is answered: under any other mode they would
 	// go on unstamped once answered here.
 	if msg.GetProtocolConfig().GetRequestBodyMode() != extprocfilterv3.ProcessingMode_BUFFERED {
@@ -352,7 +360,11 @@ func (r *request) stamp(
 		}
 	}
 	r.phase = passed
-	r.decide(Observation{Outcome: Stamped, StampDuration: took, BodyBytes: len(r.body)})
+	var rid string
+	if n := len(out.Sent); n > 0 {
+		rid = out.Sent[n-1].RID
+	}
+	r.decide(Observation{Outcome: Stamped, StampDuration: took, BodyBytes: len(r.body), RID: rid})
 	return answer(m), false
 }
 
@@ -394,12 +406,37 @@ func (r *request) ended() {
 	}
 }
 
-// decide reports the request's observation, the first time only.
+// decide reports the request's observation, with Envoy's x-request-id, the first time only.
 func (r *request) decide(o Observation) {
 	if !r.decided {
 		r.decided = true
+		o.RequestID = r.id
 		r.p.observe(o)
 	}
+}
+
+// maxRequestID is the longest x-request-id the edge reports. Envoy's own is a UUID, of 36.
+const maxRequestID = 128
+
+// requestID returns the request's x-request-id when hs carry exactly one, of 1 to [maxRequestID] letters,
+// digits and the marks - _ and ., and "" otherwise. Envoy sets it, as a UUID; the form is checked all the
+// same, since it is logged.
+func requestID(hs *corev3.HeaderMap) string {
+	var ids []string
+	for _, h := range hs.GetHeaders() {
+		if lowerASCII(h.GetKey()) == "x-request-id" {
+			ids = append(ids, string(h.GetRawValue()))
+		}
+	}
+	if len(ids) != 1 || len(ids[0]) == 0 || len(ids[0]) > maxRequestID {
+		return ""
+	}
+	for _, c := range []byte(ids[0]) {
+		if !('a' <= c && c <= 'z' || 'A' <= c && c <= 'Z' || '0' <= c && c <= '9' || c == '-' || c == '_' || c == '.') {
+			return ""
+		}
+	}
+	return ids[0]
 }
 
 // methodAndTarget returns the request's :method and :path, each of which must appear once, not empty.

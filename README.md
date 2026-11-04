@@ -540,7 +540,7 @@ Envoy Gateway processor, and unzip for its jar check. macOS and Linux; on Window
 WSL.
 
 ```bash
-./run test        # the name and link checks, the TypeScript type checks, gofmt, go vet and staticcheck, every suite and a check of the built jars; no Docker and no model
+./run test        # the name and link checks, the TypeScript type checks, gofmt, go vet and staticcheck, every suite, a check of the built jars and of the processor's third-party list; no Docker and no model
 ./run java-mesh   # build the Java SDK and the mesh demo, then run every scenario
 ./run agents-mcp  # install the TypeScript SDK and the agents demo, set up demo keys, start the demo page
 ./run bench       # time the primitives a verifying hop pays for (JMH, a few minutes); not part of test
@@ -639,6 +639,18 @@ image's licences are the base image's (the Temurin JRE and its operating system
 packages) plus those its jar carries. The TypeScript packages bundle nothing; npm
 installs their dependencies as published. The Go module depends on nothing beyond
 Go's standard library.
+
+The Envoy Gateway processor is a Go binary, and Go compiles every module it uses into
+it, so its image carries what the jars carry: in `/licenses/`, the repository's
+LICENSE, a NOTICE that starts with the repository's and adds each module's own, the
+processor's
+[THIRD-PARTY.txt](poc-demos/envoy-gateway/processor/THIRD-PARTY.txt), and each
+module's licence (and patent grant, where it has one) under
+`third-party/<module>@<version>/`. That list names every module the binary is built
+from, Go's standard library included, each under one licence (Apache-2.0, MIT or
+BSD-3-Clause); `./run test` checks it against `go list -deps`, and the image build
+against the built binary, failing for a module with no licence file. The base is
+distroless, whose own packages carry their copyright files.
 
 Bouncy Castle appears in the build for two reasons: the SDK's `keygen` uses it to
 build the mesh's X.509 certificates, and `docker-java` uses it for Docker TLS in the
