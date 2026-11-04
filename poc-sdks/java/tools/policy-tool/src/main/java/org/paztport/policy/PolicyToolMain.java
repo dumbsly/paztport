@@ -418,6 +418,19 @@ public final class PolicyToolMain {
                 Path.of(positional.size() > 2 ? positional.get(2) : "out/policy"), renew, null);
     }
 
+    /**
+     * What a rotation prints: the two files it wrote, then the rollout the keyring asks of the holders in short form.
+     * Paths only, no key material.
+     */
+    static String rotated(Path keysDir, String svc, String when) {
+        return "policy-tool: wrote " + keysDir.resolve(svc + ".next.key") + " and "
+                + keysDir.resolve("keyring.next.json") + ", " + when + "; current files unchanged. Next:"
+                + " pin keyring.next.json beside keyring.json on every verifier, switch " + svc + " to " + svc
+                + ".next.key, then make keyring.next.json each verifier's keyring-path and unpin keyring.json;"
+                + " once done, move keyring.next.json over keyring.json and " + svc + ".next.key over " + svc
+                + ".key before any later --renew or --rotate";
+    }
+
     public static void main(String[] args) throws IOException {
         String replyCertSvc = System.getenv("PAZTPORT_REPLY_CERT_SVC");
         Args a;
@@ -459,10 +472,7 @@ public final class PolicyToolMain {
 
         String when = "notAfter " + policyNotAfter + " (" + Instant.ofEpochMilli(policyNotAfter) + ")";
         if (a.rotate() != null) {
-            System.out.println("policy-tool: wrote " + a.keysDir().resolve(a.rotate() + ".next.key") + " and "
-                    + a.keysDir().resolve("keyring.next.json") + ", " + when + "; current files unchanged. Next:"
-                    + " pin keyring.next.json beside keyring.json, switch " + a.rotate() + " to its new key,"
-                    + " unpin keyring.json");
+            System.out.println(rotated(a.keysDir(), a.rotate(), when));
             return;
         }
         if (a.renew()) {

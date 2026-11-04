@@ -640,6 +640,18 @@ class PolicyToolMainTest {
                 Crypto.sign(key, message)));
     }
 
+    /** What the tool prints after a rotation is the whole rollout, down to the move that must precede a renewal. */
+    @Test
+    void theLineAfterARotationGivesTheWholeRollout() {
+        Path keys = Path.of("keys");
+        String line = PolicyToolMain.rotated(keys, "orders", "notAfter 1");
+        assertTrue(line.contains(keys.resolve("orders.next.key") + " and " + keys.resolve("keyring.next.json")), line);
+        assertTrue(line.contains("Next: pin keyring.next.json beside keyring.json on every verifier, switch orders"
+                + " to orders.next.key, then make keyring.next.json each verifier's keyring-path and unpin"
+                + " keyring.json; once done, move keyring.next.json over keyring.json and orders.next.key over"
+                + " orders.key before any later --renew or --rotate"), line);
+    }
+
     @Test
     void rotateLeavesTheCurrentFilesAsTheyAre(@TempDir Path dir) throws Exception {
         Path keys = dir.resolve("keys");
