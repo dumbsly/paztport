@@ -7,6 +7,9 @@ stamps it, and requestBuffer sets that buffer's limit for each route the policy 
 processor's own limit. A longer body is refused (413), and never reaches its backend. Envoy Gateway attaches one
 BackendTrafficPolicy to a route, the oldest, so with backendTrafficPolicy false the routes' own policy carries the
 same limit instead.
+
+With backendTrafficPolicyMergeType set (StrategicMerge by default), the policy merges into one on the routes'
+Gateway or listener, so the routes keep its settings; empty, it replaces that one on these routes.
 */ -}}
 {{- if .Values.backendTrafficPolicy }}
 apiVersion: gateway.envoyproxy.io/v1alpha1
@@ -22,6 +25,9 @@ spec:
       kind: HTTPRoute
       name: {{ . }}
     {{- end }}
+  {{- with .Values.backendTrafficPolicyMergeType }}
+  mergeType: {{ . }}
+  {{- end }}
   requestBuffer:
     limit: {{ .Values.bodyLimit | int64 | quote }}
 {{- end }}

@@ -61,13 +61,15 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 
 {{- /*
 The HTTPRoutes the processor is attached to, one name a line: those in routes, then those in extraRoutes. A name in
-both is refused.
+both, or twice in extraRoutes, is refused.
 */ -}}
 {{- define "edge.attached" -}}
-{{- $names := list -}}
-{{- range .Values.routes }}{{ $names = append $names .httpRoute }}{{ end -}}
+{{- $mapped := list -}}
+{{- range .Values.routes }}{{ $mapped = append $mapped .httpRoute }}{{ end -}}
+{{- $names := $mapped -}}
 {{- range .Values.extraRoutes }}
-{{- if has . $names }}{{ fail (printf "the HTTPRoute %s is in both routes and extraRoutes" .) }}{{ end }}
+{{- if has . $mapped }}{{ fail (printf "the HTTPRoute %s is in both routes and extraRoutes" .) }}{{ end }}
+{{- if has . $names }}{{ fail (printf "the HTTPRoute %s is listed twice in extraRoutes" .) }}{{ end }}
 {{- $names = append $names . }}
 {{- end }}
 {{- join "\n" $names }}
@@ -87,7 +89,7 @@ Refuses values the processor would not start with, or that would leave the edge 
 no keyring or root, and a body limit that is not a whole number of bytes from 1 to 1 GiB (1073741824), the processor's
 own bounds. bodyLimit is a plain number of bytes, such as 1048576, as a number or a string of digits: a quantity such
 as 1Mi, a fraction or anything else is refused. It refuses as well no Gateway for the NetworkPolicy to admit the
-Envoy pods of, and a mergeType Envoy Gateway does not take for an EnvoyExtensionPolicy.
+Envoy pods of, and a mergeType Envoy Gateway does not take for a policy on routes (it refuses Replace).
 */ -}}
 {{- define "edge.validate" -}}
 {{- if not .Values.routes }}{{ fail "routes must map at least one HTTPRoute" }}{{ end }}
@@ -97,6 +99,11 @@ Envoy pods of, and a mergeType Envoy Gateway does not take for an EnvoyExtension
 {{- with .Values.mergeType }}
 {{- if not (has . (list "StrategicMerge" "JSONMerge")) }}
 {{- fail (printf "mergeType %v is not StrategicMerge or JSONMerge" .) }}
+{{- end }}
+{{- end }}
+{{- with .Values.backendTrafficPolicyMergeType }}
+{{- if not (has . (list "StrategicMerge" "JSONMerge")) }}
+{{- fail (printf "backendTrafficPolicyMergeType %v is not StrategicMerge, JSONMerge or empty" .) }}
 {{- end }}
 {{- end }}
 {{- if not .Values.material.keyrings }}{{ fail "material.keyrings needs at least one keyring" }}{{ end }}

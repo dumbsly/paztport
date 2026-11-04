@@ -57,9 +57,17 @@ bodyLimit: 1048576
 # passed on unstamped.
 backendTrafficPolicy: true
 
+# How that BackendTrafficPolicy combines with one on the routes' Gateway or listener (an operator's rate limits,
+# timeouts, retries or circuit breakers). StrategicMerge (the default) or JSONMerge merge it into that policy: the
+# routes keep every setting of the Gateway's and gain the request buffer, and Envoy Gateway marks the Gateway's
+# policy Merged. Empty sets no mergeType: the chart's policy then replaces the Gateway's on these routes, which lose
+# its settings, and Envoy Gateway marks the Gateway's policy Overridden.
+backendTrafficPolicyMergeType: StrategicMerge
+
 # How the processor's EnvoyExtensionPolicy, which targets the routes, combines with one on their Gateway or
 # listener: empty (the default), the route's replaces the Gateway's, which Envoy Gateway then marks Overridden;
-# StrategicMerge or JSONMerge merge the route's into it. See the README before setting it.
+# StrategicMerge or JSONMerge merge the route's into it, keeping the Gateway's Wasm, Lua and dynamic modules, though
+# a Gateway-wide ext_proc is still replaced (extProc is a list, and the chart sets it). See the README first.
 mergeType: ""
 
 # How long Envoy waits for each of the processor's answers. It waits for the request's whole body first, so this
