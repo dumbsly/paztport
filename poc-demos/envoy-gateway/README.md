@@ -194,7 +194,8 @@ ext_proc filter stops running on every Paztport route, and Envoy Gateway marks t
 keeping its Wasm, Lua and dynamic modules. A Gateway-wide ext_proc is still replaced on these routes: the merge
 covers the whole policy, `extProc` is a list with no merge key, and the chart sets it. Operators should alert on an
 EnvoyExtensionPolicy or a BackendTrafficPolicy with `Overridden` true, and check each policy on every ancestor (each
-Gateway its routes attach to), not only the first. `envoy-gateway.sh up` waits for the chart's policy, and for the routes' BackendTrafficPolicy,
+Gateway its routes attach to), not only the first. A policy that merges also lists, as one more ancestor, the
+listener whose policy it merged into, with `Merged` true and no `Accepted` condition. `envoy-gateway.sh up` waits for the chart's policy, and for the routes' BackendTrafficPolicy,
 to be accepted on every ancestor and overridden on none.
 
 A route to a Paztport backend goes into the chart's values (`routes`, or `extraRoutes` until it is mapped) before
