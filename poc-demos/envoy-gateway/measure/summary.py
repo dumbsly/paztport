@@ -15,6 +15,13 @@
       requests a second within 2% of the offered, and no request dropped. A run that did not is said so plainly;
       it is not refused.
 
+  summary.py stages <runs file> <route> <replicas> <sustained file>
+      The runs file holds one "<offered rate> RESULT {json}" line a stage of a ramp, each stage a run at a constant
+      offered rate, in the order they ran. Prints a table of the stages: offered, achieved, p50, p99, dropped,
+      statuses, and whether the stage was sustained: achieved within 5% of offered, and every response a 200. Then
+      the highest stage sustained, which it also adds to the sustained file as "<route> <replicas> <rate>" (0 when
+      none was). It is a definition, not a target: a run either kept to it or did not.
+
   summary.py window <fails file>
       The fails file holds edge.js's "FAIL {json}" lines: their count by status, the first and the last (UTC),
       and the span between them. When the run's .result file is beside it ("<expected status> RESULT {json}", from
@@ -100,6 +107,45 @@ def rate(path, offered):
             "at the offered rate" if kept else "NOT at the offered rate, so this run's latency is not at that load"))
 
 
+def stages(path, route, replicas, out):
+    rows = []
+    with open(path) as f:
+        for n, line in enumerate(f, 1):
+            offered, _, rest = line.strip().partition(" ")
+            if not rest.startswith("RESULT ") or not offered.isdigit() or int(offered) <= 0:
+                die("%s:%d is not an '<offered rate> RESULT {json}' line" % (path, n))
+            r = json.loads(rest[len("RESULT "):])
+            total = sum(r["status"].values())
+            if total != r["reqs"]:
+                die("%s:%d: the statuses sum to %d, not to the %d requests" % (path, n, total, r["reqs"]))
+            offered = int(offered)
+            kept = abs(r["rps"] - offered) <= 0.05 * offered and r["reqs"] > 0 and r["status"].get("200") == r["reqs"]
+            rows.append((offered, r, kept))
+    if not rows:
+        die("no stage in %s" % path)
+    print("  %8s  %9s  %7s  %9s  %9s  %8s  %-9s  %s" % (
+        "offered", "achieved", "", "p50", "p99", "dropped", "sustained", "statuses"))
+    for offered, r, kept in rows:
+        print("  %6d/s  %7.1f/s  %+6.1f%%  %6.2f ms  %6.2f ms  %8d  %-9s  %s" % (
+            offered, r["rps"], (r["rps"] - offered) / offered * 100, r["p50"], r["p99"], r["dropped"],
+            "yes" if kept else "no", statuses([r])))
+    sustained = [offered for offered, _, kept in rows if kept]
+    best = max(sustained) if sustained else 0
+    if not best:
+        print("  %s, %s processor replica(s): no stage sustained" % (route, replicas))
+    else:
+        notes = []
+        if best == max(offered for offered, _, _ in rows):
+            notes.append("the highest offered, so its ceiling is at or above it")
+        below = [offered for offered, _, kept in rows if not kept and offered < best]
+        if below:
+            notes.append("though not %s" % ", ".join("%d/s" % b for b in below))
+        print("  %s, %s processor replica(s): highest sustained stage %d/s%s" % (
+            route, replicas, best, "".join(" (%s)" % n for n in notes)))
+    with open(out, "a") as f:
+        f.write("%s %s %d\n" % (route, replicas, best))
+
+
 def utc(ms):
     t = datetime.datetime.fromtimestamp(ms / 1000, datetime.timezone.utc)
     return t.strftime("%H:%M:%S.") + "%03dZ" % (ms % 1000)
@@ -149,10 +195,13 @@ def main(argv):
         medians(argv[1], argv[2:])
     elif len(argv) == 3 and argv[0] == "rate":
         rate(argv[1], float(argv[2]))
+    elif len(argv) == 5 and argv[0] == "stages":
+        stages(argv[1], argv[2], argv[3], argv[4])
     elif len(argv) == 2 and argv[0] == "window":
         window(argv[1])
     else:
-        die("usage: summary.py medians <runs file> <label>... | rate <runs file> <offered rate> | window <fails file>")
+        die("usage: summary.py medians <runs file> <label>... | rate <runs file> <offered rate>"
+            " | stages <runs file> <route> <replicas> <sustained file> | window <fails file>")
 
 
 if __name__ == "__main__":

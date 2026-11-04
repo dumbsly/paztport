@@ -430,3 +430,104 @@ echo_sent() {
   [ -f "$RUN_DIR/echo-sent" ] || { printf 0; return; }
   awk -v h="$1" '$1 == h { n += $2 } END { printf "%d", n }' "$RUN_DIR/echo-sent" 2>/dev/null
 }
+
+# A suite's undo: one command that puts back what the suite changed in the cluster (its replicas, say). The suite
+# sets UNDO when it makes the change and runs undo when it is done with it, on its error paths as well; measure.sh's
+# finish runs it on any other exit (an interrupt, or a step that stops the whole run) while the cluster is kept.
+UNDO=""
+undo() {
+  local cmd="$UNDO"
+  UNDO=""
+  [ -z "$cmd" ] || eval "$cmd"
+}
+
+# processor_replicas <n>: the chart as the measurements run it, but with n processor replicas, and waits until n
+# are running and ready and the edge answers 200 on both twins again.
+processor_replicas() {
+  local live
+  measure_chart --set replicas="$1" --wait --timeout 5m >/dev/null 2>&1 &&
+    kn rollout status deployment/paztport-processor --timeout=300s >/dev/null || {
+    echo "error: the processor did not come up with $1 replica(s)" >&2
+    return 1
+  }
+  for _ in $(seq 1 120); do
+    live=$(processor_pods | grep -c . || true)
+    [ "$live" = "$1" ] && break
+    sleep 1
+  done
+  [ "$live" = "$1" ] || { echo "error: $live processor pods are running, not $1" >&2; return 1; }
+  wait_measure >/dev/null
+}
+
+# processor_outcomes: the requests the processor's running pods decided, by outcome, added up over the pods:
+# "stamped=<n> refused_route=<n> refused_material=<n> refused_body=<n> refused_error=<n>". A pod that started again
+# counts from zero, so read processor_restarts beside it.
+processor_outcomes() {
+  local pod ip text texts="" outcome line="" n
+  for pod in $(processor_pods); do
+    ip=$(kn get pod "$pod" -o jsonpath='{.status.podIP}')
+    text=$(kn exec checks -- curl -sf --max-time 10 "http://$ip:9090/metrics" 2>/dev/null) || {
+      echo "error: the processor pod $pod did not answer GET /metrics" >&2
+      return 1
+    }
+    texts+="$text"$'\n'
+  done
+  for outcome in stamped refused_route refused_material refused_body refused_error; do
+    n=$(metric_sum "$texts" "paztport_edge_requests_total{outcome=\"$outcome\"}")
+    line+="$outcome=$n "
+  done
+  printf '%s\n' "${line% }"
+}
+
+# outcomes_added <before> <after>: what processor_outcomes, or envoy_extproc_stats, added between two readings of
+# "<name>=<n>" words, as "<name> +<n>" for each name.
+outcomes_added() {
+  awk -v a="$1" -v b="$2" 'BEGIN {
+    n = split(a, x, " ")
+    for (i = 1; i <= n; i++) { split(x[i], kv, "="); before[kv[1]] = kv[2] }
+    n = split(b, y, " ")
+    for (i = 1; i <= n; i++) {
+      split(y[i], kv, "=")
+      out = out sep kv[1] " " sprintf("%+d", kv[2] - before[kv[1]])
+      sep = ", "
+    }
+    print out
+  }'
+}
+
+# processor_restarts: for each processor pod running and not being deleted, its restarts, and how its container
+# last ended: "<pod> restarts=<n> last=<reason>@<time>" a line ("last=-" when it never ended).
+processor_restarts() {
+  local c='.status.containerStatuses[0]' each pod
+  each="{.metadata.name} restarts={$c.restartCount}"
+  each+=" last={$c.lastState.terminated.reason}@{$c.lastState.terminated.finishedAt}"
+  for pod in $(processor_pods); do
+    kn get pod "$pod" -o jsonpath="$each{\"\\n\"}" | sed 's/last=@$/last=-/'
+  done
+}
+
+# envoy_admin: a port-forward to the edge's Envoy's admin port (19000), made once -> ENVOY_ADMIN (its local address).
+# The admin port listens on Envoy's own loopback only, so a forward is the one way in.
+ENVOY_ADMIN=""
+envoy_admin() {
+  local pod
+  [ -z "$ENVOY_ADMIN" ] || return 0
+  pod=$(k -n "$EG_NS" get pods -l "gateway.envoyproxy.io/owning-gateway-name=edge" \
+    -o jsonpath='{.items[0].metadata.name}') || return 1
+  forward "$EG_NS" "pod/$pod" 19000
+  ENVOY_ADMIN="$FORWARDED"
+}
+
+# envoy_extproc_stats: Envoy's counters for the processor: its ext_proc filter's streams (started, failed, timed
+# out, and let through for failing open) and its cluster's requests refused for a full circuit breaker or timed
+# out, as "<name>=<n>" words, the names shortened.
+envoy_extproc_stats() {
+  envoy_admin || return 1
+  curl -sf "http://$ENVOY_ADMIN/stats" | awk -F': ' '
+    $1 ~ /^http\.[^.]*\.ext_proc\.(streams_started|streams_failed|message_timeouts|failure_mode_allowed)$/ {
+      sub(/^http\.[^.]*\.ext_proc\./, "", $1); s[$1] += $2 }
+    $1 ~ /^cluster\.envoyextensionpolicy\/.*paztport-processor/ && $1 !~ /\.internal\./ &&
+      $1 ~ /\.upstream_rq_(active_overflow|pending_overflow|timeout)$/ {
+      sub(/^.*\.upstream_rq_/, "cluster_rq_", $1); s[$1] += $2 }
+    END { for (k in s) printf "%s=%d ", k, s[k] }' | tr ' ' '\n' | LC_ALL=C sort | paste -sd ' ' -
+}

@@ -7,6 +7,9 @@
 #           at LOAD_RATE_SMALL requests a second and a large one at LOAD_RATE_LARGE, alternated. Both twins are
 #           offered the same rate, well below either one's ceiling, so the difference is the processor's own time
 #           per request and not queueing; the ceilings are the ceiling suite's.
+#   ceiling what one, two and four processor replicas sustain on echo, against echo-plain at the same stages, written
+#           to $RUN_DIR/ceiling-sustained; then, on one replica, past what it sustains (saturation), and its memory
+#           with bodies at the limit.
 # shellcheck shell=bash
 
 twin_plain() { RUN_VARS=(HOST="$PLAIN_HOST"); }
@@ -18,13 +21,11 @@ twin_stamped() { RUN_VARS=(HOST="$ECHO_HOST"); }
 # route's per-filter configuration. The dumps (listeners, routes and clusters only: no secrets) go to
 # $RUN_DIR/config/.
 twins_alike() {
-  local pod dir="$RUN_DIR/config" resource
-  pod=$(k -n "$EG_NS" get pods -l "gateway.envoyproxy.io/owning-gateway-name=edge" \
-    -o jsonpath='{.items[0].metadata.name}') || return 1
-  forward "$EG_NS" "pod/$pod" 19000
+  local dir="$RUN_DIR/config" resource
+  envoy_admin || return 1
   mkdir -p "$dir"
   for resource in dynamic_listeners dynamic_route_configs dynamic_active_clusters; do
-    curl -s -f "http://$FORWARDED/config_dump?resource=$resource" >"$dir/$resource.json" || {
+    curl -s -f "http://$ENVOY_ADMIN/config_dump?resource=$resource" >"$dir/$resource.json" || {
       echo "error: no $resource from Envoy's admin port" >&2
       return 1
     }
@@ -217,4 +218,176 @@ suite_load() {
     python3 "$here/measure/summary.py" rate "$RUN_DIR/load-$body.runs" "$rate"
   done
   echo_unstamped
+}
+
+# The users k6 holds ready for the ceiling suite's open-model runs: enough for the highest stage at the latencies of
+# a stage that is sustained, so that k6 is not what limits it. A stage past the ceiling, whose requests wait up to
+# the processor's messageTimeout, runs out of users, and the requests k6 could not start show as dropped.
+CEILING_PREALLOC=500
+
+# The users for the saturation runs: more than the ramps', so that requests past what the processor sustains wait
+# for it, up to its messageTimeout, and Envoy's answer to them is seen, rather than k6 dropping them unsent for want
+# of a free user.
+SATURATION_PREALLOC=2000
+
+# ceiling_ramp <route> <host> <replicas> <stage>...: a stepped ramp on the twin route, by its host: a discarded warm-up
+# (WARMUP long, at the first stage's rate), then each stage a run of DURATION at its constant offered rate, rising.
+# Prints each run, then summary.py's table of the stages and the highest sustained, which it adds to
+# $RUN_DIR/ceiling-sustained.
+ceiling_ramp() {
+  local route="$1" host="$2" replicas="$3" name="$1-r$3" rate line runs
+  shift 3
+  runs="$RUN_DIR/$name.runs"
+  : >"$runs"
+  line=$(k6_run "$name-warmup" TARGET="$EDGE/orders" HOST="$host" BODY=small EXECUTOR=rate RATE="$1" \
+    PREALLOC="$CEILING_PREALLOC" DURATION="$WARMUP") || return 1
+  printf '  warm-up  %6s/s  %s (discarded)\n' "$1" "$line"
+  for rate in "$@"; do
+    line=$(k6_run "$name-$rate" TARGET="$EDGE/orders" HOST="$host" BODY=small EXECUTOR=rate RATE="$rate" \
+      PREALLOC="$CEILING_PREALLOC" DURATION="$DURATION") || return 1
+    printf '  stage    %6s/s  %s\n' "$rate" "$line"
+    printf '%s %s\n' "$rate" "$line" >>"$runs"
+  done
+  python3 "$here/measure/summary.py" stages "$runs" "$route" "$replicas" "$RUN_DIR/ceiling-sustained"
+}
+
+# sustained <route> <replicas>: the highest stage the ceiling suite saw sustained there, or 0.
+sustained() {
+  awk -v r="$1" -v n="$2" '$1 == r && $2 == n { s = $3 } END { printf "%d", s }' "$RUN_DIR/ceiling-sustained"
+}
+
+# saturation: on one replica, the processor offered 1.5 and 2 times its highest sustained stage, each for
+# SATURATION_DURATION: each run, the window of its responses other than 200, what the processor decided in it, what
+# Envoy counted of its streams to the processor (a stream that failed, for a full circuit breaker or a timeout, is a
+# request Envoy refused with its own 500, failing closed), and the processor's restarts; then echo's counts, which
+# show whether any request reached echo unstamped.
+saturation() {
+  local best factor rate line before after name envoy_before envoy_after
+  best=$(sustained echo 1)
+  echo "-- saturation: one processor replica, offered 1.5 and 2 times its highest sustained stage ($best/s)," \
+    "SATURATION_DURATION=$SATURATION_DURATION a run, from up to $SATURATION_PREALLOC k6 users"
+  if [ "$best" -eq 0 ]; then
+    echo "  no stage was sustained on one replica, so there is nothing to offer more than: skipped"
+    return 0
+  fi
+  for factor in 1.5 2; do
+    rate=$(awk -v b="$best" -v f="$factor" 'BEGIN { printf "%d", b * f }')
+    name="saturation-$rate"
+    before=$(processor_outcomes) || return 1
+    envoy_before=$(envoy_extproc_stats) || return 1
+    line=$(k6_run "$name" TARGET="$EDGE/orders" HOST="$ECHO_HOST" BODY=small EXECUTOR=rate RATE="$rate" \
+      PREALLOC="$SATURATION_PREALLOC" DURATION="$SATURATION_DURATION") || return 1
+    after=$(processor_outcomes) || return 1
+    envoy_after=$(envoy_extproc_stats) || return 1
+    printf '  %sx  %6s/s  %s\n' "$factor" "$rate" "$line"
+    window "$RUN_DIR/$name.fails"
+    echo "    the processor decided: $(outcomes_added "$before" "$after")"
+    echo "    Envoy counted, of its streams to the processor: $(outcomes_added "$envoy_before" "$envoy_after")"
+    processor_restarts | sed 's/^/    /'
+  done
+  echo_unstamped
+}
+
+# rss_sample <ip> <file> <seconds>: in the background, process_resident_memory_bytes from the processor at ip's
+# /metrics, once a second, as "<epoch s> <bytes>" (or "<epoch s> none" when it does not answer) lines in file, until
+# $file.stop exists or the seconds have passed. Its pid goes into forwards, which measure.sh kills on exit.
+rss_sample() {
+  local ip="$1" file="$2" seconds="$3"
+  : >"$file"
+  (
+    for _ in $(seq 1 "$seconds"); do
+      [ -e "$file.stop" ] && break
+      v=$(kn exec checks -- curl -sf --max-time 1 "http://$ip:9090/metrics" 2>/dev/null |
+        awk '$1 == "process_resident_memory_bytes" { printf "%d", $2 }')
+      echo "$(date +%s) ${v:-none}" >>"$file"
+      sleep 1
+    done
+  ) &
+  forwards+=("$!")
+  RSS_PID=$!
+}
+
+# memory: one processor replica, 1 MiB bodies (the body limit, so admitted and stamped) from MEMORY_VUS users in
+# turn, each step DURATION long: per step, the run, the processor's peak resident memory (sampled once a second
+# from its /metrics), and its restarts and how it last ended, an OOM kill included. A step in which it restarted
+# shows the requests it refused meanwhile in the run's statuses and window.
+memory() {
+  local vus pod ip line file before after peak samples none limit wait name status
+  processor_replicas 1 || return 1
+  pod=$(processor_pods)
+  limit=$(kn get deployment paztport-processor \
+    -o jsonpath='{.spec.template.spec.containers[0].resources.limits.memory}')
+  echo "-- memory: one processor replica ($pod, memory limit $limit), $BODY_LIMIT-byte bodies, users each sending" \
+    "the next when the last is answered, DURATION=$DURATION a step"
+  for vus in $MEMORY_VUS; do
+    name="memory-$vus"
+    ip=$(kn get pod "$pod" -o jsonpath='{.status.podIP}')
+    before=$(processor_restarts)
+    file="$RUN_DIR/$name.rss"
+    rm -f "$file.stop"
+    wait=$(run_seconds "$DURATION" "") || return 1
+    rss_sample "$ip" "$file" $((wait + K6_MARGIN))
+    line=$(k6_run "$name" TARGET="$EDGE/orders" HOST="$ECHO_HOST" BODY="$BODY_LIMIT" EXECUTOR=vus VUS="$vus" \
+      DURATION="$DURATION")
+    status=$?
+    touch "$file.stop"
+    wait "$RSS_PID" 2>/dev/null
+    rm -f "$file.stop"
+    [ "$status" -eq 0 ] || return 1
+    after=$(processor_restarts)
+    peak=$(awk '$2 != "none" && $2 > m { m = $2 } END { printf "%.1f", m / 1048576 }' "$file")
+    samples=$(grep -c . "$file" || true)
+    none=$(grep -c ' none$' "$file" || true)
+    printf '  VUS %-4s %s\n' "$vus" "$line"
+    echo "    peak resident memory $peak MiB ($samples samples, $none unanswered); after the step: $after" \
+      "(before it: ${before#* })"
+    window "$RUN_DIR/$name.fails"
+    # A pod that was killed is let come back before the next step.
+    kn wait --for=condition=Ready pod -l app.kubernetes.io/name=paztport-processor --timeout=180s >/dev/null || {
+      echo "error: the processor did not come back after the step with $vus users" >&2
+      return 1
+    }
+  done
+}
+
+# ceiling_steps: the ramps on 1, 2 and 4 processor replicas, saturation after the first, and memory last.
+ceiling_steps() {
+  local n stages
+  : >"$RUN_DIR/ceiling-sustained"
+  for n in 1 2 4; do
+    case "$n" in
+      1) stages="$CEILING_STAGES_1" ;;
+      2) stages="$CEILING_STAGES_2" ;;
+      4) stages="$CEILING_STAGES_4" ;;
+    esac
+    processor_replicas "$n" || return 1
+    echo "-- $n processor replica(s): stages of DURATION=$DURATION at $(echo $stages | sed 's/ /, /g') requests a" \
+      "second (WARMUP=$WARMUP first, from up to $CEILING_PREALLOC k6 users), on echo, then the same on echo-plain"
+    # shellcheck disable=SC2086 # the stages split on space
+    ceiling_ramp echo "$ECHO_HOST" "$n" $stages || return 1
+    # shellcheck disable=SC2086
+    ceiling_ramp echo-plain "$PLAIN_HOST" "$n" $stages || return 1
+    [ "$n" != 1 ] || saturation || return 1
+  done
+  memory
+}
+
+suite_ceiling() {
+  local status
+  echo "== ceiling: what one, two and four processor replicas sustain, against plain Envoy; past it; and memory"
+  baseline_reset
+  UNDO="ceiling_undo"
+  ceiling_steps
+  status=$?
+  undo
+  echo "  the highest sustained stages, in $(basename "$RUN_DIR")/ceiling-sustained" \
+    "(route, replicas, requests a second):"
+  sed 's/^/    /' "$RUN_DIR/ceiling-sustained"
+  echo_unstamped || status=1
+  return "$status"
+}
+
+# ceiling_undo: two processor replicas again, the baseline's.
+ceiling_undo() {
+  processor_replicas 2 >/dev/null || echo "error: could not put the processor back to two replicas" >&2
 }
