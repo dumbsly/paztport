@@ -89,7 +89,7 @@ public final class InboundFilter extends OncePerRequestFilter {
      * @param receiver this service's name
      * @param stamper this service's stamper, or null where it has no stamp key and so cannot attest
      * @param observations where each request's verification result is recorded; {@link ObservationRegistry#NOOP}
-     *     where the application has no Micrometer registry
+     *     where the application has no {@code ObservationRegistry} bean
      */
     public InboundFilter(
             Verifier verifier, boolean verifyRequests, boolean origin, String receiver, ModeHolder modeHolder,

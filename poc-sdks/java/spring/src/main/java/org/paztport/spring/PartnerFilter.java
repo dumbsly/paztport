@@ -61,7 +61,7 @@ public final class PartnerFilter extends OncePerRequestFilter {
      * @param sessions the sessions this partner has opened
      * @param receiver this service's name, the partner's entry: every boundary stamp must be addressed to it
      * @param observations where each call's verification result is recorded; {@link ObservationRegistry#NOOP} where
-     *     the application has no Micrometer registry
+     *     the application has no {@code ObservationRegistry} bean
      */
     PartnerFilter(PartnerSessions sessions, String receiver, ObservationRegistry observations) {
         this.receiver = new PartnerReceiver(sessions, receiver);

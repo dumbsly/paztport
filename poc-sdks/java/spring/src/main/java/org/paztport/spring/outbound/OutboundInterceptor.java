@@ -51,7 +51,7 @@ public final class OutboundInterceptor implements ClientHttpRequestInterceptor {
 
     /**
      * @param observations where each response check is recorded; {@link ObservationRegistry#NOOP} where the
-     *     application has no Micrometer registry
+     *     application has no {@code ObservationRegistry} bean
      */
     public OutboundInterceptor(HttpCaller caller, ObservationRegistry observations) {
         this.caller = caller;

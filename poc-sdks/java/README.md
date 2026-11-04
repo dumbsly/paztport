@@ -117,12 +117,13 @@ The receivers decide a request with no framework and keep no per-request state.
 for a service and returns an `Accepted`: either a refusal to send in place of the
 handler's answer (an `HttpAnswer`, `{"reason":"<code>"}`), or what the handler
 starts from and whether its answer is attested, by `Accepted.attest(status, body,
-labels)` once the framework holds the answer whole. `Accepted.result()` is the
-verification result the decision rests on, or null where none ran, for an adapter
-to report; `PartnerAccepted.result()` is the same for a partner's call. The caller
-is never told it. `PartnerReceiver.accept(InboundRequest, PeerCert)` does the same
-for a partner, in the session the caller names. `PeerCert.of(certificate,
-address)` reads the peer and its issuer from a client certificate.
+labels)` once the framework holds the answer whole.
+`PartnerReceiver.accept(InboundRequest, PeerCert)` does the same for a partner, in
+the session the caller names. `Accepted.result()` is the verification result the
+decision rests on, or null where none ran, for an adapter to report;
+`PartnerAccepted.result()` is the same for a partner's call. The caller is never
+told it. `PeerCert.of(certificate, address)` reads the peer and its issuer from a
+client certificate.
 `PartnerSessions` keeps a partner's sessions; its `builder()` refuses own material
 no client could accept, naming each `Fault`. `HttpSessions.serve` answers one
 handshake, and `UnsafeOperations` says what an unsafe session may not do. The
@@ -516,18 +517,18 @@ hands a session request's body to `HttpSessions.serve`.
 ### Metrics
 
 The filters and the outbound interceptor record each verification result as a
-Micrometer observation, so an application with Spring Boot's observation and metrics
-auto-configurations (Actuator, for one) gets a timer for each, with no setting of
-the starter's. Where the context has no `ObservationRegistry` bean the starter
-records into `ObservationRegistry.NOOP` and the application runs exactly as before;
-with Boot's observation auto-configuration but no meter registry, the registry has
-no handlers and nothing becomes a meter. The names, keys and values
-are those of `PaztportObservation`:
+Micrometer observation, so an application with Spring Boot's observation and
+metrics auto-configurations (Actuator, for one) gets a timer for each, with no
+setting of the starter's. Where the context has no `ObservationRegistry` bean the
+starter records into `ObservationRegistry.NOOP` and the application runs exactly
+as before; with Boot's observation auto-configuration but no meter registry, the
+registry has no meter handler and nothing becomes a meter. The names, keys and
+values are those of `PaztportObservation`:
 
 | Observation | Recorded by | Keys | Values |
 |---|---|---|---|
 | `paztport.request` | `InboundFilter` | `mode`, `reason`, `outcome` | `mode`: `off`, `audit` or `enforce` where the service verifies requests (`paztport.verify=true`), otherwise `none`. |
-| `paztport.partner.request` | `PartnerFilter` | `session`, `reason`, `outcome` | `session`: `attested`; `unknown` for a refused call; otherwise `unsafe`. |
+| `paztport.partner.request` | `PartnerFilter` | `session`, `reason`, `outcome` | `session`: `attested` where the call was verified in an attested session, served or refused; `unknown` where it names a session its peer does not hold, or where the decision threw; otherwise `unsafe`. |
 | `paztport.response` | `OutboundInterceptor` | `reason` | |
 
 `reason` is the name of the verification result's reason code (`OK`, `CHAIN_MISSING`,
@@ -545,21 +546,31 @@ Actuator with a Prometheus registry exports each as a timer, such as
 `paztport_request_seconds_count`, `_sum` and `_max`, labelled `mode`, `reason` and
 `outcome` and also `error`, which Micrometer adds. The count is the number of
 requests. A long-task timer goes with each, created when the observation starts, so
-it carries only the tags known then: `paztport.request.active` carries `mode` and
-`paztport.response.active` carries none, since `reason` and `outcome` are set at
-stop.
+it carries only the tags known then: `paztport.request.active` carries `mode`, and
+`paztport.partner.request.active` and `paztport.response.active` carry none, since
+`session`, `reason` and `outcome` are set at stop.
 
 Each timer spans the decision only: `RequestContext.accept` for the filters and the
 response check for the interceptor. It is stopped before the handler runs, so it
-says nothing of how long the handler takes or of an answer written later.
+says nothing of how long the handler takes or of an answer written later. The
+decision does include what the receiver calls out to: the `ReceivedRequestListener`,
+where there is one, and, for a request that fails verification under `audit` or
+`enforce` where a responder is configured (`paztport.responder-url`), the event
+POST, which is sent before the request is answered and is bounded by
+`paztport.event-timeout-ms`. The `_sum` and `_max` of failures include that wait.
+
+The starter's filters run at `HIGHEST_PRECEDENCE`, outside Boot's
+`ServerHttpObservationFilter` (`HIGHEST_PRECEDENCE + 1`), so `http.server.requests`
+does not count a request Paztport refuses, and with tracing neither filter's span
+is a child of the server span.
 
 Nothing from a request is a tag: no service name, request id, suspect, peer or
 target. A tag from traffic would make a series for each value, and a count that
-names a service or a peer is more than a metric needs to know; every value is one of
-the fixed words above or a reason code's name, so the series stay few whatever
-arrives. Those values are in the `PAZTPORT_EVENT` and `PAZTPORT_TRACE` logs, which
-are unchanged. The control plane (the handshake endpoint and the unverified paths)
-is not observed.
+names a service or a peer is more than a metric needs to know; every value the
+starter sets is one of the fixed words above or a reason code's name, so the series
+stay few whatever arrives. Those values are in the `PAZTPORT_EVENT` and
+`PAZTPORT_TRACE` logs, which are unchanged. The control plane (the handshake
+endpoint and the unverified paths) is not observed.
 
 Boot's standard property switches an observation off by name:
 `management.observations.enable.paztport.request=false`, or
