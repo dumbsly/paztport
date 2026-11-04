@@ -113,22 +113,22 @@ writes `{"error":"<code>"}`; core reads the bodies, a request with
 newline after them is refused.
 
 The receivers decide a request with no framework and keep no per-request state.
-`HttpReceiver.accept(InboundRequest, Peer, VerificationMode)` decides one request
-for a service and returns an `Accepted`: either a refusal to send in place of the
-handler's answer (an `HttpAnswer`, `{"reason":"<code>"}`), or what the handler
-starts from and whether its answer is attested, by `Accepted.attest(status, body,
-labels)` once the framework holds the answer whole.
-`PartnerReceiver.accept(InboundRequest, PeerCert)` does the same for a partner, in
-the session the caller names. `Accepted.result()` is the verification result the
-decision rests on, or null where none ran, for an adapter to report;
-`PartnerAccepted.result()` is the same for a partner's call. The caller is never
-told it. `PeerCert.of(certificate, address)` reads the peer and its issuer from a
-client certificate.
-`PartnerSessions` keeps a partner's sessions; its `builder()` refuses own material
-no client could accept, naming each `Fault`. `HttpSessions.serve` answers one
-handshake, and `UnsafeOperations` says what an unsafe session may not do. The
-starter's filters, gate and handshake endpoint are adapters over these, and
-another framework would adapt the same functions.
+`HttpReceiver.accept(InboundRequest, Peer, VerificationMode)` decides one
+request for a service and returns an `Accepted`: either a refusal to send in
+place of the handler's answer (an `HttpAnswer`, `{"reason":"<code>"}`), or what
+the handler starts from and whether its answer is attested, by
+`Accepted.attest(status, body, labels)` once the framework holds the answer
+whole. `PartnerReceiver.accept(InboundRequest, PeerCert)` does the same for a
+partner, in the session the caller names. `Accepted.result()` is the
+verification result the decision rests on, or null where none ran, for an
+adapter to report; `PartnerAccepted.result()` is the same for a partner's call.
+The caller is never told it. `PeerCert.of(certificate, address)` reads the peer
+and its issuer from a client certificate. `PartnerSessions` keeps a partner's
+sessions; its `builder()` refuses own material no client could accept, naming
+each `Fault`. `HttpSessions.serve` answers one handshake, and `UnsafeOperations`
+says what an unsafe session may not do. The starter's filters, gate and
+handshake endpoint are adapters over these, and another framework would adapt
+the same functions.
 
 `HttpCaller` is a service's side of its own calls.
 `HttpCaller.stamp(method, uri, body, inbound, influence)` stamps one call over its
@@ -536,11 +536,15 @@ values are those of `PaztportObservation`:
 switched `off`, an unsafe or unknown partner session, a caller with no verifier to
 check its response, or a decision that threw. A service that does not verify requests
 has `mode` `none` but records the reason of the check that decides whether it
-attests. `outcome` is `refused` when the request is answered with a refusal in place
-of the handler's answer, or when the decision threw, otherwise `served`; it is there
-because a request refused for influence the filter cannot read has a reason (or
-none) that says nothing of the refusal. Where a decision throws, the observation
-carries the error and is stopped before the exception goes on.
+attests. `outcome` is `refused` when the request is answered with a refusal in
+place of the handler's answer, or when the decision threw, otherwise `served`.
+It is there because the reason alone does not show every refusal: under `audit`,
+a request whose influence the filter cannot read is refused `400` while its
+reason is the verifier's code, `INFLUENCE_MISMATCH` unless an earlier check
+failed, a code `audit` otherwise serves; under `off`, and where the service does
+not verify requests, its reason is `none`. Only `outcome` says it was refused.
+Where a decision throws, the observation carries the error and is stopped before
+the exception goes on.
 
 Actuator with a Prometheus registry exports each as a timer, such as
 `paztport_request_seconds_count`, `_sum` and `_max`, labelled `mode`, `reason` and
