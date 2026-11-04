@@ -10,6 +10,7 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
+import io.micrometer.observation.ObservationRegistry;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.KeyPair;
@@ -23,7 +24,11 @@ import org.paztport.core.crypto.Crypto;
 import org.paztport.core.encoding.Base64Url;
 import org.paztport.core.policy.KeyringFile;
 import org.paztport.core.policy.PolicyBuilder;
+import org.paztport.core.stamp.Stamper;
 import org.paztport.http.RequestContext;
+import org.paztport.http.wire.HttpWire;
+import org.paztport.http.wire.PaztportHeaders;
+import org.paztport.http.wire.RequestBinding;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.autoconfigure.ssl.SslAutoConfiguration;
 import org.springframework.boot.micrometer.metrics.autoconfigure.CompositeMeterRegistryAutoConfiguration;
@@ -64,23 +69,34 @@ class MetricsWiringTest {
             CompositeMeterRegistryAutoConfiguration.class, SimpleMetricsExportAutoConfiguration.class));
 
     private final KeyPair gateway = Crypto.generateEd25519KeyPair();
+    private final KeyPair payment = Crypto.generateEd25519KeyPair();
     private final KeyPair policy = Crypto.generateEd25519KeyPair();
+    private PolicyBuilder.Result built;
 
     /** A verifying payment service that is also an origin, so it stamps what it sends and checks the answers. */
     private String[] payment(Path dir) throws Exception {
+        return payment(dir, true);
+    }
+
+    /**
+     * A verifying payment service with a key to stamp with, behind a gateway that may call it; an origin
+     * starts its own chains and ignores the one a request brings.
+     */
+    private String[] payment(Path dir, boolean origin) throws Exception {
         String policyKey = Base64Url.encode(Crypto.encodePublicKey(policy.getPublic()));
-        Files.writeString(dir.resolve("gateway.key"),
-                Base64Url.encode(Crypto.encodePrivateKey(gateway.getPrivate())));
+        Files.writeString(dir.resolve("payment.key"),
+                Base64Url.encode(Crypto.encodePrivateKey(payment.getPrivate())));
         Files.writeString(dir.resolve("policy.pub"), policyKey + "\n");
         JSON.writeValue(dir.resolve("keyring.json").toFile(), KeyringFile.sign(
-                Map.of("gateway", Base64Url.encode(Crypto.encodePublicKey(gateway.getPublic()))), policyKey,
+                Map.of("gateway", Base64Url.encode(Crypto.encodePublicKey(gateway.getPublic())),
+                        "payment", Base64Url.encode(Crypto.encodePublicKey(payment.getPublic()))), policyKey,
                 NOT_AFTER, policy.getPrivate()));
-        PolicyBuilder.Result built = PolicyBuilder.build(List.of(List.of("gateway", "orders")), 4, NOT_AFTER,
+        built = PolicyBuilder.build(List.of(List.of("gateway", "payment")), 4, NOT_AFTER,
                 policy.getPrivate());
         JSON.writeValue(dir.resolve("root.json").toFile(), built.signedRoot());
         return new String[] {
-            "paztport.service-name=payment", "paztport.verify=true", "paztport.origin=true",
-            "paztport.key-path=" + dir.resolve("gateway.key"),
+            "paztport.service-name=payment", "paztport.verify=true", "paztport.origin=" + origin,
+            "paztport.key-path=" + dir.resolve("payment.key"),
             "paztport.keyring-path=" + dir.resolve("keyring.json"),
             "paztport.root-path=" + dir.resolve("root.json"),
             "paztport.policy-key-path=" + dir.resolve("policy.pub")};
@@ -88,9 +104,13 @@ class MetricsWiringTest {
 
     /** The request filter the starter registers, with nothing in the request that would verify. */
     @SuppressWarnings("unchecked")
-    private static MockHttpServletResponse unverifiedRequest(ApplicationContext context) throws Exception {
-        InboundFilter filter = ((FilterRegistrationBean<InboundFilter>)
+    private static InboundFilter filter(ApplicationContext context) {
+        return ((FilterRegistrationBean<InboundFilter>)
                 context.getBean("inboundFilterRegistration", FilterRegistrationBean.class)).getFilter();
+    }
+
+    private static MockHttpServletResponse unverifiedRequest(ApplicationContext context) throws Exception {
+        InboundFilter filter = filter(context);
         MockHttpServletRequest request = new MockHttpServletRequest("POST", "/pay");
         request.setContent("{\"amount\":100}".getBytes());
         MockHttpServletResponse response = new MockHttpServletResponse();
@@ -146,13 +166,28 @@ class MetricsWiringTest {
 
     @Test
     void withoutMicrometerNothingChanges(@TempDir Path dir) throws Exception {
-        starter.withPropertyValues(payment(dir)).run(context -> {
-            assertThat(context).hasNotFailed().doesNotHaveBean(MeterRegistry.class);
+        starter.withPropertyValues(payment(dir, false)).run(context -> {
+            assertThat(context).hasNotFailed().doesNotHaveBean(MeterRegistry.class)
+                    .doesNotHaveBean(ObservationRegistry.class);
 
-            MockHttpServletResponse response = unverifiedRequest(context);
+            MockHttpServletResponse refused = unverifiedRequest(context);
+            assertThat(refused.getStatus()).isEqualTo(403);
+            assertThat(refused.getContentAsString()).contains("CHAIN_MISSING");
 
-            assertThat(response.getStatus()).isEqualTo(403);
-            assertThat(response.getContentAsString()).contains("CHAIN_MISSING");
+            byte[] body = "{\"amount\":100}".getBytes();
+            Stamper.Stamped stamped = new Stamper("gateway", "gw-1", gateway.getPrivate(), true, () -> "rid-1",
+                    () -> System.currentTimeMillis())
+                    .next(null, "payment", RequestBinding.compute("POST", "/pay", body), List.of(),
+                            built.bundles().get("gateway"));
+            MockHttpServletRequest request = new MockHttpServletRequest("POST", "/pay");
+            request.addHeader(PaztportHeaders.CHAIN, HttpWire.encodeChain(stamped.chain()));
+            request.addHeader(PaztportHeaders.PROOF, HttpWire.encodeProof(stamped.proof()));
+            request.setContent(body);
+            MockHttpServletResponse served = new MockHttpServletResponse();
+            filter(context).doFilter(request, served, new MockFilterChain());
+
+            assertThat(served.getStatus()).isEqualTo(200);
+            assertThat(served.getHeader(PaztportHeaders.RESPONSE)).isNotNull();
         });
     }
 }

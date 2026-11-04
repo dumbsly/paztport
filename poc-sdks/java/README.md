@@ -117,11 +117,11 @@ The receivers decide a request with no framework and keep no per-request state.
 for a service and returns an `Accepted`: either a refusal to send in place of the
 handler's answer (an `HttpAnswer`, `{"reason":"<code>"}`), or what the handler
 starts from and whether its answer is attested, by `Accepted.attest(status, body,
-labels)` once the framework holds the answer whole. `Accepted.result()` is the verification
-result the decision rests on, or null where none ran, for an adapter to report;
-`PartnerAccepted.result()` is the same for a partner's call. The caller is never told it. `PartnerReceiver.accept(
-InboundRequest, PeerCert)` does the same for a partner, in the session the caller
-names. `PeerCert.of(certificate, address)` reads the peer and its issuer from a
+labels)` once the framework holds the answer whole. `Accepted.result()` is the
+verification result the decision rests on, or null where none ran, for an adapter
+to report; `PartnerAccepted.result()` is the same for a partner's call. The caller
+is never told it. `PartnerReceiver.accept(InboundRequest, PeerCert)` does the same
+for a partner, in the session the caller names. `PeerCert.of(certificate, address)` reads the peer and its issuer from a
 client certificate. `PartnerSessions` keeps a partner's sessions; its `builder()`
 refuses own material no client could accept, naming each `Fault`.
 `HttpSessions.serve` answers one handshake, and `UnsafeOperations` says what an
@@ -517,8 +517,10 @@ hands a session request's body to `HttpSessions.serve`.
 The filters and the outbound interceptor record each verification result as a
 Micrometer observation, so an application with Spring Boot's observation and metrics
 auto-configurations (Actuator, for one) gets a timer for each, with no setting of
-the starter's. An application without a Micrometer registry runs exactly as before:
-the starter then records into `ObservationRegistry.NOOP`. The names, keys and values
+the starter's. Where the context has no `ObservationRegistry` bean the starter
+records into `ObservationRegistry.NOOP` and the application runs exactly as before;
+with Boot's observation auto-configuration but no meter registry, the registry has
+no handlers and nothing becomes a meter. The names, keys and values
 are those of `PaztportObservation`:
 
 | Observation | Recorded by | Keys | Values |
@@ -528,18 +530,22 @@ are those of `PaztportObservation`:
 | `paztport.response` | `OutboundInterceptor` | `reason` | |
 
 `reason` is the name of the verification result's reason code (`OK`, `CHAIN_MISSING`,
-…), or `none` where no verification ran or its result was not available: a service
-that does not verify requests, an unsafe session, a call with no verifier to check its
-response, or a decision that threw. `outcome` is `refused` when the request is answered
-with a refusal in place of the handler's answer, otherwise `served`; it is there because
-a request refused for influence the filter cannot read has a reason (or none) that says
-nothing of the refusal. Where a decision throws, the observation carries the error and
-is stopped before the exception goes on.
+…), or `none` where no verification ran or its result was not available: a hop
+switched `off`, an unsafe or unknown partner session, a caller with no verifier to
+check its response, or a decision that threw. A service that does not verify requests
+has `mode` `none` but records the reason of the check that decides whether it
+attests. `outcome` is `refused` when the request is answered with a refusal in place
+of the handler's answer, or when the decision threw, otherwise `served`; it is there
+because a request refused for influence the filter cannot read has a reason (or
+none) that says nothing of the refusal. Where a decision throws, the observation
+carries the error and is stopped before the exception goes on.
 
 Actuator with a Prometheus registry exports each as a timer, such as
 `paztport_request_seconds_count`, `_sum` and `_max`, labelled `mode`, `reason` and
-`outcome` and also `error`, which Micrometer adds; a `paztport.request.active`
-long-task timer goes with it. The count is the number of requests.
+`outcome` and also `error`, which Micrometer adds. The count is the number of
+requests. A `paztport.request.active` long-task timer goes with it; it is created
+when the observation starts, so it carries only the tags known then (`mode`, and
+none for a response), not `reason` or `outcome`.
 
 Each timer spans the decision only: `RequestContext.accept` for the filters and the
 response check for the interceptor. It is stopped before the handler runs, so it
