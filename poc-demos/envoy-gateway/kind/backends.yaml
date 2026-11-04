@@ -145,9 +145,11 @@ spec:
             - {name: PAZTPORT_KEY_PATH, value: /config/keys/payment.key}
             - {name: PAZTPORT_POLICY_KEY_PATH, value: /config/keys/policy.pub}
             # payment also defines an SSL bundle for the PSP, another organisation, which this proof of concept
-            # leaves out. Actuator's SSL metrics read every bundle's files at start, so they are left out with it.
+            # leaves out. Actuator's SSL metrics read every bundle's files at start, and its SSL health check at
+            # each /actuator/health (which it would answer DOWN), so both are left out with it.
             - name: SPRING_AUTOCONFIGURE_EXCLUDE
               value: org.springframework.boot.micrometer.metrics.autoconfigure.ssl.SslMetricsAutoConfiguration
+            - {name: MANAGEMENT_HEALTH_SSL_ENABLED, value: "false"}
             - {name: SERVER_FORWARDHEADERSSTRATEGY, value: NONE}
             - {name: MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE, value: "health,prometheus"}
           readinessProbe:
