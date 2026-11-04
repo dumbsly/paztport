@@ -530,6 +530,38 @@ class RequestObservationTest {
         assertNull(RequestContext.verifiedChain());
     }
 
+    // A handler that rethrows the decision's own exception as the observation stops must not replace it with the
+    // error that self-suppression raises.
+    @Test
+    void aHandlerThatRethrowsTheDecisionsExceptionOnStopLeavesItAlone() {
+        IllegalStateException failure = new IllegalStateException("listener failed");
+        ReceivedRequestListener listener = (chain, proof, influence, method, target, body) -> {
+            throw failure;
+        };
+        ObservationRegistry rethrowing = ObservationRegistry.create();
+        rethrowing.observationConfig().observationHandler(new ObservationHandler<>() {
+            @Override
+            public void onStop(Observation.Context context) {
+                throw (IllegalStateException) context.getError();
+            }
+
+            @Override
+            public boolean supportsContext(Observation.Context context) {
+                return true;
+            }
+        });
+        InboundFilter filter = new InboundFilter(paymentVerifier(), true, false, "payment",
+                new ModeHolder(VerificationMode.ENFORCE), event -> { }, listener, null, rethrowing);
+
+        IllegalStateException thrown = assertThrows(IllegalStateException.class,
+                () -> run(filter, paymentRequest(validHeaders())));
+
+        assertSame(failure, thrown);
+        assertArrayEquals(new Throwable[0], thrown.getSuppressed());
+        assertFalse(RequestContext.isOpen());
+        assertNull(RequestContext.verifiedChain());
+    }
+
     // The partner's observations ------------------------------------------------------------------------------
 
     @Test

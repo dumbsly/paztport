@@ -230,7 +230,9 @@ public final class InboundFilter extends OncePerRequestFilter {
                     if (failure == null) {
                         throw stopping;
                     }
-                    failure.addSuppressed(stopping);
+                    if (stopping != failure) {
+                        failure.addSuppressed(stopping);
+                    }
                 }
             }
             return entered;

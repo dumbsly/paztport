@@ -6,6 +6,7 @@ package org.paztport.spring.outbound;
 import static io.micrometer.observation.tck.TestObservationRegistryAssert.assertThat;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -336,7 +337,7 @@ class ResponseObservationTest {
             thrown = assertThrows(IllegalStateException.class, () -> fetch(client));
         }
 
-        assertTrue(thrown != stopping, "the record's exception is the one that goes on");
+        assertNotSame(stopping, thrown);
         assertArrayEquals(new Throwable[] {stopping}, thrown.getSuppressed());
         assertTrue(stopped[0], "the observation is stopped");
         assertTrue(closed[0], "the connection is released");
@@ -360,7 +361,7 @@ class ResponseObservationTest {
             thrown = assertThrows(IllegalStateException.class, () -> fetch(client));
         }
 
-        assertTrue(thrown != erroring, "the record's exception is the one that goes on");
+        assertNotSame(erroring, thrown);
         assertArrayEquals(new Throwable[] {erroring}, thrown.getSuppressed());
         assertThat(throwing).hasSingleObservationThat().hasBeenStopped();
         assertTrue(closed[0], "the connection is released");

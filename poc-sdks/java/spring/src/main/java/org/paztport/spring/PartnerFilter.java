@@ -140,7 +140,9 @@ public final class PartnerFilter extends OncePerRequestFilter {
                     if (failure == null) {
                         throw stopping;
                     }
-                    failure.addSuppressed(stopping);
+                    if (stopping != failure) {
+                        failure.addSuppressed(stopping);
+                    }
                 }
             }
             return entered;

@@ -135,7 +135,9 @@ public final class OutboundInterceptor implements ClientHttpRequestInterceptor {
                 if (failure == null) {
                     throw stopping;
                 }
-                failure.addSuppressed(stopping);
+                if (stopping != failure) {
+                    failure.addSuppressed(stopping);
+                }
             }
         }
     }
