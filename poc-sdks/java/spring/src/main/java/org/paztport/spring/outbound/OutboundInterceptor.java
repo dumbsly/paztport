@@ -105,21 +105,38 @@ public final class OutboundInterceptor implements ClientHttpRequestInterceptor {
     /**
      * The caller's check of {@code buffered}, as {@link HttpCaller#recordToContext} makes it, recorded as an
      * observation that is open while the check runs and stopped before this returns. The reason is known only once
-     * the check is made, and stays {@code none} if it throws.
+     * the check is made, and stays {@code none} if it throws. One observation handler that throws as it records the
+     * check's exception, or as it stops while that exception, or its scope's, is going on, is added to it as
+     * suppressed, so the first exception is the one that goes on.
      */
     private void observed(HttpCaller.Outbound sent, Buffered buffered) throws IOException {
         Observation observation = Observation.createNotStarted(PaztportObservation.RESPONSE.getName(), observations)
                 .start();
         String reason = ObservedValues.NONE;
+        Throwable failure = null;
         try (Observation.Scope open = observation.openScope()) {
             HttpWire.ResponseCheck check = caller.recordToContext(sent, buffered.getStatusCode().value(),
                     buffered.getHeaders().getFirst(PaztportHeaders.RESPONSE), buffered.body);
             reason = check == null ? ObservedValues.NONE : ObservedValues.reason(check.result());
         } catch (Throwable t) {
-            observation.error(t);
+            failure = t;
+            try {
+                observation.error(t);
+            } catch (Throwable erroring) {
+                if (erroring != t) {
+                    t.addSuppressed(erroring);
+                }
+            }
             throw t;
         } finally {
-            observation.lowCardinalityKeyValue(PaztportObservation.Keys.REASON.withValue(reason)).stop();
+            try {
+                observation.lowCardinalityKeyValue(PaztportObservation.Keys.REASON.withValue(reason)).stop();
+            } catch (Throwable stopping) {
+                if (failure == null) {
+                    throw stopping;
+                }
+                failure.addSuppressed(stopping);
+            }
         }
     }
 

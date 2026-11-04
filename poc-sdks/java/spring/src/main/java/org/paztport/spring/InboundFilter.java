@@ -193,8 +193,8 @@ public final class InboundFilter extends OncePerRequestFilter {
      * before the handler. The mode is known at the start; the reason and the outcome only once it is made. If an
      * observation handler throws once the decision is made, as its scope closes or as it stops, the request's scope
      * is ended before the exception goes on, since nothing else would close it and it holds the chain verified here.
-     * One that throws as it stops while the decision's exception, or its scope's, is going on is added to that
-     * exception as suppressed, so the first exception is the one that goes on.
+     * One that throws as it records the decision's exception, or as it stops while that exception, or its scope's,
+     * is going on, is added to it as suppressed, so the first exception is the one that goes on.
      */
     private RequestContext.Entered<Accepted> observed(InboundRequest inbound, Peer peer, VerificationMode mode) {
         Observation observation = Observation.createNotStarted(PaztportObservation.REQUEST.getName(), observations)
@@ -213,7 +213,13 @@ public final class InboundFilter extends OncePerRequestFilter {
                 outcome = accepted.refusal() == null ? ObservedValues.SERVED : ObservedValues.REFUSED;
             } catch (Throwable t) {
                 failure = t;
-                observation.error(t);
+                try {
+                    observation.error(t);
+                } catch (Throwable erroring) {
+                    if (erroring != t) {
+                        t.addSuppressed(erroring);
+                    }
+                }
                 throw t;
             } finally {
                 try {

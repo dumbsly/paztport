@@ -4,6 +4,7 @@
 package org.paztport.spring.outbound;
 
 import static io.micrometer.observation.tck.TestObservationRegistryAssert.assertThat;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -245,5 +246,123 @@ class ResponseObservationTest {
 
         assertSame(failure, thrown);
         assertTrue(closed[0], "the connection is released even though recording the check failed");
+    }
+
+    /** A response that reports, in {@code closed}, whether it was closed. */
+    private static ClientHttpResponse tracking(ClientHttpResponse answer, boolean[] closed) {
+        return new ClientHttpResponse() {
+            @Override
+            public HttpStatusCode getStatusCode() throws IOException {
+                return answer.getStatusCode();
+            }
+
+            @Override
+            public String getStatusText() throws IOException {
+                return answer.getStatusText();
+            }
+
+            @Override
+            public HttpHeaders getHeaders() {
+                return answer.getHeaders();
+            }
+
+            @Override
+            public InputStream getBody() throws IOException {
+                return answer.getBody();
+            }
+
+            @Override
+            public void close() {
+                closed[0] = true;
+                answer.close();
+            }
+        };
+    }
+
+    /** A test registry whose one extra handler throws {@code onError} and {@code onStop}, where not null. */
+    private static TestObservationRegistry throwing(RuntimeException onError, RuntimeException onStop) {
+        TestObservationRegistry throwing = TestObservationRegistry.create();
+        throwing.observationConfig().observationHandler(new ObservationHandler<>() {
+            @Override
+            public void onError(Observation.Context context) {
+                if (onError != null) {
+                    throw onError;
+                }
+            }
+
+            @Override
+            public void onStop(Observation.Context context) {
+                if (onStop != null) {
+                    throw onStop;
+                }
+            }
+
+            @Override
+            public boolean supportsContext(Observation.Context context) {
+                return true;
+            }
+        });
+        return throwing;
+    }
+
+    // A refused record is the exception to keep, and a handler that fails as it stops must not hide it.
+    @Test
+    void aRefusedRecordKeepsItsExceptionWhenAHandlerThrowsOnStop() {
+        IllegalStateException stopping = new IllegalStateException("handler failed on stop");
+        TestObservationRegistry throwing = throwing(null, stopping);
+        // Handlers are told of a stop last registered first, so this one is told before the one that throws.
+        boolean[] stopped = {false};
+        throwing.observationConfig().observationHandler(new ObservationHandler<>() {
+            @Override
+            public void onStop(Observation.Context context) {
+                stopped[0] = true;
+            }
+
+            @Override
+            public boolean supportsContext(Observation.Context context) {
+                return true;
+            }
+        });
+        boolean[] closed = {false};
+        RequestContext.Scope[] open = new RequestContext.Scope[1];
+        RestClient client = client(interceptor(gatewayVerifier(), throwing), request -> {
+            open[0].close();
+            return tracking(attested().createResponse(request), closed);
+        });
+
+        IllegalStateException thrown;
+        try (RequestContext.Scope scope = RequestContext.open()) {
+            open[0] = scope;
+            thrown = assertThrows(IllegalStateException.class, () -> fetch(client));
+        }
+
+        assertTrue(thrown != stopping, "the record's exception is the one that goes on");
+        assertArrayEquals(new Throwable[] {stopping}, thrown.getSuppressed());
+        assertTrue(stopped[0], "the observation is stopped");
+        assertTrue(closed[0], "the connection is released");
+    }
+
+    // A handler that fails as the error is recorded must not hide it either.
+    @Test
+    void aRefusedRecordKeepsItsExceptionWhenAHandlerThrowsOnError() {
+        IllegalStateException erroring = new IllegalStateException("handler failed on error");
+        TestObservationRegistry throwing = throwing(erroring, null);
+        boolean[] closed = {false};
+        RequestContext.Scope[] open = new RequestContext.Scope[1];
+        RestClient client = client(interceptor(gatewayVerifier(), throwing), request -> {
+            open[0].close();
+            return tracking(attested().createResponse(request), closed);
+        });
+
+        IllegalStateException thrown;
+        try (RequestContext.Scope scope = RequestContext.open()) {
+            open[0] = scope;
+            thrown = assertThrows(IllegalStateException.class, () -> fetch(client));
+        }
+
+        assertTrue(thrown != erroring, "the record's exception is the one that goes on");
+        assertArrayEquals(new Throwable[] {erroring}, thrown.getSuppressed());
+        assertThat(throwing).hasSingleObservationThat().hasBeenStopped();
+        assertTrue(closed[0], "the connection is released");
     }
 }

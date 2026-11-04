@@ -31,6 +31,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.AfterEach;
@@ -48,6 +49,7 @@ import org.paztport.core.session.Sessions;
 import org.paztport.core.stamp.Stamp;
 import org.paztport.core.stamp.Stamper;
 import org.paztport.core.verify.InMemoryNonceCache;
+import org.paztport.core.verify.NonceCache;
 import org.paztport.core.verify.PinnedKeyring;
 import org.paztport.core.verify.PinnedRoot;
 import org.paztport.core.verify.ReasonCode;
@@ -133,6 +135,26 @@ class RequestObservationTest {
         return throwing;
     }
 
+    /**
+     * A test registry, so that what stops can be read, whose one extra handler throws {@code onError} as an
+     * observation records an error, as a faulty handler might.
+     */
+    private static TestObservationRegistry throwingOnError(RuntimeException onError) {
+        TestObservationRegistry throwing = TestObservationRegistry.create();
+        throwing.observationConfig().observationHandler(new ObservationHandler<>() {
+            @Override
+            public void onError(Observation.Context context) {
+                throw onError;
+            }
+
+            @Override
+            public boolean supportsContext(Observation.Context context) {
+                return true;
+            }
+        });
+        return throwing;
+    }
+
     // The shop's side -----------------------------------------------------------------------------------------
 
     private Verifier paymentVerifier() {
@@ -205,7 +227,26 @@ class RequestObservationTest {
             NOT_AFTER, shopPolicy.getPrivate());
     private final KeyPair pspPolicy = Crypto.generateEd25519KeyPair();
     private final KeyPair pspKey = Crypto.generateEd25519KeyPair();
+    /** Set once a session is open, to make the next call's verification throw from the replay cache. */
+    private final AtomicReference<RuntimeException> nonceFailure = new AtomicReference<>();
     private final PartnerSessions sessions = PartnerSessions.builder()
+            .nonces(new NonceCache() {
+                private final NonceCache delegate = new InMemoryNonceCache(VerifierConfig.nonceTtlFor(5000));
+
+                @Override
+                public boolean seenBefore(String key, long now) {
+                    RuntimeException failure = nonceFailure.get();
+                    if (failure != null) {
+                        throw failure;
+                    }
+                    return delegate.seenBefore(key, now);
+                }
+
+                @Override
+                public long ttlMs() {
+                    return delegate.ttlMs();
+                }
+            })
             .ownRoot(PolicyBuilder.build(List.of(List.of("psp", "ledger")), 4, NOT_AFTER, pspPolicy.getPrivate())
                     .signedRoot())
             .ownKeyring(KeyringFile.sign(Map.of("psp", pub(pspKey)), pub(pspPolicy), NOT_AFTER,
@@ -467,6 +508,28 @@ class RequestObservationTest {
         assertNull(RequestContext.verifiedChain());
     }
 
+    // A handler that throws as the observation records the decision's error must not hide that error either.
+    @Test
+    void aThrowingDecisionKeepsItsExceptionWhenAHandlerThrowsOnError() {
+        IllegalStateException failure = new IllegalStateException("listener failed");
+        IllegalStateException erroring = new IllegalStateException("handler failed on error");
+        ReceivedRequestListener listener = (chain, proof, influence, method, target, body) -> {
+            throw failure;
+        };
+        TestObservationRegistry throwing = throwingOnError(erroring);
+        InboundFilter filter = new InboundFilter(paymentVerifier(), true, false, "payment",
+                new ModeHolder(VerificationMode.ENFORCE), event -> { }, listener, null, throwing);
+
+        IllegalStateException thrown = assertThrows(IllegalStateException.class,
+                () -> run(filter, paymentRequest(validHeaders())));
+
+        assertSame(failure, thrown);
+        assertArrayEquals(new Throwable[] {erroring}, thrown.getSuppressed());
+        assertThat(throwing).hasSingleObservationThat().hasBeenStopped();
+        assertFalse(RequestContext.isOpen());
+        assertNull(RequestContext.verifiedChain());
+    }
+
     // The partner's observations ------------------------------------------------------------------------------
 
     @Test
@@ -558,6 +621,25 @@ class RequestObservationTest {
             // Micrometer restores the thread's current observation only after its handlers are told the scope closed.
             throwing.setCurrentObservationScope(null);
         }
+    }
+
+    @Test
+    void aThrowingCallKeepsItsExceptionWhenAHandlerThrowsOnError() throws Exception {
+        IllegalStateException failure = new IllegalStateException("replay cache failed");
+        IllegalStateException erroring = new IllegalStateException("handler failed on error");
+        TestObservationRegistry throwing = throwingOnError(erroring);
+        PartnerFilter filter = new PartnerFilter(sessions, "psp", throwing);
+        MockHttpServletRequest call = charge(handshake(true), CHARGE);
+        nonceFailure.set(failure);
+
+        IllegalStateException thrown = assertThrows(IllegalStateException.class,
+                () -> filter.doFilter(call, new MockHttpServletResponse(), new MockFilterChain()));
+
+        assertSame(failure, thrown);
+        assertArrayEquals(new Throwable[] {erroring}, thrown.getSuppressed());
+        assertThat(throwing).hasSingleObservationThat().hasBeenStopped();
+        assertFalse(RequestContext.isOpen());
+        assertNull(RequestContext.verifiedChain());
     }
 
     @Test
