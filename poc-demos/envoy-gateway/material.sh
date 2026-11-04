@@ -10,7 +10,7 @@
 #
 # outDir defaults to out/ beside this script. It must not exist already: the keys it holds are the ones the cluster
 # was set up with, so they are never replaced by accident. --fresh deletes it first and makes everything again;
-# it refuses an empty path, a path that is not a directory, /, this repository's root and $HOME.
+# it refuses a path that is not a directory, /, this repository's root, $HOME, and any directory holding either.
 # PAZTPORT_POLICY_DAYS (default 7) says how long the keyring and the policy root vouch for the keys.
 # PAZTPORT_JAVA names the java to run the jars with (./run passes the JDK Maven uses); otherwise java on the PATH.
 #
@@ -27,16 +27,19 @@ if [ "${1:-}" = --fresh ]; then fresh=true; shift; fi
 out="$here/out"
 [ $# -eq 0 ] || out="$1"
 
+[ -n "$out" ] || { echo "material.sh: outDir is empty" >&2; exit 1; }
+
 if [ -e "$out" ]; then
   if [ "$fresh" != true ]; then
     echo "$out exists; the cluster's keys are in it. Use --fresh to make new ones." >&2
     exit 1
   fi
-  # --fresh deletes outDir, so it never deletes anything that is not plainly a place for generated files.
-  [ -n "$out" ] && [ -d "$out" ] || { echo "material.sh: --fresh needs a directory, not '$out'" >&2; exit 1; }
+  # --fresh deletes outDir, so it never deletes anything that is not plainly a place for generated files: not a file,
+  # not / or the repository or $HOME, and not a directory that holds the repository or $HOME.
+  [ -d "$out" ] || { echo "material.sh: --fresh needs a directory, not '$out'" >&2; exit 1; }
   resolved="$(cd "$out" && pwd -P)"
-  for kept in / "$(cd "$here/../.." && pwd -P)" "$(cd "${HOME:-/}" && pwd -P)"; do
-    if [ "$resolved" = "$kept" ]; then
+  for kept in "$(cd "$here/../.." && pwd -P)" "$(cd "${HOME:-/}" && pwd -P)"; do
+    if [ "$resolved" = / ] || [ "$resolved" = "$kept" ] || [ "${kept#"$resolved"/}" != "$kept" ]; then
       echo "material.sh: --fresh will not delete $resolved" >&2
       exit 1
     fi

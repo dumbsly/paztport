@@ -86,17 +86,19 @@ envoy_missing() {
   [ "$status" -eq 1 ] && grep -q "^missing: $1 " <<<"$out" && [ "$(wc -l <<<"$out")" -eq 1 ]
 }
 
-# material_refuses <arguments...>: material.sh run with HOME set to a scratch directory holding a marker file, and
-# the arguments (the word @HOME@ standing for that directory), exits non-zero and leaves the marker and the
-# directory 'taken' alone. The refusals come before the jars are needed, so no build is required.
+# material_refuses <phrase> <arguments...>: material.sh run with HOME set to a scratch directory holding a marker
+# file, and the arguments (the word @HOME@ standing for that directory), exits non-zero, says <phrase>, and leaves the
+# marker and the directory 'taken' alone. Asserting the phrase makes the case fail when the guard is missing, whether
+# or not the jars are built, since a missing jar also exits non-zero without deleting anything.
 material_refuses() {
-  local work status args=() arg ok=0
+  local work status out phrase="$1" args=() arg ok=0
+  shift
   work="$(mktemp -d)"
   mkdir "$work/taken" "$work/home"
   touch "$work/taken/keep" "$work/home/keep"
   for arg in "$@"; do args+=("${arg//@HOME@/$work/home}"); done
-  (cd "$work" && HOME="$work/home" "$repo/poc-demos/envoy-gateway/material.sh" "${args[@]}") >/dev/null 2>&1; status=$?
-  [ "$status" -ne 0 ] && [ -e "$work/taken/keep" ] && [ -e "$work/home/keep" ] || ok=1
+  out="$(cd "$work" && HOME="$work/home" "$repo/poc-demos/envoy-gateway/material.sh" "${args[@]}" 2>&1)"; status=$?
+  [ "$status" -ne 0 ] && grep -qF -- "$phrase" <<<"$out" && [ -e "$work/taken/keep" ] && [ -e "$work/home/keep" ] || ok=1
   rm -rf "$work"
   return "$ok"
 }
@@ -132,10 +134,12 @@ check "envoy-gateway -h prints usage" help_after envoy-gateway
 check "envoy-gateway without kind prints one 'missing: kind' line and exits 1" envoy_missing kind
 check "envoy-gateway with a kubectl below 1.35 prints one 'missing: kubectl' line and exits 1" \
   envoy_missing kubectl "Client Version: v1.34.9"
-check "material.sh will not write over an existing directory" material_refuses taken
-check "material.sh --fresh will not delete an empty path" material_refuses --fresh ""
-check "material.sh --fresh will not delete /" material_refuses --fresh /
-check "material.sh --fresh will not delete \$HOME" material_refuses --fresh @HOME@
+check "material.sh will not write over an existing directory" material_refuses "exists; the cluster's keys" taken
+check "material.sh will not take an empty directory name, with or without --fresh" bash -c \
+  "$(declare -f material_refuses); repo='$repo'; material_refuses 'is empty' '' && material_refuses 'is empty' --fresh ''"
+check "material.sh --fresh will not delete /" material_refuses "will not delete" --fresh /
+check "material.sh --fresh will not delete \$HOME" material_refuses "will not delete" --fresh @HOME@
+check "material.sh --fresh will not delete a parent of \$HOME" material_refuses "will not delete" --fresh @HOME@/..
 check "a clean clone passes ./run test" clean_clone_passes_run_test
 
 [ "$failures" -eq 0 ] || { echo "$failures failed"; exit 1; }
