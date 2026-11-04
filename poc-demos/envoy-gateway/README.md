@@ -58,9 +58,9 @@ every run, the median of each side's runs with their lowest and highest, and the
 
 | Suite | What it measures |
 |---|---|
-| `load` | plain Envoy (`echo-plain`) against Envoy and the processor (`echo`), with a 400-byte and a 256 KiB body, under `VUS` users each sending its next request when the last is answered; first, from Envoy's own configuration (its admin `/config_dump`), that the twins share one listener's filter chain and differ only in the processor's filter being enabled on `echo`; last, that `echo` was sent no request unstamped and `echo-plain` none stamped |
+| `load` | the latency the processor adds: plain Envoy (`echo-plain`) against Envoy and the processor (`echo`) at the same offered rate, well below either one's ceiling (`LOAD_RATE_SMALL`, 1000 requests a second, with a 400-byte body; `LOAD_RATE_LARGE`, 500, with a 256 KiB one), each run saying whether k6 kept to that rate; first, from Envoy's own configuration (its admin `/config_dump`), that the twins share one listener's filter chain and differ only in the processor's filter being enabled on `echo`; last, that `echo` was sent no request unstamped and `echo-plain` none stamped |
 
-`ROUNDS` (3), `DURATION` (20s), `WARMUP` (10s) and `VUS` (10) set the runs. Everything printed, each run's
+`ROUNDS` (3), `DURATION` (20s), `WARMUP` (10s), `VUS` (10), `LOAD_RATE_SMALL` and `LOAD_RATE_LARGE` set the runs. Everything printed, each run's
 responses other than the expected, and the Envoy configuration read go to `out/measurements/<UTC time>/`. Every
 number is indicative: one kind node on one machine runs Envoy, the processor, the backends and k6 alike, and each
 run prints the machine's CPUs and memory. The cluster is deleted at the end, unless `--keep`. `./run envoy-gateway

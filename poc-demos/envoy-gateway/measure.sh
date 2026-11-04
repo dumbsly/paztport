@@ -15,6 +15,8 @@
 # kind node on this machine runs Envoy, the processor, the backends and k6 alike.
 #
 #   ROUNDS (3), DURATION (20s), WARMUP (10s) and VUS (10) set the runs: see measure/common.sh's alternate.
+#   LOAD_RATE_SMALL (1000) and LOAD_RATE_LARGE (500) are the requests a second the load suite offers each twin,
+#   with the small and the large body.
 #
 # Like envoy-gateway.sh, it needs the jars built and out/ made (material.sh); nothing is pushed anywhere, and every
 # kubectl and helm call names the cluster's own context.
@@ -28,6 +30,8 @@ ROUNDS="${ROUNDS:-3}"
 DURATION="${DURATION:-20s}"
 WARMUP="${WARMUP:-10s}"
 VUS="${VUS:-10}"
+LOAD_RATE_SMALL="${LOAD_RATE_SMALL:-1000}"
+LOAD_RATE_LARGE="${LOAD_RATE_LARGE:-500}"
 # Every suite, in the order they run; a suite is there once a file in measure/ defines suite_<name>.
 ORDER="load ceiling edge failure gotchas observe rollout route rotation"
 

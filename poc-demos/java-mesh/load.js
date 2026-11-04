@@ -10,7 +10,9 @@
 //     -v "$PWD/out/keys/tls/operator.crt:/tls/operator.crt:ro" \
 //     -v "$PWD/out/keys/tls/operator.key:/tls/operator.key:ro" \
 //     -e TARGET=https://gateway:8080/checkout -e VUS=10 -e DURATION=20s \
-//     -v "$PWD/load.js:/scripts/load.js:ro" grafana/k6 run /scripts/load.js
+//     -v "$PWD/load.js:/scripts/load.js:ro" \
+//     docker.io/grafana/k6:2.2.0@sha256:9bd01d6941fca969cb61bb57d2da5ee9b385fe2aa8881df3798c196564d6ace6 \
+//     run /scripts/load.js
 //
 // measure.sh runs it with payment in `off` and in `enforce` mode (toggled via
 // POST /admin/mode), warmed up and alternated; its header says what the

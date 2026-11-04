@@ -10,6 +10,11 @@
       the medians of p50 and p99, and the lowest and highest difference between the two in one round (their n-th
       runs). Refuses a run whose statuses do not sum to its requests.
 
+  summary.py rate <runs file> <offered rate>
+      For each run of an open model (k6's rate executor), whether k6 kept to the offered rate: its achieved
+      requests a second within 2% of the offered, and no request dropped. A run that did not is said so plainly;
+      it is not refused.
+
   summary.py window <fails file>
       The fails file holds edge.js's "FAIL {json}" lines: their count by status, the first and the last (UTC),
       and the span between them. When the run's .result file is beside it ("<expected status> RESULT {json}", from
@@ -79,6 +84,22 @@ def medians(path, labels):
         print("  %s adds to %s: %s" % (label, base, ", ".join(parts)))
 
 
+def rate(path, offered):
+    with open(path) as f:
+        lines = [line.strip().partition(" ") for line in f if line.strip()]
+    seen = {}
+    for label, _, rest in lines:
+        if not rest.startswith("RESULT "):
+            die("%s holds a line that is not '<label> RESULT {json}'" % path)
+        r = json.loads(rest[len("RESULT "):])
+        seen[label] = seen.get(label, 0) + 1
+        off = (r["rps"] - offered) / offered * 100
+        kept = abs(off) <= 2 and r["dropped"] == 0
+        print("  %s round %d: %.1f/s achieved of %g/s offered (%+.1f%%), %d dropped: %s" % (
+            label, seen[label], r["rps"], offered, off, r["dropped"],
+            "at the offered rate" if kept else "NOT at the offered rate, so this run's latency is not at that load"))
+
+
 def utc(ms):
     t = datetime.datetime.fromtimestamp(ms / 1000, datetime.timezone.utc)
     return t.strftime("%H:%M:%S.") + "%03dZ" % (ms % 1000)
@@ -126,10 +147,12 @@ def window(path):
 def main(argv):
     if len(argv) >= 3 and argv[0] == "medians":
         medians(argv[1], argv[2:])
+    elif len(argv) == 3 and argv[0] == "rate":
+        rate(argv[1], float(argv[2]))
     elif len(argv) == 2 and argv[0] == "window":
         window(argv[1])
     else:
-        die("usage: summary.py medians <runs file> <label>... | window <fails file>")
+        die("usage: summary.py medians <runs file> <label>... | rate <runs file> <offered rate> | window <fails file>")
 
 
 if __name__ == "__main__":

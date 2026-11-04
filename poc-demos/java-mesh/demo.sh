@@ -20,7 +20,8 @@ cd "$(dirname "$0")"
 
 MESH="paztport-mesh"
 PSP_NET="paztport-psp"
-CURL="curlimages/curl:latest"
+# curl 8.22.0, pinned by the digest of its index, as measure.sh and the Envoy Gateway checks run it.
+CURL="docker.io/curlimages/curl:8.22.0@sha256:58adaa4e8dca9c988bae2aba4ab3434a0bb2da16bbe3f92dec39ec7785166777"
 # The operator's certificate, mounted file by file: never the whole tls directory.
 # The key files are owner-only and the curl image runs as an unprivileged user,
 # so the container runs as root to read them.

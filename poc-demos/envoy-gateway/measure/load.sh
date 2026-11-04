@@ -3,8 +3,10 @@
 #
 # The load suites. measure.sh sources this after common.sh, and runs each suite_<name> it defines.
 #
-#   load    plain Envoy against Envoy and the processor: the twin routes echo-plain and echo, each with a small and
-#           a large body, under VUS users each sending its next request when the last is answered, alternated.
+#   load    plain Envoy against Envoy and the processor: the twin routes echo-plain and echo, each with a small body
+#           at LOAD_RATE_SMALL requests a second and a large one at LOAD_RATE_LARGE, alternated. Both twins are
+#           offered the same rate, well below either one's ceiling, so the difference is the processor's own time
+#           per request and not queueing; the ceilings are the ceiling suite's.
 # shellcheck shell=bash
 
 twin_plain() { RUN_VARS=(HOST="$PLAIN_HOST"); }
@@ -170,16 +172,22 @@ echo_unstamped() {
   return "$ok"
 }
 
+# The users k6 holds ready for the load suite's open-model runs: many more than the rates need at these latencies,
+# so a run that falls behind shows as dropped requests, not as a lower rate.
+LOAD_PREALLOC=50
+
 suite_load() {
-  local body
-  echo "== load: plain Envoy (echo-plain) against Envoy and the processor (echo)"
+  local body rate
+  echo "== load: plain Envoy (echo-plain) against Envoy and the processor (echo), at the same offered rate"
   baseline_reset
   twins_alike || return 1
   for body in small large; do
-    echo "-- $body body: VUS=$VUS users, each sending its next request when the last is answered," \
+    if [ "$body" = small ]; then rate="$LOAD_RATE_SMALL"; else rate="$LOAD_RATE_LARGE"; fi
+    echo "-- $body body: $rate requests a second offered to each twin (from up to $LOAD_PREALLOC k6 users)," \
       "DURATION=$DURATION a run, WARMUP=$WARMUP, ROUNDS=$ROUNDS"
-    alternate "load-$body" plain twin_plain stamped twin_stamped \
-      TARGET="$EDGE/orders" BODY="$body" EXECUTOR=vus VUS="$VUS" DURATION="$DURATION" || return 1
+    alternate "load-$body" plain twin_plain stamped twin_stamped TARGET="$EDGE/orders" BODY="$body" \
+      EXECUTOR=rate RATE="$rate" PREALLOC="$LOAD_PREALLOC" DURATION="$DURATION" || return 1
+    python3 "$here/measure/summary.py" rate "$RUN_DIR/load-$body.runs" "$rate"
   done
   echo_unstamped
 }
