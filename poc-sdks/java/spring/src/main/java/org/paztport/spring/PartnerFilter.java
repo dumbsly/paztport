@@ -98,7 +98,9 @@ public final class PartnerFilter extends OncePerRequestFilter {
     /**
      * The receiver's decision, as {@link RequestContext#accept(PartnerReceiver, InboundRequest, PeerCert)} makes it,
      * recorded as an observation that is open while the decision runs and stopped before this returns, so before the
-     * handler. Every tag is known only once it is made.
+     * handler. Every tag is known only once it is made. If an observation handler throws once the decision is made,
+     * as its scope closes or as it stops, the call's scope is ended before the exception goes on, since nothing else
+     * would close it and in an attested session it holds the verified chain and influence.
      */
     private RequestContext.Entered<PartnerAccepted> observed(InboundRequest inbound, PeerCert peer) {
         Observation observation = Observation
@@ -106,22 +108,30 @@ public final class PartnerFilter extends OncePerRequestFilter {
         String session = ObservedValues.UNKNOWN;
         String reason = ObservedValues.NONE;
         String outcome = ObservedValues.REFUSED;
-        try (Observation.Scope open = observation.openScope()) {
-            RequestContext.Entered<PartnerAccepted> entered = RequestContext.accept(receiver, inbound, peer);
-            PartnerAccepted accepted = entered.result();
-            session = accepted.result() != null ? ObservedValues.ATTESTED
-                    : accepted.refusal() != null ? ObservedValues.UNKNOWN : ObservedValues.UNSAFE;
-            reason = ObservedValues.reason(accepted.result());
-            outcome = accepted.refusal() == null ? ObservedValues.SERVED : ObservedValues.REFUSED;
+        RequestContext.Entered<PartnerAccepted> entered = null;
+        try {
+            try (Observation.Scope open = observation.openScope()) {
+                entered = RequestContext.accept(receiver, inbound, peer);
+                PartnerAccepted accepted = entered.result();
+                session = accepted.result() != null ? ObservedValues.ATTESTED
+                        : accepted.refusal() != null ? ObservedValues.UNKNOWN : ObservedValues.UNSAFE;
+                reason = ObservedValues.reason(accepted.result());
+                outcome = accepted.refusal() == null ? ObservedValues.SERVED : ObservedValues.REFUSED;
+            } catch (Throwable t) {
+                observation.error(t);
+                throw t;
+            } finally {
+                observation.lowCardinalityKeyValue(PaztportObservation.Keys.SESSION.withValue(session))
+                        .lowCardinalityKeyValue(PaztportObservation.Keys.REASON.withValue(reason))
+                        .lowCardinalityKeyValue(PaztportObservation.Keys.OUTCOME.withValue(outcome))
+                        .stop();
+            }
             return entered;
         } catch (Throwable t) {
-            observation.error(t);
+            if (entered != null) {
+                entered.close();
+            }
             throw t;
-        } finally {
-            observation.lowCardinalityKeyValue(PaztportObservation.Keys.SESSION.withValue(session))
-                    .lowCardinalityKeyValue(PaztportObservation.Keys.REASON.withValue(reason))
-                    .lowCardinalityKeyValue(PaztportObservation.Keys.OUTCOME.withValue(outcome))
-                    .stop();
         }
     }
 }

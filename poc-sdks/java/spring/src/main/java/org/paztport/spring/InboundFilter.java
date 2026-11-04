@@ -190,7 +190,9 @@ public final class InboundFilter extends OncePerRequestFilter {
     /**
      * The receiver's decision, as {@link RequestContext#accept(HttpReceiver, InboundRequest, Peer, VerificationMode)}
      * makes it, recorded as an observation that is open while the decision runs and stopped before this returns, so
-     * before the handler. The mode is known at the start; the reason and the outcome only once it is made.
+     * before the handler. The mode is known at the start; the reason and the outcome only once it is made. If an
+     * observation handler throws once the decision is made, as its scope closes or as it stops, the request's scope
+     * is ended before the exception goes on, since nothing else would close it and it holds the chain verified here.
      */
     private RequestContext.Entered<Accepted> observed(InboundRequest inbound, Peer peer, VerificationMode mode) {
         Observation observation = Observation.createNotStarted(PaztportObservation.REQUEST.getName(), observations)
@@ -199,19 +201,27 @@ public final class InboundFilter extends OncePerRequestFilter {
                 .start();
         String reason = ObservedValues.NONE;
         String outcome = ObservedValues.REFUSED;
-        try (Observation.Scope open = observation.openScope()) {
-            RequestContext.Entered<Accepted> entered = RequestContext.accept(receiver, inbound, peer, mode);
-            Accepted accepted = entered.result();
-            reason = ObservedValues.reason(accepted.result());
-            outcome = accepted.refusal() == null ? ObservedValues.SERVED : ObservedValues.REFUSED;
+        RequestContext.Entered<Accepted> entered = null;
+        try {
+            try (Observation.Scope open = observation.openScope()) {
+                entered = RequestContext.accept(receiver, inbound, peer, mode);
+                Accepted accepted = entered.result();
+                reason = ObservedValues.reason(accepted.result());
+                outcome = accepted.refusal() == null ? ObservedValues.SERVED : ObservedValues.REFUSED;
+            } catch (Throwable t) {
+                observation.error(t);
+                throw t;
+            } finally {
+                observation.lowCardinalityKeyValue(PaztportObservation.Keys.REASON.withValue(reason))
+                        .lowCardinalityKeyValue(PaztportObservation.Keys.OUTCOME.withValue(outcome))
+                        .stop();
+            }
             return entered;
         } catch (Throwable t) {
-            observation.error(t);
+            if (entered != null) {
+                entered.close();
+            }
             throw t;
-        } finally {
-            observation.lowCardinalityKeyValue(PaztportObservation.Keys.REASON.withValue(reason))
-                    .lowCardinalityKeyValue(PaztportObservation.Keys.OUTCOME.withValue(outcome))
-                    .stop();
         }
     }
 

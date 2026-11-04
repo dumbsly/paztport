@@ -5,6 +5,8 @@ package org.paztport.spring;
 
 import static io.micrometer.observation.tck.TestObservationRegistryAssert.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -12,6 +14,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.micrometer.common.KeyValue;
 import io.micrometer.observation.Observation;
+import io.micrometer.observation.ObservationHandler;
+import io.micrometer.observation.ObservationRegistry;
 import io.micrometer.observation.tck.TestObservationRegistry;
 import jakarta.servlet.http.HttpServlet;
 import jakarta.servlet.http.HttpServletRequest;
@@ -54,6 +58,7 @@ import org.paztport.http.ModeHolder;
 import org.paztport.http.PartnerSessions;
 import org.paztport.http.PeerCert;
 import org.paztport.http.ReceivedRequestListener;
+import org.paztport.http.RequestContext;
 import org.paztport.http.VerificationMode;
 import org.paztport.http.wire.HttpWire;
 import org.paztport.http.wire.PaztportHeaders;
@@ -93,6 +98,23 @@ class RequestObservationTest {
     @AfterEach
     void cleanup() {
         ContextAccess.reset();
+    }
+
+    /** A registry whose one handler throws {@code failure} as each observation stops, as a faulty handler might. */
+    private static ObservationRegistry throwingOnStop(RuntimeException failure) {
+        ObservationRegistry throwing = ObservationRegistry.create();
+        throwing.observationConfig().observationHandler(new ObservationHandler<>() {
+            @Override
+            public void onStop(Observation.Context context) {
+                throw failure;
+            }
+
+            @Override
+            public boolean supportsContext(Observation.Context context) {
+                return true;
+            }
+        });
+        return throwing;
     }
 
     // The shop's side -----------------------------------------------------------------------------------------
@@ -390,6 +412,21 @@ class RequestObservationTest {
                 .hasBeenStopped();
     }
 
+    // The request's scope holds the chain verified here: a handler that throws must not leave it on a pooled thread.
+    @Test
+    void aHandlerThatThrowsOnStopLeavesNoScopeOpen() {
+        IllegalStateException failure = new IllegalStateException("handler failed");
+        InboundFilter filter = new InboundFilter(paymentVerifier(), true, false, "payment",
+                new ModeHolder(VerificationMode.ENFORCE), event -> { }, null, null, throwingOnStop(failure));
+
+        IllegalStateException thrown = assertThrows(IllegalStateException.class,
+                () -> run(filter, paymentRequest(validHeaders())));
+
+        assertSame(failure, thrown);
+        assertFalse(RequestContext.isOpen());
+        assertNull(RequestContext.verifiedChain());
+    }
+
     // The partner's observations ------------------------------------------------------------------------------
 
     @Test
@@ -443,6 +480,21 @@ class RequestObservationTest {
                 .hasLowCardinalityKeyValue("reason", "none")
                 .hasLowCardinalityKeyValue("outcome", "served")
                 .hasBeenStopped();
+    }
+
+    // An attested call's scope holds its verified chain and influence, which must not outlive it either.
+    @Test
+    void aHandlerThatThrowsOnStopLeavesNoPartnerScopeOpen() throws Exception {
+        IllegalStateException failure = new IllegalStateException("handler failed");
+        PartnerFilter filter = new PartnerFilter(sessions, "psp", throwingOnStop(failure));
+        MockHttpServletRequest call = charge(handshake(true), CHARGE);
+
+        IllegalStateException thrown = assertThrows(IllegalStateException.class,
+                () -> filter.doFilter(call, new MockHttpServletResponse(), new MockFilterChain()));
+
+        assertSame(failure, thrown);
+        assertFalse(RequestContext.isOpen());
+        assertNull(RequestContext.verifiedChain());
     }
 
     @Test
