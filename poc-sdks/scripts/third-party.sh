@@ -3,9 +3,10 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # Regenerates THIRD-PARTY.txt. The license plugin lists each Java tree's runtime dependencies: the SDK's,
-# and the mesh demo's, which adds docker-java and its dependencies, and Spring Boot's loader. This merges
-# the two lists, sorted by name ignoring case and without duplicates, under one count. The demo resolves
-# the SDK from the local Maven repository, so run `mvn install` in poc-sdks/java first.
+# and the mesh demo's, which adds docker-java and its dependencies, Spring Boot's loader, and Spring Boot's
+# Actuator and Micrometer's Prometheus registry with their dependencies. This merges the two lists, sorted
+# by name ignoring case and without duplicates, under one count. The demo resolves the SDK from the local
+# Maven repository, so run `mvn install` in poc-sdks/java first.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 

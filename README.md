@@ -600,12 +600,13 @@ The repository holds Paztport's source and, in [licenses/](licenses), the text o
 each third-party licence other than Apache-2.0 that a built jar carries. It bundles
 no third-party code. [THIRD-PARTY.txt](THIRD-PARTY.txt) lists the runtime
 dependencies of both Java trees, each with the licence it is used under. All of
-them are permissive (Apache-2.0, MIT, the MIT-style Bouncy Castle licence) or weak
-copyleft that is fine to redistribute unmodified (EPL-2.0), except JMH (below).
-Three components offer a choice of licence, recorded in
+them are permissive (Apache-2.0, MIT, BSD-2-Clause, the MIT-style Bouncy Castle
+licence) or weak copyleft that is fine to redistribute unmodified (EPL-2.0), except
+JMH (below). Four components offer a choice of licence, recorded in
 [licenses/overrides.properties](licenses/overrides.properties): Logback (EPL-2.0 or
 LGPL-2.1) and Jakarta Annotations (EPL-2.0 or GPL-2.0 with the Classpath Exception)
-are used under EPL-2.0, and JNA (Apache-2.0 or LGPL-2.1) under Apache-2.0.
+are used under EPL-2.0, JNA (Apache-2.0 or LGPL-2.1) under Apache-2.0, and
+HdrHistogram (public domain under CC0, or BSD-2-Clause) under BSD-2-Clause.
 Regenerate the list after changing dependencies:
 
 ```bash
@@ -614,7 +615,8 @@ poc-sdks/scripts/third-party.sh
 ```
 
 The script runs the license plugin in both Java trees, the SDK and the mesh demo
-(which adds docker-java and its dependencies, and Spring Boot's loader), and merges
+(which adds docker-java and its dependencies, Spring Boot's loader, and Spring Boot's
+Actuator and Micrometer's Prometheus registry with their dependencies), and merges
 the two lists into `THIRD-PARTY.txt`, sorted by name without duplicates.
 
 Every jar the build produces carries `META-INF/LICENSE` (the Apache-2.0 text) and

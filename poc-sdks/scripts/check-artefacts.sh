@@ -26,9 +26,9 @@ fail() { # jar, then the gap
   failures=$((failures + 1))
 }
 
-# text_of <licence> <groupId>: the file in licenses/ holding the licence a component is used under. MIT, BSD-2-Clause and the
-# Bouncy Castle licence name their copyright holder, so they go by group. Prints nothing for Apache-2.0, whose
-# text is META-INF/LICENSE; fails for a licence with no text here.
+# text_of <licence> <groupId>: the file in licenses/ holding the licence a component is used under. MIT,
+# BSD-2-Clause and the Bouncy Castle licence name their copyright holder, so they go by group. Prints nothing for
+# Apache-2.0, whose text is META-INF/LICENSE; fails for a licence with no text here.
 text_of() {
   case "$1|$2" in
     "Apache-2.0|"*) ;;

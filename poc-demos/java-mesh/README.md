@@ -685,9 +685,9 @@ rises and closes those left idle.
 The costs of the primitives come from the JMH micro-benchmarks in
 [tools/bench](../../poc-sdks/java/README.md#toolsbench), which
 `JAVA_HOME=<a JDK 25> ./run bench` builds and runs on JDK 25, the services'
-runtime (`eclipse-temurin:25-jre`); without `JAVA_HOME`, `./run bench` uses
-whichever JDK Maven finds, and JMH's output names it. Their inputs are built as
-the mesh builds them at `payment`: a signed keyring, a root over
+runtime; without `JAVA_HOME`, `./run bench` uses whichever JDK Maven finds, and
+JMH's output names it. Their inputs are built as the mesh builds them at
+`payment`: a signed keyring, a root over
 [policy/paths.yaml](policy/paths.yaml) at depth 8, and the two-stamp chain
 `gateway` and `orders` sign, with its proof. The figures are the average time per
 operation on the same host, run natively rather than in Docker, on JDK 25.0.5
