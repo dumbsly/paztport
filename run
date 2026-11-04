@@ -174,15 +174,17 @@ cmd_envoy_gateway() {
   need_kind
   need_kubectl
   need_helm
+  # A running cluster holds the keys it was made with, so it is checked or removed, never made again over them.
+  if kind get clusters 2>/dev/null | grep -qx paztport-envoy-gateway; then
+    echo "the cluster paztport-envoy-gateway is up already; check it with poc-demos/envoy-gateway/envoy-gateway.sh" \
+      "check, or remove it with poc-demos/envoy-gateway/envoy-gateway.sh down" >&2
+    exit 1
+  fi
   # The tool jars make the keys and the signed policy, and run on the JDK Maven uses; the service jars go into the
-  # images. The keys are made once: a cluster made again uses the same ones (material.sh --fresh makes new ones).
+  # images. Each new cluster gets new keys and a new policy, so an earlier run's, which expire, are never reused.
   (cd poc-sdks/java && mvn -q install -DskipTests)
   (cd poc-demos/java-mesh && mvn -q package -DskipTests)
-  if [ -d poc-demos/envoy-gateway/out ]; then
-    echo "using the keys and policy in poc-demos/envoy-gateway/out (material.sh --fresh makes new ones)"
-  else
-    PAZTPORT_JAVA="$maven_java" poc-demos/envoy-gateway/material.sh
-  fi
+  PAZTPORT_JAVA="$maven_java" poc-demos/envoy-gateway/material.sh --fresh
   poc-demos/envoy-gateway/envoy-gateway.sh up
   exec poc-demos/envoy-gateway/envoy-gateway.sh check
 }

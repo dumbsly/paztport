@@ -46,7 +46,7 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- /* The routes file: one <namespace>/<httproute>=<receiver> a line. */ -}}
 {{- define "edge.routes" -}}
 {{- $lines := list -}}
-{{- range required "routes must map at least one HTTPRoute" .Values.routes }}
+{{- range .Values.routes }}
 {{- $route := required "each route needs an httpRoute" .httpRoute }}
 {{- $line := printf "%s/%s=%s" $.Release.Namespace $route (required "each route needs a receiver" .receiver) }}
 {{- range $lines }}
@@ -66,4 +66,22 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- $paths = append $paths (printf "/etc/paztport/policy/%s-%d.json" $.prefix $i) }}
 {{- end }}
 {{- join "," $paths -}}
+{{- end -}}
+
+{{- /*
+Refuses values the processor would not start with, or that would leave the edge without a limit: no route mapped,
+no keyring or root, and a body limit that is not a whole number of bytes from 1 to 1 GiB (1073741824), the processor's
+own bounds. bodyLimit is a plain number of bytes, such as 1048576: a quantity such as 1Mi is not read as one.
+*/ -}}
+{{- define "edge.validate" -}}
+{{- if not .Values.routes }}{{ fail "routes must map at least one HTTPRoute" }}{{ end }}
+{{- if not .Values.material.keyrings }}{{ fail "material.keyrings needs at least one keyring" }}{{ end }}
+{{- if not .Values.material.roots }}{{ fail "material.roots needs at least one root" }}{{ end }}
+{{- $limit := .Values.bodyLimit | int64 }}
+{{- $whole := eq (float64 .Values.bodyLimit) (float64 $limit) }}
+{{- if kindIs "string" .Values.bodyLimit }}{{ $whole = regexMatch "^[0-9]+$" .Values.bodyLimit }}{{ end }}
+{{- if or (not $whole) (le $limit 0) (gt $limit 1073741824) }}
+{{- fail (printf "bodyLimit %v is not a whole number of bytes from 1 to 1073741824, such as 1048576"
+  .Values.bodyLimit) }}
+{{- end }}
 {{- end -}}

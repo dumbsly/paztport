@@ -7,6 +7,7 @@ existing ones), and the public material, the routes and the mesh CA as ConfigMap
 annotation hashes this file as rendered, so a change to any of them rolls the pods. Each file goes in as a JSON
 string, so that its bytes arrive exactly as given.
 */ -}}
+{{- include "edge.validate" . -}}
 {{- $m := .Values.material -}}
 {{- if not $m.existingKeySecret }}
 apiVersion: v1
@@ -52,10 +53,10 @@ metadata:
     {{- include "edge.labels" . | nindent 4 }}
 data:
   policy.pub: {{ required "material.pin is required" $m.pin | toJson }}
-  {{- range $i, $k := required "material.keyrings needs at least one keyring" $m.keyrings }}
+  {{- range $i, $k := $m.keyrings }}
   keyring-{{ $i }}.json: {{ $k | toJson }}
   {{- end }}
-  {{- range $i, $r := required "material.roots needs at least one root" $m.roots }}
+  {{- range $i, $r := $m.roots }}
   root-{{ $i }}.json: {{ $r | toJson }}
   {{- end }}
   proofs-edge.json: {{ required "material.bundle is required" $m.bundle | toJson }}

@@ -34,7 +34,8 @@ extraRoutes: []
 
 # The most bytes of request body the edge stamps. Envoy buffers the whole body before the processor stamps it, so
 # the same number is the Gateway's listener buffer limit (Envoy Gateway v1.9 has no limit per route); a longer body
-# is refused, and never reaches its backend.
+# is refused, and never reaches its backend. A whole number of bytes, from 1 to 1073741824 (1 GiB), such as 1048576:
+# not a quantity such as 1Mi.
 bodyLimit: 1048576
 
 # When true, the chart sets that listener limit with a ClientTrafficPolicy on the Gateway. A Gateway can have one

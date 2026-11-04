@@ -110,10 +110,13 @@ install_chart() {
     "$@"
 }
 
-# wait_edge: until the Gateway is programmed, its Envoy is available, and orders, payment, the processor and the pod
-# checks are ready.
+# wait_edge: until the Gateway is programmed, the processor's EnvoyExtensionPolicy is accepted on it (one that
+# conflicts with another is not), its Envoy is available, and orders, payment, the processor and the pod checks are
+# ready.
 wait_edge() {
   k -n "$NS" wait --for=condition=Programmed gateway/edge --timeout=180s &&
+    k -n "$NS" wait envoyextensionpolicy/paztport-processor --timeout=60s \
+      --for=jsonpath='{.status.ancestors[0].conditions[?(@.type=="Accepted")].status}'=True &&
     k -n "$EG_NS" wait --for=condition=Available deployment \
       -l "gateway.envoyproxy.io/owning-gateway-name=edge,gateway.envoyproxy.io/owning-gateway-namespace=$NS" \
       --timeout=180s &&
@@ -142,7 +145,9 @@ cmd_up() {
   quietly "loading the keys and the policy" make_material
   quietly "applying the Gateway" k apply -f kind/gateway.yaml
   quietly "applying the backends" k apply -f kind/backends.yaml -f kind/checks.yaml
+  # The chart before the routes: its EnvoyExtensionPolicy names them already, so no route is ever served without it.
   quietly "installing the chart" install_chart --wait --timeout 5m
+  quietly "applying the routes" k apply -f kind/routes.yaml
   quietly "waiting for the edge" wait_edge
   echo ""
   echo "up: the cluster $CLUSTER is running (kubectl context $CTX)."
@@ -190,9 +195,22 @@ mesh_req() {
 }
 
 pod_curl() { # <url> [curl args...] -> CODE, HEADERS, BODY
-  local url="$1" out
+  local url="$1"
   shift
-  out=$(kn exec checks -- curl -s -i -w $'\n%{http_code}' "$@" "$url" 2>/dev/null)
+  curl_parsed "$(kn exec checks -- curl -s -i -w $'\n%{http_code}' "$@" "$url" 2>/dev/null)"
+}
+
+# edge_upload <bytes> <path> [curl args...]: a POST through the Gateway whose body is <bytes> bytes, sent from this
+# machine through kubectl exec's standard input -> CODE, HEADERS, BODY
+edge_upload() {
+  local bytes="$1" path="$2"
+  shift 2
+  curl_parsed "$(head -c "$bytes" /dev/zero | tr '\0' a |
+    kn exec -i checks -- curl -s -i -w $'\n%{http_code}' -X POST --data-binary @- "$@" "$EDGE$path" 2>/dev/null)"
+}
+
+curl_parsed() { # <curl -i output with the status code last> -> CODE, HEADERS, BODY
+  local out="$1"
   CODE=$(printf '%s' "$out" | tail -n1)
   out=$(printf '%s' "$out" | sed '$d' | tr -d '\r')
   HEADERS=$(printf '%s\n' "$out" | sed '/^$/q')
@@ -257,8 +275,8 @@ cmd_check() {
   cluster_exists || { echo "no cluster $CLUSTER: run $self up first" >&2; exit 1; }
   tmp="$(mktemp -d)"
   forwards=()
-  trap 'kill "${forwards[@]}" 2>/dev/null; rm -rf "$tmp"' EXIT
-  quietly "building edgecheck" bash -c "cd '$here/processor' && go build -o '$tmp/edgecheck' ./cmd/edgecheck"
+  trap 'rm -rf "$tmp"; [ ${#forwards[@]} -eq 0 ] || kill "${forwards[@]}" 2>/dev/null' EXIT
+  quietly "building edgecheck" go -C "$here/processor" build -o "$tmp/edgecheck" ./cmd/edgecheck
   forward "$NS" paztport-processor 9002
   processor_addr="$FORWARDED"
   forward "$EG_NS" paztport-edge 80
@@ -423,6 +441,25 @@ cmd_check() {
   else
     record FAIL "10 an event names the peer's address, not X-Forwarded-For" \
       "expected suspectInst=$pod_ip, got HTTP $CODE, [$(printf '%s' "$event" | grep -o 'suspectInst=[^ ]*')]"
+  fi
+
+  # 11 - a body one byte over the limit: Envoy refuses it 413 itself before the processor has it, and the processor
+  # passes that reply on (its Paztport headers removed) and counts the request refused for its body.
+  local limit
+  limit=$(kn get deployment paztport-processor \
+    -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="PROCESSOR_BODY_LIMIT")].value}')
+  p0=$(processor_log); o0=$(traces orders)
+  edge_upload "$((limit + 1))" /orders -H 'content-type: text/plain'
+  await refusal '"outcome":"refused_body"' added "$p0" "$(processor_log)"
+  seen=$(added "$o0" "$(traces orders)" | grep -c . || true)
+  if [ -n "$limit" ] && [ "$CODE" = 413 ] && [ -n "$refusal" ] && [ "$seen" = 0 ]; then
+    record PASS "11 a body over the limit: refused 413 at the edge" \
+      "$((limit + 1)) bytes: HTTP 413, processor refused_body; orders saw 0"
+  else
+    detail="expected HTTP 413, refused_body and nothing at orders, got $((limit + 1)) bytes: HTTP $CODE"
+    refusal=$(added "$p0" "$(processor_log)" | grep -o '"outcome":"[a-z_]*"' | tr '\n' ' ')
+    record FAIL "11 a body over the limit: refused 413 at the edge" \
+      "$detail, processor [${refusal:-no outcome}], orders saw $seen"
   fi
 
   echo ""
