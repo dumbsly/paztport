@@ -3,16 +3,22 @@
 
 package org.paztport.spring.outbound;
 
+import io.micrometer.observation.Observation;
+import io.micrometer.observation.ObservationRegistry;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.List;
+import java.util.Objects;
 import org.paztport.core.policy.ProofBundle;
 import org.paztport.core.stamp.Stamper;
 import org.paztport.core.verify.Verifier;
 import org.paztport.http.HttpCaller;
 import org.paztport.http.RequestContext;
+import org.paztport.http.wire.HttpWire;
 import org.paztport.http.wire.PaztportHeaders;
+import org.paztport.spring.internal.ObservedValues;
+import org.paztport.spring.observation.PaztportObservation;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpRequest;
 import org.springframework.http.HttpStatusCode;
@@ -28,7 +34,10 @@ import org.springframework.http.client.ClientHttpResponse;
  * response read whole.
  *
  * <p>The body is read whole because the attestation covers all of it, and handed back from memory, so the
- * application reads exactly what was checked. Influence is recorded only inside a {@link RequestContext.Scope},
+ * application reads exactly what was checked. Each response check is recorded as a {@code paztport.response}
+ * observation tagged with the check's reason code, or {@code none} where there is no verifier or the check threw; it
+ * is open only while the caller records the response and stopped before this returns, with its error if that throws.
+ * Nothing from the response is tagged. Influence is recorded only inside a {@link RequestContext.Scope},
  * which the inbound filter opens per request; outside one a call is still stamped and its response still checked
  * and traced, but nothing is recorded.
  *
@@ -38,17 +47,24 @@ import org.springframework.http.client.ClientHttpResponse;
 public final class OutboundInterceptor implements ClientHttpRequestInterceptor {
 
     private final HttpCaller caller;
+    private final ObservationRegistry observations;
 
-    public OutboundInterceptor(HttpCaller caller) {
+    /**
+     * @param observations where each response check is recorded; {@link ObservationRegistry#NOOP} where the
+     *     application has no Micrometer registry
+     */
+    public OutboundInterceptor(HttpCaller caller, ObservationRegistry observations) {
         this.caller = caller;
+        this.observations = Objects.requireNonNull(observations, "observations");
     }
 
     /**
      * A caller that names each receiver by its URI host. {@code verifier} is null where responses cannot be checked;
      * {@code caller} is this service's name.
      */
-    public OutboundInterceptor(Stamper stamper, ProofBundle bundle, Verifier verifier, String caller) {
-        this(HttpCaller.builder(caller, stamper).bundle(bundle).verifier(verifier).build());
+    public OutboundInterceptor(Stamper stamper, ProofBundle bundle, Verifier verifier, String caller,
+            ObservationRegistry observations) {
+        this(HttpCaller.builder(caller, stamper).bundle(bundle).verifier(verifier).build(), observations);
     }
 
     @Override
@@ -77,13 +93,33 @@ public final class OutboundInterceptor implements ClientHttpRequestInterceptor {
             throw e;
         }
         try {
-            caller.recordToContext(sent, buffered.getStatusCode().value(),
-                    buffered.getHeaders().getFirst(PaztportHeaders.RESPONSE), buffered.body);
+            observed(sent, buffered);
         } catch (IOException | RuntimeException e) {
             buffered.close();
             throw e;
         }
         return buffered;
+    }
+
+    /**
+     * The caller's check of {@code buffered}, as {@link HttpCaller#recordToContext} makes it, recorded as an
+     * observation that is open while the check runs and stopped before this returns. The reason is known only once
+     * the check is made, and stays {@code none} if it throws.
+     */
+    private void observed(HttpCaller.Outbound sent, Buffered buffered) throws IOException {
+        Observation observation = Observation.createNotStarted(PaztportObservation.RESPONSE.getName(), observations)
+                .start();
+        String reason = ObservedValues.NONE;
+        try (Observation.Scope open = observation.openScope()) {
+            HttpWire.ResponseCheck check = caller.recordToContext(sent, buffered.getStatusCode().value(),
+                    buffered.getHeaders().getFirst(PaztportHeaders.RESPONSE), buffered.body);
+            reason = check == null ? ObservedValues.NONE : ObservedValues.reason(check.result());
+        } catch (Throwable t) {
+            observation.error(t);
+            throw t;
+        } finally {
+            observation.lowCardinalityKeyValue(PaztportObservation.Keys.REASON.withValue(reason)).stop();
+        }
     }
 
     /** The response, with its body already read into memory, so the caller reads exactly what was checked. */

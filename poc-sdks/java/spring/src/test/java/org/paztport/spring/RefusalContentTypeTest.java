@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.micrometer.observation.ObservationRegistry;
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -155,7 +156,8 @@ class RefusalContentTypeTest {
     private RestClient client(String influenceHeader) {
         return TestHttp.restClient(http).requestInterceptor(new OutboundInterceptor(
                 new Stamper("localhost", "origin-1", APP.getPrivate(), true, () -> UUID.randomUUID().toString(),
-                        System::currentTimeMillis), bundle, verifier, "localhost"))
+                        System::currentTimeMillis), bundle, verifier, "localhost",
+                ObservationRegistry.NOOP))
                 .requestInterceptor((request, body, execution) -> {
                     request.getHeaders().set(PaztportHeaders.INFLUENCE, influenceHeader);
                     return execution.execute(request, body);

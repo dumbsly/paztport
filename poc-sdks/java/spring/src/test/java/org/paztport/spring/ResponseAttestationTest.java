@@ -13,6 +13,7 @@ import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.micrometer.observation.ObservationRegistry;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.net.URI;
@@ -192,7 +193,8 @@ class ResponseAttestationTest {
     private RestClient.Builder origin() {
         return TestHttp.restClient(http).requestInterceptor(new OutboundInterceptor(
                 new Stamper("localhost", "origin-1", APP.getPrivate(), true, () -> UUID.randomUUID().toString(),
-                        System::currentTimeMillis), bundle, verifier, "localhost"));
+                        System::currentTimeMillis), bundle, verifier, "localhost",
+                ObservationRegistry.NOOP));
     }
 
     private final ListAppender<ILoggingEvent> traces = new ListAppender<>();

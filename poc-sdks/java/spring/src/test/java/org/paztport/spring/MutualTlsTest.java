@@ -12,6 +12,7 @@ import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.micrometer.observation.ObservationRegistry;
 import jakarta.servlet.http.HttpServletRequest;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -301,7 +302,8 @@ class MutualTlsTest {
             RestClient stamping = client.mutate()
                     .requestInterceptor(new OutboundInterceptor(new Stamper("gateway", "gw-1",
                             GATEWAY.getPrivate(), true, () -> UUID.randomUUID().toString(), System::currentTimeMillis),
-                            BUILT.bundles().get("gateway"), null, "gateway"))
+                            BUILT.bundles().get("gateway"), null, "gateway",
+                            ObservationRegistry.NOOP))
                     .build();
 
             Answer answer = stamping.post()

@@ -9,6 +9,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.sun.net.httpserver.HttpsConfigurator;
 import com.sun.net.httpserver.HttpsParameters;
 import com.sun.net.httpserver.HttpsServer;
+import io.micrometer.observation.ObservationRegistry;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetAddress;
@@ -178,7 +179,7 @@ class PooledTlsClientTest {
         Stamper gateway = new Stamper("gateway", "gw-1", Crypto.generateEd25519KeyPair().getPrivate(), true,
                 () -> "rid-1", System::currentTimeMillis);
         RestClient client = pooled(SslBundle.of(stores("gateway"))).builder()
-                .requestInterceptor(new OutboundInterceptor(gateway, null, null, "gateway"))
+                .requestInterceptor(new OutboundInterceptor(gateway, null, null, "gateway", ObservationRegistry.NOOP))
                 .build();
         List<String> paths = List.of("/refuse", "/ok", "/fail", "/none", "/empty", "/ok");
 

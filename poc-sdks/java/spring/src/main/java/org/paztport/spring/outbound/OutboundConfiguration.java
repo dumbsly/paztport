@@ -3,6 +3,7 @@
 
 package org.paztport.spring.outbound;
 
+import io.micrometer.observation.ObservationRegistry;
 import org.paztport.core.policy.ProofBundle;
 import org.paztport.core.stamp.Stamper;
 import org.paztport.core.verify.Verifier;
@@ -30,10 +31,11 @@ public class OutboundConfiguration {
     @ConditionalOnProperty("paztport.key-path")
     RestClientCustomizer paztportRestClientCustomizer(
             Stamper stamper, ObjectProvider<ProofBundle> bundle, ObjectProvider<Verifier> verifier,
-            PaztportProperties props) {
+            PaztportProperties props, ObjectProvider<ObservationRegistry> observations) {
         OutboundInterceptor interceptor = new OutboundInterceptor(HttpCaller.builder(props.getServiceName(), stamper)
                 .bundle(bundle.getIfAvailable()).verifier(verifier.getIfAvailable())
-                .receivers(props.getReceiverNames()).build());
+                .receivers(props.getReceiverNames()).build(),
+                observations.getIfAvailable(() -> ObservationRegistry.NOOP));
         return builder -> builder.requestInterceptor(interceptor);
     }
 

@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.micrometer.observation.ObservationRegistry;
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -196,7 +197,8 @@ class AttestationRuleTest {
                 new InMemoryNonceCache(15_000), System::currentTimeMillis, 5000, 5000));
         RestClient.Builder b = TestHttp.restClient(http).requestInterceptor(new OutboundInterceptor(
                 new Stamper("localhost", "caller-1", APP.getPrivate(), true, () -> UUID.randomUUID().toString(),
-                        System::currentTimeMillis), built.bundles().get("localhost"), verifier, "localhost"));
+                        System::currentTimeMillis), built.bundles().get("localhost"), verifier, "localhost",
+                ObservationRegistry.NOOP));
         for (ClientHttpRequestInterceptor i : extra) {
             b.requestInterceptor(i);
         }

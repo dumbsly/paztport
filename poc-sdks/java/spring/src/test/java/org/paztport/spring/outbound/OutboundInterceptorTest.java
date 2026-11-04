@@ -16,6 +16,7 @@ import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
+import io.micrometer.observation.ObservationRegistry;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -117,7 +118,8 @@ class OutboundInterceptorTest {
     }
 
     private OutboundInterceptor gatewayInterceptor() {
-        return new OutboundInterceptor(gatewayStamper(), policy.bundles().get("gateway"), null, "gateway");
+        return new OutboundInterceptor(gatewayStamper(), policy.bundles().get("gateway"), null, "gateway",
+                ObservationRegistry.NOOP);
     }
 
     private Stamper gatewayStamper() {
@@ -182,7 +184,8 @@ class OutboundInterceptorTest {
             RequestContext.setInboundChain(received.chain());
             RequestContext.addInfluence(MINE, WEB);
 
-            client(new OutboundInterceptor(ordersStamper(), policy.bundles().get("orders"), null, "orders"),
+            client(new OutboundInterceptor(ordersStamper(), policy.bundles().get("orders"), null, "orders",
+                    ObservationRegistry.NOOP),
                     "http://payment:8080/pay")
                     .post().uri("http://payment:8080/pay").body("{\"amount\":1}").retrieve().toBodilessEntity();
         }
@@ -204,7 +207,7 @@ class OutboundInterceptorTest {
     void stampsForTheReceiverTheCallerNames() {
         HttpCaller caller = HttpCaller.builder("gateway", gatewayStamper()).bundle(policy.bundles().get("gateway"))
                 .receivers(Map.of("orders-internal", "orders")).build();
-        client(new OutboundInterceptor(caller), "http://orders-internal:8080/orders")
+        client(new OutboundInterceptor(caller, ObservationRegistry.NOOP), "http://orders-internal:8080/orders")
                 .get().uri("http://orders-internal:8080/orders").retrieve().toBodilessEntity();
 
         assertEquals("orders", chainOf(sent.get(0)).get(0).rcv());
@@ -255,7 +258,7 @@ class OutboundInterceptorTest {
         ContentLabel web = ContentLabel.fresh(InfluenceClass.THIRD_PARTY, null);
         RestClient client = client(
                 new OutboundInterceptor(gatewayStamper(), policy.bundles().get("gateway"), gatewayVerifier(),
-                        "gateway"),
+                        "gateway", ObservationRegistry.NOOP),
                 "http://orders:8080/orders", attested("hello", "hello", List.of(mine, web)));
 
         List<InfluenceEntry> recorded = fetchRecorded(client, "hello");
@@ -273,7 +276,7 @@ class OutboundInterceptorTest {
     void anUnattestedErrorIsBufferedAndUntrusted() {
         RestClient client = client(
                 new OutboundInterceptor(gatewayStamper(), policy.bundles().get("gateway"), gatewayVerifier(),
-                        "gateway"),
+                        "gateway", ObservationRegistry.NOOP),
                 "http://orders:8080/orders", withStatus(HttpStatus.INTERNAL_SERVER_ERROR).body("boom"));
 
         List<InfluenceEntry> recorded = fetchRecorded(client, "boom");

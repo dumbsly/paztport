@@ -11,6 +11,7 @@ import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.micrometer.observation.ObservationRegistry;
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -158,7 +159,7 @@ class MeshRoundTripTest {
             RestClient origin = TestHttp.restClient(http).requestInterceptor(new OutboundInterceptor(
                     new Stamper("localhost", "origin-1", APP.getPrivate(), true,
                             () -> UUID.randomUUID().toString(), System::currentTimeMillis), bundle, verifier,
-                    "localhost")).build();
+                    "localhost", ObservationRegistry.NOOP)).build();
             body = origin.get()
                     .uri(URI.create("http://localhost:" + port + "/search?q=caf%C3%A9%20x"))
                     .retrieve().body(new ParameterizedTypeReference<>() { });

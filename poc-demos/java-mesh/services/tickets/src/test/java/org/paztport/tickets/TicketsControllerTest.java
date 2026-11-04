@@ -10,6 +10,7 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
+import io.micrometer.observation.ObservationRegistry;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.UUID;
@@ -47,7 +48,7 @@ class TicketsControllerTest {
         List<Stamp> inbound = gateway.next(null, "tickets", "bind", List.of(), null).chain();
 
         RestClient.Builder builder = RestClient.builder()
-                .requestInterceptor(new OutboundInterceptor(tickets, null, null, "tickets"));
+                .requestInterceptor(new OutboundInterceptor(tickets, null, null, "tickets", ObservationRegistry.NOOP));
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
         AtomicReference<String> influenceHeader = new AtomicReference<>();
         server.expect(requestTo("http://assistant/assist"))
