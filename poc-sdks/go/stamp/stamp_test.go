@@ -795,6 +795,20 @@ func TestStamperRefusesWhatIsNotARouteNode(t *testing.T) {
 				}
 				return nil, err
 			},
+			// A forged inbound, signed as the low-level Sign allows: its last svc is the response's rcv.
+			"Respond with rcv": func() (stamp.Chain, error) {
+				forged := unsaved
+				forged.Svc = bad
+				last, err := stamp.Sign(forged, ordersKey)
+				if err != nil {
+					t.Fatalf("Sign: %v", err)
+				}
+				s, err := named("orders").Respond(stamp.Chain{last}, "rh", rid, nil)
+				if s != (stamp.Stamp{}) {
+					return stamp.Chain{s}, err
+				}
+				return nil, err
+			},
 		} {
 			t.Run(name+" "+bad, func(t *testing.T) {
 				c, err := f()

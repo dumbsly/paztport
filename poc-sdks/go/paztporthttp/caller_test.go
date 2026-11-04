@@ -95,8 +95,8 @@ func TestReceiversNameRefusesNonASCII(t *testing.T) {
 }
 
 // TestNewReceiversRefuses refuses a blank host or name, two hosts differing only in case, a host Name
-// could never match, one with a port, an unbracketed colon or a byte outside ASCII, naming the problem but
-// never the host.
+// could never match (one with a port, an unbracketed colon or a byte outside ASCII), and a name that is
+// not a route node, naming the problem but never the host or the name.
 func TestNewReceiversRefuses(t *testing.T) {
 	for _, m := range []map[string]string{
 		{"": "payment"},
@@ -110,15 +110,24 @@ func TestNewReceiversRefuses(t *testing.T) {
 		{"pay.internal::1": "payment"},
 		{"\u212Aafka": "broker"},
 		{"caf\u00e9": "cafe"},
+		{"pay.internal": "."},
+		{"pay.internal": ".."},
+		{"pay.internal": "payment/x"},
+		{"pay.internal": `payment\x`},
+		{"pay.internal": "payment|x"},
+		{"pay.internal": "pay\xffment"},
 	} {
 		r, err := paztporthttp.NewReceivers(m)
 		if err == nil {
 			t.Errorf("NewReceivers(%q) = %v", m, r)
 			continue
 		}
-		for host := range m {
+		for host, name := range m {
 			if strings.TrimSpace(host) != "" && strings.Contains(err.Error(), host) {
 				t.Errorf("the error %q echoes the host", err)
+			}
+			if len(name) > 2 && strings.Contains(err.Error(), name) {
+				t.Errorf("the error %q echoes the name", err)
 			}
 		}
 	}
@@ -220,7 +229,13 @@ func TestCallerStampBindsTheTarget(t *testing.T) {
 	if o.Sent[0].Bind != bind {
 		t.Fatalf("/pay? binds as %s, /pay as %s", o.Sent[0].Bind, bind)
 	}
-	for _, tc := range []struct{ method, target string }{{"GET", "/p\xff"}, {"GET", "/p\xed\xa0\x80"}, {"G\xffT", "/p"}, {"", "/p"}, {"GET", ""}} {
+	for _, tc := range []struct{ method, target string }{
+		{"GET", "/p\xff"},
+		{"GET", "/p\xed\xa0\x80"},
+		{"G\xffT", "/p"},
+		{"", "/p"},
+		{"GET", ""},
+	} {
 		o, err := caller.Stamp(tc.method, tc.target, "orders", nil, nil, nil)
 		if err == nil {
 			t.Errorf("Stamp(%q, %q) = %+v, want an error", tc.method, tc.target, o)

@@ -239,10 +239,11 @@ type Exchange struct {
 //
 // Begin refuses, with ErrNotVerified, a request whose chain did not pass the live order at this hop: the
 // boundary stamp vouches for the request that led to it, so a hop that did not verify it signs nothing,
-// and sends nothing, the handshake included. It also refuses an empty path, a path that is not valid
-// UTF-8, which has no binding, and a call it cannot stamp, such as one whose influence the boundary key cannot blind: it
-// blinds the influence and checks that the call can be stamped before it gives the first step, whether a
-// session is open or not. A refusal comes with no exchange and nothing to send.
+// and sends nothing, the handshake included. It also refuses an empty path, and a path that is not valid
+// UTF-8, which has no binding. It refuses, too, a call it cannot stamp, such as one whose influence the
+// boundary key cannot blind: it blinds the influence and checks that the call can be stamped before it
+// gives the first step, whether a session is open or not. A refusal comes with no exchange and nothing
+// to send.
 //
 // A session no call has used for Config.IdleMs is dropped here, and so is an attested session once the
 // root or the keyring the egress presents has passed its notAfter; the call then opens a new session.

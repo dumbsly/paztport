@@ -6,6 +6,7 @@ package paztporthttp
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"unicode"
 
@@ -27,7 +28,8 @@ type Receivers struct {
 }
 
 // NewReceivers returns the mapping byHost gives, host to policy name, as its own copy. It refuses a
-// blank host or name; a host that [Receivers.Name] could never match, one with a port, a colon outside
+// blank host or name; a name that is not a route node ([policy.ValidNode]), since a call to it could
+// never be stamped; a host that [Receivers.Name] could never match, one with a port, a colon outside
 // an IPv6 address's brackets, or a byte outside ASCII; and two hosts that differ only in the case of
 // their ASCII letters, since a host is matched in any case.
 func NewReceivers(byHost map[string]string) (Receivers, error) {
@@ -35,6 +37,9 @@ func NewReceivers(byHost map[string]string) (Receivers, error) {
 	for host, name := range byHost {
 		if blank(host) || blank(name) {
 			return Receivers{}, errors.New("paztport http: a receiver's host and policy name must not be blank")
+		}
+		if err := policy.ValidNode(name); err != nil {
+			return Receivers{}, fmt.Errorf("paztport http: a receiver's policy name: %w", err)
 		}
 		if !isASCII(host) {
 			return Receivers{}, errors.New("paztport http: a receiver host must be ASCII")
@@ -80,11 +85,11 @@ func lowerASCII(s string) string {
 // Name returns the receiver's policy name for a call to host, which may carry a port, and whether the
 // host has one. A host with nothing before its port, or a byte outside ASCII, has no name, mapped or not,
 // and the call is not stamped. Otherwise the name is the one the host is mapped to or, when it is mapped
-// to none, the host itself with its ASCII letters in lower case. The port is ignored, and the host matched in any case, as
-// DNS matches it, but otherwise exactly: an IPv6 address keeps its brackets ("[::1]:8443" is the host
-// "[::1]") and a trailing dot is kept, so "orders." is not "orders". The name is also the call's target:
-// its response must be stamped by it, and what the response adds to the influence comes from
-// "http:<name>".
+// to none, the host itself with its ASCII letters in lower case. The port is ignored, and the host
+// matched in any case, as DNS matches it, but otherwise exactly: an IPv6 address keeps its brackets
+// ("[::1]:8443" is the host "[::1]") and a trailing dot is kept, so "orders." is not "orders". The name
+// is also the call's target: its response must be stamped by it, and what the response adds to the
+// influence comes from "http:<name>".
 func (r Receivers) Name(host string) (string, bool) {
 	host = hostOf(host)
 	if host == "" || !isASCII(host) {

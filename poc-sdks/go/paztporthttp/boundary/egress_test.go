@@ -555,14 +555,25 @@ func TestBeginRefusesUnstampable(t *testing.T) {
 // TestBeginRefusesAnEmptyPath: a call with no path has no request line to bind, so it is refused with
 // nothing to send, whether or not a session is open.
 func TestBeginRefusesAnEmptyPath(t *testing.T) {
-	f := newFixture(t, []string{"attested"}, "unsafe", ok200)
-	before := len(f.partner.render(t))
-	x, step, err := f.e.Begin(f.a, f.a.Influence, "", charge)
-	if err == nil || x != nil || !reflect.DeepEqual(step, boundary.Step{}) {
-		t.Errorf("Begin with an empty path = %v, %+v, %v; want a refusal", x, step, err)
-	}
-	if got := f.partner.render(t); len(got) != before {
-		t.Errorf("the partner received %q", got[before:])
+	for _, open := range []string{"", "attested", "unsafe"} {
+		handshakes := []string{"attested"}
+		if open != "" {
+			handshakes = []string{open}
+		}
+		f := newFixture(t, handshakes, "unsafe", ok200)
+		if open != "" {
+			if out := f.post(t, f.a.Influence); out.Attested != (open == "attested") {
+				t.Fatalf("session %q: the first call went out Attested %v", open, out.Attested)
+			}
+		}
+		before := len(f.partner.render(t))
+		x, step, err := f.e.Begin(f.a, f.a.Influence, "", charge)
+		if err == nil || x != nil || !reflect.DeepEqual(step, boundary.Step{}) {
+			t.Errorf("session %q: Begin with an empty path = %v, %+v, %v; want a refusal", open, x, step, err)
+		}
+		if got := f.partner.render(t); len(got) != before {
+			t.Errorf("session %q: the partner received %q", open, got[before:])
+		}
 	}
 }
 
