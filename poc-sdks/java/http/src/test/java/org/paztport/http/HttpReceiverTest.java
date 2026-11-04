@@ -6,6 +6,7 @@ package org.paztport.http;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -742,5 +743,110 @@ class HttpReceiverTest {
         assertEquals("{\"reason\":\"CHAIN_MISSING\"}", text(accepted.refusal()));
         assertNotNull(HttpAnswer.refusal(403, ReasonCode.UNSAFE_SESSION));
         assertEquals("{\"reason\":\"UNSAFE_SESSION\"}", text(HttpAnswer.refusal(403, ReasonCode.UNSAFE_SESSION)));
+    }
+
+    private static final byte[] TAMPERED = "{\"amount\":999}".getBytes(StandardCharsets.UTF_8);
+
+    @Test
+    void enforceReportsTheResultItServedOn() {
+        Accepted accepted = verifying(null).accept(paymentRequest(validHeaders(), TO_PAYMENT), null,
+                VerificationMode.ENFORCE);
+
+        assertNull(accepted.refusal());
+        assertEquals(ReasonCode.OK, accepted.result().reason());
+    }
+
+    @Test
+    void enforceReportsTheResultItRefusedFor() {
+        Accepted missing = verifying(null).accept(paymentRequest(NONE, TO_PAYMENT), null, VerificationMode.ENFORCE);
+        Accepted tampered = verifying(null).accept(paymentRequest(validHeaders(), TAMPERED), null,
+                VerificationMode.ENFORCE);
+
+        assertNotNull(missing.refusal());
+        assertEquals(ReasonCode.CHAIN_MISSING, missing.result().reason());
+        assertNotNull(tampered.refusal());
+        assertEquals(ReasonCode.BINDING_MISMATCH, tampered.result().reason());
+    }
+
+    @Test
+    void enforceReportsTheResultWhenInfluenceIsUnreadable() {
+        Headers h = validHeaders();
+
+        Accepted accepted = verifying(null).accept(
+                paymentRequest(new Headers(h.chain(), h.proof(), "%%%"), TO_PAYMENT), null, VerificationMode.ENFORCE);
+
+        assertNotNull(accepted.refusal());
+        assertNotNull(accepted.result());
+        assertNotEquals(ReasonCode.OK, accepted.result().reason());
+    }
+
+    @Test
+    void auditReportsTheResultOfARequestItServes() {
+        Accepted good = verifying(null).accept(paymentRequest(validHeaders(), TO_PAYMENT), null,
+                VerificationMode.AUDIT);
+        Accepted bad = verifying(null).accept(paymentRequest(validHeaders(), TAMPERED), null,
+                VerificationMode.AUDIT);
+
+        assertNull(bad.refusal());
+        assertEquals(ReasonCode.OK, good.result().reason());
+        assertEquals(ReasonCode.BINDING_MISMATCH, bad.result().reason());
+    }
+
+    @Test
+    void auditReportsTheResultOfARequestItRefusesForUnreadableInfluence() {
+        Headers h = validHeaders();
+
+        Accepted accepted = verifying(null).accept(
+                paymentRequest(new Headers(h.chain(), h.proof(), "%%%"), TAMPERED), null, VerificationMode.AUDIT);
+
+        assertEquals(400, accepted.refusal().status());
+        assertNotNull(accepted.result());
+        assertNotEquals(ReasonCode.OK, accepted.result().reason());
+    }
+
+    @Test
+    void anOriginThatVerifiesReportsItsResult() {
+        Accepted accepted = HttpReceiver.builder("payment").verifier(paymentVerifier()).verifyRequests(true)
+                .origin(true).publisher(events).build()
+                .accept(paymentRequest(NONE, TO_PAYMENT), null, VerificationMode.AUDIT);
+
+        assertEquals(ReasonCode.CHAIN_MISSING, accepted.result().reason());
+    }
+
+    @Test
+    void attestationAloneReportsItsResult() {
+        Accepted good = nonEnforcing(paymentVerifier()).accept(
+                paymentRequest(headers("rid-1", "/pay", List.of(WEB)), TO_PAYMENT), null, VerificationMode.OFF);
+        Accepted forged = nonEnforcing(paymentVerifier()).accept(
+                paymentRequest(new Headers(forgedChain("rid-2", ""), null, null), TO_PAYMENT), null,
+                VerificationMode.OFF);
+
+        assertEquals(ReasonCode.OK, good.result().reason());
+        assertNotNull(forged.result());
+        assertNotEquals(ReasonCode.OK, forged.result().reason());
+    }
+
+    @Test
+    void nothingIsReportedWhereNothingWasVerified() {
+        Headers valid = validHeaders();
+        Headers unreadable = new Headers(valid.chain(), valid.proof(), "%%%");
+
+        assertNull(verifying(null).accept(paymentRequest(valid, TO_PAYMENT), null, VerificationMode.OFF).result(),
+                "switched off");
+        assertNull(attesting(paymentVerifier()).accept(paymentRequest(valid, TO_PAYMENT), null,
+                VerificationMode.OFF).result(), "switched off, with a stamp key");
+        assertNull(plain().accept(paymentRequest(valid, TO_PAYMENT), null, VerificationMode.OFF).result(),
+                "a hop that verifies nothing");
+        assertNull(HttpReceiver.builder("payment").build()
+                .accept(paymentRequest(valid, TO_PAYMENT), null, VerificationMode.OFF).result());
+        assertNull(HttpReceiver.builder("payment").verifier(paymentVerifier()).stamper(paymentStamper())
+                .origin(true).build().accept(paymentRequest(valid, TO_PAYMENT), null, VerificationMode.OFF).result(),
+                "an origin that does not verify");
+        assertNull(nonEnforcing(paymentVerifier()).accept(paymentRequest(NONE, TO_PAYMENT), null,
+                VerificationMode.OFF).result(), "no chain, so nothing ran");
+        Accepted refused = verifying(null).accept(paymentRequest(unreadable, TO_PAYMENT), null,
+                VerificationMode.OFF);
+        assertEquals(400, refused.refusal().status());
+        assertNull(refused.result(), "unreadable influence, with nothing verified");
     }
 }

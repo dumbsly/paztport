@@ -8,12 +8,13 @@ import org.paztport.core.influence.ContentLabel;
 import org.paztport.core.influence.InfluenceEntry;
 import org.paztport.core.stamp.Stamp;
 import org.paztport.core.stamp.Stamper;
+import org.paztport.core.verify.VerifyResult;
 import org.paztport.http.internal.LogSafe;
 import org.paztport.http.wire.HttpWire;
 
 /**
  * What {@link HttpReceiver#accept} decided about one request: a refusal to send in place of the handler's answer,
- * or what the handler starts from, and whether its answer may be attested.
+ * or what the handler starts from, whether its answer may be attested, and the verification result that decided it.
  *
  * <p>Only a receiver makes one: there is no other constructor, and the class cannot be extended. So a chain it says
  * verified passed the full live order at this hop, and the request context marks that chain verified only from here.
@@ -25,27 +26,31 @@ public final class Accepted {
     private final boolean verified;
     private final List<InfluenceEntry> influence;
     private final Stamper attester;
+    private final VerifyResult result;
 
     private Accepted(HttpAnswer refusal, List<Stamp> inbound, boolean verified, List<InfluenceEntry> influence,
-            Stamper attester) {
+            Stamper attester, VerifyResult result) {
         this.refusal = refusal;
         this.inbound = inbound;
         this.verified = verified;
         this.influence = influence;
         this.attester = attester;
+        this.result = result;
     }
 
-    static Accepted refused(HttpAnswer refusal) {
-        return new Accepted(refusal, null, false, List.of(), null);
+    /** @param result the result the request was refused for, or null when no verification ran */
+    static Accepted refused(HttpAnswer refusal, VerifyResult result) {
+        return new Accepted(refusal, null, false, List.of(), null, result);
     }
 
     /**
      * @param attester the stamper to attest with, only where the chain verified here and this service attests;
      *     otherwise null
+     * @param result the live order's result on the request, or null when it did not run
      */
     static Accepted served(List<Stamp> inbound, boolean verified, List<InfluenceEntry> influence,
-            Stamper attester) {
-        return new Accepted(null, inbound, verified, List.copyOf(influence), attester);
+            Stamper attester, VerifyResult result) {
+        return new Accepted(null, inbound, verified, List.copyOf(influence), attester, result);
     }
 
     /** The answer to send in place of the handler's, or null when the request is served. */
@@ -75,6 +80,14 @@ public final class Accepted {
      */
     public List<InfluenceEntry> influence() {
         return influence;
+    }
+
+    /**
+     * The live order's result on the request, or null when it did not run. Under a mode it is the result to report,
+     * a refusal's included; for a service with no mode it decided only whether to attest. The caller is never told it.
+     */
+    public VerifyResult result() {
+        return result;
     }
 
     /**

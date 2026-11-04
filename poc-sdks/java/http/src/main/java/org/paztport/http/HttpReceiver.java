@@ -244,7 +244,7 @@ public final class HttpReceiver {
                 publisher.publish(new AttestationEvent(checked.reason().name(), checked.suspectSvc(),
                         checked.suspectInst(), rid, mode == VerificationMode.AUDIT));
                 if (mode == VerificationMode.ENFORCE) {
-                    return Accepted.refused(HttpAnswer.refusal(403, checked.reason()));
+                    return Accepted.refused(HttpAnswer.refusal(403, checked.reason()), checked);
                 }
             } else if (!origin && inbound != null) {
                 verified = true;
@@ -255,7 +255,7 @@ public final class HttpReceiver {
         // An origin starts the tree with no influence: what a client claims is not carried, so it cannot hide
         // anything by being unreadable either.
         if (!origin && influence == null) {
-            return Accepted.refused(UNREADABLE_INFLUENCE);
+            return Accepted.refused(UNREADABLE_INFLUENCE, checked);
         }
         boolean attesting = !switchedOff && stamper != null && verifier != null && !origin && inbound != null;
         if (attesting && checked == null) {
@@ -267,7 +267,7 @@ public final class HttpReceiver {
             verified = checked.ok();
         }
         return Accepted.served(inbound, verified, origin ? List.of() : influence,
-                attesting && checked.ok() ? stamper : null);
+                attesting && checked.ok() ? stamper : null, checked);
     }
 
     private static void trace(String line) {

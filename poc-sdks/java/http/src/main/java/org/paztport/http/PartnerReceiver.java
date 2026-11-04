@@ -89,7 +89,7 @@ public final class PartnerReceiver {
                 VerifyResult unknown = new VerifyResult(ReasonCode.SESSION_UNKNOWN,
                         sender == null ? "" : sender.svc(), sender == null ? "" : sender.inst());
                 trace(HttpReceiver.traceLine(rid, unknown, receiver, sender, null, "unknown"));
-                return PartnerAccepted.refused(HttpAnswer.refusal(403, ReasonCode.SESSION_UNKNOWN));
+                return PartnerAccepted.refused(HttpAnswer.refusal(403, ReasonCode.SESSION_UNKNOWN), null);
             }
         }
         if (session == null || !session.attested()) {
@@ -106,13 +106,13 @@ public final class PartnerReceiver {
         List<InfluenceEntry> influence = HttpReceiver.parseInfluence(input.influence());
         trace(HttpReceiver.traceLine(rid, result, receiver, sender, influence, "attested"));
         if (!result.ok()) {
-            return PartnerAccepted.refused(HttpAnswer.refusal(403, result.reason()));
+            return PartnerAccepted.refused(HttpAnswer.refusal(403, result.reason()), result);
         }
         if (influence == null || received == null) {
             // Not reachable after OK; refused rather than served with less than was committed to.
-            return PartnerAccepted.refused(UNREADABLE_INFLUENCE);
+            return PartnerAccepted.refused(UNREADABLE_INFLUENCE, result);
         }
-        return PartnerAccepted.attested(received, influence);
+        return PartnerAccepted.attested(received, influence, result);
     }
 
     private static void trace(String line) {

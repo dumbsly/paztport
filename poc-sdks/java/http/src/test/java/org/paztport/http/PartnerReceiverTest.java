@@ -5,6 +5,7 @@ package org.paztport.http;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -34,6 +35,7 @@ import org.paztport.core.session.Sessions;
 import org.paztport.core.stamp.Stamp;
 import org.paztport.core.stamp.Stamper;
 import org.paztport.core.verify.Peer;
+import org.paztport.core.verify.ReasonCode;
 import org.paztport.http.wire.HttpWire;
 import org.paztport.http.wire.PaztportHeaders;
 import org.paztport.http.wire.RequestBinding;
@@ -220,5 +222,35 @@ class PartnerReceiverTest {
         assertEquals("{\"reason\":\"SESSION_UNKNOWN\"}", text(unknown.refusal()));
         assertEquals("PAZTPORT_TRACE request rid=rid-2 reason=SESSION_UNKNOWN receiver=psp ✗ peer=orders (mTLS) "
                 + "classes=- session=unknown", traceLines().get(traceLines().size() - 1));
+    }
+
+    @Test
+    void anAttestedCallReportsTheSessionVerifiersResult() {
+        String sess = attestedSession();
+
+        PartnerAccepted served = receiver.accept(charge(boundary(sess, "rid-1", REFUND), REFUND),
+                cert(SHOP_CA, "orders"));
+        PartnerAccepted refused = receiver.accept(charge(boundary(sess, "rid-2", REFUND),
+                "{\"amount\":999}".getBytes(StandardCharsets.UTF_8)), cert(SHOP_CA, "orders"));
+
+        assertEquals(ReasonCode.OK, served.result().reason());
+        assertNotNull(refused.refusal());
+        assertEquals(ReasonCode.BINDING_MISMATCH, refused.result().reason());
+    }
+
+    @Test
+    void nothingIsReportedInAnUnsafeSessionOrForAnUnknownOne() {
+        Map<String, String> noSession = boundary(attestedSession(), "rid-1", REFUND);
+        noSession.remove(PaztportHeaders.SESSION);
+        String unsafe = sessions.open(SessionRequest.of(null, pub(shopPolicy), shopKeyring, Sessions.newNonce()),
+                SHOP_CA, "orders").sess();
+
+        assertNull(receiver.accept(charge(noSession, REFUND), cert(SHOP_CA, "orders")).result());
+        assertNull(receiver.accept(charge(boundary(unsafe, "rid-2", REFUND), REFUND), cert(SHOP_CA, "orders"))
+                .result());
+        PartnerAccepted unknown = receiver.accept(charge(boundary("no-such-session", "rid-3", REFUND), REFUND),
+                cert(SHOP_CA, "orders"));
+        assertNotNull(unknown.refusal());
+        assertNull(unknown.result(), "the unknown-session result the trace line builds is not exposed");
     }
 }

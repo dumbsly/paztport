@@ -6,6 +6,7 @@ package org.paztport.http;
 import java.util.List;
 import org.paztport.core.influence.InfluenceEntry;
 import org.paztport.core.stamp.Stamp;
+import org.paztport.core.verify.VerifyResult;
 
 /**
  * What {@link PartnerReceiver#accept} decided about another organisation's call: a refusal to send in place of the
@@ -17,28 +18,32 @@ import org.paztport.core.stamp.Stamp;
  */
 public final class PartnerAccepted {
 
-    private static final PartnerAccepted UNSAFE = new PartnerAccepted(null, null, List.of());
+    private static final PartnerAccepted UNSAFE = new PartnerAccepted(null, null, List.of(), null);
 
     private final HttpAnswer refusal;
     private final List<Stamp> chain;
     private final List<InfluenceEntry> influence;
+    private final VerifyResult result;
 
-    private PartnerAccepted(HttpAnswer refusal, List<Stamp> chain, List<InfluenceEntry> influence) {
+    private PartnerAccepted(HttpAnswer refusal, List<Stamp> chain, List<InfluenceEntry> influence,
+            VerifyResult result) {
         this.refusal = refusal;
         this.chain = chain;
         this.influence = influence;
+        this.result = result;
     }
 
-    static PartnerAccepted refused(HttpAnswer refusal) {
-        return new PartnerAccepted(refusal, null, List.of());
+    /** @param result the session verifier's result the call was refused for, or null when none ran */
+    static PartnerAccepted refused(HttpAnswer refusal, VerifyResult result) {
+        return new PartnerAccepted(refusal, null, List.of(), result);
     }
 
     static PartnerAccepted unsafe() {
         return UNSAFE;
     }
 
-    static PartnerAccepted attested(List<Stamp> chain, List<InfluenceEntry> influence) {
-        return new PartnerAccepted(null, List.copyOf(chain), List.copyOf(influence));
+    static PartnerAccepted attested(List<Stamp> chain, List<InfluenceEntry> influence, VerifyResult result) {
+        return new PartnerAccepted(null, List.copyOf(chain), List.copyOf(influence), result);
     }
 
     /** The answer to send in place of the handler's, or null when the call is served. */
@@ -62,5 +67,13 @@ public final class PartnerAccepted {
     /** The verified influence, owners included, when {@link #attested}; otherwise none, whatever headers came. */
     public List<InfluenceEntry> influence() {
         return influence;
+    }
+
+    /**
+     * The session verifier's result on the call, or null when no verification ran: in an unsafe session, or when the
+     * session is unknown. The caller is never told it.
+     */
+    public VerifyResult result() {
+        return result;
     }
 }
