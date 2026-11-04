@@ -18,10 +18,12 @@
 #   LOAD_RATE_SMALL (1000) and LOAD_RATE_LARGE (500) are the requests a second the load suite offers each twin,
 #   with the small and the large body.
 #   CEILING_STAGES_1, CEILING_STAGES_2 and CEILING_STAGES_4 are the ceiling suite's stages, in requests a second,
-#   with that many processor replicas; SATURATION_DURATION (60s) is each of its saturation runs, and MEMORY_VUS
-#   (10 25 50 100) its memory steps: see measure/load.sh.
-#   EDGE_RATE (500) is the requests a second the edge suite offers each side, and EDGE_STAGES its stages on the
-#   route orders, in requests a second.
+#   with that many processor replicas, and CEILING_ROUNDS (3) how many times it ramps through them on each twin;
+#   SATURATION_DURATION (60s) is each of its saturation runs, and MEMORY_VUS (10 25 50 100) its memory steps: see
+#   measure/load.sh.
+#   EDGE_RATE (500) is the requests a second the edge suite offers each side, EDGE_WARMUP (30s) the discarded
+#   warm-up after each rollout, EDGE_STAGES its stages on the route orders, in requests a second, and
+#   EDGE_OVERLOAD_RATE (3000) its overload stage there.
 #
 # Like envoy-gateway.sh, it needs the jars built and out/ made (material.sh); nothing is pushed anywhere, and every
 # kubectl and helm call names the cluster's own context.
@@ -40,10 +42,13 @@ LOAD_RATE_LARGE="${LOAD_RATE_LARGE:-500}"
 CEILING_STAGES_1="${CEILING_STAGES_1:-2000 4000 6000 7000 8000 9000 10000 12000}"
 CEILING_STAGES_2="${CEILING_STAGES_2:-4000 8000 10000 12000 14000 16000 18000 20000}"
 CEILING_STAGES_4="${CEILING_STAGES_4:-8000 12000 14000 16000 18000 20000 22000 25000}"
+CEILING_ROUNDS="${CEILING_ROUNDS:-3}"
 SATURATION_DURATION="${SATURATION_DURATION:-60s}"
 MEMORY_VUS="${MEMORY_VUS:-10 25 50 100}"
 EDGE_RATE="${EDGE_RATE:-500}"
+EDGE_WARMUP="${EDGE_WARMUP:-30s}"
 EDGE_STAGES="${EDGE_STAGES:-250 500 750 1000 1250 1500 2000 3000}"
+EDGE_OVERLOAD_RATE="${EDGE_OVERLOAD_RATE:-3000}"
 # Every suite, in the order they run; a suite is there once a file in measure/ defines suite_<name>.
 ORDER="load ceiling edge failure gotchas observe rollout route rotation"
 

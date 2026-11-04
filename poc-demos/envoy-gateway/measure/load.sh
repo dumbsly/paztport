@@ -224,43 +224,58 @@ suite_load() {
   echo_unstamped
 }
 
-# The users k6 holds ready for the ceiling suite's open-model runs: enough for the highest stage at the latencies of
-# a stage that is sustained, so that k6 is not what limits it. A stage past the ceiling, whose requests wait up to
-# the processor's messageTimeout, runs out of users, and the requests k6 could not start show as dropped.
+# The users k6 holds for the ceiling suite's open-model runs: a stage offered R requests a second has R x
+# POOL_SECONDS users, all of them started before the run (k6 starting users during a run is slow enough to drop
+# requests on its own: at 9000/s, with 500 ready and up to 4500 allowed, it dropped about 180 while the p99 was
+# 62 ms). By Little's law the pool then runs out only when the requests in flight average more than POOL_SECONDS,
+# 100 ms: past any stage that is sustained here (their p99 stays under 70 ms), so a request dropped says that the
+# system held the requests, not that k6 was short of users. At the highest stage, 25000/s, that is 2500 users, well
+# within k6's pod (about a quarter of a megabyte a user). Never fewer than CEILING_PREALLOC.
 CEILING_PREALLOC=500
+POOL_SECONDS=0.1
 
-# The users for the saturation runs: more than the ramps', so that requests past what the processor sustains wait
-# for it, up to its messageTimeout, and Envoy's answer to them is seen, rather than k6 dropping them unsent for want
-# of a free user.
+# pool <rate> [least]: the users k6 holds for a run offered rate requests a second: rate x POOL_SECONDS, and never
+# fewer than least (CEILING_PREALLOC unless given).
+pool() {
+  awk -v r="$1" -v s="$POOL_SECONDS" -v p="${2:-$CEILING_PREALLOC}" \
+    'BEGIN { n = int(r * s + 0.5); printf "%d", (n > p ? n : p) }'
+}
+
+# The users the saturation runs hold: more than the ramps', so that requests past what the processor sustains meet
+# the edge's own answer to them (Envoy's circuit breaker on the processor's cluster refuses past 1024 at a time),
+# rather than k6 dropping them unsent.
 SATURATION_PREALLOC=2000
 
-# ceiling_ramp <route> <host> <replicas> <stage>...: a stepped ramp on the twin route, by its host: a discarded warm-up
-# (WARMUP long, at the first stage's rate), then each stage a run of DURATION at its constant offered rate, rising.
-# Prints each run, then summary.py's table of the stages and the highest sustained, which it adds to
-# $RUN_DIR/ceiling-sustained.
+# ceiling_ramp <route> <host> <replicas> <round> <stage>...: a stepped ramp on the twin route, by its host: a
+# discarded warm-up (WARMUP long, at the first stage's rate), then each stage a run of DURATION at its constant
+# offered rate, rising. Prints each run, then summary.py's table of the stages and the round's highest sustained
+# stage, which it adds to $RUN_DIR/ceiling-rounds (or RAMP_ROUNDS_FILE, when the caller sets it).
 ceiling_ramp() {
-  local route="$1" host="$2" replicas="$3" name="$1-r$3" rate line runs
-  shift 3
+  local route="$1" host="$2" replicas="$3" round="$4" name="$1-r$3-$4" rate line runs
+  shift 4
   runs="$RUN_DIR/$name.runs"
   : >"$runs"
   line=$(k6_run "$name-warmup" TARGET="$EDGE/orders" HOST="$host" BODY=small EXECUTOR=rate RATE="$1" \
-    PREALLOC="$CEILING_PREALLOC" DURATION="$WARMUP") || return 1
+    PREALLOC="$(pool "$1")" DURATION="$WARMUP") || return 1
   printf '  warm-up  %6s/s  %s (discarded)\n' "$1" "$line"
   for rate in "$@"; do
     line=$(k6_run "$name-$rate" TARGET="$EDGE/orders" HOST="$host" BODY=small EXECUTOR=rate RATE="$rate" \
-      PREALLOC="$CEILING_PREALLOC" DURATION="$DURATION") || return 1
+      PREALLOC="$(pool "$rate")" DURATION="$DURATION") || return 1
     printf '  stage    %6s/s  %s\n' "$rate" "$line"
     printf '%s %s\n' "$rate" "$line" >>"$runs"
   done
-  python3 "$here/measure/summary.py" stages "$runs" "$route" "$replicas" "$RUN_DIR/ceiling-sustained"
+  python3 "$here/measure/summary.py" stages "$runs" "$route" "$replicas" "$round" \
+    "${RAMP_ROUNDS_FILE:-$RUN_DIR/ceiling-rounds}"
 }
 
-# sustained <route> <replicas>: the highest stage the ceiling suite saw sustained there, or 0.
+# sustained <route> <replicas>: the median over the ceiling suite's rounds of the highest stage sustained there, or
+# 0.
 sustained() {
   awk -v r="$1" -v n="$2" '$1 == r && $2 == n { s = $3 } END { printf "%d", s }' "$RUN_DIR/ceiling-sustained"
 }
 
-# saturation: on one replica, the processor offered 1.5 and 2 times its highest sustained stage, each for
+# saturation: on one replica, the processor offered 1.5 and 2 times its highest sustained stage (the median of the
+# ceiling's rounds), each for
 # SATURATION_DURATION: each run, the window of its responses other than 200, what the processor decided in it, what
 # Envoy counted of its streams to the processor (a stream that failed, for a full circuit breaker or a timeout, is a
 # request Envoy refused with its own 500, failing closed), and the processor's restarts; then echo's counts, which
@@ -269,7 +284,7 @@ saturation() {
   local best factor rate line before after name envoy_before envoy_after
   best=$(sustained echo 1)
   echo "-- saturation: one processor replica, offered 1.5 and 2 times its highest sustained stage ($best/s)," \
-    "SATURATION_DURATION=$SATURATION_DURATION a run, from up to $SATURATION_PREALLOC k6 users"
+    "SATURATION_DURATION=$SATURATION_DURATION a run, from $SATURATION_PREALLOC k6 users"
   if [ "$best" -eq 0 ]; then
     echo "  no stage was sustained on one replica, so there is nothing to offer more than: skipped"
     return 0
@@ -292,14 +307,16 @@ saturation() {
   echo_unstamped
 }
 
-# rss_sample <ip> <file> <seconds>: in the background, process_resident_memory_bytes from the processor at ip's
-# /metrics, once a second, as "<epoch s> <bytes>" (or "<epoch s> none" when it does not answer) lines in file, until
-# $file.stop exists or the seconds have passed. Its pid goes into forwards, which measure.sh kills on exit.
+# rss_sample <ip> <file> <samples>: in the background, process_resident_memory_bytes from the processor at ip's
+# /metrics, as "<epoch s> <bytes>" (or "<epoch s> none" when it does not answer) lines in file: one reading, then a
+# second's sleep, so a little over a second apart (each reading is a kubectl exec, up to a second more when the
+# processor is slow), until $file.stop exists or that many samples are taken. Its pid goes into forwards, which
+# measure.sh kills on exit.
 rss_sample() {
-  local ip="$1" file="$2" seconds="$3"
+  local ip="$1" file="$2" samples="$3"
   : >"$file"
   (
-    for _ in $(seq 1 "$seconds"); do
+    for _ in $(seq 1 "$samples"); do
       [ -e "$file.stop" ] && break
       v=$(kn exec checks -- curl -sf --max-time 1 "http://$ip:9090/metrics" 2>/dev/null |
         awk '$1 == "process_resident_memory_bytes" { printf "%d", $2 }')
@@ -312,7 +329,8 @@ rss_sample() {
 }
 
 # memory: one processor replica, 1 MiB bodies (the body limit, so admitted and stamped) from MEMORY_VUS users in
-# turn, each step DURATION long: per step, the run, the processor's peak resident memory (sampled once a second
+# turn, each step DURATION long: per step, the run, the processor's peak resident memory (sampled a little over a
+# second apart
 # from its /metrics), and its restarts and how it last ended, an OOM kill included. A step in which it restarted
 # shows the requests it refused meanwhile in the run's statuses and window.
 memory() {
@@ -356,8 +374,11 @@ memory() {
 
 # ceiling_steps: the ramps on 1, 2 and 4 processor replicas, saturation after the first, and memory last.
 ceiling_steps() {
-  local n stages
-  : >"$RUN_DIR/ceiling-sustained"
+  local n stages round
+  printf '# %s\n' "the median, over CEILING_ROUNDS=$CEILING_ROUNDS rounds of the ceiling suite's ramps, of each" \
+    "round's highest sustained stage, in requests a second: <route> <processor replicas> <median>" \
+    >"$RUN_DIR/ceiling-sustained"
+  : >"$RUN_DIR/ceiling-rounds"
   for n in 1 2 4; do
     case "$n" in
       1) stages="$CEILING_STAGES_1" ;;
@@ -365,12 +386,23 @@ ceiling_steps() {
       4) stages="$CEILING_STAGES_4" ;;
     esac
     processor_replicas "$n" || return 1
-    echo "-- $n processor replica(s): stages of DURATION=$DURATION at $(echo $stages | sed 's/ /, /g') requests a" \
-      "second (WARMUP=$WARMUP first, from up to $CEILING_PREALLOC k6 users), on echo, then the same on echo-plain"
-    # shellcheck disable=SC2086 # the stages split on space
-    ceiling_ramp echo "$ECHO_HOST" "$n" $stages || return 1
-    # shellcheck disable=SC2086
-    ceiling_ramp echo-plain "$PLAIN_HOST" "$n" $stages || return 1
+    echo "-- $n processor replica(s): CEILING_ROUNDS=$CEILING_ROUNDS rounds of stages of DURATION=$DURATION at" \
+      "$(echo $stages | sed 's/ /, /g') requests a second (WARMUP=$WARMUP first; k6 users: the rate x" \
+      "$POOL_SECONDS s, at least $CEILING_PREALLOC), on echo and on echo-plain, the one that leads alternating"
+    for round in $(seq 1 "$CEILING_ROUNDS"); do
+      echo "  round $round"
+      if [ $((round % 2)) -eq 1 ]; then
+        # shellcheck disable=SC2086 # the stages split on space
+        ceiling_ramp echo "$ECHO_HOST" "$n" "$round" $stages &&
+          ceiling_ramp echo-plain "$PLAIN_HOST" "$n" "$round" $stages
+      else
+        # shellcheck disable=SC2086
+        ceiling_ramp echo-plain "$PLAIN_HOST" "$n" "$round" $stages &&
+          ceiling_ramp echo "$ECHO_HOST" "$n" "$round" $stages
+      fi || return 1
+    done
+    python3 "$here/measure/summary.py" ceiling "$RUN_DIR/ceiling-rounds" "$RUN_DIR/ceiling-sustained" "$n" \
+      echo echo-plain || return 1
     [ "$n" != 1 ] || saturation || return 1
   done
   memory
@@ -384,8 +416,7 @@ suite_ceiling() {
   ceiling_steps
   status=$?
   undo
-  echo "  the highest sustained stages, in $(basename "$RUN_DIR")/ceiling-sustained" \
-    "(route, replicas, requests a second):"
+  echo "  the medians of the rounds' highest sustained stages, in $(basename "$RUN_DIR")/ceiling-sustained:"
   sed 's/^/    /' "$RUN_DIR/ceiling-sustained"
   echo_unstamped || status=1
   return "$status"
@@ -417,12 +448,17 @@ edge_differs() {
   targets=$(kn get envoyextensionpolicy paztport-processor -o jsonpath='{.spec.targetRefs[*].name}')
   cat <<EOT
   What differs, with Paztport installed (paztport) and without (plain):
-    route        paztport: orders, the processor's filter enabled (the routes of its policy: $targets)
-                 plain: orders-plain (host $PLAIN_ORDERS_HOST), no ext_proc: Envoy never calls the processor
+    route        paztport: orders, the processor's filter enabled (the routes of its policy: $targets):
+                 Envoy sends the processor the request's headers, then the whole body, buffered, and the
+                 response's headers, from which the processor strips every X-Path- header
+                 plain: orders-plain (host $PLAIN_ORDERS_HOST), the processor's filter not enabled (shown below
+                 from Envoy's routes): Envoy never calls the processor
     orders       paztport: the starter's inbound filter verifies each request (enforce) and refuses what fails;
-                 it stamps its call to payment and checks payment's attested response; a trace line and a metric
-                 for each
-                 plain: no inbound filter, no verification, no stamp on its call, no check of the response
+                 it stamps its call to payment and checks payment's attested response; it attests its own response
+                 (an Ed25519 signature a request), holding the response body until the handler returns; a trace
+                 line and a metric for each
+                 plain: no inbound filter, no verification, no stamp on its call, no check of payment's response,
+                 no attestation of its own
     payment      paztport: the starter's inbound filter verifies each request (enforce) and attests its response;
                  a trace line and a metric for each
                  plain: no inbound filter, no verification, no attestation
@@ -449,6 +485,45 @@ edge_plain_make() {
     return 1
   fi
   echo "  orders-plain made; its BackendTrafficPolicy has orders-routes' retries and request buffer: $got"
+  edge_plain_unprocessed
+}
+
+# edge_plain_unprocessed: from Envoy's routes (waited for up to 30 s, as Envoy takes a new route a moment late), that
+# the processor's filter is enabled on the route orders and not on orders-plain. Prints PASS or FAIL, and each
+# route's per-filter configuration; returns 1 on FAIL.
+edge_plain_unprocessed() {
+  local out=""
+  envoy_admin || return 1
+  for _ in $(seq 1 30); do
+    out=$(curl -sf "http://$ENVOY_ADMIN/config_dump?resource=dynamic_route_configs" | python3 -c 'import json, sys
+host = sys.argv[1]
+routes = {}
+for c in json.load(sys.stdin).get("configs", []):
+    for vh in c.get("route_config", {}).get("virtual_hosts", []):
+        for r in vh.get("routes", []):
+            name = r.get("name", "")
+            if name.startswith("httproute/paztport/orders/") or name.startswith("httproute/paztport/orders-plain/"):
+                routes.setdefault(name.split("/")[2], []).append(r.get("typed_per_filter_config", {}))
+if len(routes.get("orders", [])) != 1 or len(routes.get("orders-plain", [])) != 1:
+    print("WAIT %s" % {k: len(v) for k, v in routes.items()})
+    sys.exit(0)
+def extproc(tpfc):
+    return [k for k, v in tpfc.items() if "ext_proc" in k and not v.get("disabled")]
+on, plain = extproc(routes["orders"][0]), extproc(routes["orders-plain"][0])
+verdict = "PASS" if on and not plain else "FAIL"
+print("%s the processor serves orders and not orders-plain: from Envoy'"'"'s routes, its filter is enabled on"
+      " orders (%s) and on orders-plain %s" % (verdict, " ".join(on) or "none", " ".join(plain) or "not at all"))
+for name in ("orders", "orders-plain"):
+    print("  %s typed_per_filter_config: %s" % (name, json.dumps(routes[name][0], sort_keys=True)))' \
+      "$PLAIN_ORDERS_HOST")
+    case "$out" in WAIT* | "") sleep 1 ;; *) break ;; esac
+  done
+  case "$out" in
+    PASS*) printf '  %s\n' "$out" ;;
+    FAIL*) printf '  %s\n' "$out"; return 1 ;;
+    *) echo "  FAIL the processor serves orders and not orders-plain: Envoy's routes for them could not be read" \
+      "(${out:-no answer})"; return 1 ;;
+  esac
 }
 
 # edge_plain_remove: deletes orders-plain and its BackendTrafficPolicy, the route first.
@@ -487,7 +562,8 @@ for c in json.load(sys.stdin).get("configs", []):
 }
 
 # edge_side with|without: the backends' environment for that side, rolled out, and Envoy answering 200 on the side's
-# route; then, when the side changed, a discarded warm-up (WARMUP long) on it, since every pod is new. Sets RUN_VARS
+# route; then, when the side changed, a discarded warm-up (EDGE_WARMUP long) on it, since every pod is new and its
+# JVM cold: longer than the runs' WARMUP, so that what follows a rollout is as warm as what follows a run. Sets RUN_VARS
 # for alternate: the host of the side's route.
 edge_side() {
   local side="$1" exclude host="" code line
@@ -516,7 +592,7 @@ edge_side() {
   done
   [ "$code" = 200 ] || { echo "error: $side Paztport, the edge answers $code, not 200" >&2; return 1; }
   line=$(k6_run "edge-switch-$side-$(date +%s)" TARGET="$EDGE/orders" ${host:+HOST="$host"} BODY=small \
-    EXECUTOR=rate RATE="$EDGE_RATE" PREALLOC="$CEILING_PREALLOC" DURATION="$WARMUP") || return 1
+    EXECUTOR=rate RATE="$EDGE_RATE" PREALLOC="$CEILING_PREALLOC" DURATION="$EDGE_WARMUP") || return 1
   printf '  rolled   %-8s %s (discarded)\n' "$([ "$side" = with ] && echo paztport || echo plain)" "$line"
 }
 edge_plain() { edge_side without; }
@@ -585,36 +661,115 @@ print("  reasons other than OK: " + ("; ".join(bad) if bad else "none"))' "$1" "
 }
 
 # edge_compare: what differs, orders-plain made, then the two sides alternated at EDGE_RATE, each switch a
-# rollout and a discarded warm-up; each run, the medians and spread, what Paztport adds, and whether k6 kept to
-# the rate.
+# rollout and a discarded warm-up (EDGE_WARMUP), and no other warm-up, the first switch's included; each run, the
+# medians and spread, what Paztport adds, and whether k6 kept to the rate.
 edge_compare() {
-  echo "-- the whole edge: $EDGE_RATE requests a second offered to each side (from up to $CEILING_PREALLOC k6 users)," \
-    "small body, DURATION=$DURATION a run, WARMUP=$WARMUP, ROUNDS=$ROUNDS; each switch a rollout and a discarded" \
-    "warm-up"
+  echo "-- the whole edge: $EDGE_RATE requests a second offered to each side ($CEILING_PREALLOC k6 users ready)," \
+    "small body, DURATION=$DURATION a run, ROUNDS=$ROUNDS; each switch a rollout and a discarded warm-up of" \
+    "EDGE_WARMUP=$EDGE_WARMUP"
   edge_differs
   edge_plain_make || return 1
   edge_side without || return 1
   echo "  the environment that differs, as the cluster runs it without Paztport (with it, kind/backends.yaml's):"
   diff <(backends_env file) <(backends_env) | sed -n 's/^</    with:    /p; s/^>/    without: /p'
-  alternate edge plain edge_plain paztport edge_paztport TARGET="$EDGE/orders" BODY=small EXECUTOR=rate \
+  # alternate's own warm-ups would only repeat the switches' (WARMUP=0 leaves them out).
+  WARMUP=0 alternate edge plain edge_plain paztport edge_paztport TARGET="$EDGE/orders" BODY=small EXECUTOR=rate \
     RATE="$EDGE_RATE" PREALLOC="$CEILING_PREALLOC" DURATION="$DURATION" || return 1
   python3 "$here/measure/summary.py" rate "$RUN_DIR/edge.runs" "$EDGE_RATE"
 }
 
-# edge_ramp: with Paztport (the route orders, both backends in enforce), stages past what it sustains, and what
-# orders and payment counted meanwhile, every reason but OK by name: a stamp that waited longer than orders'
-# maxAgeMs shows here as its own reason.
+# The users k6 may start for the overload stage: EDGE_OVERLOAD_RATE x EDGE_OVERLOAD_SECONDS. A stamp older than
+# orders' maxAgeMs (5 s) needs requests held about 6 s, so rate x 6 s users (18000 at 3000/s); k6 took about a
+# quarter of a megabyte a user here, so its pod's 2Gi holds about a third of that, and the stage says so. They are
+# all started before the run, so that none is dropped for want of a user k6 is still starting.
+EDGE_OVERLOAD_SECONDS=2
+
+# backend_restarts: each orders and payment pod's restarts, "<pod> restarts=<n>; ..." on one line.
+backend_restarts() {
+  kn get pods -l 'app in (orders,payment)' \
+    -o jsonpath='{range .items[*]}{.metadata.name} restarts={.status.containerStatuses[0].restartCount}{"\n"}{end}' |
+    awk 'NF { printf "%s%s %s", sep, $1, $2; sep = "; " } END { print "" }'
+}
+
+# max_age_ms: orders' maxAgeMs, from its environment, or the starter's default (5000).
+max_age_ms() {
+  backends_env | sed -n 's/^orders PAZTPORT_MAX_AGE_MS=//p' | grep . || echo 5000
+}
+
+# envoy_orders_stats: Envoy's counters for its cluster of the route orders: connections and requests over its
+# circuit breakers (requests over the connections wait as pending), timed out and retried, as "<name>=<n>" words.
+envoy_orders_stats() {
+  envoy_admin || return 1
+  curl -sf "http://$ENVOY_ADMIN/stats" | awk -F': ' '
+    $1 ~ /^cluster\.httproute\/paztport\/orders\// && $1 !~ /\.internal\./ &&
+      $1 ~ /\.upstream_(cx_overflow|rq_pending_overflow|rq_active_overflow|rq_timeout|rq_retry)$/ {
+      sub(/^.*\.upstream_/, "", $1); s[$1] += $2 }
+    END { for (k in s) printf "%s=%d ", k, s[k] }' | tr ' ' '\n' | LC_ALL=C sort | paste -sd ' ' -
+}
+
+# age_line <longest ms>: whether a stamp older than orders' maxAgeMs could have reached it: a stamp is never older
+# at orders than its request is long, so not unless some request took longer.
+age_line() {
+  local longest="$1" max
+  max=$(max_age_ms)
+  if awk -v l="$longest" -v m="$max" 'BEGIN { exit !(l < m) }'; then
+    echo "  age could not have been tested: the longest request took $longest ms, under orders' maxAgeMs ($max ms)," \
+      "and a stamp is never older at orders than its request is long"
+  else
+    echo "  age could have been tested: the longest request took $longest ms, not under orders' maxAgeMs ($max ms);" \
+      "a stamp refused for its age is counted above as EXPIRED"
+  fi
+}
+
+# edge_ramp: with Paztport (the route orders, both backends in enforce), stages past what it sustains, then one
+# overload stage, with what orders and payment counted, every reason but OK by name, their restarts, and whether a
+# stamp could have been too old: a ramp whose k6 pool holds only rate x POOL_SECONDS users holds no request near 5 s.
 edge_ramp() {
-  local before after
+  local before after longest RAMP_ROUNDS_FILE="$RUN_DIR/edge-rounds"
   edge_side with || return 1
   echo "-- the route orders with Paztport: stages of DURATION=$DURATION at $(echo $EDGE_STAGES | sed 's/ /, /g')" \
-    "requests a second (WARMUP=$WARMUP first, from up to $CEILING_PREALLOC k6 users)"
+    "requests a second (WARMUP=$WARMUP first; k6 users: the rate x $POOL_SECONDS s, at least $CEILING_PREALLOC)"
+  : >"$RAMP_ROUNDS_FILE"
   before=$(backend_reasons) || return 1
+  echo "  orders and payment before: $(backend_restarts)"
   # shellcheck disable=SC2086 # the stages split on space
-  ceiling_ramp orders "" 2 $EDGE_STAGES || return 1
+  ceiling_ramp orders "" 2 1 $EDGE_STAGES || return 1
   after=$(backend_reasons) || return 1
-  echo "  what orders and payment counted during the ramp (its warm-up included):"
+  echo "  what orders and payment counted during the ramp (its warm-up included); after it: $(backend_restarts)"
   reasons_added "$before" "$after"
+  longest=$(sed 's/^[0-9]* RESULT //' "$RUN_DIR/orders-r2-1.runs" | python3 -c 'import json, sys
+print(max(json.loads(line)["max"] for line in sys.stdin if line.strip()))')
+  age_line "$longest"
+  edge_overload
+}
+
+# edge_overload: the route orders offered EDGE_OVERLOAD_RATE for DURATION, from a pool of k6 users as large as its
+# pod holds: what Envoy did with what it could not pass on (its circuit breakers' refusals, counted for the
+# processor's cluster and for orders'), what the processor, orders and payment decided, their restarts, and whether
+# a stamp could have been too old.
+edge_overload() {
+  local rate="$EDGE_OVERLOAD_RATE" users want line before after p_before p_after e_before e_after o_before o_after
+  users=$(awk -v r="$rate" -v s="$EDGE_OVERLOAD_SECONDS" 'BEGIN { printf "%d", r * s }')
+  want=$((rate * 6))
+  echo "-- the route orders with Paztport overloaded: $rate requests a second for DURATION=$DURATION, from up to" \
+    "$users k6 users"
+  echo "  k6's pool: waits past orders' maxAgeMs at $rate/s would need about $want users (the rate x 6 s); k6's pod" \
+    "(2Gi) does not hold that many, so it holds $users (the rate x $EDGE_OVERLOAD_SECONDS s), all started before" \
+    "the run"
+  before=$(backend_reasons) && p_before=$(processor_outcomes) && e_before=$(envoy_extproc_stats) &&
+    o_before=$(envoy_orders_stats) || return 1
+  line=$(k6_run edge-overload TARGET="$EDGE/orders" BODY=small EXECUTOR=rate RATE="$rate" PREALLOC="$users" \
+    DURATION="$DURATION") || return 1
+  after=$(backend_reasons) && p_after=$(processor_outcomes) && e_after=$(envoy_extproc_stats) &&
+    o_after=$(envoy_orders_stats) || return 1
+  printf '  %6s/s  %s\n' "$rate" "$line"
+  window "$RUN_DIR/edge-overload.fails"
+  echo "    Envoy counted, of its streams to the processor: $(outcomes_added "$e_before" "$e_after")"
+  echo "    Envoy counted, of its requests to orders: $(outcomes_added "$o_before" "$o_after")"
+  echo "    the processor decided: $(outcomes_added "$p_before" "$p_after")"
+  echo "  what orders and payment counted; after it: $(backend_restarts)"
+  reasons_added "$before" "$after"
+  age_line "$(printf '%s' "$line" | sed -n 's/.*"max":\([0-9.]*\).*/\1/p')"
 }
 
 suite_edge() {

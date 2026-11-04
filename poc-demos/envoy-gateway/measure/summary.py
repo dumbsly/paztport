@@ -15,12 +15,20 @@
       requests a second within 2% of the offered, and no request dropped. A run that did not is said so plainly;
       it is not refused.
 
-  summary.py stages <runs file> <route> <replicas> <sustained file>
+  summary.py stages <runs file> <route> <replicas> <round> <rounds file>
       The runs file holds one "<offered rate> RESULT {json}" line a stage of a ramp, each stage a run at a constant
       offered rate, in the order they ran. Prints a table of the stages: offered, achieved, p50, p99, dropped,
-      statuses, and whether the stage was sustained: achieved within 5% of offered, and every response a 200. Then
-      the highest stage sustained, which it also adds to the sustained file as "<route> <replicas> <rate>" (0 when
-      none was). It is a definition, not a target: a run either kept to it or did not.
+      statuses, and whether the stage was sustained: no request dropped, achieved within 2% of offered (the bound
+      the rate check uses), and every response a 200. A stage with a request dropped is marked: k6's pool ran out,
+      which with the pool the suite gives it means the system held the requests. Then the round's highest sustained
+      stage, which it also adds to the rounds file as "<route> <replicas> <round> <rate>" (0 when none was). It is a
+      definition, not a target: a run either kept to it or did not.
+
+  summary.py ceiling <rounds file> <sustained file> <replicas> <route>...
+      For each route, at that many replicas: each round's highest sustained stage, from the rounds file, and their
+      median (the lower middle one, so it is a stage) with the lowest and highest; the median goes into the
+      sustained file as "<route> <replicas> <median>". Where two routes' medians are the same, it says so: the
+      ramps then carry no information about what the processor adds there.
 
   summary.py window <fails file>
       The fails file holds edge.js's "FAIL {json}" lines: their count by status, the first and the last (UTC),
@@ -107,7 +115,7 @@ def rate(path, offered):
             "at the offered rate" if kept else "NOT at the offered rate, so this run's latency is not at that load"))
 
 
-def stages(path, route, replicas, out):
+def stages(path, route, replicas, round_, out):
     rows = []
     with open(path) as f:
         for n, line in enumerate(f, 1):
@@ -119,20 +127,21 @@ def stages(path, route, replicas, out):
             if total != r["reqs"]:
                 die("%s:%d: the statuses sum to %d, not to the %d requests" % (path, n, total, r["reqs"]))
             offered = int(offered)
-            kept = abs(r["rps"] - offered) <= 0.05 * offered and r["reqs"] > 0 and r["status"].get("200") == r["reqs"]
+            kept = (r["dropped"] == 0 and abs(r["rps"] - offered) <= 0.02 * offered and r["reqs"] > 0
+                    and r["status"].get("200") == r["reqs"])
             rows.append((offered, r, kept))
     if not rows:
         die("no stage in %s" % path)
     print("  %8s  %9s  %7s  %9s  %9s  %8s  %-9s  %s" % (
         "offered", "achieved", "", "p50", "p99", "dropped", "sustained", "statuses"))
     for offered, r, kept in rows:
-        print("  %6d/s  %7.1f/s  %+6.1f%%  %6.2f ms  %6.2f ms  %8d  %-9s  %s" % (
+        print("  %6d/s  %7.1f/s  %+6.1f%%  %6.2f ms  %6.2f ms  %8d  %-9s  %s%s" % (
             offered, r["rps"], (r["rps"] - offered) / offered * 100, r["p50"], r["p99"], r["dropped"],
-            "yes" if kept else "no", statuses([r])))
+            "yes" if kept else "no", statuses([r]), "  (k6's pool ran out)" if r["dropped"] else ""))
     sustained = [offered for offered, _, kept in rows if kept]
     best = max(sustained) if sustained else 0
     if not best:
-        print("  %s, %s processor replica(s): no stage sustained" % (route, replicas))
+        print("  %s, %s processor replica(s), round %s: no stage sustained" % (route, replicas, round_))
     else:
         notes = []
         if best == max(offered for offered, _, _ in rows):
@@ -140,10 +149,37 @@ def stages(path, route, replicas, out):
         below = [offered for offered, _, kept in rows if not kept and offered < best]
         if below:
             notes.append("though not %s" % ", ".join("%d/s" % b for b in below))
-        print("  %s, %s processor replica(s): highest sustained stage %d/s%s" % (
-            route, replicas, best, "".join(" (%s)" % n for n in notes)))
+        print("  %s, %s processor replica(s), round %s: highest sustained stage %d/s%s" % (
+            route, replicas, round_, best, "".join(" (%s)" % n for n in notes)))
     with open(out, "a") as f:
-        f.write("%s %s %d\n" % (route, replicas, best))
+        f.write("%s %s %s %d\n" % (route, replicas, round_, best))
+
+
+def ceiling(rounds_path, out, replicas, routes):
+    seen = {route: [] for route in routes}
+    with open(rounds_path) as f:
+        for n, line in enumerate(f, 1):
+            parts = line.split()
+            if len(parts) != 4 or not parts[3].isdigit():
+                die("%s:%d is not a '<route> <replicas> <round> <rate>' line" % (rounds_path, n))
+            if parts[1] == replicas and parts[0] in seen:
+                seen[parts[0]].append(int(parts[3]))
+    medians = {}
+    for route in routes:
+        rates = seen[route]
+        if not rates:
+            die("no round of %s at %s replica(s) in %s" % (route, replicas, rounds_path))
+        medians[route] = statistics.median_low(rates)
+        print("  %s, %s processor replica(s): highest sustained stage in each of %d rounds %s; median %d/s (%d-%d)"
+              % (route, replicas, len(rates), " ".join("%d/s" % r for r in rates), medians[route], min(rates),
+                 max(rates)))
+        with open(out, "a") as f:
+            f.write("%s %s %d\n" % (route, replicas, medians[route]))
+    for i, a in enumerate(routes):
+        for b in routes[i + 1:]:
+            if medians[a] == medians[b]:
+                print("  %s and %s have the same median (%d/s): at %s replica(s) the ramps carry no information about"
+                      " what the processor adds" % (a, b, medians[a], replicas))
 
 
 def utc(ms):
@@ -195,13 +231,16 @@ def main(argv):
         medians(argv[1], argv[2:])
     elif len(argv) == 3 and argv[0] == "rate":
         rate(argv[1], float(argv[2]))
-    elif len(argv) == 5 and argv[0] == "stages":
-        stages(argv[1], argv[2], argv[3], argv[4])
+    elif len(argv) == 6 and argv[0] == "stages":
+        stages(argv[1], argv[2], argv[3], argv[4], argv[5])
+    elif len(argv) >= 5 and argv[0] == "ceiling":
+        ceiling(argv[1], argv[2], argv[3], argv[4:])
     elif len(argv) == 2 and argv[0] == "window":
         window(argv[1])
     else:
         die("usage: summary.py medians <runs file> <label>... | rate <runs file> <offered rate>"
-            " | stages <runs file> <route> <replicas> <sustained file> | window <fails file>")
+            " | stages <runs file> <route> <replicas> <round> <rounds file>"
+            " | ceiling <rounds file> <sustained file> <replicas> <route>... | window <fails file>")
 
 
 if __name__ == "__main__":

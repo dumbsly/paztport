@@ -13,6 +13,9 @@ ECHO_HOST=echo.example
 PLAIN_HOST=echo-plain.example
 # The HTTPRoutes of the baseline; baseline_reset deletes any other.
 BASE_ROUTES="orders orders-unmapped echo echo-plain"
+# The BackendTrafficPolicies of the baseline (kind/routes.yaml's and kind/measure.yaml's); baseline_reset deletes any
+# other.
+BASE_POLICIES="orders-routes echo-routes"
 
 # measure_chart [helm args...]: the chart as the measurements run it: orders and echo mapped to the receiver
 # orders, the autoscaler off and two replicas, unless the args set others.
@@ -224,7 +227,8 @@ if total != r["reqs"]:
 
 # alternate <name> <labelA> <setupA> <labelB> <setupB> <VAR=value>...: compares two setups like for like. Each
 # setup is a command, evaluated before each run of its label, that may set RUN_VARS (an array) to that label's own
-# k6 settings. First a warm-up of each label (WARMUP long, discarded); then ROUNDS rounds of one run of each
+# k6 settings. First a warm-up of each label (WARMUP long, discarded; none when WARMUP is 0, for setups that warm
+# up themselves); then ROUNDS rounds of one run of each
 # (DURATION long), the leading label alternating from round to round. Prints each run, then summary.py's medians,
 # spread and what B adds to A.
 alternate() {
@@ -233,6 +237,8 @@ alternate() {
   local runs="$RUN_DIR/$name.runs"
   : >"$runs"
   for label in "$la" "$lb"; do
+    # WARMUP=0: the setups warm up themselves.
+    [ "$WARMUP" != 0 ] || break
     if [ "$label" = "$la" ]; then setup="$sa"; else setup="$sb"; fi
     RUN_VARS=()
     eval "$setup" || return 1
@@ -374,7 +380,8 @@ material_matches() {
 }
 
 # baseline_reset: puts the cluster back as every suite starts from it, and prints that state. Any HTTPRoute but
-# orders, orders-unmapped, echo and echo-plain is taken off the Gateway first, then the chart is the measurements'
+# orders, orders-unmapped, echo and echo-plain is taken off the Gateway first, and any BackendTrafficPolicy but
+# theirs deleted, then the chart is the measurements'
 # (two replicas, the autoscaler off), echo and its twin routes and the backends are as their files have them (enforce
 # mode, and no environment variable the file does not set: the run stops on one), no processor pod has a netem
 # queue (cleared first of all, since a delayed pod may not be ready, and every wait would then time out), and
@@ -382,13 +389,20 @@ material_matches() {
 # does material in any pod that is not out/'s: a suite that broke must not leave the next one measuring something
 # else. Nothing is rolled when nothing changed.
 baseline_reset() {
-  local route name netem modes hpa replicas routes
+  local route policy name netem modes hpa replicas routes
   netem=$(netem_clear) || { echo "error: could not read or clear the processor pods' queues" >&2; exit 1; }
   for route in $(kn get httproutes -o name); do
     name="${route#*/}"
     case " $BASE_ROUTES " in
       *" $name "*) ;;
       *) quietly "deleting the route $name" kn delete httproute "$name" ;;
+    esac
+  done
+  for policy in $(kn get backendtrafficpolicies -o name); do
+    name="${policy#*/}"
+    case " $BASE_POLICIES " in
+      *" $name "*) ;;
+      *) quietly "deleting the BackendTrafficPolicy $name" kn delete backendtrafficpolicy "$name" ;;
     esac
   done
   quietly "resetting the chart" measure_chart --wait --timeout 5m
@@ -405,6 +419,7 @@ baseline_reset() {
   hpa=$(kn get hpa -o name | grep -c . || true)
   replicas=$(kn get deployment paztport-processor -o jsonpath='{.status.readyReplicas}/{.spec.replicas}')
   routes=$(kn get httproutes -o jsonpath='{.items[*].metadata.name}')
+  routes+="; BackendTrafficPolicies $(kn get backendtrafficpolicies -o jsonpath='{.items[*].metadata.name}')"
   echo "  baseline: processor $replicas ready, $hpa autoscaler(s); ${modes% }; routes $routes;" \
     "netem removed from $netem pod(s), none left; material as out/'s in $MATERIAL_PODS pods"
 }
