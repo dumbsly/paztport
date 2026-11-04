@@ -8,7 +8,9 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.micrometer.core.instrument.LongTaskTimer;
 import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Tag;
 import io.micrometer.core.instrument.Timer;
 import io.micrometer.observation.ObservationRegistry;
 import java.nio.file.Files;
@@ -24,6 +26,7 @@ import org.paztport.core.crypto.Crypto;
 import org.paztport.core.encoding.Base64Url;
 import org.paztport.core.policy.KeyringFile;
 import org.paztport.core.policy.PolicyBuilder;
+import org.paztport.core.session.ReplyCert;
 import org.paztport.core.stamp.Stamper;
 import org.paztport.http.RequestContext;
 import org.paztport.http.wire.HttpWire;
@@ -102,13 +105,44 @@ class MetricsWiringTest {
             "paztport.policy-key-path=" + dir.resolve("policy.pub")};
     }
 
-    /** The request filter the starter registers, with nothing in the request that would verify. */
+    /**
+     * A partner's entry, {@code psp}, in front of its {@code ledger}: its keyring, root, key and reply certificate,
+     * signed under its own pin, and the pin of one client organisation it attests.
+     */
+    private String[] partner(Path dir) throws Exception {
+        KeyPair psp = Crypto.generateEd25519KeyPair();
+        String policyKey = Base64Url.encode(Crypto.encodePublicKey(policy.getPublic()));
+        String pspKey = Base64Url.encode(Crypto.encodePublicKey(psp.getPublic()));
+        String ledgerKey = Base64Url.encode(Crypto.encodePublicKey(Crypto.generateEd25519KeyPair().getPublic()));
+        Files.writeString(dir.resolve("psp.key"), Base64Url.encode(Crypto.encodePrivateKey(psp.getPrivate())));
+        Files.writeString(dir.resolve("policy.pub"), policyKey + "\n");
+        Files.writeString(dir.resolve("shop-policy.pub"),
+                Base64Url.encode(Crypto.encodePublicKey(Crypto.generateEd25519KeyPair().getPublic())) + "\n");
+        JSON.writeValue(dir.resolve("keyring.json").toFile(), KeyringFile.sign(
+                Map.of("psp", pspKey, "ledger", ledgerKey), policyKey, NOT_AFTER, policy.getPrivate()));
+        JSON.writeValue(dir.resolve("root.json").toFile(),
+                PolicyBuilder.build(List.of(List.of("psp", "ledger")), 4, NOT_AFTER, policy.getPrivate()).signedRoot());
+        Files.writeString(dir.resolve("reply-cert.json"), ReplyCert.issue(policyKey, "psp", pspKey,
+                System.currentTimeMillis() + 7 * 86_400_000L, policy.getPrivate()).toJson());
+        return new String[] {
+            "paztport.service-name=psp", "paztport.partner.enabled=true",
+            "paztport.key-path=" + dir.resolve("psp.key"),
+            "paztport.keyring-path=" + dir.resolve("keyring.json"),
+            "paztport.root-path=" + dir.resolve("root.json"),
+            "paztport.policy-key-path=" + dir.resolve("policy.pub"),
+            "paztport.partner.reply-cert-path=" + dir.resolve("reply-cert.json"),
+            "paztport.partner.client-policy-key-paths[0]=" + dir.resolve("shop-policy.pub"),
+            "paztport.partner.client-origins[0]=orders"};
+    }
+
+    /** The request filter the starter registers. */
     @SuppressWarnings("unchecked")
     private static InboundFilter filter(ApplicationContext context) {
         return ((FilterRegistrationBean<InboundFilter>)
                 context.getBean("inboundFilterRegistration", FilterRegistrationBean.class)).getFilter();
     }
 
+    /** A request through the starter's filter, with nothing in it that would verify. */
     private static MockHttpServletResponse unverifiedRequest(ApplicationContext context) throws Exception {
         InboundFilter filter = filter(context);
         MockHttpServletRequest request = new MockHttpServletRequest("POST", "/pay");
@@ -130,6 +164,40 @@ class MetricsWiringTest {
             assertThat(timer.count()).isEqualTo(1);
             assertThat(timer.getId().getTags()).extracting(tag -> tag.getKey())
                     .containsExactlyInAnyOrder("mode", "reason", "outcome", "error");
+        });
+    }
+
+    // The active timer is created as the observation starts, so it carries the mode, which is set before then.
+    @Test
+    void theActiveTimerCarriesTheMode(@TempDir Path dir) throws Exception {
+        withBoot.withPropertyValues(payment(dir)).run(context -> {
+            unverifiedRequest(context);
+
+            LongTaskTimer active = context.getBean(MeterRegistry.class).get("paztport.request.active")
+                    .longTaskTimer();
+            assertThat(active.getId().getTags()).containsExactly(Tag.of("mode", "enforce"));
+            assertThat(active.activeTasks()).isZero();
+        });
+    }
+
+    // A call that names no session is served as unsafe, with no handshake.
+    @Test
+    void bootTurnsPartnerCallsIntoATimer(@TempDir Path dir) throws Exception {
+        withBoot.withPropertyValues(partner(dir)).run(context -> {
+            assertThat(context).hasNotFailed();
+            @SuppressWarnings("unchecked")
+            PartnerFilter filter = ((FilterRegistrationBean<PartnerFilter>)
+                    context.getBean("partnerFilterRegistration", FilterRegistrationBean.class)).getFilter();
+            MockHttpServletRequest call = new MockHttpServletRequest("POST", "/charge");
+            call.setContent("{\"amount\":100}".getBytes());
+            MockHttpServletResponse response = new MockHttpServletResponse();
+
+            filter.doFilter(call, response, new MockFilterChain());
+
+            assertThat(response.getStatus()).isEqualTo(200);
+            Timer timer = context.getBean(MeterRegistry.class).get("paztport.partner.request")
+                    .tags("session", "unsafe", "reason", "none", "outcome", "served").timer();
+            assertThat(timer.count()).isEqualTo(1);
         });
     }
 
@@ -165,7 +233,7 @@ class MetricsWiringTest {
     }
 
     @Test
-    void withoutMicrometerNothingChanges(@TempDir Path dir) throws Exception {
+    void withoutARegistryNothingChanges(@TempDir Path dir) throws Exception {
         starter.withPropertyValues(payment(dir, false)).run(context -> {
             assertThat(context).hasNotFailed().doesNotHaveBean(MeterRegistry.class)
                     .doesNotHaveBean(ObservationRegistry.class);

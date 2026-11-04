@@ -231,7 +231,8 @@ class RequestObservationTest {
                 () -> "rid-1", System::currentTimeMillis).next(null, "orders", "unused", List.of(), null).chain();
         Stamper.Stamped stamped = new Stamper("orders", "orders-1", shopKey.getPrivate(), false, () -> "unused",
                 System::currentTimeMillis).boundary(internal, sess, "psp",
-                        RequestBinding.compute("POST", "/charge", CHARGE), List.of(), shopBuilt.bundles().get("orders"));
+                        RequestBinding.compute("POST", "/charge", CHARGE), List.of(),
+                        shopBuilt.bundles().get("orders"));
         MockHttpServletRequest request = new MockHttpServletRequest("POST", "/charge");
         request.addHeader(PaztportHeaders.SESSION, sess);
         request.addHeader(PaztportHeaders.CHAIN, HttpWire.encodeChain(stamped.chain()));
@@ -303,8 +304,8 @@ class RequestObservationTest {
         assertEquals(400, response.getStatus());
         assertThat(registry).hasSingleObservationThat()
                 .hasLowCardinalityKeyValue("mode", "audit")
+                .hasLowCardinalityKeyValue("reason", "INFLUENCE_MISMATCH")
                 .hasLowCardinalityKeyValue("outcome", "refused")
-                .doesNotHaveLowCardinalityKeyValue("reason", "OK")
                 .hasBeenStopped();
     }
 
@@ -403,11 +404,14 @@ class RequestObservationTest {
             throw failure;
         };
 
-        Exception thrown = assertThrows(Exception.class,
+        IllegalStateException thrown = assertThrows(IllegalStateException.class,
                 () -> run(filter(VerificationMode.ENFORCE, throwing), paymentRequest(validHeaders())));
 
-        assertSame(failure, thrown.getCause() == null ? thrown : thrown.getCause());
+        assertSame(failure, thrown);
         assertThat(registry).hasSingleObservationThat()
+                .hasLowCardinalityKeyValue("mode", "enforce")
+                .hasLowCardinalityKeyValue("reason", "none")
+                .hasLowCardinalityKeyValue("outcome", "refused")
                 .hasError(failure)
                 .hasBeenStopped();
     }
@@ -430,7 +434,7 @@ class RequestObservationTest {
     // The partner's observations ------------------------------------------------------------------------------
 
     @Test
-    void attestedOk() throws Exception {
+    void anAttestedCallRecordsOkAndServed() throws Exception {
         MockHttpServletResponse response = serve(charge(handshake(true), CHARGE));
 
         assertEquals(200, response.getStatus());
@@ -446,7 +450,7 @@ class RequestObservationTest {
     }
 
     @Test
-    void attestedFailing() throws Exception {
+    void aFailingCallInAnAttestedSessionRecordsItsCodeAndRefused() throws Exception {
         MockHttpServletResponse response = serve(charge(handshake(true),
                 "{\"amount\":999}".getBytes(StandardCharsets.UTF_8)));
 
@@ -459,7 +463,7 @@ class RequestObservationTest {
     }
 
     @Test
-    void unknownSession() throws Exception {
+    void anUnknownSessionRecordsUnknownAndRefused() throws Exception {
         MockHttpServletResponse response = serve(charge("no-such-session", CHARGE));
 
         assertEquals(403, response.getStatus());
@@ -471,7 +475,7 @@ class RequestObservationTest {
     }
 
     @Test
-    void unsafeSession() throws Exception {
+    void anUnsafeSessionRecordsNoReasonAndServed() throws Exception {
         MockHttpServletResponse response = serve(charge(handshake(false), CHARGE));
 
         assertEquals(200, response.getStatus());

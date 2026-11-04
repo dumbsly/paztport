@@ -6,7 +6,6 @@ package org.paztport.http;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -768,16 +767,16 @@ class HttpReceiverTest {
         assertEquals(ReasonCode.BINDING_MISMATCH, tampered.result().reason());
     }
 
+    // Under enforce the verification runs first, so influence it cannot read fails it: the 403, not the 400.
     @Test
-    void enforceReportsTheResultWhenInfluenceIsUnreadable() {
+    void enforceRefusesUnreadableInfluenceAsItsVerificationFailure() {
         Headers h = validHeaders();
 
         Accepted accepted = verifying(null).accept(
                 paymentRequest(new Headers(h.chain(), h.proof(), "%%%"), TO_PAYMENT), null, VerificationMode.ENFORCE);
 
-        assertNotNull(accepted.refusal());
-        assertNotNull(accepted.result());
-        assertNotEquals(ReasonCode.OK, accepted.result().reason());
+        assertEquals(403, accepted.refusal().status());
+        assertEquals(ReasonCode.INFLUENCE_MISMATCH, accepted.result().reason());
     }
 
     @Test
@@ -797,11 +796,10 @@ class HttpReceiverTest {
         Headers h = validHeaders();
 
         Accepted accepted = verifying(null).accept(
-                paymentRequest(new Headers(h.chain(), h.proof(), "%%%"), TAMPERED), null, VerificationMode.AUDIT);
+                paymentRequest(new Headers(h.chain(), h.proof(), "%%%"), TO_PAYMENT), null, VerificationMode.AUDIT);
 
         assertEquals(400, accepted.refusal().status());
-        assertNotNull(accepted.result());
-        assertNotEquals(ReasonCode.OK, accepted.result().reason());
+        assertEquals(ReasonCode.INFLUENCE_MISMATCH, accepted.result().reason());
     }
 
     @Test
@@ -822,8 +820,7 @@ class HttpReceiverTest {
                 VerificationMode.OFF);
 
         assertEquals(ReasonCode.OK, good.result().reason());
-        assertNotNull(forged.result());
-        assertNotEquals(ReasonCode.OK, forged.result().reason());
+        assertEquals(ReasonCode.BAD_SIGNATURE, forged.result().reason());
     }
 
     @Test
