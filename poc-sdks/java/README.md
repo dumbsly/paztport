@@ -674,6 +674,7 @@ takes.
 
 `./run bench` from the repository root builds the module and runs JMH on the JDK Maven uses, with the module's
 classes and its dependencies on the class path, so the mesh demo's figures, taken on JDK 25, the services' runtime,
-are reproduced with `JAVA_HOME=<a JDK 25> ./run bench`; JMH's output names the JDK it ran on. Options after `bench` go to JMH (`-f 3` for three forks, `-rf json` for a results file); JMH's own help is
-`./run bench -h`. `mvn verify` builds the module but runs no benchmark. JMH is GPLv2 with the Classpath Exception.
-No built artefact bundles it, and the libraries and the demos don't use it.
+are reproduced with `JAVA_HOME=<a JDK 25> ./run bench`; JMH's output names the JDK it ran on. Options after `bench`
+go to JMH (`-f 3` for three forks, `-rf json` for a results file); JMH's own help is `./run bench -h`. `mvn verify`
+builds the module but runs no benchmark. JMH is GPLv2 with the Classpath Exception. No built artefact bundles it, and
+the libraries and the demos don't use it.

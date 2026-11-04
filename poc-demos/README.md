@@ -12,7 +12,7 @@ on its own and has its own README.
   `ext_proc` processor that stamps each request as the origin `edge`, its Helm chart,
   and checks on a local kind cluster against java-mesh's `orders` and `payment`.
   `./run envoy-gateway` from the repository root builds it, brings it up and runs
-  the checks (needs Docker, Go, kind, kubectl and Helm).
+  the checks (needs Maven on Java 25, Docker, Go, kind, kubectl and Helm).
 - [agents-mcp](agents-mcp/README.md): an agent and its MCP servers on the
   TypeScript SDK, with the evaluation and a local demo page. `./run agents-mcp`
   from the repository root sets it up and starts the page.

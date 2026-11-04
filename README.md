@@ -537,8 +537,8 @@ These are design directions, not implementations.
 for the mesh demo, Node 22.19 or newer with npm for the TypeScript side, Go 1.27 or
 newer for the Go SDK, staticcheck 2026.2.2 or newer for `./run test`'s checks of the
 Envoy Gateway processor, and unzip for its jar check; for the Envoy Gateway proof of
-concept, Docker, Go, kind 0.33, kubectl 1.35 and Helm 4.2 or newer. macOS and Linux;
-on Windows use WSL.
+concept, Maven running on Java 25 or newer (as `mvn -v` reports it), Docker, Go, kind
+0.33, kubectl 1.35 and Helm 4.2 or newer. macOS and Linux; on Windows use WSL.
 
 ```bash
 ./run test        # the name and link checks, the TypeScript type checks, gofmt, go vet and staticcheck, every suite, a check of the built jars and of the processor's third-party list; no Docker and no model

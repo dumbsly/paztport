@@ -166,7 +166,12 @@ its Service, and:
   attached, and the newer is not accepted for it (its `Accepted` condition is `False`, reason `Conflicted`). So when
   the routes already have one, set `backendTrafficPolicy: false` and give that one `requestBuffer.limit` equal to
   `bodyLimit`, as `kind/routes.yaml` does. A route with no request buffer has only its listener's buffer, 32 KiB
-  unless a ClientTrafficPolicy raises it: a longer body is refused with 413, never passed on unstamped;
+  unless a ClientTrafficPolicy raises it: a longer body is refused with 413, never passed on unstamped. The chart's
+  policy sets `mergeType` from `backendTrafficPolicyMergeType`, `StrategicMerge` by default: it merges into a
+  BackendTrafficPolicy on the routes' Gateway or listener, so the routes keep that policy's rate limits, timeouts,
+  retries and circuit breakers and gain the request buffer, and Envoy Gateway marks that policy `Merged`. With the
+  value empty, a route-level policy replaces the Gateway's on its routes, which then lose its settings, and Envoy
+  Gateway marks the Gateway's policy `Overridden`;
 - the edge's key and the processor's TLS key as Secrets, and the public material, the routes and the mesh CA as
   ConfigMaps. Values may name existing Secrets and the CA's ConfigMap instead, for a cluster that manages them
   elsewhere; `envoy-gateway.sh` does, so that no private key goes through Helm's values. A checksum annotation rolls
@@ -183,11 +188,13 @@ presents another one to its backends cannot present the edge's as well, and a ba
 certificate trusts every route on that Gateway.
 
 The chart's EnvoyExtensionPolicy targets the routes, and Envoy Gateway lets a policy on a route replace, for that
-route, an EnvoyExtensionPolicy on its Gateway or listener: an operator's Gateway-wide Wasm, Lua or ext_proc filter
-stops running on every Paztport route, and Envoy Gateway marks that Gateway-wide policy `Overridden`. `mergeType`
-(`StrategicMerge` or `JSONMerge`) merges the chart's policy into such a policy instead. Operators should alert on an
-EnvoyExtensionPolicy with `Overridden` true, and check each policy on every ancestor (each Gateway its routes attach
-to), not only the first. `envoy-gateway.sh up` waits for the chart's policy, and for the routes' BackendTrafficPolicy,
+route, an EnvoyExtensionPolicy on its Gateway or listener: an operator's Gateway-wide Wasm, Lua, dynamic module or
+ext_proc filter stops running on every Paztport route, and Envoy Gateway marks that Gateway-wide policy
+`Overridden`. `mergeType` (`StrategicMerge` or `JSONMerge`) merges the chart's policy into such a policy instead,
+keeping its Wasm, Lua and dynamic modules. A Gateway-wide ext_proc is still replaced on these routes: the merge
+covers the whole policy, `extProc` is a list with no merge key, and the chart sets it. Operators should alert on an
+EnvoyExtensionPolicy or a BackendTrafficPolicy with `Overridden` true, and check each policy on every ancestor (each
+Gateway its routes attach to), not only the first. `envoy-gateway.sh up` waits for the chart's policy, and for the routes' BackendTrafficPolicy,
 to be accepted on every ancestor and overridden on none.
 
 A route to a Paztport backend goes into the chart's values (`routes`, or `extraRoutes` until it is mapped) before
