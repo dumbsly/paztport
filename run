@@ -11,6 +11,9 @@ usage() {
 Usage: ./run <command> [options]
 
   java-mesh    Build the Java SDK and the mesh demo, then run poc-demos/java-mesh/demo.sh (needs Docker).
+  envoy-gateway
+               Make the edge's keys and policy, for the Envoy Gateway proof of concept on a local kind
+               cluster (needs Docker, kind, kubectl and helm; see poc-demos/envoy-gateway/README.md).
   agents-mcp   Install the TypeScript SDK and the agents demo, set up demo keys, and start the demo page.
   test         The name and link checks, the Java SDK and Java demo suites, a check of what the built jars
                carry, the TypeScript type checks and the TypeScript SDK and demo suites, then gofmt, go vet
@@ -72,6 +75,36 @@ need_docker() {
   docker info >/dev/null 2>&1 || missing docker 24 "start the Docker daemon (docker info must succeed)"
 }
 
+# The cluster tools of the Envoy Gateway proof of concept. Each minimum is the lowest the scaffold is written for:
+# kind 0.33 (the cluster and node image are pinned to it), kubectl 1.33 and helm 3.17 (the commands it runs).
+# tool_version <pattern> <command...>: the first dotted version the command prints, or nothing.
+tool_version() {
+  local pattern="$1"
+  shift
+  "$@" 2>/dev/null | sed -n "s/.*$pattern *v\{0,1\}\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\).*/\1/p" | head -n1 || true
+}
+
+need_kind() {
+  local found
+  command -v kind >/dev/null 2>&1 || missing kind 0.33 "https://kind.sigs.k8s.io/docs/user/quick-start/#installation"
+  found="$(tool_version kind kind version)"
+  [ -n "$found" ] && at_least "$found" 0.33 || missing kind 0.33 "https://kind.sigs.k8s.io/docs/user/quick-start/#installation"
+}
+
+need_kubectl() {
+  local found
+  command -v kubectl >/dev/null 2>&1 || missing kubectl 1.33 "https://kubernetes.io/docs/tasks/tools/ or your package manager"
+  found="$(tool_version 'Client Version:' kubectl version --client)"
+  [ -n "$found" ] && at_least "$found" 1.33 || missing kubectl 1.33 "https://kubernetes.io/docs/tasks/tools/ or your package manager"
+}
+
+need_helm() {
+  local found
+  command -v helm >/dev/null 2>&1 || missing helm 3.17 "https://helm.sh/docs/intro/install/ or your package manager"
+  found="$(tool_version '' helm version --template '{{.Version}}')"
+  [ -n "$found" ] && at_least "$found" 3.17 || missing helm 3.17 "https://helm.sh/docs/intro/install/ or your package manager"
+}
+
 install_ts_sdk() {
   # The demos link the SDK packages with file: paths, and those packages resolve their own dependencies only
   # from the SDK workspace, so the SDK is installed first.
@@ -106,6 +139,18 @@ cmd_java_mesh() {
   (cd poc-sdks/java && mvn -q install -DskipTests)
   (cd poc-demos/java-mesh && mvn -q package -DskipTests)
   exec poc-demos/java-mesh/demo.sh
+}
+
+cmd_envoy_gateway() {
+  need_java
+  need_docker
+  need_go
+  need_kind
+  need_kubectl
+  need_helm
+  # The tool jars make the keys and the signed policy; they are built here and run on the JDK Maven uses.
+  (cd poc-sdks/java && mvn -q install -DskipTests)
+  PAZTPORT_JAVA="$maven_java" exec poc-demos/envoy-gateway/material.sh
 }
 
 cmd_agents_mcp() {
@@ -165,6 +210,7 @@ esac
 case "${1:-}" in
   java-mesh) cmd_java_mesh ;;
   agents-mcp) cmd_agents_mcp ;;
+  envoy-gateway) cmd_envoy_gateway ;;
   test) cmd_test ;;
   bench) shift; cmd_bench "$@" ;;
   -h|--help|help) usage ;;

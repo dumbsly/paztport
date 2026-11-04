@@ -18,7 +18,7 @@ check() { # name, then a command that succeeds when the case passes
 help_lists_subcommands() {
   local out
   out="$("$repo/run" --help)" || return 1
-  for word in java-mesh agents-mcp test bench "macOS and Linux; on Windows use WSL"; do
+  for word in java-mesh agents-mcp envoy-gateway test bench "macOS and Linux; on Windows use WSL"; do
     grep -qF "$word" <<<"$out" || return 1
   done
 }
@@ -63,6 +63,20 @@ help_after() {
   [ "$status" -eq 0 ] && grep -q "^Usage: " <<<"$out"
 }
 
+# kind_missing: with fake mvn (Java 25), docker and go that pass their checks, and no kind, ./run envoy-gateway
+# prints one 'missing: kind' line and exits 1: the earlier checks pass, and the later ones are not reached.
+kind_missing() {
+  local bin out status
+  bin="$(basic_tools)"
+  printf '#!%s\necho "Java version: 25.0.1, vendor: Test, runtime: /nonexistent"\n' "$bin/bash" >"$bin/mvn"
+  printf '#!%s\nexit 0\n' "$bin/bash" >"$bin/docker"
+  printf '#!%s\necho "go version go99.0 linux/amd64"\n' "$bin/bash" >"$bin/go"
+  chmod +x "$bin/mvn" "$bin/docker" "$bin/go"
+  out="$(PATH="$bin" "$bin/bash" "$repo/run" envoy-gateway 2>&1)"; status=$?
+  rm -rf "$bin"
+  [ "$status" -eq 1 ] && grep -q "^missing: kind " <<<"$out" && [ "$(wc -l <<<"$out")" -eq 1 ]
+}
+
 no_argument_prints_usage() {
   "$repo/run" | grep -q "Usage"
 }
@@ -90,6 +104,8 @@ check "test without unzip prints one 'missing: unzip' line and exits 1" missing_
 check "test without go prints one 'missing: go' line and exits 1" missing_stops_early -with unzip go test
 check "bench with no java at Maven's JDK prints one 'missing: java' line and exits 1" \
   missing_stops_early java bench "Java version: 25.0.1, vendor: Test, runtime: /nonexistent"
+check "envoy-gateway -h prints usage" help_after envoy-gateway
+check "envoy-gateway without kind prints one 'missing: kind' line and exits 1" kind_missing
 check "a clean clone passes ./run test" clean_clone_passes_run_test
 
 [ "$failures" -eq 0 ] || { echo "$failures failed"; exit 1; }
