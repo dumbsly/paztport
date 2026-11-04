@@ -76,6 +76,6 @@ describe("mintOrigin", () => {
 
   it("refusesADelimiterInAField", () => {
     expect(() => mintOrigin({ svc: "session", rid: RID, ts: 1000, bind: BIND, sess: "a|b", inst: "pi-1", rcv: "pi" }, SESSION_KEY)).toThrow("'|'");
-    expect(() => mintOrigin({ svc: "session", rid: RID, ts: 1000, bind: BIND, sess: SESS, inst: "pi-1", rcv: "p|i" }, SESSION_KEY)).toThrow("'|'");
+    expect(() => mintOrigin({ svc: "session", rid: RID, ts: 1000, bind: BIND, sess: SESS, inst: "pi-1", rcv: "p|i" }, SESSION_KEY)).toThrow(/^rcv must be a route node/);
   });
 });

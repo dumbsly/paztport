@@ -397,6 +397,17 @@ describe("stampToolCall", () => {
     expect(chain[0]).toEqual(origin);
     expect(chain[1]).toMatchObject({ v: 3, svc: "pi", rcv: "mcp:github.create_pull_request", prev: origin.sig });
   });
+  it("refusesASigningNameOrReceiverThatIsNotARouteNode", () => {
+    const s = attestedSession();
+    const proof = toolCallProof(s.client.proofs, CLIENT_HOPS, "github", "list_issues")!;
+    const origin = mintOrigin({ svc: "session", rid: RID, ts: PROMPT_TS, bind: bindPrompt("a prompt"), sess: s.reply.sess, inst: "pi-1", rcv: "pi" }, s.client.sessionKey);
+    const stamp = (svc: string, serverId: string, name = "list_issues") =>
+      stampToolCall({ name, args: {}, callId: "call-1" }, { origin, svc, inst: "pi-1", privateKey: s.client.piKey, ts: Date.now(), influence: [], proof, serverId });
+    expect(() => stamp("", "github")).toThrow(/^svc must be a route node/);
+    expect(() => stamp("a/b", "github")).toThrow(/^svc must be a route node/);
+    expect(() => stamp("pi", "git/hub")).toThrow(/^rcv must be a route node/);
+    expect(() => stamp("pi", "github", "a|b")).toThrow(/^rcv must be a route node/);
+  });
   it("verifiesAtTheServer", () => {
     const s = attestedSession();
     const influence: InfluenceEntry[] = [{ cls: "third-party", src: "server:github", h: "h1", cid: "c1" }];

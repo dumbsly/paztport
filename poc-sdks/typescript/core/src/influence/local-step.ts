@@ -6,6 +6,7 @@ import { array, bool, exactly, object, str } from "../internal/fields.ts";
 import { bindLocalTool } from "../stamp/binding.ts";
 import { commitInfluence, type InfluenceEntry } from "./influence.ts";
 import type { LocalVerdict, Need, Resolved, ResolvedProgram } from "./local-decision.ts";
+import { requireStampableNames } from "../stamp/names.ts";
 import { signStamp, type Stamp } from "../stamp/stamp.ts";
 
 /** What a local tool's receiver starts with: its route names `local:<tool>` after the client chain. */
@@ -41,12 +42,15 @@ export type LocalStepFields = {
 /**
  * A local tool call as a signed client-mesh step: a v3 stamp with an empty `sess`, naming `local:<tool>` as its
  * receiver, bound to the input and the decision (the call id, what was resolved, the verdict, whether the route
- * is listed and which rules decided), so none of them can be changed in the evidence after signing.
+ * is listed and which rules decided), so none of them can be changed in the evidence after signing. Throws, signing nothing, if `svc`
+ * or the receiver (`local:<tool>`) is not a route node (see `requireStampableNames`).
  */
 export function stampLocalStep(f: LocalStepFields, privateKey: string): Stamp {
+  const rcv = localReceiver(f.toolName);
+  requireStampableNames(f.svc, rcv);
   const bind = localStepBind(f);
   return signStamp(
-    { svc: f.svc, inst: f.inst, rid: f.rid, ts: f.ts, sess: "", rcv: localReceiver(f.toolName), bind, infl: commitInfluence(f.influence), prev: f.prev },
+    { svc: f.svc, inst: f.inst, rid: f.rid, ts: f.ts, sess: "", rcv, bind, infl: commitInfluence(f.influence), prev: f.prev },
     privateKey,
   );
 }

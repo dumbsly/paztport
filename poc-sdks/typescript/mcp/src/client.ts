@@ -8,6 +8,7 @@ import {
   decode,
   readSessionReply,
   replacementRequest,
+  requireStampableNames,
   routeOf,
   sanitiseVerdictReason,
   serverPolicyNotAfter,
@@ -172,9 +173,11 @@ export type ToolCallStamp = {
 /**
  * The `_meta` for an attested tools/call: the tokens of the chain (the origin and a v3 stamp by the calling hop over
  * the call's receiver, binding and influence), of the route proof and of the influence, and the call id. Throws if a
- * stamp cannot be signed or a token written.
+ * stamp cannot be signed or a token written, or if `svc` or the receiver (`mcp:<server>.<tool>`) is not a route node.
  */
 export function stampToolCall(call: { name: string; args: unknown; callId: string }, s: ToolCallStamp): Record<string, string> {
+  const rcv = mcpReceiver(s.serverId, call.name);
+  requireStampableNames(s.svc, rcv);
   const hop = signStamp(
     {
       svc: s.svc,
@@ -182,7 +185,7 @@ export function stampToolCall(call: { name: string; args: unknown; callId: strin
       rid: s.origin.rid,
       ts: s.ts,
       sess: s.origin.sess,
-      rcv: mcpReceiver(s.serverId, call.name),
+      rcv,
       bind: bindMcpCall(call.name, call.callId, call.args),
       infl: commitInfluence(s.influence),
       prev: s.origin.sig,

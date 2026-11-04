@@ -44,6 +44,7 @@ export * from "./session/reply-check.ts";
 export * from "./session/reply-builder.ts";
 export * from "./policy/own-material.ts";
 export * from "./stamp/origin.ts";
+export * from "./stamp/names.ts";
 export * from "./session/attestation.ts";
 export * from "./policy/local-rules.ts";
 export * from "./influence/influence-rule.ts";
