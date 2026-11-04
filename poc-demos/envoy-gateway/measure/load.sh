@@ -144,11 +144,17 @@ for route, host in ((route_plain, plain_host), (route_echo, echo_host)):
 EOF
 }
 
-# echo_unstamped: the behavioural lines at the end of a suite on the twins: echo saw no request without a stamp,
-# and echo-plain none with one.
+# echo_unstamped: the behavioural lines at the end of a suite on the twins: echo's counts could be read from every
+# pod; echo saw no request without a stamp, and echo-plain none with one; and, for each twin, echo counted no fewer
+# requests than it answered 200 through the Gateway by the tally (k6's runs and the waits' probes, since echo's
+# pods started). It may count more: a request it answered whose response never came back as a 200 (a client
+# timeout, a reset) is in its count and not in the tally. Returns 1 if any line is FAIL.
 echo_unstamped() {
-  local counts e_stamped e_unstamped p_stamped p_unstamped ok=0
-  counts=$(echo_counts)
+  local counts e_stamped e_unstamped p_stamped p_unstamped ok=0 host counted sent
+  if ! counts=$(echo_counts); then
+    echo "  FAIL echo's counts: not every echo pod answered with its counts (above), so nothing can be said of them"
+    return 1
+  fi
   echo "  echo's counts, since its pods started:"
   printf '%s\n' "$counts" | sed 's/^/    /'
   e_stamped=$(sed -n "s/^$ECHO_HOST stamped=\([0-9]*\) .*/\1/p" <<<"$counts")
@@ -169,6 +175,27 @@ echo_unstamped() {
       "${p_unstamped:-none} unstamped"
     ok=1
   fi
+  for host in "$ECHO_HOST" "$PLAIN_HOST"; do
+    if [ "$(echo_pod_uids)" != "$(cat "$RUN_DIR/echo-pods" 2>/dev/null)" ]; then
+      echo "  FAIL $host: echo's pods are not those the tally was kept for, so their counts have lost requests"
+      ok=1
+      continue
+    fi
+    if [ "$host" = "$ECHO_HOST" ]; then
+      counted=$((${e_stamped:-0} + ${e_unstamped:-0}))
+    else
+      counted=$((${p_stamped:-0} + ${p_unstamped:-0}))
+    fi
+    sent=$(echo_sent "$host")
+    if [ "$counted" -ge "$sent" ]; then
+      echo "  PASS $host: echo counted $counted requests, and answered $sent with a 200 through the Gateway" \
+        "($((counted - sent)) more counted than answered)"
+    else
+      echo "  FAIL $host: echo counted $counted requests, fewer than the $sent it answered with a 200 through the" \
+        "Gateway: its counts lost some"
+      ok=1
+    fi
+  done
   return "$ok"
 }
 

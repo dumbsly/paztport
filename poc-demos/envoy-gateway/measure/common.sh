@@ -35,10 +35,40 @@ install_measure() {
   quietly "waiting for the twin routes" wait_measure
 }
 
-# edge_status <host>: the status of one POST /orders through the Gateway for the host, from the pod checks.
+# edge_status <host>: the status of one POST /orders through the Gateway for the host, from the pod checks. A 200
+# on a twin's host is a request echo answered, and goes into the tally echo's counts are checked against.
 edge_status() {
-  kn exec checks -- curl -s -o /dev/null -w '%{http_code}' -X POST -H "host: $1" \
-    -H 'content-type: application/json' -d '{}' "$EDGE/orders" 2>/dev/null
+  local code
+  code=$(kn exec checks -- curl -s -o /dev/null -w '%{http_code}' -X POST -H "host: $1" \
+    -H 'content-type: application/json' -d '{}' "$EDGE/orders" 2>/dev/null)
+  [ "$code" != 200 ] || echo_tally "$1" 1
+  printf '%s' "$code"
+}
+
+# The tally of the requests echo answered 200 through the Gateway, by host, since echo's present pods started: one
+# "<host> <n>" a line in $RUN_DIR/echo-sent, made new whenever echo's pods are not those recorded in
+# $RUN_DIR/echo-pods (their uids), since a new pod's counts start from nothing.
+
+# echo_pod_uids: the uids of echo's running pods that are not being deleted, sorted, on one line.
+echo_pod_uids() {
+  kn get pods -l app=echo --field-selector=status.phase=Running \
+    -o jsonpath='{range .items[*]}{.metadata.uid} {.metadata.deletionTimestamp}{"\n"}{end}' |
+    awk 'NF == 1 { print $1 }' | LC_ALL=C sort | paste -sd " " -
+}
+
+# echo_tally_begin: starts the tally again when echo's pods are not the ones it was kept for.
+echo_tally_begin() {
+  local uids
+  uids=$(echo_pod_uids)
+  if [ "$uids" != "$(cat "$RUN_DIR/echo-pods" 2>/dev/null)" ]; then
+    printf '%s\n' "$uids" >"$RUN_DIR/echo-pods"
+    : >"$RUN_DIR/echo-sent"
+  fi
+}
+
+# echo_tally <host> <n>: adds n requests answered 200 on a twin's host to the tally.
+echo_tally() {
+  case "$1" in "$ECHO_HOST" | "$PLAIN_HOST") echo "$1 $2" >>"$RUN_DIR/echo-sent" ;; esac
 }
 
 # wait_measure: wait_edge, then until echo is ready, the twins' BackendTrafficPolicy is accepted, and Envoy answers
@@ -48,6 +78,7 @@ wait_measure() {
   wait_edge &&
     policy_attached backendtrafficpolicy/echo-routes &&
     kn rollout status deployment/echo --timeout=120s || return 1
+  echo_tally_begin
   for host in "$ECHO_HOST" "$PLAIN_HOST"; do
     for _ in $(seq 1 60); do
       code=$(edge_status "$host")
@@ -58,12 +89,32 @@ wait_measure() {
   done
 }
 
+# run_seconds <duration> <stages>: how long a k6 run lasts, in whole seconds: its DURATION (k6's form, such as
+# 20s, 1m30s or 500ms), or the sum of its STAGES' durations.
+run_seconds() {
+  python3 -c 'import json, math, re, sys
+def secs(d):
+    parts = re.findall(r"([0-9.]+)(ms|h|m|s)", d)
+    if not parts or "".join(n + u for n, u in parts) != d:
+        sys.exit("not a k6 duration: %r" % d)
+    return sum(float(n) * {"ms": 0.001, "s": 1, "m": 60, "h": 3600}[u] for n, u in parts)
+total = secs(sys.argv[1]) if sys.argv[1] else sum(secs(st["duration"]) for st in json.loads(sys.argv[2] or "[]"))
+print(math.ceil(total))' "$1" "$2"
+}
+
+# How long k6_run waits beyond a run's own length: edge.js's gracefulStop (15 s), and the pod's scheduling, image
+# pull and start.
+K6_MARGIN=120
+
 # k6_run <name> <VAR=value>...: runs measure/k6/edge.js in the Job k6-<name>, with the settings given (the last of
-# a name wins), and waits for it; prints its RESULT line, writes its FAIL lines to $RUN_DIR/<name>.fails, and the
-# expected status and the RESULT line to $RUN_DIR/<name>.result (for window), and deletes the Job. Returns 1, with
-# the end of k6's output, when the run printed no RESULT line.
+# a name wins), and waits for it, for the run's length and K6_MARGIN more; prints its RESULT line, writes its FAIL
+# lines to $RUN_DIR/<name>.fails, and the expected status and the RESULT line to $RUN_DIR/<name>.result (for
+# window), adds the 200s on a twin's host to echo's tally, and deletes the Job. Returns 1, with what it saw, when
+# the run timed out (or its pod never started) or printed no RESULT line. Warns, without failing, when the Job
+# failed though k6 printed a RESULT line, and when the RESULT's statuses do not sum to its requests.
 k6_run() {
-  local name="$1" job="k6-$1" kv later seen env="" log state i j expect=200 result
+  local name="$1" job="k6-$1" kv later seen env="" log state i j expect=200 result duration="" stages="" host=""
+  local wait phase
   shift
   local vars=("$@")
   for ((i = 0; i < ${#vars[@]}; i++)); do
@@ -74,7 +125,12 @@ k6_run() {
       [ "${later%%=*}" != "${kv%%=*}" ] || seen=1
     done
     [ -z "$seen" ] || continue
-    [ "${kv%%=*}" != EXPECT ] || expect="${kv#*=}"
+    case "${kv%%=*}" in
+      EXPECT) expect="${kv#*=}" ;;
+      DURATION) duration="${kv#*=}" ;;
+      STAGES) stages="${kv#*=}" ;;
+      HOST) host="${kv#*=}" ;;
+    esac
     # Each value as a YAML single-quoted string, which holds anything but a single quote, written twice.
     env+="            - {name: ${kv%%=*}, value: '$(printf '%s' "${kv#*=}" | sed "s/'/''/g")'}"$'\n'
   done
@@ -120,12 +176,28 @@ $env          resources:
         - name: tmp
           emptyDir: {}
 EOF
+  wait=$(run_seconds "$duration" "$stages") || return 1
+  wait=$((wait + K6_MARGIN))
   state=""
-  for _ in $(seq 1 "${K6_TIMEOUT:-3600}"); do
+  for _ in $(seq 1 "$wait"); do
     state=$(kn get job "$job" -o jsonpath='{.status.succeeded}/{.status.failed}' 2>/dev/null)
     case "$state" in 1/* | */1) break ;; esac
     sleep 1
   done
+  case "$state" in
+    1/* | */1) ;;
+    *)
+      phase=$(kn get pods -l "job-name=$job" \
+        -o jsonpath='{range .items[*]}{.status.phase} {.status.conditions[?(@.type=="PodScheduled")].reason}{end}')
+      case "$phase" in
+        "" | Pending*) echo "error: the k6 run $name timed out after $wait s: its pod never started (${phase:-no pod})" >&2 ;;
+        *) echo "error: the k6 run $name timed out after $wait s, its pod ${phase% }; its last output:" >&2
+          kn logs "job/$job" 2>&1 | tail -n 20 >&2 ;;
+      esac
+      kn delete job "$job" --wait=false >/dev/null 2>&1
+      return 1
+      ;;
+  esac
   log="$tmp/$job.log"
   kn logs "job/$job" >"$log" 2>&1
   kn delete job "$job" --wait=false >/dev/null 2>&1
@@ -135,7 +207,18 @@ EOF
     tail -n 20 "$log" >&2
     return 1
   }
+  case "$state" in
+    */1) echo "warning: the k6 run $name printed a RESULT line, but its Job failed (k6 exited non-zero):" \
+      "$(grep -v '^FAIL \|^RESULT ' "$log" | tail -n 3 | tr '\n' ' ')" >&2 ;;
+  esac
+  python3 -c 'import json, sys
+r = json.loads(sys.argv[2][len("RESULT "):])
+total = sum(r["status"].values())
+if total != r["reqs"]:
+    print("warning: the k6 run %s: its statuses sum to %d, not to its %d requests" % (sys.argv[1], total, r["reqs"]))' \
+    "$name" "$result" >&2
   printf '%s %s\n' "$expect" "$result" >"$RUN_DIR/$name.result"
+  [ -z "$host" ] || echo_tally "$host" "$(printf '%s' "$result" | sed -n 's/.*"200":\([0-9]*\).*/\1/p')"
   printf '%s\n' "$result"
 }
 
@@ -293,11 +376,13 @@ material_matches() {
 # baseline_reset: puts the cluster back as every suite starts from it, and prints that state. Any HTTPRoute but
 # orders, orders-unmapped, echo and echo-plain is taken off the Gateway first, then the chart is the measurements'
 # (two replicas, the autoscaler off), echo and its twin routes and the backends are as their files have them (enforce
-# mode), no processor pod has a netem queue, and everything is ready. A step that fails stops the whole run, and so
+# mode), no processor pod has a netem queue (cleared first of all, since a delayed pod may not be ready, and every
+# wait would then time out), and everything is ready. A step that fails stops the whole run, and so
 # does material in any pod that is not out/'s: a suite that broke must not leave the next one measuring something
 # else. Nothing is rolled when nothing changed.
 baseline_reset() {
   local route name netem modes hpa replicas routes
+  netem=$(netem_clear) || { echo "error: could not read or clear the processor pods' queues" >&2; exit 1; }
   for route in $(kn get httproutes -o name); do
     name="${route#*/}"
     case " $BASE_ROUTES " in
@@ -308,7 +393,6 @@ baseline_reset() {
   quietly "resetting the chart" measure_chart --wait --timeout 5m
   quietly "resetting echo and the twin routes" apply_routes kind/measure.yaml
   quietly "resetting the backends" k apply -f kind/backends.yaml
-  netem=$(netem_clear) || { echo "error: could not read or clear the processor pods' queues" >&2; exit 1; }
   quietly "waiting for the baseline" wait_measure
   material_matches || { echo "error: the cluster's material is not out/'s; stopping" >&2; exit 1; }
   modes=$(kn get deployment orders payment \
@@ -320,11 +404,29 @@ baseline_reset() {
     "netem removed from $netem pod(s), none left; material as out/'s in $MATERIAL_PODS pods"
 }
 
-# echo_counts: echo's counts, added up over its pods: "<host> stamped=<n> unstamped=<n>" a line.
+# echo_counts: echo's counts, added up over its running pods: "<host> stamped=<n> unstamped=<n>" a line. Returns 1,
+# saying which, when there is no such pod, or one does not answer, or answers with no count at all: a pod that has
+# counted nothing under load has lost its counts (it started again), so its silence is not a zero.
 echo_counts() {
-  local ip
-  for ip in $(kn get pods -l app=echo -o jsonpath='{.items[*].status.podIP}'); do
-    kn exec checks -- curl -s "http://$ip:8080/counts" 2>/dev/null
-  done | awk '{ split($2, s, "="); split($3, u, "="); st[$1] += s[2]; un[$1] += u[2] }
+  local pods pod ip out all=""
+  pods=$(kn get pods -l app=echo --field-selector=status.phase=Running \
+    -o jsonpath='{range .items[*]}{.metadata.name} {.status.podIP} {.metadata.deletionTimestamp}{"\n"}{end}' |
+    awk 'NF == 2')
+  [ -n "$pods" ] || { echo "error: no echo pod is running" >&2; return 1; }
+  while read -r pod ip; do
+    out=$(kn exec checks -- curl -sf --max-time 10 "http://$ip:8080/counts" 2>/dev/null) || {
+      echo "error: echo's pod $pod did not answer GET /counts" >&2
+      return 1
+    }
+    [ -n "$out" ] || { echo "error: echo's pod $pod has counted nothing" >&2; return 1; }
+    all+="$out"$'\n'
+  done <<<"$pods"
+  printf '%s' "$all" | awk '{ split($2, s, "="); split($3, u, "="); st[$1] += s[2]; un[$1] += u[2] }
     END { for (h in st) printf "%s stamped=%d unstamped=%d\n", h, st[h], un[h] }' | LC_ALL=C sort
+}
+
+# echo_sent <host>: the requests on the host that echo answered 200 through the Gateway, by the tally.
+echo_sent() {
+  [ -f "$RUN_DIR/echo-sent" ] || { printf 0; return; }
+  awk -v h="$1" '$1 == h { n += $2 } END { printf "%d", n }' "$RUN_DIR/echo-sent" 2>/dev/null
 }

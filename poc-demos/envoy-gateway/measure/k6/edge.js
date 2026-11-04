@@ -22,6 +22,11 @@
 // timeout) and any status not listed counted as other, so that the counts sum to reqs. For each response with a
 // status other than EXPECT it prints FAIL {"t": <epoch ms>, "status": <status>}, at most 20000 in all: each virtual
 // user prints at most its share.
+//
+// Every request has a 10 s timeout, and each scenario a 15 s gracefulStop, the time k6 lets requests in flight at
+// the end finish before it cuts them off: so a request that hangs ends as a timeout, counted as other, before k6
+// would cut it off uncounted. Redirects are not followed, so each request is one response, counted by its own
+// status.
 
 import http from 'k6/http';
 import { Counter } from 'k6/metrics';
@@ -36,6 +41,9 @@ const EXPECT = Number(env.EXPECT || 200);
 const EXECUTOR = env.EXECUTOR || 'vus';
 const LISTED = ['200', '403', '413', '500', '502', '503', '504'];
 const MAX_FAILS = 20000;
+// The request timeout must stay below the scenarios' gracefulStop (see the header).
+const TIMEOUT = '10s';
+const GRACEFUL_STOP = '15s';
 
 // order <bytes>: a JSON order, its note padded so that the whole is exactly that many bytes.
 function order(bytes) {
@@ -63,7 +71,12 @@ function need(name) {
 function scenario() {
   switch (EXECUTOR) {
     case 'vus':
-      return { executor: 'constant-vus', vus: Number(need('VUS')), duration: need('DURATION') };
+      return {
+        executor: 'constant-vus',
+        vus: Number(need('VUS')),
+        duration: need('DURATION'),
+        gracefulStop: GRACEFUL_STOP,
+      };
     case 'rate':
       return {
         executor: 'constant-arrival-rate',
@@ -72,6 +85,7 @@ function scenario() {
         duration: need('DURATION'),
         preAllocatedVUs: Number(need('PREALLOC')),
         maxVUs: Number(need('PREALLOC')),
+        gracefulStop: GRACEFUL_STOP,
       };
     case 'ramp':
       return {
@@ -81,6 +95,7 @@ function scenario() {
         stages: JSON.parse(need('STAGES')),
         preAllocatedVUs: Number(need('PREALLOC')),
         maxVUs: Number(need('PREALLOC')),
+        gracefulStop: GRACEFUL_STOP,
       };
     default:
       throw new Error(`EXECUTOR ${EXECUTOR} is not vus, rate or ramp`);
@@ -94,6 +109,7 @@ const FAILS_EACH = Math.max(1, Math.floor(MAX_FAILS / USERS));
 export const options = {
   scenarios: { edge: SCENARIO },
   summaryTrendStats: ['med', 'p(90)', 'p(99)', 'max'],
+  maxRedirects: 0,
   // A run's numbers are its RESULT line alone.
   discardResponseBodies: true,
 };
@@ -103,7 +119,7 @@ for (const s of LISTED.concat(['other'])) {
   counters[s] = new Counter(`status_${s}`);
 }
 
-const params = { headers: { 'Content-Type': 'application/json' } };
+const params = { headers: { 'Content-Type': 'application/json' }, timeout: TIMEOUT };
 if (HOST) params.headers.Host = HOST;
 
 let fails = 0;
