@@ -63,18 +63,42 @@ help_after() {
   [ "$status" -eq 0 ] && grep -q "^Usage: " <<<"$out"
 }
 
-# kind_missing: with fake mvn (Java 25), docker and go that pass their checks, and no kind, ./run envoy-gateway
-# prints one 'missing: kind' line and exits 1: the earlier checks pass, and the later ones are not reached.
-kind_missing() {
+# envoy_missing <tool> [fake kubectl version text]: with fake mvn (Java 25), docker, go, kind and, when the text is
+# given, kubectl, that pass their checks, ./run envoy-gateway prints one 'missing: <tool>' line and exits 1: the
+# earlier checks pass, and the later ones are not reached.
+envoy_missing() {
   local bin out status
   bin="$(basic_tools)"
   printf '#!%s\necho "Java version: 25.0.1, vendor: Test, runtime: /nonexistent"\n' "$bin/bash" >"$bin/mvn"
   printf '#!%s\nexit 0\n' "$bin/bash" >"$bin/docker"
   printf '#!%s\necho "go version go99.0 linux/amd64"\n' "$bin/bash" >"$bin/go"
   chmod +x "$bin/mvn" "$bin/docker" "$bin/go"
+  if [ "$1" != kind ]; then
+    printf '#!%s\necho "kind v0.33.0 go1.27.0 linux/amd64"\n' "$bin/bash" >"$bin/kind"
+    chmod +x "$bin/kind"
+  fi
+  if [ $# -ge 2 ]; then
+    printf '#!%s\necho "%s"\n' "$bin/bash" "$2" >"$bin/kubectl"
+    chmod +x "$bin/kubectl"
+  fi
   out="$(PATH="$bin" "$bin/bash" "$repo/run" envoy-gateway 2>&1)"; status=$?
   rm -rf "$bin"
-  [ "$status" -eq 1 ] && grep -q "^missing: kind " <<<"$out" && [ "$(wc -l <<<"$out")" -eq 1 ]
+  [ "$status" -eq 1 ] && grep -q "^missing: $1 " <<<"$out" && [ "$(wc -l <<<"$out")" -eq 1 ]
+}
+
+# material_refuses <arguments...>: material.sh run with HOME set to a scratch directory holding a marker file, and
+# the arguments (the word @HOME@ standing for that directory), exits non-zero and leaves the marker and the
+# directory 'taken' alone. The refusals come before the jars are needed, so no build is required.
+material_refuses() {
+  local work status args=() arg ok=0
+  work="$(mktemp -d)"
+  mkdir "$work/taken" "$work/home"
+  touch "$work/taken/keep" "$work/home/keep"
+  for arg in "$@"; do args+=("${arg//@HOME@/$work/home}"); done
+  (cd "$work" && HOME="$work/home" "$repo/poc-demos/envoy-gateway/material.sh" "${args[@]}") >/dev/null 2>&1; status=$?
+  [ "$status" -ne 0 ] && [ -e "$work/taken/keep" ] && [ -e "$work/home/keep" ] || ok=1
+  rm -rf "$work"
+  return "$ok"
 }
 
 no_argument_prints_usage() {
@@ -105,7 +129,13 @@ check "test without go prints one 'missing: go' line and exits 1" missing_stops_
 check "bench with no java at Maven's JDK prints one 'missing: java' line and exits 1" \
   missing_stops_early java bench "Java version: 25.0.1, vendor: Test, runtime: /nonexistent"
 check "envoy-gateway -h prints usage" help_after envoy-gateway
-check "envoy-gateway without kind prints one 'missing: kind' line and exits 1" kind_missing
+check "envoy-gateway without kind prints one 'missing: kind' line and exits 1" envoy_missing kind
+check "envoy-gateway with a kubectl below 1.35 prints one 'missing: kubectl' line and exits 1" \
+  envoy_missing kubectl "Client Version: v1.34.9"
+check "material.sh will not write over an existing directory" material_refuses taken
+check "material.sh --fresh will not delete an empty path" material_refuses --fresh ""
+check "material.sh --fresh will not delete /" material_refuses --fresh /
+check "material.sh --fresh will not delete \$HOME" material_refuses --fresh @HOME@
 check "a clean clone passes ./run test" clean_clone_passes_run_test
 
 [ "$failures" -eq 0 ] || { echo "$failures failed"; exit 1; }

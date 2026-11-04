@@ -18,8 +18,8 @@ no results here yet.
 | Docker | 24 | build the images, and run the kind node |
 | Go | the SDK's `go` line | build the processor |
 | kind | 0.33 | the local cluster |
-| kubectl | 1.33 | drive the cluster |
-| Helm | 3.17 | install Envoy Gateway and the processor's chart |
+| kubectl | 1.35 (supported range 1.35 to 1.37) | drive the cluster; Kubernetes supports kubectl within one minor version of the API server, and the node image is 1.36 |
+| Helm | 4.2 | install Envoy Gateway and the processor's chart; the lowest Helm release whose [version-skew table](https://helm.sh/docs/topics/version_skew/) lists Kubernetes 1.36 |
 
 macOS and Linux; on Windows use WSL.
 
