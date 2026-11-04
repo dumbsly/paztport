@@ -93,7 +93,8 @@ func New(t testing.TB) *Material {
 	return m
 }
 
-// Services returns the keyring's services: edge, orders and payment, each with its public key.
+// Services returns the keyring's services: edge, orders and payment, each with its public key. The map is
+// the caller's to change.
 func (m *Material) Services() map[string]string {
 	return map[string]string{
 		"edge":    keys.EncodePublic(m.EdgeKey.Public().(ed25519.PublicKey)),
@@ -102,9 +103,18 @@ func (m *Material) Services() map[string]string {
 	}
 }
 
-// WriteKeyring signs a keyring of services with key, naming the pin, and writes it over the keyring file.
+// WriteKeyring signs a keyring of services with key, naming the pin, and writes it over the first keyring
+// file.
 func (m *Material) WriteKeyring(
 	t testing.TB, services map[string]string, notAfter int64, key ed25519.PrivateKey,
+) policy.KeyringFile {
+	t.Helper()
+	return m.writeKeyring(t, 0, services, notAfter, key)
+}
+
+// writeKeyring signs a keyring and writes it over the i'th keyring file.
+func (m *Material) writeKeyring(
+	t testing.TB, i int, services map[string]string, notAfter int64, key ed25519.PrivateKey,
 ) policy.KeyringFile {
 	t.Helper()
 	kf, err := policy.SignKeyring(services, m.Pin, notAfter, key)
@@ -115,12 +125,39 @@ func (m *Material) WriteKeyring(
 	if err != nil {
 		t.Fatal(err)
 	}
-	m.WriteFile(t, m.Config.KeyringPaths[0], string(b))
+	m.WriteFile(t, m.Config.KeyringPaths[i], string(b))
 	return kf
 }
 
-// WriteRoot signs a root with key and writes it over the root file.
+// AddKeyring signs another keyring of services with key, naming the pin, writes it to a new file and
+// adds that file to Config.KeyringPaths, as a rollover pins an old and a new keyring together.
+func (m *Material) AddKeyring(
+	t testing.TB, services map[string]string, notAfter int64, key ed25519.PrivateKey,
+) policy.KeyringFile {
+	t.Helper()
+	m.Config.KeyringPaths = append(m.Config.KeyringPaths,
+		filepath.Join(m.Dir, fmt.Sprintf("keyring-%d.json", len(m.Config.KeyringPaths))))
+	return m.writeKeyring(t, len(m.Config.KeyringPaths)-1, services, notAfter, key)
+}
+
+// AddRoot signs another root with key, writes it to a new file and adds that file to Config.RootPaths.
+func (m *Material) AddRoot(t testing.TB, root []byte, rootID string, notAfter int64, key ed25519.PrivateKey) policy.Root {
+	t.Helper()
+	m.Config.RootPaths = append(m.Config.RootPaths,
+		filepath.Join(m.Dir, fmt.Sprintf("root-%d.json", len(m.Config.RootPaths))))
+	return m.writeRoot(t, len(m.Config.RootPaths)-1, root, rootID, notAfter, key)
+}
+
+// WriteRoot signs a root with key and writes it over the first root file.
 func (m *Material) WriteRoot(t testing.TB, root []byte, rootID string, notAfter int64, key ed25519.PrivateKey) policy.Root {
+	t.Helper()
+	return m.writeRoot(t, 0, root, rootID, notAfter, key)
+}
+
+// writeRoot signs a root and writes it over the i'th root file.
+func (m *Material) writeRoot(
+	t testing.TB, i int, root []byte, rootID string, notAfter int64, key ed25519.PrivateKey,
+) policy.Root {
 	t.Helper()
 	r, err := policy.SignRoot(root, rootID, notAfter, key)
 	if err != nil {
@@ -130,7 +167,7 @@ func (m *Material) WriteRoot(t testing.TB, root []byte, rootID string, notAfter 
 	if err != nil {
 		t.Fatal(err)
 	}
-	m.WriteFile(t, m.Config.RootPaths[0], string(b))
+	m.WriteFile(t, m.Config.RootPaths[i], string(b))
 	return r
 }
 

@@ -133,14 +133,15 @@ func InstFromEnv() (string, error) {
 // body (processing mode request body Buffered), which Envoy reports in the first message's protocol
 // configuration. Then Envoy holds the request headers until the body is answered, and sends the body
 // whole, in one message, once it has all of it. The one exception is a request that ends in trailers with
-// no body: Envoy lets it on when the trailers arrive, without asking.
+// no body: with request trailers skipped, Envoy lets it on when the trailers arrive, without asking. So
+// the filter must also allow mode overrides, which the processor uses to have those trailers sent to it.
 //
 // At the request headers, Process names the receiver from the route metadata alone (see
 // [routes.FromAttributes]) and refuses a route its routes do not map. When the headers end the stream it
 // stamps there. Otherwise it answers them with no stamp, only removing every Paztport header the client
-// sent, so that a request Envoy lets on unanswered carries none and its receiver refuses it as unstamped;
-// then it waits for the message that ends the stream, answers no body message before that one, and stamps
-// over the whole body. The stamp's answer removes every Paztport header the request carries but the ones
+// sent, so that a request Envoy lets on unanswered carries none and its receiver refuses it as unstamped,
+// and with a mode override that sends the request's trailers; then it waits for the message that ends the
+// stream, answers no body message before that one, and stamps over the whole body. The stamp's answer removes every Paztport header the request carries but the ones
 // it sets, and sets each of those, replacing every value.
 //
 // Process refuses, with Envoy's immediate response, its own status and a plain-text body, and never a
@@ -277,14 +278,30 @@ func (r *request) requestHeaders(
 		})
 	}
 	// No stamp yet; but the client's Paztport headers go now, so that if Envoy ever lets these headers
-	// on without the body's answer, as it does for a request that ends in trailers with no body, they
-	// carry no Paztport header at all.
+	// on without the body's answer they carry no Paztport header at all. And the answer asks for the
+	// request's trailers: a request that ends in trailers with no body is then sent here, and refused,
+	// where with trailers skipped Envoy would let it on unasked.
 	r.phase = awaitingBody
-	return &extprocv3.ProcessingResponse{Response: &extprocv3.ProcessingResponse_RequestHeaders{
-		RequestHeaders: &extprocv3.HeadersResponse{Response: &extprocv3.CommonResponse{
-			HeaderMutation: removeOnly(r.paztport),
-		}},
-	}}, false
+	return &extprocv3.ProcessingResponse{
+		Response: &extprocv3.ProcessingResponse_RequestHeaders{
+			RequestHeaders: &extprocv3.HeadersResponse{Response: &extprocv3.CommonResponse{
+				HeaderMutation: removeOnly(r.paztport),
+			}},
+		},
+		ModeOverride: sendTrailers,
+	}, false
+}
+
+// sendTrailers is the processing mode the answer to headers a body follows sets for the rest of the
+// request: request trailers sent, and every other mode as the processor expects it. Envoy v1.39.1 applies
+// a mode_override before it handles the headers answer it comes with, when the filter allows overrides
+// (ext_proc.cc:1815-1838), and takes both body modes from the override as given, the header and trailer
+// modes only when not DEFAULT (ext_proc.cc:1680-1698); so the body modes are restated here.
+var sendTrailers = &extprocfilterv3.ProcessingMode{
+	RequestTrailerMode: extprocfilterv3.ProcessingMode_SEND,
+	RequestBodyMode:    extprocfilterv3.ProcessingMode_BUFFERED,
+	ResponseHeaderMode: extprocfilterv3.ProcessingMode_SEND,
+	ResponseBodyMode:   extprocfilterv3.ProcessingMode_NONE,
 }
 
 // requestBody takes one body message: it refuses a body over the limit, stamps at the message that ends

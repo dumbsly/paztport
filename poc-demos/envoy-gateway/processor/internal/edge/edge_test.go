@@ -20,6 +20,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/structpb"
 
 	"github.com/dumbsly/paztport/poc-sdks/go/paztporthttp"
@@ -499,6 +500,59 @@ func TestRefusesARequestWithTrailers(t *testing.T) {
 	f.observed(t, edge.RefusedBody)
 }
 
+// requestTrailers returns a request_trailers message.
+func requestTrailers() *extprocv3.ProcessingRequest {
+	return &extprocv3.ProcessingRequest{Request: &extprocv3.ProcessingRequest_RequestTrailers{
+		RequestTrailers: &extprocv3.HttpTrailers{Trailers: headerMap([]header{{"x-checksum", "1"}})},
+	}}
+}
+
+// TestTheHeadersAnswerAsksForTrailers overrides the processing mode in the answer to headers a body
+// follows: request trailers sent, the body still buffered, and the response modes as the processor
+// expects them, so that Envoy sends a request that ends in trailers with no body to the processor. A
+// request whose headers end the stream needs no override.
+func TestTheHeadersAnswerAsksForTrailers(t *testing.T) {
+	f := newFixture(t)
+	out, err := f.run(nil, requestHeaders(false, post...))
+	if err != nil || len(out) != 1 {
+		t.Fatalf("Process = %v, with %d responses", err, len(out))
+	}
+	want := &extprocfilterv3.ProcessingMode{
+		RequestTrailerMode: extprocfilterv3.ProcessingMode_SEND,
+		RequestBodyMode:    extprocfilterv3.ProcessingMode_BUFFERED,
+		ResponseHeaderMode: extprocfilterv3.ProcessingMode_SEND,
+		ResponseBodyMode:   extprocfilterv3.ProcessingMode_NONE,
+	}
+	if got := out[0].GetModeOverride(); !proto.Equal(got, want) {
+		t.Fatalf("mode_override = %v, want %v", got, want)
+	}
+
+	f = newFixture(t)
+	out, err = f.run(nil, requestHeaders(true, get...))
+	if err != nil || len(out) != 1 || out[0].GetModeOverride() != nil {
+		t.Fatalf("a request with no body: Process = %v, responses %v", err, out)
+	}
+}
+
+// TestRefusesTrailersAfterHeadersWithNoBody refuses a request that ends in trailers with no body, which
+// the mode override makes Envoy send to the processor.
+func TestRefusesTrailersAfterHeadersWithNoBody(t *testing.T) {
+	f := newFixture(t)
+	out, err := f.run(nil, requestHeaders(false, with(post, header{"x-path-chain", "forged"})...), requestTrailers())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out) != 2 {
+		t.Fatalf("got %d responses, want the headers answer and a refusal", len(out))
+	}
+	waitsForTheBody(t, out[0], with(post, header{"x-path-chain", "forged"}))
+	if ir := out[1].GetImmediateResponse(); ir.GetStatus().GetCode() != typev3.StatusCode_InternalServerError {
+		t.Fatalf("the trailers' answer is %v, want the processor's 500", out[1])
+	}
+	refused(t, out[1:], false, typev3.StatusCode_InternalServerError)
+	f.observed(t, edge.RefusedBody)
+}
+
 // TestStripsTheClientsPaztportHeaders removes every Paztport header the client sent, every value and in
 // any case, but for the names the stamp sets, which it overwrites; other headers stay. It does so for a
 // request with no body, one with a body, and one whose only header is a Paztport one.
@@ -787,7 +841,12 @@ func TestRefusesARequestWithoutOneMethodAndPath(t *testing.T) {
 // sends request headers twice or the response before the request was stamped.
 func TestRefusesMessagesOutOfOrder(t *testing.T) {
 	for name, reqs := range map[string][]*extprocv3.ProcessingRequest{
-		"a body first":              {requestBody(`{}`, true)},
+		"a body first":           {requestBody(`{}`, true)},
+		"request trailers first": {requestTrailers()},
+		"a response body before a stamp": {requestHeaders(false, post...), {Request: &extprocv3.ProcessingRequest_ResponseBody{
+			ResponseBody: &extprocv3.HttpBody{Body: []byte(`{}`), EndOfStream: true}}}},
+		"response trailers before a stamp": {requestHeaders(false, post...), {Request: &extprocv3.ProcessingRequest_ResponseTrailers{
+			ResponseTrailers: &extprocv3.HttpTrailers{Trailers: headerMap([]header{{"grpc-status", "0"}})}}}},
 		"a response first":          {responseHeaders(header{":status", "200"})},
 		"headers twice":             {requestHeaders(false, post...), requestHeaders(true, post...)},
 		"a response before a stamp": {requestHeaders(false, post...), responseHeaders(header{":status", "200"})},

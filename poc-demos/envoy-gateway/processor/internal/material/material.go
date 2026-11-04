@@ -31,7 +31,7 @@ var (
 	ErrRoot           = errors.New("material: a root does not load")
 	ErrRootPin        = errors.New("material: a root does not verify under the pinned policy key")
 	ErrRootExpired    = errors.New("material: a root is past its notAfter")
-	ErrEdgeKey        = errors.New("material: a keyring's edge key is not the private key's public half")
+	ErrEdgeKey        = errors.New("material: no keyring holds the private key's public half as edge's key")
 	ErrBundle         = errors.New("material: the proof bundle does not load")
 	ErrBundleService  = errors.New("material: the proof bundle is not the edge's")
 	ErrBundleRoot     = errors.New("material: the proof bundle's rootId is no loaded root's")
@@ -47,7 +47,8 @@ type Config struct {
 	KeyPath string
 	// PinPath is the pinned policy key, policy.pub.
 	PinPath string
-	// KeyringPaths are the keyring files, one or more, each of which must hold the edge's public key.
+	// KeyringPaths are the keyring files, one or more, at least one of which must hold the edge's public
+	// key: two during a rollover of the edge's key, the keyring for the old key and the one for the new.
 	KeyringPaths []string
 	// RootPaths are the signed root files, one or more.
 	RootPaths []string
@@ -58,13 +59,13 @@ type Config struct {
 }
 
 // Set is the edge's policy material, loaded and checked: its key, its proof bundle and the routes it
-// stamps for, and the windows of the keyrings and roots that vouch for them. A Set never changes once
-// loaded, so it is safe for concurrent use.
+// stamps for, and how long the material vouches for its stamps. A Set never changes once loaded, so it is
+// safe for concurrent use.
 type Set struct {
 	key      ed25519.PrivateKey
 	bundle   policy.ProofBundle
 	routes   routes.Map
-	notAfter int64 // the earliest notAfter of the keyrings and roots
+	notAfter int64 // the last moment a receiver pinning this material accepts the edge's stamps
 }
 
 // Load loads the material cfg names and checks it at the time now gives, in milliseconds since the Unix
@@ -75,7 +76,7 @@ type Set struct {
 //     ([ErrKeyringPin]) and is current ([ErrKeyringExpired]);
 //   - there is at least one root, and each loads ([ErrRoot]), verifies under the pin ([ErrRootPin]) and
 //     is current ([ErrRootExpired]);
-//   - every keyring's edge key is the private key's public half ([ErrEdgeKey]);
+//   - at least one keyring's edge key is the private key's public half ([ErrEdgeKey]);
 //   - the proof bundle loads ([ErrBundle]), is the edge's ([ErrBundleService]) and names the rootId of a
 //     loaded root ([ErrBundleRoot]);
 //   - the routes map at least one route ([ErrRoutes]), and for each receiver they map to, the bundle
@@ -94,12 +95,11 @@ func Load(cfg Config, now func() int64) (*Set, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrPin, err)
 	}
-	notAfter := int64(math.MaxInt64)
-
 	if len(cfg.KeyringPaths) == 0 {
 		return nil, fmt.Errorf("%w: no keyring file is named", ErrKeyring)
 	}
 	pub := key.Public().(ed25519.PublicKey)
+	keyNotAfter := int64(math.MinInt64) // the latest notAfter of a keyring holding the key
 	for i, path := range cfg.KeyringPaths {
 		kf, err := policy.LoadKeyringFile(path)
 		if err != nil {
@@ -115,10 +115,12 @@ func Load(cfg Config, now func() int64) (*Set, error) {
 		if err != nil {
 			return nil, fmt.Errorf("%w: keyrings[%d]: %w", ErrKeyring, i, err)
 		}
-		if !bytes.Equal(kr[Service], pub) {
-			return nil, fmt.Errorf("%w: keyrings[%d]", ErrEdgeKey, i)
+		if bytes.Equal(kr[Service], pub) {
+			keyNotAfter = max(keyNotAfter, kf.NotAfter)
 		}
-		notAfter = min(notAfter, kf.NotAfter)
+	}
+	if keyNotAfter == math.MinInt64 {
+		return nil, ErrEdgeKey
 	}
 
 	if len(cfg.RootPaths) == 0 {
@@ -137,7 +139,6 @@ func Load(cfg Config, now func() int64) (*Set, error) {
 			return nil, fmt.Errorf("%w: roots[%d]", ErrRootExpired, i)
 		}
 		roots[i] = r
-		notAfter = min(notAfter, r.NotAfter)
 	}
 
 	bundle, err := policy.LoadProofBundleFile(cfg.BundlePath)
@@ -155,6 +156,7 @@ func Load(cfg Config, now func() int64) (*Set, error) {
 	if len(receivers) == 0 {
 		return nil, ErrRoutes
 	}
+	notAfter := min(keyNotAfter, latestRoot(roots, bundle.RootID))
 	for _, rcv := range receivers {
 		route := policy.JoinRoute(Service, rcv)
 		p, ok := bundle.ProofFor(route)
@@ -164,8 +166,21 @@ func Load(cfg Config, now func() int64) (*Set, error) {
 		if !proves(p, route, roots) {
 			return nil, fmt.Errorf("%w: %s", ErrProof, route)
 		}
+		notAfter = min(notAfter, latestRoot(roots, p.RootID))
 	}
 	return &Set{key: key, bundle: bundle, routes: cfg.Routes, notAfter: notAfter}, nil
+}
+
+// latestRoot returns the latest notAfter of the roots with the rootId id, or math.MinInt64 when none has
+// it. Roots that share a rootId are renewals of one tree, so a proof stays good while any one is current.
+func latestRoot(roots []policy.Root, id string) int64 {
+	latest := int64(math.MinInt64)
+	for _, r := range roots {
+		if r.RootID == id {
+			latest = max(latest, r.NotAfter)
+		}
+	}
+	return latest
 }
 
 // hasRoot reports whether one of roots has the rootId id.
@@ -191,9 +206,14 @@ func proves(p policy.Proof, route string, roots []policy.Root) bool {
 	return false
 }
 
-// Ready returns nil while every keyring and root is current at now, in milliseconds since the Unix
-// epoch, and [ErrExpired] once the earliest of them is past its notAfter: from then the edge must refuse
-// rather than stamp, since a receiver pinning the same material would refuse what it stamped.
+// Ready returns nil while the material still vouches for the edge's stamps at now, in milliseconds since
+// the Unix epoch, and [ErrExpired] once it does not: from then the edge must refuse rather than stamp,
+// since a receiver pinning the same material would refuse what it stamped. A stamp needs a current
+// keyring holding the edge's key and, for its proof, a current root of the proof's tree. So the material
+// is ready until the earlier of the latest notAfter of the keyrings holding the key and, for the bundle's
+// rootId and each mapped receiver's proof's, the latest notAfter of the roots with it. Each member keeps
+// its own window, as the SDK's verify.Pinned keeps them: a keyring or root that expires first, such as
+// the old one in a rollover, does not end it.
 func (s *Set) Ready(now int64) error {
 	if now > s.notAfter {
 		return fmt.Errorf("%w: at %d, past %d", ErrExpired, now, s.notAfter)
@@ -202,7 +222,7 @@ func (s *Set) Ready(now int64) error {
 }
 
 // TimeLeft returns how long the material stays ready after now, in milliseconds since the Unix epoch:
-// the earliest notAfter of its keyrings and roots, less now. It is below zero once the material has
+// the moment [Set.Ready] gives up, less now. It is below zero once the material has
 // expired. A notAfter is a protocol integer, at most 2^53 - 1, so for a clock near the present the
 // difference fits; one too long for a Duration is held at the longest either way. The proof bundle has
 // no window of its own.
