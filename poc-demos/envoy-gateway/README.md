@@ -26,7 +26,7 @@ poc-demos/envoy-gateway/envoy-gateway.sh down    # delete the cluster
 ```
 
 `./run envoy-gateway` and `envoy-gateway.sh up` refuse to run while the cluster exists, since it holds the keys it
-was made with; `down` first makes it again. Every `kubectl` and `helm` call names the cluster's own context, so no
+was made with; run `down` first to make it again. Every `kubectl` and `helm` call names the cluster's own context, so no
 other cluster is touched.
 
 ## Prerequisites
@@ -66,9 +66,10 @@ how long the keyring and the policy root last (default 7 days).
 
 The processor serves Envoy's `ext_proc` service over gRPC with mutual TLS, TLS 1.3 only. It requires a client
 certificate that chains to the client CA, is no CA itself, names client authentication among its key usages, and
-whose subject is the common name `edge` alone; any other client's connection is refused in the handshake, so nothing it sends reaches the processor. Metrics, readiness and liveness
-are on a separate port, over plain HTTP, never on the gRPC port. It reads its configuration and every file once, at
-start: new material, routes or certificates take a pod roll.
+whose subject is the common name `edge` alone; any other client's connection is refused in the handshake, so
+nothing it sends reaches the processor. Metrics, readiness and liveness are on a separate port, over plain HTTP,
+never on the gRPC port. It reads its configuration and every file once, at start: new material, routes or
+certificates take a pod roll.
 
 | Variable | Default | What it is |
 |---|---|---|
@@ -121,8 +122,11 @@ the processor and to `orders` alike. `kind/backends.yaml` runs java-mesh's `orde
 they are, verifying every request in enforce mode with `edge` as the one origin, each with its own keys and
 certificate mounted at the paths java-mesh uses. `kind/routes.yaml` holds two HTTPRoutes to `orders`: `orders`,
 which the processor maps to the receiver `orders`, and `orders-unmapped` (host `unmapped.example`), which the processor
-is attached to but does not map. Retries on those routes are only for a connection that failed or a stream refused,
-where `orders` never saw the request.
+is attached to but does not map, and their BackendTrafficPolicy `orders-routes`, as a cluster's operator would have
+one. It retries only a connection that failed or a stream refused, where `orders` never saw the request, and it
+carries the edge's body limit as the routes' request buffer limit (`requestBuffer.limit`): `envoy-gateway.sh` writes
+into it the one number, `BODY_LIMIT`, that it also passes the chart as `bodyLimit`. Since Envoy Gateway attaches one
+BackendTrafficPolicy to a route, the chart is installed with `backendTrafficPolicy=false`.
 
 Every hop is mutual TLS on every path, so the backends' probes only open a TCP connection, and the checks read their
 metrics with the operator's client certificate. Their Services are named exactly `orders`, `payment` and
@@ -132,7 +136,8 @@ backends:
 - `SERVER_FORWARDHEADERSSTRATEGY=NONE`. On Kubernetes, Spring Boot otherwise trusts `X-Forwarded-For` from any private
   address, and the peer's instance that a refusal's event names would be whatever the client put there (check 10).
 - `MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE=health,prometheus`, for `/actuator/prometheus`.
-- On `payment`, Actuator's SSL metrics are left out: they read every SSL bundle's files at start, and `payment` also
+- On `payment`, Actuator's SSL metrics and SSL health check are left out: they read every SSL bundle's files (the
+  metrics at start, the health check at each `/actuator/health`, which it would answer `DOWN`), and `payment` also
   defines one for the PSP, which this proof of concept leaves out.
 
 ## The chart
@@ -149,24 +154,53 @@ its Service, and:
 - a BackendTLSPolicy, so that Envoy checks the processor's certificate against the mesh CA;
 - a NetworkPolicy that admits the Gateway's Envoy pods, by Envoy Gateway's labels, and no other pod to the gRPC port.
   It needs a network plugin that enforces NetworkPolicy (kind's does; on EKS, the VPC CNI with network policy
-  enabled). With merged gateways Envoy Gateway does not give Envoy's pods the owning-gateway labels, so the policy then
-  admits nothing and the edge refuses every request. The admin port (`/metrics`, `/readyz` and `/livez`, read only) is
-  open to every pod by default; in production set `adminFrom` to the Prometheus namespace;
-- a ClientTrafficPolicy on the Gateway that sets the listener's buffer limit to `bodyLimit`, the processor's own body
-  limit: Envoy Gateway v1.9 has no body limit per route, so the limit is the listener's, for every route on it. A
-  Gateway can have one ClientTrafficPolicy only; when it has one, set `clientTrafficPolicy: false` and give that one
-  the same `connection.bufferLimit`;
+  enabled; on AKS, Azure Network Policy Manager, Cilium or Calico). With merged gateways Envoy Gateway gives Envoy's
+  pods the GatewayClass's label (`gateway.envoyproxy.io/owning-gatewayclass`) and not the Gateway's, so the policy
+  admits nothing and the edge refuses every request until `gateway.envoyPodLabels` names that label instead. The
+  admin port (`/metrics`, `/readyz` and `/livez`, read only) is open to every pod by default; in production set
+  `adminFrom` to the Prometheus namespace;
+- a BackendTrafficPolicy on the same routes, and on no other, that sets their request buffer's limit
+  (`requestBuffer.limit`) to `bodyLimit`, the processor's own body limit. Envoy buffers a request's whole body before
+  the processor stamps it; the request buffer is a filter Envoy runs ahead of the processor's, and refuses a longer
+  body with 413. Envoy Gateway attaches one BackendTrafficPolicy to a route: of two on the same route the older is
+  attached, and the newer is not accepted for it (its `Accepted` condition is `False`, reason `Conflicted`). So when
+  the routes already have one, set `backendTrafficPolicy: false` and give that one `requestBuffer.limit` equal to
+  `bodyLimit`, as `kind/routes.yaml` does. A route with no request buffer has only its listener's buffer, 32 KiB
+  unless a ClientTrafficPolicy raises it: a longer body is refused with 413, never passed on unstamped;
 - the edge's key and the processor's TLS key as Secrets, and the public material, the routes and the mesh CA as
   ConfigMaps. Values may name existing Secrets and the CA's ConfigMap instead, for a cluster that manages them
   elsewhere; `envoy-gateway.sh` does, so that no private key goes through Helm's values. A checksum annotation rolls
   the pods when the chart's material or routes change, or, at a `helm install` or `helm upgrade`, when an existing
-  Secret or ConfigMap the values name has changed; a change to one of those alone rolls nothing until then.
+  Secret or ConfigMap the values name has changed; a change to one of those alone rolls nothing until then. The
+  processor reads its certificate once, at start, so a Secret that cert-manager renews must roll the pods before the
+  old certificate expires, or every request is refused (500) from then: run `helm upgrade`, or give
+  `podAnnotations` a reloader's annotation (Stakater Reloader's `reloader.stakater.com/auto: "true"`, for one).
 
 Envoy's own client certificate is not the chart's: it is the EnvoyProxy's `backendTLS.clientCertificateRef`, a
-setting of the Gateway's, as `kind/gateway.yaml` shows. A route to a Paztport backend goes into the chart's values
-(`routes`, or `extraRoutes` until it is mapped) before the route itself is applied, so that Envoy never serves it
-without the processor; `envoy-gateway.sh` installs the chart, then applies `kind/routes.yaml`. `values.yaml`
-describes each value; `ci/lint-values.yaml` holds placeholders for `helm lint` and `helm template`.
+setting of the Gateway's, as `kind/gateway.yaml` shows. Envoy Gateway v1.9.2 has that one upstream client
+certificate for each Gateway, presented on every upstream connection with a BackendTLSPolicy: a Gateway that already
+presents another one to its backends cannot present the edge's as well, and a backend that trusts the edge's
+certificate trusts every route on that Gateway.
+
+The chart's EnvoyExtensionPolicy targets the routes, and Envoy Gateway lets a policy on a route replace, for that
+route, an EnvoyExtensionPolicy on its Gateway or listener: an operator's Gateway-wide Wasm, Lua or ext_proc filter
+stops running on every Paztport route, and Envoy Gateway marks that Gateway-wide policy `Overridden`. `mergeType`
+(`StrategicMerge` or `JSONMerge`) merges the chart's policy into such a policy instead. Operators should alert on an
+EnvoyExtensionPolicy with `Overridden` true, and check each policy on every ancestor (each Gateway its routes attach
+to), not only the first. `envoy-gateway.sh up` waits for the chart's policy, and for the routes' BackendTrafficPolicy,
+to be accepted on every ancestor and overridden on none.
+
+A route to a Paztport backend goes into the chart's values (`routes`, or `extraRoutes` until it is mapped) before
+the route itself is applied, so that Envoy never serves it without the processor; `envoy-gateway.sh` installs the
+chart, then applies `kind/routes.yaml`. Removal is the other way round: a Paztport route comes off the Gateway before
+it leaves `routes`, and the chart is never uninstalled (`helm uninstall`) while such a route is attached.
+
+`values.yaml` describes each value. `routes`, `gateway.name` and `image.tag` have no default, and the chart refuses to
+install without them; `envoy-gateway.sh` passes them with `--set`. Pod placement (`nodeSelector`, `tolerations`,
+`affinity`, `topologySpreadConstraints`, `priorityClassName`), `imagePullSecrets` and `podAnnotations` are set only
+when given; with autoscaling off and one replica, the PodDisruptionBudget's `minAvailable: 1` blocks node drains.
+`ci/lint-values.yaml` and `ci/placed-values.yaml` hold placeholders for `helm lint` and `helm template`: the first
+with the chart's own BackendTrafficPolicy, the second without it and with every optional value set.
 
 ## The checks
 
@@ -187,29 +221,49 @@ machine through `kubectl port-forward`. Each check prints what it saw: status co
 | 8 | `orders`' and `payment`'s `/actuator/prometheus` count the requests they served as verified in enforce mode, and the processor's `/metrics` the requests it stamped |
 | 9 | an HTTP/2 request of headers and trailers, with no body, is refused by the processor with its own 500, and never reaches `orders` |
 | 10 | a refused request sent with `X-Forwarded-For: 203.0.113.9` has its event name the pod's own address as the peer's instance |
-| 11 | a body one byte over the limit is refused with Envoy's own 413, which the processor passes on (counted `refused_body`), and never reaches `orders` |
+| 11 | a body one byte over the limit is refused with Envoy's own 413 by the routes' request buffer, whose limit is the processor's; the processor is sent only that reply, which it passes on, and decides nothing; the request never reaches `orders` |
+| 12 | a body longer than the listener's own 32 KiB buffer, and no longer than the limit, is stamped and verified at `orders` (200): the request buffer's limit is in force on the route |
 
 Each check was seen to fail with the setting it guards taken away: the processor detached from the routes (1, 3, 5,
 9; with it detached, a fresh stamp taken from the processor and sent through Envoy is served, since Envoy presents
 the edge's certificate), `orders-unmapped` mapped (5), the NetworkPolicy deleted (6), mode overrides refused (9) or
 response headers not sent (4), `PAZTPORT_VERIFY` unset on `orders` (2, 7, 10), the Prometheus endpoint not exposed
-(8), `SERVER_FORWARDHEADERSSTRATEGY` unset, when the event names `203.0.113.9` (10), and a processor that answered
-Envoy's 413 with its own 500 (11).
+(8), `SERVER_FORWARDHEADERSSTRATEGY` unset, when the event names `203.0.113.9` (10), a processor that answered
+Envoy's 413 with its own 500 (11), and the request buffer taken off the routes' BackendTrafficPolicy (12, refused
+413 by the listener's buffer; and 11, where the processor, awaiting the body, then counts the request
+`refused_body`).
 
 ## What the cluster showed
 
 - Envoy Gateway sends the route metadata as one line of protobuf text, ending in a space, with the policies attached
   to the route (here the BackendTrafficPolicy) listed before the route's own resources; the processor's parser takes
-  it as it is (`processor/internal/routes/testdata/route-metadata.captured.txtpb`, with the policy's name masked).
-- A body over the limit is refused with 413, and never reaches `orders`. Envoy answers it itself, before the
-  processor has the body, and sends that reply's headers to the processor, which passes them on (and counts the
-  request `refused_body`). Envoy sends the processor its own replies before the stamp in the same way when a filter
-  ahead of `ext_proc` refuses a request; each is passed on, never replaced.
+  it as it is (`processor/internal/routes/testdata/route-metadata.captured.txtpb`, as captured).
+- A body over the limit is refused with 413, and never reaches `orders`. The route's request buffer, a filter Envoy
+  Gateway places ahead of `ext_proc`, holds the request until its body is whole, and refuses it once the body passes
+  the limit: Envoy then opens a stream to the processor with that reply's headers alone, which the processor passes
+  on, deciding and counting nothing, since it never had the request. On a route with no request buffer, the
+  listener's buffer refuses the body instead while the processor awaits it, and the processor counts the request
+  `refused_body`. Envoy sends the processor its own replies before the stamp in the same way when any filter ahead
+  of `ext_proc` refuses a request; each is passed on, never replaced.
 - Containment needs every route to a Paztport backend to pass the processor. Envoy presents the edge's certificate
   on every upstream with a BackendTLSPolicy, so on a route without the processor a stamp the client holds is accepted
   as the edge's (seen with the policy detached: a stamp taken from the processor was served). Each such route must be
   in `routes` or `extraRoutes` before it is attached to the Gateway. The chart's EnvoyExtensionPolicy must be the only
   one on it: Envoy Gateway attaches the oldest and marks others Conflicted, and a policy on a rule of the route
-  overrides it. No route may point at the processor's Service. Whoever can attach routes to the Gateway is inside the
-  edge's trust. `envoy-gateway.sh up` waits for the policy to be accepted.
+  overrides it (see the chart, above, for one on the Gateway). No route may point at the processor's Service.
+  Whoever can attach routes to the Gateway is inside the edge's trust. `envoy-gateway.sh up` waits for the policy to
+  be accepted on every ancestor and overridden on none.
+- Of two BackendTrafficPolicies on the same route, the newer is not accepted for it: with the chart's own made after
+  `orders-routes`, the chart's reported `Accepted` `False`, reason `Conflicted` ("another BackendTrafficPolicy has
+  already attached to it").
+- `payment`'s `/actuator/health` answered `DOWN` (503) with Actuator's SSL health check on, since the PSP's bundle is
+  not mounted, and `UP` with it off.
 - Envoy Gateway replaces a client's `x-request-id` with its own.
+
+## Dependency notes
+
+- `golang.org/x/net` is at v0.61.0, which has two OSV advisories, both in `x/net/html`; the processor does not compile
+  that package. Move to v0.62.0 on or after 2026-11-10, when it has been released two weeks.
+- java-mesh's services run on `eclipse-temurin:25.0.4_7-jre`, pinned by digest in `../java-mesh/Dockerfile`, which
+  predates the October 2026 Java critical patch update. Move to a 25.0.5 image once one has been pushed two weeks:
+  `25.0.5_8-jre` was first pushed on 2026-10-29, so on or after 2026-11-12.

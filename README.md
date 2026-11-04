@@ -536,12 +536,14 @@ These are design directions, not implementations.
 **Prerequisites:** JDK 25 or newer and Maven for the Java side, Docker with Compose
 for the mesh demo, Node 22.19 or newer with npm for the TypeScript side, Go 1.27 or
 newer for the Go SDK, staticcheck 2026.2.2 or newer for `./run test`'s checks of the
-Envoy Gateway processor, and unzip for its jar check. macOS and Linux; on Windows use
-WSL.
+Envoy Gateway processor, and unzip for its jar check; for the Envoy Gateway proof of
+concept, Docker, Go, kind 0.33, kubectl 1.35 and Helm 4.2 or newer. macOS and Linux;
+on Windows use WSL.
 
 ```bash
 ./run test        # the name and link checks, the TypeScript type checks, gofmt, go vet and staticcheck, every suite, a check of the built jars and of the processor's third-party list; no Docker and no model
 ./run java-mesh   # build the Java SDK and the mesh demo, then run every scenario
+./run envoy-gateway  # the edge processor on Envoy Gateway in a local kind cluster, and its checks; the cluster stays up
 ./run agents-mcp  # install the TypeScript SDK and the agents demo, set up demo keys, start the demo page
 ./run bench       # time the primitives a verifying hop pays for (JMH, a few minutes); not part of test
 ```
@@ -557,7 +559,7 @@ paztport/
 ├── LICENSE, NOTICE           Apache-2.0, copyright
 ├── THIRD-PARTY.txt           runtime dependencies and their licenses (generated)
 ├── licenses/                 licence texts the bundling jars carry, and the license plugin's shared settings
-├── run                       front door: java-mesh, agents-mcp, test, bench
+├── run                       front door: java-mesh, envoy-gateway, agents-mcp, test, bench
 ├── poc-sdks/
 │   ├── spec/                 the protocol spec, and shared conformance vectors: v3, which every SDK replays (Java and Go all of it but the MCP profile); http-v3, Java's and Go's
 │   ├── scripts/              name check, link check, jar check, tests for ./run, THIRD-PARTY.txt regeneration
@@ -566,6 +568,7 @@ paztport/
 │   └── go/                   one module: the protocol's packages, and paztporthttp with wire and boundary
 └── poc-demos/
     ├── java-mesh/            gateway, orders, payment, search, tickets, assistant, mailer, psp, responder; Compose, demo.sh, measure.sh, policy/paths.yaml
+    ├── envoy-gateway/        the edge at Envoy Gateway: the Go ext_proc processor, its Helm chart, a kind cluster and its checks
     └── agents-mcp/           agent/MCP demo
         ├── mock-github-mcp/  mock GitHub MCP server (+ docs server), stdio, demo agent target
         ├── pi-extension/     pi extension: stamps MCP calls, verifies responses, tracks influence
@@ -586,6 +589,8 @@ paztport/
 - [poc-demos](poc-demos/README.md): the demos.
   - [poc-demos/java-mesh](poc-demos/java-mesh/README.md): the mesh walkthrough, threat
     model, scenarios, responder, measurements and configuration.
+  - [poc-demos/envoy-gateway](poc-demos/envoy-gateway/README.md): the edge processor at
+    an Envoy Gateway, its chart, and the checks on a local kind cluster.
   - [poc-demos/agents-mcp](poc-demos/agents-mcp/README.md): the agent and MCP demo.
 
 ## License and third-party software
