@@ -195,8 +195,9 @@ keeping its Wasm, Lua and dynamic modules. A Gateway-wide ext_proc is still repl
 covers the whole policy, `extProc` is a list with no merge key, and the chart sets it. Operators should alert on an
 EnvoyExtensionPolicy or a BackendTrafficPolicy with `Overridden` true, and check each policy on every ancestor (each
 Gateway its routes attach to), not only the first. A policy that merges also lists, as one more ancestor, the
-listener whose policy it merged into, with `Merged` true and no `Accepted` condition. `envoy-gateway.sh up` waits for the chart's policy, and for the routes' BackendTrafficPolicy,
-to be accepted on every ancestor and overridden on none.
+listener whose policy it merged into, with `Merged` true and no `Accepted` condition. Neither policy merges in this
+demo, so `envoy-gateway.sh up` waits for the chart's policy, and for the routes' BackendTrafficPolicy, to be accepted
+on every ancestor and overridden on none; a wait for a merging policy must accept `Merged` on that listener ancestor.
 
 A route to a Paztport backend goes into the chart's values (`routes`, or `extraRoutes` until it is mapped) before
 the route itself is applied, so that Envoy never serves it without the processor; `envoy-gateway.sh` installs the
@@ -273,5 +274,5 @@ Envoy's 413 with its own 500 (11), and the request buffer taken off the routes' 
 - `golang.org/x/net` is at v0.61.0, which has two OSV advisories, both in `x/net/html`; the processor does not compile
   that package. Move to v0.62.0 on or after 2026-11-10, when it has been released two weeks.
 - java-mesh's services run on `eclipse-temurin:25.0.4.1_1-jre`, pinned by digest in `../java-mesh/Dockerfile`,
-  which predates the October 2026 Java critical patch update. Move to a 25.0.5 image once one has been pushed two weeks:
-  `25.0.5_8-jre` was first pushed on 2026-10-29, so on or after 2026-11-12.
+  which predates the October 2026 Java critical patch update. Move to a 25.0.5 image once one has been pushed two
+  weeks: `25.0.5_8-jre` was first pushed on 2026-10-29, so on or after 2026-11-12.
