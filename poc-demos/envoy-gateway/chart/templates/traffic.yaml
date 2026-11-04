@@ -1,0 +1,27 @@
+{{- /*
+Copyright 2026 The Paztport Authors
+SPDX-License-Identifier: Apache-2.0
+
+The body limit on the routes, and on no other route: Envoy buffers a request's whole body before the processor
+stamps it, and requestBuffer sets that buffer's limit for each route the policy targets, bodyLimit bytes, the
+processor's own limit. A longer body is refused (413), and never reaches its backend. Envoy Gateway attaches one
+BackendTrafficPolicy to a route, the oldest, so with backendTrafficPolicy false the routes' own policy carries the
+same limit instead.
+*/ -}}
+{{- if .Values.backendTrafficPolicy }}
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: BackendTrafficPolicy
+metadata:
+  name: {{ .Values.name }}
+  labels:
+    {{- include "edge.labels" . | nindent 4 }}
+spec:
+  targetRefs:
+    {{- range (include "edge.attached" . | splitList "\n") }}
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: {{ . }}
+    {{- end }}
+  requestBuffer:
+    limit: {{ .Values.bodyLimit | int64 | quote }}
+{{- end }}

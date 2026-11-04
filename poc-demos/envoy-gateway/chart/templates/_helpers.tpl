@@ -59,6 +59,20 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- join "\n" $lines }}
 {{- end -}}
 
+{{- /*
+The HTTPRoutes the processor is attached to, one name a line: those in routes, then those in extraRoutes. A name in
+both is refused.
+*/ -}}
+{{- define "edge.attached" -}}
+{{- $names := list -}}
+{{- range .Values.routes }}{{ $names = append $names .httpRoute }}{{ end -}}
+{{- range .Values.extraRoutes }}
+{{- if has . $names }}{{ fail (printf "the HTTPRoute %s is in both routes and extraRoutes" .) }}{{ end }}
+{{- $names = append $names . }}
+{{- end }}
+{{- join "\n" $names }}
+{{- end -}}
+
 {{- /* The paths of a list of policy files, as the processor takes them: comma-separated. */ -}}
 {{- define "edge.files" -}}
 {{- $paths := list -}}
@@ -72,10 +86,19 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 Refuses values the processor would not start with, or that would leave the edge without a limit: no route mapped,
 no keyring or root, and a body limit that is not a whole number of bytes from 1 to 1 GiB (1073741824), the processor's
 own bounds. bodyLimit is a plain number of bytes, such as 1048576, as a number or a string of digits: a quantity such
-as 1Mi, a fraction or anything else is refused.
+as 1Mi, a fraction or anything else is refused. It refuses as well no Gateway for the NetworkPolicy to admit the
+Envoy pods of, and a mergeType Envoy Gateway does not take for an EnvoyExtensionPolicy.
 */ -}}
 {{- define "edge.validate" -}}
 {{- if not .Values.routes }}{{ fail "routes must map at least one HTTPRoute" }}{{ end }}
+{{- if and (not .Values.gateway.name) (not .Values.gateway.envoyPodLabels) }}
+{{- fail "gateway.name (or gateway.envoyPodLabels) is required" }}
+{{- end }}
+{{- with .Values.mergeType }}
+{{- if not (has . (list "StrategicMerge" "JSONMerge")) }}
+{{- fail (printf "mergeType %v is not StrategicMerge or JSONMerge" .) }}
+{{- end }}
+{{- end }}
 {{- if not .Values.material.keyrings }}{{ fail "material.keyrings needs at least one keyring" }}{{ end }}
 {{- if not .Values.material.roots }}{{ fail "material.roots needs at least one root" }}{{ end }}
 {{- $v := .Values.bodyLimit }}

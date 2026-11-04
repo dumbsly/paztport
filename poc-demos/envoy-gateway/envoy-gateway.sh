@@ -26,6 +26,9 @@ EG_NS=envoy-gateway-system
 EG_CHART=oci://docker.io/envoyproxy/gateway-helm
 EG_VERSION=v1.9.2
 EG_IMAGE=docker.io/envoyproxy/gateway:v1.9.2@sha256:9d67017c442a70e6ae9f1a358e6c80eb653c67c2e40823d9a991e0daf37ba926
+# The most bytes of request body the edge stamps: the processor's limit (the chart's bodyLimit) and the routes'
+# request buffer (requestBuffer.limit in kind/routes.yaml), from this one number.
+BODY_LIMIT=1048576
 KEYS="$here/out/keys"
 POLICY="$here/out/policy"
 # The edge: Envoy's Service, which the EnvoyProxy names, on the Gateway's listener port.
@@ -55,7 +58,7 @@ cluster_exists() {
 apply_files() {
   local ns="$1" kind="$2" name="$3"
   shift 3
-  local args=()
+  local args=() kv
   for kv in "$@"; do args+=(--from-file="$kv"); done
   [ "$kind" = configmap ] || kind="secret generic"
   # shellcheck disable=SC2086 # "secret generic" is two words
@@ -95,10 +98,17 @@ make_material() {
     apply_tls "$NS" operator-tls "$KEYS/tls/operator.crt" "$KEYS/tls/operator.key"
 }
 
-# install_chart [helm args...]: installs or upgrades the processor's chart, the edge's key, the processor's TLS and
-# the mesh CA named as the Secrets and ConfigMap above, the public material passed as files.
+# install_chart [helm args...]: installs or upgrades the processor's chart for the Gateway edge and the route orders,
+# the edge's key, the processor's TLS and the mesh CA named as the Secrets and ConfigMap above, the public material
+# passed as files. The routes' own BackendTrafficPolicy (kind/routes.yaml) carries the body limit, so the chart makes
+# none: Envoy Gateway would attach only the older of the two.
 install_chart() {
   helm --kube-context "$CTX" upgrade --install paztport "$here/chart" -n "$NS" \
+    --set image.tag=dev \
+    --set gateway.name=edge \
+    --set 'routes[0].httpRoute=orders' --set 'routes[0].receiver=orders' \
+    --set bodyLimit="$BODY_LIMIT" \
+    --set backendTrafficPolicy=false \
     --set material.existingKeySecret=edge-key \
     --set tls.existingSecret=paztport-processor-tls \
     --set tls.existingCAConfigMap=mesh-ca \
@@ -110,13 +120,46 @@ install_chart() {
     "$@"
 }
 
-# wait_edge: until the Gateway is programmed, the processor's EnvoyExtensionPolicy is accepted on it (one that
-# conflicts with another is not), its Envoy is available, and orders, payment, the processor and the pod checks are
-# ready.
+# apply_routes: applies kind/routes.yaml with its request buffer limit set to BODY_LIMIT.
+apply_routes() {
+  local text
+  text=$(sed "s/@BODY_LIMIT@/$BODY_LIMIT/" kind/routes.yaml)
+  grep -qx "    limit: \"$BODY_LIMIT\"" <<<"$text" || {
+    echo "kind/routes.yaml sets no request buffer limit" >&2
+    return 1
+  }
+  k apply -f - <<<"$text"
+}
+
+# policy_status <kind/name>: one line for each of the policy's ancestors (each Gateway its targets attach to): the
+# status of its Accepted condition, its reason, and the status of its Overridden condition, if any, then "-".
+policy_status() {
+  local accepted='.conditions[?(@.type=="Accepted")]' overridden='.conditions[?(@.type=="Overridden")]'
+  kn get "$1" -o jsonpath="{range .status.ancestors[*]}{$accepted.status} {$accepted.reason} {$overridden.status}-
+{end}" 2>/dev/null
+}
+
+# policy_attached <kind/name>: until the policy is accepted on every ancestor, and overridden on none, for up to 60 s.
+# A policy that conflicts with an older one on the same target is not accepted (reason Conflicted), and one that a
+# policy on a route's rule replaces is marked Overridden.
+policy_attached() {
+  local lines
+  for _ in $(seq 1 120); do
+    lines=$(policy_status "$1")
+    if [ -n "$lines" ] && ! grep -qvE '^True Accepted (False)?-$' <<<"$lines"; then return 0; fi
+    sleep 0.5
+  done
+  echo "$1 is not accepted on every ancestor, or is overridden: [$(tr '\n' ';' <<<"$lines")]" >&2
+  return 1
+}
+
+# wait_edge: until the Gateway is programmed, the processor's EnvoyExtensionPolicy and the routes' BackendTrafficPolicy
+# are accepted on every ancestor and overridden on none, its Envoy is available, and orders, payment, the processor
+# and the pod checks are ready.
 wait_edge() {
   k -n "$NS" wait --for=condition=Programmed gateway/edge --timeout=180s &&
-    k -n "$NS" wait envoyextensionpolicy/paztport-processor --timeout=60s \
-      --for=jsonpath='{.status.ancestors[0].conditions[?(@.type=="Accepted")].status}'=True &&
+    policy_attached envoyextensionpolicy/paztport-processor &&
+    policy_attached backendtrafficpolicy/orders-routes &&
     k -n "$EG_NS" wait --for=condition=Available deployment \
       -l "gateway.envoyproxy.io/owning-gateway-name=edge,gateway.envoyproxy.io/owning-gateway-namespace=$NS" \
       --timeout=180s &&
@@ -135,7 +178,7 @@ cmd_up() {
   echo "== building the images (processor, orders, payment)"
   quietly "building the images" build_images
   echo "== making the kind cluster $CLUSTER"
-  quietly "making the cluster" kind create cluster --config kind/cluster.yaml
+  quietly "making the cluster" kind create cluster --name "$CLUSTER" --config kind/cluster.yaml
   quietly "loading the images into kind" load_images
   echo "== installing Envoy Gateway $EG_VERSION"
   quietly "installing Envoy Gateway" helm --kube-context "$CTX" install eg "$EG_CHART" --version "$EG_VERSION" \
@@ -147,7 +190,7 @@ cmd_up() {
   quietly "applying the backends" k apply -f kind/backends.yaml -f kind/checks.yaml
   # The chart before the routes: its EnvoyExtensionPolicy names them already, so no route is ever served without it.
   quietly "installing the chart" install_chart --wait --timeout 5m
-  quietly "applying the routes" k apply -f kind/routes.yaml
+  quietly "applying the routes" apply_routes
   quietly "waiting for the edge" wait_edge
   echo ""
   echo "up: the cluster $CLUSTER is running (kubectl context $CTX)."
@@ -212,7 +255,10 @@ edge_upload() {
 curl_parsed() { # <curl -i output with the status code last> -> CODE, HEADERS, BODY
   local out="$1"
   CODE=$(printf '%s' "$out" | tail -n1)
-  out=$(printf '%s' "$out" | sed '$d' | tr -d '\r')
+  # An interim response, such as the 100 Continue to a large upload, comes first, its own headers and a blank line.
+  out=$(printf '%s' "$out" | sed '$d' | tr -d '\r' |
+    awk '!final && /^HTTP\/[0-9.]+ 1[0-9][0-9]( |$)/ { interim = 1 } interim { if ($0 == "") interim = 0; next }
+      { final = 1; print }')
   HEADERS=$(printf '%s\n' "$out" | sed '/^$/q')
   BODY=$(printf '%s\n' "$out" | sed '1,/^$/d')
 }
@@ -225,13 +271,14 @@ added() {
   if [ -z "$1" ]; then printf '%s\n' "$2"; else grep -vxF -f <(printf '%s\n' "$1") <<<"$2"; fi
 }
 
-# await <var> <pattern> <command...>: runs command until its output has a line matching the extended regular
-# expression pattern (logs reach kubectl a moment late), for up to 10 s; sets var to that line, or empty.
+# await <var> <pattern> <before> <command...>: runs command (a log snapshot) again and again, until the lines it
+# prints that before lacks hold one matching the extended regular expression pattern (logs reach kubectl a moment
+# late), for up to 10 s; sets var to that line, or empty.
 await() {
-  local var="$1" pattern="$2" line=""
-  shift 2
+  local var="$1" pattern="$2" before="$3" line=""
+  shift 3
   for _ in $(seq 1 20); do
-    line=$("$@" | grep -E -- "$pattern" | tail -n1)
+    line=$(added "$before" "$("$@")" | grep -E -- "$pattern" | tail -n1)
     [ -n "$line" ] && break
     sleep 0.5
   done
@@ -265,7 +312,7 @@ chain_rid() {
 
 # metric_sum <text> <string>...: the sum of the samples in the metrics text whose line holds every string given.
 metric_sum() {
-  local text="$1"
+  local text="$1" p
   shift
   for p in "$@"; do text=$(printf '%s\n' "$text" | grep -F -- "$p"); done
   printf '%s\n' "$text" | awk 'NF { s += $NF } END { printf "%d", s }'
@@ -291,10 +338,10 @@ cmd_check() {
   p0=$(processor_log); o0=$(traces orders); y0=$(traces payment)
   edge_req /orders -X POST -H 'content-type: application/json' -d '{}'
   local check1_headers="$HEADERS"
-  await stamped '"outcome":"stamped"' added "$p0" "$(processor_log)"
+  await stamped '"outcome":"stamped"' "$p0" processor_log
   rid=$(printf '%s' "$stamped" | sed -n 's/.*"rid":"\([^"]*\)".*/\1/p')
-  await ord "rid=${rid:-none} reason=OK receiver=orders ✓ peer=edge \(mTLS\)" added "$o0" "$(traces orders)"
-  await pay "rid=${rid:-none} reason=OK receiver=payment ✓ peer=orders \(mTLS\)" added "$y0" "$(traces payment)"
+  await ord "rid=${rid:-none} reason=OK receiver=orders ✓ peer=edge \(mTLS\)" "$o0" traces orders
+  await pay "rid=${rid:-none} reason=OK receiver=payment ✓ peer=orders \(mTLS\)" "$y0" traces payment
   if [ "$CODE" = 200 ] && [ -n "$rid" ] && [ -n "$ord" ] && [ -n "$pay" ]; then
     record PASS "1  via the Gateway: stamped, verified at orders and payment" \
       "HTTP 200; rid $rid: orders reason=OK peer=edge (mTLS), payment reason=OK peer=orders (mTLS)"
@@ -337,7 +384,7 @@ cmd_check() {
   edge_req /orders -X POST -H 'content-type: application/json' -d '{}' \
     -H "x-path-chain: $chain" -H "x-path-proof: $proof" -H 'x-path-anything: replayed'
   local check3_headers="$HEADERS"
-  await ord 'reason=OK receiver=orders ✓ peer=edge \(mTLS\)' added "$o0" "$(traces orders)"
+  await ord 'reason=OK receiver=orders ✓ peer=edge \(mTLS\)' "$o0" traces orders
   new_rid=$(printf '%s' "$ord" | sed -n 's/.* rid=\([^ ]*\) .*/\1/p')
   if [ "$CODE" = 200 ] && [ -n "$stolen_rid" ] && [ -n "$new_rid" ] && [ "$new_rid" != "$stolen_rid" ]; then
     record PASS "3  a client's X-Path- headers via the Gateway: replaced" \
@@ -419,7 +466,7 @@ cmd_check() {
   local status refusal
   p0=$(processor_log); o0=$(traces orders)
   status=$("$tmp/edgecheck" trailers "$edge_addr" "paztport-edge.$EG_NS.svc" /orders 2>&1)
-  await refusal '"outcome":"refused_body"' added "$p0" "$(processor_log)"
+  await refusal '"outcome":"refused_body"' "$p0" processor_log
   seen=$(added "$o0" "$(traces orders)" | grep -c . || true)
   if [ "$status" = 500 ] && [ -n "$refusal" ] && [ "$seen" = 0 ]; then
     record PASS "9  HTTP/2 headers and trailers, no body: refused at edge" \
@@ -434,7 +481,7 @@ cmd_check() {
   e0=$(events orders)
   mesh_req operator https://orders:8080/orders -X POST -H 'content-type: application/json' -d '{}' \
     -H 'x-forwarded-for: 203.0.113.9'
-  await event 'PAZTPORT_EVENT reason=CHAIN_MISSING suspectSvc=operator ' added "$e0" "$(events orders)"
+  await event 'PAZTPORT_EVENT reason=CHAIN_MISSING suspectSvc=operator ' "$e0" events orders
   if [ "$CODE" = 403 ] && printf '%s' "$event" | grep -qF "suspectInst=$pod_ip "; then
     record PASS "10 an event names the peer's address, not X-Forwarded-For" \
       "HTTP 403; suspectInst=$pod_ip (the pod), X-Forwarded-For was 203.0.113.9"
@@ -443,23 +490,41 @@ cmd_check() {
       "expected suspectInst=$pod_ip, got HTTP $CODE, [$(printf '%s' "$event" | grep -o 'suspectInst=[^ ]*')]"
   fi
 
-  # 11 - a body one byte over the limit: Envoy refuses it 413 itself before the processor has it, and the processor
-  # passes that reply on (its Paztport headers removed) and counts the request refused for its body.
-  local limit
+  # 11 - a body one byte over the limit: the routes' request buffer, a filter ahead of the processor's, refuses it
+  # with Envoy's own 413 once it passes the limit. The processor is never sent the request (only that reply, to
+  # pass on), so it decides and logs nothing, and the request never reaches orders.
+  local limit buffer outcomes
   limit=$(kn get deployment paztport-processor \
     -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="PROCESSOR_BODY_LIMIT")].value}')
+  buffer=$(kn get backendtrafficpolicy orders-routes -o jsonpath='{.spec.requestBuffer.limit}')
   p0=$(processor_log); o0=$(traces orders)
   edge_upload "$((limit + 1))" /orders -H 'content-type: text/plain'
-  await refusal '"outcome":"refused_body"' added "$p0" "$(processor_log)"
+  sleep 2
   seen=$(added "$o0" "$(traces orders)" | grep -c . || true)
-  if [ -n "$limit" ] && [ "$CODE" = 413 ] && [ -n "$refusal" ] && [ "$seen" = 0 ]; then
+  outcomes=$(added "$p0" "$(processor_log)" | grep -o '"outcome":"[a-z_]*"' | tr '\n' ' ')
+  if [ -n "$limit" ] && [ "$buffer" = "$limit" ] && [ "$CODE" = 413 ] && [ "$BODY" = "Payload Too Large" ] &&
+    [ -z "$outcomes" ] && [ "$seen" = 0 ]; then
     record PASS "11 a body over the limit: refused 413 at the edge" \
-      "$((limit + 1)) bytes: HTTP 413, processor refused_body; orders saw 0"
+      "$((limit + 1)) bytes: Envoy's HTTP 413 (request buffer $buffer); processor decided nothing; orders saw 0"
   else
-    detail="expected HTTP 413, refused_body and nothing at orders, got $((limit + 1)) bytes: HTTP $CODE"
-    refusal=$(added "$p0" "$(processor_log)" | grep -o '"outcome":"[a-z_]*"' | tr '\n' ' ')
+    detail="expected the request buffer at the processor's limit, Envoy's 413, no processor outcome, orders 0"
     record FAIL "11 a body over the limit: refused 413 at the edge" \
-      "$detail, processor [${refusal:-no outcome}], orders saw $seen"
+      "$detail; got limit $limit, buffer '$buffer', HTTP $CODE ($BODY), processor [$outcomes], orders saw $seen"
+  fi
+
+  # 12 - a body over the listener's own buffer (32 KiB) and no longer than the limit: the routes' request buffer
+  # admits it, and it is stamped whole and verified at orders.
+  p0=$(processor_log); o0=$(traces orders)
+  edge_upload "$limit" /orders -H 'content-type: text/plain'
+  await stamped '"outcome":"stamped"' "$p0" processor_log
+  rid=$(printf '%s' "$stamped" | sed -n 's/.*"rid":"\([^"]*\)".*/\1/p')
+  await ord "rid=${rid:-none} reason=OK receiver=orders ✓ peer=edge \(mTLS\)" "$o0" traces orders
+  if [ "${limit:-0}" -gt 32768 ] && [ "$CODE" = 200 ] && [ -n "$rid" ] && [ -n "$ord" ]; then
+    record PASS "12 a body over 32 KiB, within the limit: stamped" \
+      "$limit bytes: HTTP 200; rid $rid, orders reason=OK peer=edge (mTLS)"
+  else
+    record FAIL "12 a body over 32 KiB, within the limit: stamped" \
+      "expected a limit over 32768 and HTTP 200 verified at orders, got $limit bytes: HTTP $CODE, rid '${rid}'"
   fi
 
   echo ""

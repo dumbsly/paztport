@@ -104,6 +104,11 @@ material_refuses() {
   return "$ok"
 }
 
+# material_refuses_empty: material.sh refuses an empty directory name, with or without --fresh.
+material_refuses_empty() {
+  material_refuses 'is empty' '' && material_refuses 'is empty' --fresh ''
+}
+
 no_argument_prints_usage() {
   "$repo/run" | grep -q "Usage"
 }
@@ -139,8 +144,7 @@ check "envoy-gateway without kind prints one 'missing: kind' line and exits 1" e
 check "envoy-gateway with a kubectl below 1.35 prints one 'missing: kubectl' line and exits 1" \
   envoy_missing kubectl "Client Version: v1.34.9"
 check "material.sh will not write over an existing directory" material_refuses "exists; the cluster's keys" taken
-check "material.sh will not take an empty directory name, with or without --fresh" bash -c \
-  "$(declare -f material_refuses); repo='$repo'; material_refuses 'is empty' '' && material_refuses 'is empty' --fresh ''"
+check "material.sh will not take an empty directory name, with or without --fresh" material_refuses_empty
 check "material.sh --fresh will not delete /" material_refuses "will not delete" --fresh /
 check "material.sh --fresh will not delete \$HOME" material_refuses "will not delete" --fresh @HOME@
 check "material.sh --fresh will not delete a parent of \$HOME" material_refuses "will not delete" --fresh @HOME@/..

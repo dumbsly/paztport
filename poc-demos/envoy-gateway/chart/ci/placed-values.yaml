@@ -1,0 +1,46 @@
+# Copyright 2026 The Paztport Authors
+# SPDX-License-Identifier: Apache-2.0
+#
+# Placeholder files, as in lint-values.yaml, for a cluster whose routes already have a BackendTrafficPolicy (so the
+# chart makes none), whose Envoy runs under merged gateways, whose processor policy merges into the Gateway's, and
+# whose pods are placed and annotated: every optional value set.
+image:
+  digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+imagePullSecrets: [{name: registry}]
+gateway:
+  envoyPodLabels:
+    gateway.envoyproxy.io/owning-gatewayclass: paztport
+material:
+  existingKeySecret: edge-key
+  pin: placeholder-policy-pub
+  keyrings: ['{"placeholder":"keyring"}']
+  roots: ['{"placeholder":"root"}']
+  bundle: '{"placeholder":"proofs-edge"}'
+tls:
+  existingSecret: paztport-processor-tls
+  existingCAConfigMap: mesh-ca
+routes:
+  - httpRoute: orders
+    receiver: orders
+backendTrafficPolicy: false
+mergeType: StrategicMerge
+autoscaling:
+  enabled: false
+podAnnotations:
+  reloader.stakater.com/auto: "true"
+nodeSelector:
+  kubernetes.io/os: linux
+tolerations:
+  - {key: dedicated, operator: Equal, value: edge, effect: NoSchedule}
+affinity:
+  nodeAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      nodeSelectorTerms:
+        - matchExpressions: [{key: kubernetes.io/arch, operator: In, values: [amd64, arm64]}]
+topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: topology.kubernetes.io/zone
+    whenUnsatisfiable: DoNotSchedule
+    labelSelector:
+      matchLabels: {app.kubernetes.io/name: paztport-processor}
+priorityClassName: system-cluster-critical

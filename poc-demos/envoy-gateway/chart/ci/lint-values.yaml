@@ -2,7 +2,12 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # Placeholder files, so that helm lint and helm template render every object; nothing here is a real key or
-# certificate. A second routes entry and an extra route exercise the lists.
+# certificate. A second routes entry and an extra route exercise the lists; the chart's own BackendTrafficPolicy
+# carries the body limit.
+image:
+  tag: dev
+gateway:
+  name: edge
 material:
   key: placeholder-edge-key
   pin: placeholder-policy-pub

@@ -3,8 +3,10 @@ Copyright 2026 The Paztport Authors
 SPDX-License-Identifier: Apache-2.0
 
 The processor. It reads every file once, at start, so the checksum annotations roll the pods when the chart's
-material or routes change, or, at an install or upgrade, when an existing Secret or ConfigMap the values name has.
-It serves gRPC on 9002 to Envoy alone (mutual TLS, and the NetworkPolicy), and /metrics, /readyz and /livez on 9090.
+material or routes change, or, at an install or upgrade, when an existing Secret or ConfigMap the values name has
+changed since the last one. Between upgrades nothing rolls them for such a change, unless podAnnotations add a
+reloader's. It serves gRPC on 9002 to Envoy alone (mutual TLS, and the NetworkPolicy), and /metrics, /readyz and
+/livez on 9090.
 */ -}}
 {{- $existing := dict -}}
 {{- $named := dict "Secret/key" .Values.material.existingKeySecret "Secret/tls" .Values.tls.existingSecret }}
@@ -40,9 +42,35 @@ spec:
         prometheus.io/port: "9090"
         prometheus.io/path: /metrics
         {{- end }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
     spec:
       terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
       automountServiceAccountToken: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       securityContext:
         runAsNonRoot: true
         runAsUser: 65532

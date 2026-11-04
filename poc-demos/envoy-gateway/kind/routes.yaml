@@ -1,9 +1,9 @@
 # Copyright 2026 The Paztport Authors
 # SPDX-License-Identifier: Apache-2.0
 #
-# The routes to orders, and their retries. envoy-gateway.sh applies them after the processor's chart, whose
-# EnvoyExtensionPolicy already names them, so that Envoy never serves a route to orders without the processor; an
-# operator adding a Paztport route does the same: the route in the chart's values first, then the route itself.
+# The routes to orders, and their BackendTrafficPolicy. envoy-gateway.sh applies them after the processor's chart,
+# whose EnvoyExtensionPolicy already names them, so that Envoy never serves a route to orders without the processor;
+# an operator adding a Paztport route does the same: the route in the chart's values first, then the route itself.
 
 # The Paztport route: POST /orders, stamped by the edge for orders.
 apiVersion: gateway.networking.k8s.io/v1
@@ -37,12 +37,20 @@ spec:
       backendRefs:
         - {name: orders, port: 8080}
 ---
-# Retries on the routes to orders only where the request never reached it: a connection that failed, or a stream it
-# refused. Retrying anything it may have received would send it the same stamp twice.
+# The routes' own BackendTrafficPolicy, as a cluster's operator would have one, with two settings:
+#
+# - retries only where the request never reached orders: a connection that failed, or a stream it refused. Retrying
+#   anything it may have received would send it the same stamp twice;
+# - the edge's body limit, as the request buffer's limit (requestBuffer.limit, in bytes): envoy-gateway.sh writes
+#   BODY_LIMIT, the number it passes the chart as bodyLimit, over @BODY_LIMIT@, so the two cannot drift. Envoy buffers
+#   a request's whole body before the processor stamps it, and a longer one is refused (413).
+#
+# Envoy Gateway attaches one BackendTrafficPolicy to a route, the oldest, and does not accept a newer one for it
+# (Conflicted): so the chart is installed with backendTrafficPolicy=false, and its limit is carried here.
 apiVersion: gateway.envoyproxy.io/v1alpha1
 kind: BackendTrafficPolicy
 metadata:
-  name: orders-retry
+  name: orders-routes
   namespace: paztport
 spec:
   targetRefs:
@@ -52,3 +60,5 @@ spec:
     numRetries: 2
     retryOn:
       triggers: [connect-failure, refused-stream]
+  requestBuffer:
+    limit: "@BODY_LIMIT@"
