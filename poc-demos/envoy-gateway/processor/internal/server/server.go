@@ -17,6 +17,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/keepalive"
 
 	"github.com/dumbsly/paztport/poc-demos/envoy-gateway/processor/internal/edge"
 	"github.com/dumbsly/paztport/poc-demos/envoy-gateway/processor/internal/material"
@@ -81,8 +82,15 @@ func New(cfg Config, log *slog.Logger, now func() time.Time) (*Server, error) {
 	}
 
 	s := &Server{log: log, now: now, set: set}
-	// Envoy sends a buffered body whole, in one message, so a message may be as long as the body limit.
-	s.grpc = grpc.NewServer(grpc.Creds(credentials.NewTLS(tlsConfig)), grpc.MaxRecvMsgSize(cfg.BodyLimit+headroom))
+	s.grpc = grpc.NewServer(
+		grpc.Creds(credentials.NewTLS(tlsConfig)),
+		// Envoy sends a buffered body whole, in one message, so a message may be as long as the body limit.
+		grpc.MaxRecvMsgSize(cfg.BodyLimit+headroom),
+		// Envoy keeps one connection open between requests: let it ping every 10 s, even with no stream,
+		// and ping it ourselves, so that a connection that died silently is closed, not waited on.
+		grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{MinTime: 10 * time.Second, PermitWithoutStream: true}),
+		grpc.KeepaliveParams(keepalive.ServerParameters{Time: 30 * time.Second, Timeout: 10 * time.Second}),
+	)
 	extprocv3.RegisterExternalProcessorServer(s.grpc, p)
 
 	mux := http.NewServeMux()

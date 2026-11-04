@@ -91,10 +91,16 @@ type leaf struct {
 // paztport-processor and IP 127.0.0.1, written to two files in dir.
 func (a *authority) issue(t *testing.T, dir, file string, subject pkix.Name) *leaf {
 	t.Helper()
+	return a.issueWith(t, dir, file, func(c *x509.Certificate) { c.Subject = subject })
+}
+
+// issueWith returns a leaf as issue does, with CN=edge, after change has changed its template.
+func (a *authority) issueWith(t *testing.T, dir, file string, change func(*x509.Certificate)) *leaf {
+	t.Helper()
 	key := newKey(t)
 	tmpl := &x509.Certificate{
+		Subject:      pkix.Name{CommonName: "edge"},
 		SerialNumber: serial(t),
-		Subject:      subject,
 		NotBefore:    time.Now().Add(-time.Hour),
 		NotAfter:     time.Now().Add(time.Hour),
 		KeyUsage:     x509.KeyUsageDigitalSignature,
@@ -102,6 +108,7 @@ func (a *authority) issue(t *testing.T, dir, file string, subject pkix.Name) *le
 		DNSNames:     []string{"paztport-processor"},
 		IPAddresses:  []net.IP{net.IPv4(127, 0, 0, 1)},
 	}
+	change(tmpl)
 	der, err := x509.CreateCertificate(rand.Reader, tmpl, a.cert, &key.PublicKey, a.key)
 	if err != nil {
 		t.Fatal(err)
@@ -250,15 +257,32 @@ func start(t *testing.T, change func(*server.Config)) *harness {
 }
 
 // clientTLS returns the TLS config of a client presenting cert, or none when cert is nil, that trusts the
-// harness's authority for the server paztport-processor.
+// harness's authority for the server paztport-processor. It sends cert whatever the server asks for: Go's
+// client would otherwise withhold a certificate the server's list of CAs does not name, and the server's
+// own refusal would go untested.
 func (h *harness) clientTLS(cert *leaf) *tls.Config {
 	pool := x509.NewCertPool()
 	pool.AddCert(h.ca.cert)
 	c := &tls.Config{RootCAs: pool, ServerName: "paztport-processor", NextProtos: []string{"h2"}}
 	if cert != nil {
-		c.Certificates = []tls.Certificate{cert.tls}
+		c.GetClientCertificate = func(*tls.CertificateRequestInfo) (*tls.Certificate, error) { return &cert.tls, nil }
 	}
 	return c
+}
+
+// rdn returns the DER of a subject of one relative distinguished name holding the common names given: a
+// multi-valued RDN such as CN=orders+CN=edge.
+func rdn(t *testing.T, names ...string) []byte {
+	t.Helper()
+	var set []pkix.AttributeTypeAndValue
+	for _, name := range names {
+		set = append(set, pkix.AttributeTypeAndValue{Type: oidCommonName, Value: name})
+	}
+	der, err := asn1.Marshal(pkix.RDNSequence{set})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return der
 }
 
 // handshake connects to the gRPC port as a client with c, and returns nil once the server has accepted
@@ -414,13 +438,15 @@ func TestAcceptsTheEdge(t *testing.T) {
 	}
 }
 
-// TestRefusesEveryClientButTheEdge refuses the connection of a client with no certificate, with one from
-// the client CA naming anything but CN=edge alone, or with one naming CN=edge from another CA; no request
-// on it reaches the processor.
+// TestRefusesEveryClientButTheEdge refuses the connection of a client with no certificate; with one from
+// the client CA naming anything but CN=edge alone, expired, a CA, or not for client authentication; or with
+// one naming CN=edge from another CA, even a CA of the same name. Each client sends its certificate
+// whatever the server asks for, so each refusal is the server's. No request on it reaches the processor.
 func TestRefusesEveryClientButTheEdge(t *testing.T) {
 	h := start(t, nil)
 	dir := t.TempDir()
 	other := newAuthority(t, "other CA")
+	sameName := newAuthority(t, "mesh CA")
 	for _, tc := range []struct {
 		name string
 		cert *leaf
@@ -432,6 +458,22 @@ func TestRefusesEveryClientButTheEdge(t *testing.T) {
 		{"CN=edge twice", h.ca.issue(t, dir, "edge-edge", cn("edge", "edge"))},
 		{"CN=Edge", h.ca.issue(t, dir, "Edge", pkix.Name{CommonName: "Edge"})},
 		{"no CN, O=edge", h.ca.issue(t, dir, "o-edge", pkix.Name{Organization: []string{"edge"}})},
+		{"CN=edge from another CA of the same name", sameName.issue(t, dir, "same-name-edge", pkix.Name{CommonName: "edge"})},
+		{"CN=edge, expired", h.ca.issueWith(t, dir, "expired-edge", func(c *x509.Certificate) {
+			c.NotBefore, c.NotAfter = time.Now().Add(-2*time.Hour), time.Now().Add(-time.Hour)
+		})},
+		{"CN=edge, for server authentication only", h.ca.issueWith(t, dir, "server-edge", func(c *x509.Certificate) {
+			c.ExtKeyUsage = []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}
+		})},
+		{"CN=orders+CN=edge in one RDN", h.ca.issueWith(t, dir, "rdn-edge", func(c *x509.Certificate) {
+			c.RawSubject = rdn(t, "orders", "edge")
+		})},
+		{"CN=edge, a CA", h.ca.issueWith(t, dir, "ca-edge", func(c *x509.Certificate) {
+			c.BasicConstraintsValid, c.IsCA = true, true
+		})},
+		{"CN=edge, no extended key usage", h.ca.issueWith(t, dir, "no-eku-edge", func(c *x509.Certificate) {
+			c.ExtKeyUsage = nil
+		})},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if err := h.handshake(t, h.clientTLS(tc.cert)); err == nil {

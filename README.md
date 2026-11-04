@@ -648,8 +648,11 @@ processor's
 module's licence (and patent grant, where it has one) under
 `third-party/<module>@<version>/`. That list names every module the binary is built
 from, Go's standard library included, each under one licence (Apache-2.0, MIT or
-BSD-3-Clause); `./run test` checks it against `go list -deps`, and the image build
-against the built binary, failing for a module with no licence file. The base is
+BSD-3-Clause), and every licence file within a module over code the binary holds,
+such as the BSD-3-Clause licence of the package `client_golang` copies in, which the
+image carries at its path. `./run test` checks the list against `go list -deps`, and
+the image build against the built binary, failing for a module with no licence file
+and for a licence file the list does not name. The base is
 distroless, whose own packages carry their copyright files.
 
 Bouncy Castle appears in the build for two reasons: the SDK's `keygen` uses it to

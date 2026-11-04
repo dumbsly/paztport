@@ -32,7 +32,7 @@ macOS and Linux; on Windows use WSL.
 | `out/` | what `material.sh` wrote; holds private keys and is not committed |
 | `processor/` | the Go `ext_proc` processor: `internal/routes` names each request's receiver from its HTTPRoute, `internal/material` loads and checks the edge's keys and policy, `internal/edge` stamps each request or refuses it, `internal/server` serves it, and `cmd/processor` runs it |
 | `processor/Dockerfile` | the processor's image: a static binary on distroless, as nonroot, with its licences in `/licenses/` |
-| `processor/THIRD-PARTY.txt` | every module the processor's binary is built from, each with its licence; `processor/third-party.sh` checks it and gathers the licence texts into the image |
+| `processor/THIRD-PARTY.txt` | every module the processor's binary is built from, each with its licence, and every licence file within those modules over code the binary holds; `processor/third-party.sh` checks it and gathers the licence texts into the image |
 
 `material.sh` refuses to write over an existing `out/`; `--fresh` makes everything again. `PAZTPORT_POLICY_DAYS` sets
 how long the keyring and the policy root last (default 7 days).
@@ -40,8 +40,8 @@ how long the keyring and the policy root last (default 7 days).
 ## The processor
 
 The processor serves Envoy's `ext_proc` service over gRPC with mutual TLS, TLS 1.3 only. It requires a client
-certificate that chains to the client CA and whose subject is the common name `edge` alone; any other client's
-connection is refused in the handshake, so nothing it sends reaches the processor. Metrics, readiness and liveness
+certificate that chains to the client CA, is no CA itself, names client authentication among its key usages, and
+whose subject is the common name `edge` alone; any other client's connection is refused in the handshake, so nothing it sends reaches the processor. Metrics, readiness and liveness
 are on a separate port, over plain HTTP, never on the gRPC port. It reads its configuration and every file once, at
 start: new material, routes or certificates take a pod roll.
 
