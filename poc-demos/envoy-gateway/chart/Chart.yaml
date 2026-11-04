@@ -1,0 +1,11 @@
+# Copyright 2026 The Paztport Authors
+# SPDX-License-Identifier: Apache-2.0
+apiVersion: v2
+name: paztport-edge
+description: >-
+  Paztport at an Envoy Gateway edge: the ext_proc processor that stamps each request as the origin service edge,
+  attached to an existing Gateway's HTTPRoutes, failing closed.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+kubeVersion: ">=1.33.0-0"

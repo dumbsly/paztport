@@ -1,0 +1,65 @@
+# Copyright 2026 The Paztport Authors
+# SPDX-License-Identifier: Apache-2.0
+#
+# The local Gateway, as a cluster that already runs Envoy Gateway would have it: the GatewayClass, the EnvoyProxy
+# that configures its Envoy, and the Gateway the HTTPRoutes attach to. The chart attaches to this Gateway; it does
+# not make one.
+#
+# The EnvoyProxy holds the one setting Paztport needs of Envoy itself: its upstream client certificate, the edge's
+# (CN edge, from the mesh CA), in the Secret edge-client-tls beside it, which envoy-gateway.sh makes. Envoy Gateway
+# presents it on every upstream connection that has a BackendTLSPolicy: to the processor and to orders. Envoy's
+# image is pinned by digest, and its Service is a ClusterIP with a fixed name, since kind has no load balancer and the
+# checks reach it from inside the cluster.
+#
+# The Gateway, its routes, the backends and the processor share the namespace paztport.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: paztport
+---
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: EnvoyProxy
+metadata:
+  name: edge
+  namespace: envoy-gateway-system
+spec:
+  backendTLS:
+    clientCertificateRef:
+      kind: Secret
+      name: edge-client-tls
+  provider:
+    type: Kubernetes
+    kubernetes:
+      envoyDeployment:
+        container:
+          image: docker.io/envoyproxy/envoy:distroless-v1.39.1@sha256:eb2c01c13125d1629637cb4e4cce7207009fb7cc2c8027f9742758549d15b6f4
+      envoyService:
+        name: paztport-edge
+        type: ClusterIP
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: paztport
+spec:
+  controllerName: gateway.envoyproxy.io/gatewayclass-controller
+  parametersRef:
+    group: gateway.envoyproxy.io
+    kind: EnvoyProxy
+    name: edge
+    namespace: envoy-gateway-system
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: edge
+  namespace: paztport
+spec:
+  gatewayClassName: paztport
+  listeners:
+    - name: http
+      protocol: HTTP
+      port: 80
+      allowedRoutes:
+        namespaces:
+          from: Same

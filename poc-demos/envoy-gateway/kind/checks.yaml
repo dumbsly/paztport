@@ -1,0 +1,45 @@
+# Copyright 2026 The Paztport Authors
+# SPDX-License-Identifier: Apache-2.0
+#
+# The pod the checks send their requests from: curl, pinned by digest, in the namespace paztport, and no Envoy pod.
+# It holds the operator's client certificate, to reach orders and payment directly as java-mesh's demo does, and
+# payment's, to show that a stamp sent from a pod holding another mesh certificate is refused.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: checks
+  namespace: paztport
+  labels: {app: checks}
+spec:
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 100
+    runAsGroup: 101
+    fsGroup: 101
+    seccompProfile: {type: RuntimeDefault}
+  automountServiceAccountToken: false
+  terminationGracePeriodSeconds: 0
+  containers:
+    - name: curl
+      image: docker.io/curlimages/curl:8.22.0@sha256:58adaa4e8dca9c988bae2aba4ab3434a0bb2da16bbe3f92dec39ec7785166777
+      command: [sleep, infinity]
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities: {drop: [ALL]}
+      volumeMounts:
+        - {name: tls, mountPath: /tls, readOnly: true}
+  volumes:
+    - name: tls
+      projected:
+        defaultMode: 0440
+        sources:
+          - secret:
+              name: operator-tls
+              items: [{key: tls.crt, path: operator.crt}, {key: tls.key, path: operator.key}]
+          - secret:
+              name: payment-tls
+              items: [{key: tls.crt, path: payment.crt}, {key: tls.key, path: payment.key}]
+          - configMap:
+              name: mesh-ca
+              items: [{key: ca.crt, path: ca.crt}]

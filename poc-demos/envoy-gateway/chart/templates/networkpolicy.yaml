@@ -1,0 +1,41 @@
+{{- /*
+Copyright 2026 The Paztport Authors
+SPDX-License-Identifier: Apache-2.0
+
+The processor signs whatever it is sent as the edge, so only Envoy may reach it: the gRPC port admits the Gateway's
+Envoy pods, by the labels Envoy Gateway gives them, and no other pod (the processor's mutual TLS refuses any other
+client certificate as well). The admin port admits adminFrom, or anyone when that is empty.
+*/ -}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Values.name }}
+  labels:
+    {{- include "edge.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "edge.selector" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.gateway.envoyNamespace }}
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: envoy
+              app.kubernetes.io/component: proxy
+              gateway.envoyproxy.io/owning-gateway-name: {{ .Values.gateway.name }}
+              gateway.envoyproxy.io/owning-gateway-namespace: {{ .Release.Namespace }}
+      ports:
+        - port: grpc
+          protocol: TCP
+    - ports:
+        - port: admin
+          protocol: TCP
+      {{- with .Values.adminFrom }}
+      from:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

@@ -1,0 +1,22 @@
+{{- /*
+Copyright 2026 The Paztport Authors
+SPDX-License-Identifier: Apache-2.0
+
+The processor's Service: the name its server certificate carries, and the backend Envoy's ext_proc filter calls.
+*/ -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.name }}
+  labels:
+    {{- include "edge.labels" . | nindent 4 }}
+spec:
+  selector:
+    {{- include "edge.selector" . | nindent 4 }}
+  ports:
+    - name: grpc
+      port: 9002
+      targetPort: grpc
+    - name: admin
+      port: 9090
+      targetPort: admin

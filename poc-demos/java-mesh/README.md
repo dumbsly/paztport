@@ -629,7 +629,13 @@ when the whole mesh runs:
   and verifies everything else. A filter that verified every path would refuse
   the admin and debug endpoints for lacking a chain: attestation applies to the
   attested data path, not to the control plane. `/admin/mode` checks its own
-  token instead.
+  token instead. `orders` and `payment` carry Spring Boot Actuator, so
+  `/actuator/health` is there by Boot's default: it answers the status alone,
+  behind the same mutual TLS as every other path, and the filter skips it. The
+  [Envoy Gateway proof of concept](../envoy-gateway/README.md) also exposes their
+  Prometheus endpoint, `/actuator/prometheus`
+  (`MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE=health,prometheus`); this demo does
+  not.
 - **The starter brings its own HTTP client for an SSL bundle.** It builds one
   pooled JDK `HttpClient` per bundle and shares it across every `RestClient`
   built over it, so calls to a service reuse open mutual-TLS connections. A

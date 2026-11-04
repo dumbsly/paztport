@@ -12,8 +12,10 @@ Usage: ./run <command> [options]
 
   java-mesh    Build the Java SDK and the mesh demo, then run poc-demos/java-mesh/demo.sh (needs Docker).
   envoy-gateway
-               Make the edge's keys and policy, for the Envoy Gateway proof of concept on a local kind
-               cluster (needs Docker, kind, kubectl and helm; see poc-demos/envoy-gateway/README.md).
+               Build the Java SDK and the mesh demo, make the edge's keys and policy, then bring up the
+               Envoy Gateway proof of concept on a local kind cluster and run its checks (needs Docker, Go,
+               kind, kubectl and helm). The cluster stays up; poc-demos/envoy-gateway/envoy-gateway.sh down
+               removes it (see poc-demos/envoy-gateway/README.md).
   agents-mcp   Install the TypeScript SDK and the agents demo, set up demo keys, and start the demo page.
   test         The name and link checks, the Java SDK and Java demo suites, a check of what the built jars
                carry, the TypeScript type checks and the TypeScript SDK and demo suites, then gofmt, go vet
@@ -172,9 +174,17 @@ cmd_envoy_gateway() {
   need_kind
   need_kubectl
   need_helm
-  # The tool jars make the keys and the signed policy; they are built here and run on the JDK Maven uses.
+  # The tool jars make the keys and the signed policy, and run on the JDK Maven uses; the service jars go into the
+  # images. The keys are made once: a cluster made again uses the same ones (material.sh --fresh makes new ones).
   (cd poc-sdks/java && mvn -q install -DskipTests)
-  PAZTPORT_JAVA="$maven_java" exec poc-demos/envoy-gateway/material.sh
+  (cd poc-demos/java-mesh && mvn -q package -DskipTests)
+  if [ -d poc-demos/envoy-gateway/out ]; then
+    echo "using the keys and policy in poc-demos/envoy-gateway/out (material.sh --fresh makes new ones)"
+  else
+    PAZTPORT_JAVA="$maven_java" poc-demos/envoy-gateway/material.sh
+  fi
+  poc-demos/envoy-gateway/envoy-gateway.sh up
+  exec poc-demos/envoy-gateway/envoy-gateway.sh check
 }
 
 cmd_agents_mcp() {

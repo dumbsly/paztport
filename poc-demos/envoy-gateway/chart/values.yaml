@@ -1,0 +1,104 @@
+# Copyright 2026 The Paztport Authors
+# SPDX-License-Identifier: Apache-2.0
+#
+# The edge's processor, attached to an existing Gateway's HTTPRoutes in the release's namespace.
+
+# The name of the processor's Service, and of everything else the chart makes. The processor's server certificate
+# names it, as its one DNS name, and Envoy checks the certificate for it, so the two must agree.
+name: paztport-processor
+
+image:
+  repository: paztport-processor
+  tag: dev
+  # When set (sha256:...), the image is taken by this digest and the tag is ignored.
+  digest: ""
+  pullPolicy: IfNotPresent
+
+# The Gateway the routes attach to, in the release's namespace, and the namespace its Envoy pods run in (Envoy
+# Gateway's own, unless it deploys Envoy in the Gateway's namespace). The NetworkPolicy admits that Gateway's Envoy
+# pods, and no other pod, to the processor's gRPC port.
+gateway:
+  name: edge
+  envoyNamespace: envoy-gateway-system
+
+# The HTTPRoutes, in the release's namespace, that the edge stamps for, each with its receiver: the policy's name of
+# the service its requests go to. The processor stamps a request for the receiver its route maps to, and for nothing
+# a client sent. The policy must hold a proof of edge/<receiver> for each one, or the processor does not start.
+routes:
+  - httpRoute: orders
+    receiver: orders
+
+# Further HTTPRoutes the processor is attached to that `routes` does not map. It refuses every request on them with
+# its own 403, so a route can be attached before it is mapped and never reach its backend unstamped.
+extraRoutes: []
+
+# The most bytes of request body the edge stamps. Envoy buffers the whole body before the processor stamps it, so
+# the same number is the Gateway's listener buffer limit (Envoy Gateway v1.9 has no limit per route); a longer body
+# is refused, and never reaches its backend.
+bodyLimit: 1048576
+
+# When true, the chart sets that listener limit with a ClientTrafficPolicy on the Gateway. A Gateway can have one
+# ClientTrafficPolicy only: when it has one already, set this false and give it connection.bufferLimit equal to
+# bodyLimit.
+clientTrafficPolicy: true
+
+# How long Envoy waits for each of the processor's answers. It waits for the request's whole body first, so this
+# bounds the stamping, not the upload; a processor that does not answer in time is a refusal (500).
+messageTimeout: 500ms
+
+# The edge's Paztport material. The edge's private key is a Secret: the chart makes one from `key`, or uses the
+# Secret `existingKeySecret` names, which must hold it as edge.key. The rest is public and goes in a ConfigMap:
+# the pinned policy key, the keyrings and roots (lists, so that an old and a new one can overlap during a rollover)
+# and the edge's proof bundle. Pass the files with --set-file, for example
+#   --set-file material.pin=out/keys/policy.pub --set-file 'material.keyrings[0]=out/keys/keyring.json'
+material:
+  existingKeySecret: ""
+  key: ""
+  pin: ""
+  keyrings: []
+  roots: []
+  bundle: ""
+
+# The processor's TLS. Its server certificate (DNS name `name`) and key are a Secret: the chart makes one from
+# `cert` and `key`, or uses the kubernetes.io/tls Secret `existingSecret` names. `ca` is the mesh CA: the processor
+# requires Envoy's client certificate to chain to it, and Envoy checks the processor's certificate against it. The
+# chart puts it in a ConfigMap as ca.crt, or uses the ConfigMap `existingCAConfigMap` names, which must hold it so.
+tls:
+  existingSecret: ""
+  cert: ""
+  key: ""
+  existingCAConfigMap: ""
+  ca: ""
+
+# The processor's replicas when autoscaling is off.
+replicas: 2
+
+# A HorizontalPodAutoscaler on CPU. It needs the cluster's resource metrics (metrics-server); without them it keeps
+# minReplicas.
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 4
+  targetCPUUtilizationPercentage: 70
+
+podDisruptionBudget:
+  minAvailable: 1
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 64Mi
+  limits:
+    cpu: "1"
+    memory: 256Mi
+
+# How long a stopping pod keeps serving before the processor begins to drain, so that Envoy stops sending it new
+# requests first. The processor then lets the requests in flight finish for up to 10 s.
+preStopSleepSeconds: 5
+terminationGracePeriodSeconds: 30
+
+# Prometheus's scrape annotations on the processor's pods: /metrics on the admin port.
+scrapeAnnotations: true
+
+# Who may reach the admin port (/metrics, /readyz, /livez): NetworkPolicy peers, or anyone when empty.
+adminFrom: []

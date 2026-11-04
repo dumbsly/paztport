@@ -1,0 +1,151 @@
+{{- /*
+Copyright 2026 The Paztport Authors
+SPDX-License-Identifier: Apache-2.0
+
+The processor. It reads every file once, at start, so the checksum annotations roll the pods when the chart's
+material or routes change, or, at an install or upgrade, when an existing Secret or ConfigMap the values name has.
+It serves gRPC on 9002 to Envoy alone (mutual TLS, and the NetworkPolicy), and /metrics, /readyz and /livez on 9090.
+*/ -}}
+{{- $existing := dict -}}
+{{- $named := dict "Secret/key" .Values.material.existingKeySecret "Secret/tls" .Values.tls.existingSecret }}
+{{- $_ := set $named "ConfigMap/ca" .Values.tls.existingCAConfigMap }}
+{{- range $kind, $name := $named }}
+{{- if $name }}
+{{- $obj := lookup "v1" (splitList "/" $kind | first) $.Release.Namespace $name }}
+{{- $_ := set $existing $kind (toJson (default dict $obj.data)) }}
+{{- end }}
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.name }}
+  labels:
+    {{- include "edge.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicas }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "edge.selector" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "edge.labels" . | nindent 8 }}
+      annotations:
+        checksum/material: {{ include (print $.Template.BasePath "/material.yaml") . | sha256sum }}
+        checksum/existing: {{ toJson $existing | sha256sum }}
+        {{- if .Values.scrapeAnnotations }}
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: /metrics
+        {{- end }}
+    spec:
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: processor
+          image: {{ include "edge.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: grpc
+              containerPort: 9002
+            - name: admin
+              containerPort: 9090
+          env:
+            - name: PROCESSOR_LISTEN
+              value: ":9002"
+            - name: PROCESSOR_ADMIN_LISTEN
+              value: ":9090"
+            - name: PROCESSOR_TLS_CERT
+              value: /etc/paztport/tls/tls.crt
+            - name: PROCESSOR_TLS_KEY
+              value: /etc/paztport/tls/tls.key
+            - name: PROCESSOR_CLIENT_CA
+              value: /etc/paztport/ca/ca.crt
+            - name: PROCESSOR_KEY
+              value: /etc/paztport/key/edge.key
+            - name: PROCESSOR_PIN
+              value: /etc/paztport/policy/policy.pub
+            - name: PROCESSOR_KEYRINGS
+              value: {{ include "edge.files" (dict "prefix" "keyring" "list" .Values.material.keyrings) | quote }}
+            - name: PROCESSOR_ROOTS
+              value: {{ include "edge.files" (dict "prefix" "root" "list" .Values.material.roots) | quote }}
+            - name: PROCESSOR_BUNDLE
+              value: /etc/paztport/policy/proofs-edge.json
+            - name: PROCESSOR_ROUTES
+              value: /etc/paztport/policy/routes.txt
+            - name: PROCESSOR_BODY_LIMIT
+              value: {{ .Values.bodyLimit | int64 | quote }}
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: admin
+            periodSeconds: 2
+            failureThreshold: 1
+          livenessProbe:
+            httpGet:
+              path: /livez
+              port: admin
+            periodSeconds: 10
+          lifecycle:
+            preStop:
+              sleep:
+                seconds: {{ .Values.preStopSleepSeconds }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: key
+              mountPath: /etc/paztport/key
+              readOnly: true
+            - name: tls
+              mountPath: /etc/paztport/tls
+              readOnly: true
+            - name: ca
+              mountPath: /etc/paztport/ca
+              readOnly: true
+            - name: policy
+              mountPath: /etc/paztport/policy
+              readOnly: true
+      volumes:
+        - name: key
+          secret:
+            secretName: {{ include "edge.keySecret" . }}
+            defaultMode: 0440
+            items:
+              - key: edge.key
+                path: edge.key
+        - name: tls
+          secret:
+            secretName: {{ include "edge.tlsSecret" . }}
+            defaultMode: 0440
+            items:
+              - key: tls.crt
+                path: tls.crt
+              - key: tls.key
+                path: tls.key
+        - name: ca
+          configMap:
+            name: {{ include "edge.caConfigMap" . }}
+            items:
+              - key: ca.crt
+                path: ca.crt
+        - name: policy
+          configMap:
+            name: {{ .Values.name }}-policy

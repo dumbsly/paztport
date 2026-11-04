@@ -1,0 +1,273 @@
+# Copyright 2026 The Paztport Authors
+# SPDX-License-Identifier: Apache-2.0
+#
+# java-mesh's orders and payment, as they are, behind the edge: orders takes POST /orders from the Gateway and calls
+# payment's POST /pay; payment answers PAID. Both verify every request they are sent, in enforce mode, and accept only
+# edge as a chain's origin, so a request the edge did not stamp is refused at orders, the first backend hop.
+#
+# Every hop is mutual TLS, as in java-mesh: each service presents its own certificate (one DNS name, the service's
+# own, which is why the Services are named exactly orders and payment) and requires one from the mesh CA on every
+# path, its probes' included; so the probes open a TCP connection and nothing more. Each pod mounts only the files
+# its role needs, at the paths java-mesh mounts them at, from the Secrets and ConfigMaps envoy-gateway.sh makes:
+#
+#   orders-key, payment-key     Secret: the service's own Paztport key
+#   orders-tls, payment-tls     Secret: the service's TLS certificate and key
+#   mesh-policy                 ConfigMap: keyring.json, policy.pub, root.json, proofs-orders.json
+#   mesh-ca                     ConfigMap: ca.crt, the mesh CA's certificate
+#
+# SERVER_FORWARDHEADERSSTRATEGY=NONE: on Kubernetes, Spring Boot otherwise trusts X-Forwarded-For from any private
+# address, so a peer's instance, which a refusal's event names, would come from a header the client sent.
+# MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE=health,prometheus exposes /actuator/prometheus beside the default
+# /actuator/health, both behind the same mutual TLS; the inbound filter does not verify /actuator.
+#
+# The images are built locally and loaded into kind (imagePullPolicy: Never). orders runs two replicas, so that a
+# retry can reach another one.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orders
+  namespace: paztport
+spec:
+  replicas: 2
+  selector:
+    matchLabels: {app: orders}
+  template:
+    metadata:
+      labels: {app: orders}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: orders
+          image: paztport-orders:dev
+          imagePullPolicy: Never
+          ports:
+            - {name: https, containerPort: 8080}
+          env:
+            - {name: PAZTPORT_VERIFY, value: "true"}
+            - {name: PAZTPORT_MODE, value: enforce}
+            - {name: PAZTPORT_ORIGINS, value: edge}
+            - {name: SERVER_FORWARDHEADERSSTRATEGY, value: NONE}
+            - {name: MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE, value: "health,prometheus"}
+          readinessProbe:
+            tcpSocket: {port: https}
+            periodSeconds: 2
+          livenessProbe:
+            tcpSocket: {port: https}
+            initialDelaySeconds: 60
+            periodSeconds: 10
+          resources:
+            requests: {cpu: 250m, memory: 384Mi}
+            limits: {memory: 768Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          volumeMounts:
+            - {name: keys, mountPath: /config/keys, readOnly: true}
+            - {name: policy, mountPath: /config/policy, readOnly: true}
+            - {name: tls, mountPath: /config/tls, readOnly: true}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: keys
+          projected:
+            defaultMode: 0440
+            sources:
+              - secret:
+                  name: orders-key
+                  items: [{key: orders.key, path: orders.key}]
+              - configMap:
+                  name: mesh-policy
+                  items: [{key: keyring.json, path: keyring.json}, {key: policy.pub, path: policy.pub}]
+        - name: policy
+          projected:
+            defaultMode: 0440
+            sources:
+              - configMap:
+                  name: mesh-policy
+                  items: [{key: root.json, path: root.json}, {key: proofs-orders.json, path: proofs-orders.json}]
+        - name: tls
+          projected:
+            defaultMode: 0440
+            sources:
+              - secret:
+                  name: orders-tls
+                  items: [{key: tls.crt, path: orders.crt}, {key: tls.key, path: orders.key}]
+              - configMap:
+                  name: mesh-ca
+                  items: [{key: ca.crt, path: ca.crt}]
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: orders
+  namespace: paztport
+spec:
+  selector: {app: orders}
+  ports:
+    - {name: https, port: 8080, targetPort: https}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payment
+  namespace: paztport
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: payment}
+  template:
+    metadata:
+      labels: {app: payment}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: payment
+          image: paztport-payment:dev
+          imagePullPolicy: Never
+          ports:
+            - {name: https, containerPort: 8080}
+          env:
+            - {name: PAZTPORT_MODE, value: enforce}
+            - {name: PAZTPORT_ORIGINS, value: edge}
+            - {name: PAZTPORT_KEY_PATH, value: /config/keys/payment.key}
+            - {name: PAZTPORT_POLICY_KEY_PATH, value: /config/keys/policy.pub}
+            # payment also defines an SSL bundle for the PSP, another organisation, which this proof of concept
+            # leaves out. Actuator's SSL metrics read every bundle's files at start, so they are left out with it.
+            - name: SPRING_AUTOCONFIGURE_EXCLUDE
+              value: org.springframework.boot.micrometer.metrics.autoconfigure.ssl.SslMetricsAutoConfiguration
+            - {name: SERVER_FORWARDHEADERSSTRATEGY, value: NONE}
+            - {name: MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE, value: "health,prometheus"}
+          readinessProbe:
+            tcpSocket: {port: https}
+            periodSeconds: 2
+          livenessProbe:
+            tcpSocket: {port: https}
+            initialDelaySeconds: 60
+            periodSeconds: 10
+          resources:
+            requests: {cpu: 250m, memory: 384Mi}
+            limits: {memory: 768Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          volumeMounts:
+            - {name: keys, mountPath: /config/keys, readOnly: true}
+            - {name: policy, mountPath: /config/policy, readOnly: true}
+            - {name: tls, mountPath: /config/tls, readOnly: true}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: keys
+          projected:
+            defaultMode: 0440
+            sources:
+              - secret:
+                  name: payment-key
+                  items: [{key: payment.key, path: payment.key}]
+              - configMap:
+                  name: mesh-policy
+                  items: [{key: keyring.json, path: keyring.json}, {key: policy.pub, path: policy.pub}]
+        - name: policy
+          projected:
+            defaultMode: 0440
+            sources:
+              - configMap:
+                  name: mesh-policy
+                  items: [{key: root.json, path: root.json}]
+        - name: tls
+          projected:
+            defaultMode: 0440
+            sources:
+              - secret:
+                  name: payment-tls
+                  items: [{key: tls.crt, path: payment.crt}, {key: tls.key, path: payment.key}]
+              - configMap:
+                  name: mesh-ca
+                  items: [{key: ca.crt, path: ca.crt}]
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: payment
+  namespace: paztport
+spec:
+  selector: {app: payment}
+  ports:
+    - {name: https, port: 8080, targetPort: https}
+---
+# The Paztport route: POST /orders, stamped by the edge for orders.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: orders
+  namespace: paztport
+spec:
+  parentRefs:
+    - name: edge
+  rules:
+    - matches:
+        - path: {type: PathPrefix, value: /orders}
+      backendRefs:
+        - {name: orders, port: 8080}
+---
+# A second route to orders, for the host unmapped.example, that the processor is attached to but its routes do not
+# map: the processor refuses every request on it, and orders sees none.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: orders-unmapped
+  namespace: paztport
+spec:
+  parentRefs:
+    - name: edge
+  hostnames: [unmapped.example]
+  rules:
+    - matches:
+        - path: {type: PathPrefix, value: /orders}
+      backendRefs:
+        - {name: orders, port: 8080}
+---
+# Envoy reaches orders over mutual TLS: it checks orders' certificate against the mesh CA, for the name orders, and
+# presents the edge's certificate (the EnvoyProxy's).
+apiVersion: gateway.networking.k8s.io/v1
+kind: BackendTLSPolicy
+metadata:
+  name: orders
+  namespace: paztport
+spec:
+  targetRefs:
+    - {group: "", kind: Service, name: orders}
+  validation:
+    hostname: orders
+    caCertificateRefs:
+      - {group: "", kind: ConfigMap, name: mesh-ca}
+---
+# Retries on the routes to orders only where the request never reached it: a connection that failed, or a stream it
+# refused. Retrying anything it may have received would send it the same stamp twice.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: BackendTrafficPolicy
+metadata:
+  name: orders-retry
+  namespace: paztport
+spec:
+  targetRefs:
+    - {group: gateway.networking.k8s.io, kind: HTTPRoute, name: orders}
+    - {group: gateway.networking.k8s.io, kind: HTTPRoute, name: orders-unmapped}
+  retry:
+    numRetries: 2
+    retryOn:
+      triggers: [connect-failure, refused-stream]

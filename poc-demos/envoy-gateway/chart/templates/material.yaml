@@ -1,0 +1,63 @@
+{{- /*
+Copyright 2026 The Paztport Authors
+SPDX-License-Identifier: Apache-2.0
+
+The processor's files: the edge's private key and the processor's TLS key as Secrets (unless the values name
+existing ones), and the public material, the routes and the mesh CA as ConfigMaps. The Deployment's checksum
+annotation hashes this file as rendered, so a change to any of them rolls the pods. Each file goes in as a JSON
+string, so that its bytes arrive exactly as given.
+*/ -}}
+{{- $m := .Values.material -}}
+{{- if not $m.existingKeySecret }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ include "edge.keySecret" . }}
+  labels:
+    {{- include "edge.labels" . | nindent 4 }}
+type: Opaque
+data:
+  edge.key: {{ required "material.key (or material.existingKeySecret) is required" $m.key | b64enc }}
+{{- end }}
+{{- if not .Values.tls.existingSecret }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ include "edge.tlsSecret" . }}
+  labels:
+    {{- include "edge.labels" . | nindent 4 }}
+type: kubernetes.io/tls
+data:
+  tls.crt: {{ required "tls.cert (or tls.existingSecret) is required" .Values.tls.cert | b64enc }}
+  tls.key: {{ required "tls.key (or tls.existingSecret) is required" .Values.tls.key | b64enc }}
+{{- end }}
+{{- if not .Values.tls.existingCAConfigMap }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "edge.caConfigMap" . }}
+  labels:
+    {{- include "edge.labels" . | nindent 4 }}
+data:
+  ca.crt: {{ required "tls.ca (or tls.existingCAConfigMap) is required" .Values.tls.ca | toJson }}
+{{- end }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.name }}-policy
+  labels:
+    {{- include "edge.labels" . | nindent 4 }}
+data:
+  policy.pub: {{ required "material.pin is required" $m.pin | toJson }}
+  {{- range $i, $k := required "material.keyrings needs at least one keyring" $m.keyrings }}
+  keyring-{{ $i }}.json: {{ $k | toJson }}
+  {{- end }}
+  {{- range $i, $r := required "material.roots needs at least one root" $m.roots }}
+  root-{{ $i }}.json: {{ $r | toJson }}
+  {{- end }}
+  proofs-edge.json: {{ required "material.bundle is required" $m.bundle | toJson }}
+  routes.txt: |
+    {{- include "edge.routes" . | nindent 4 }}

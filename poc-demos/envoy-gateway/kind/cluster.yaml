@@ -1,0 +1,12 @@
+# Copyright 2026 The Paztport Authors
+# SPDX-License-Identifier: Apache-2.0
+#
+# The local cluster: one node, on the node image pinned by digest (Kubernetes 1.36, within Envoy Gateway v1.9's
+# supported range), with kind's own network plugin, which enforces NetworkPolicy. Nothing is published on the host:
+# the checks reach the cluster from a pod inside it, or through kubectl port-forward.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: paztport-envoy-gateway
+nodes:
+  - role: control-plane
+    image: kindest/node:v1.36.4@sha256:099e049362a1526b2db71494e1947aae99bd16290d7c895f2b7ea312e3cbfaed

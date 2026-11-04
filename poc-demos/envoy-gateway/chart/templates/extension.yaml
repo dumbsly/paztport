@@ -1,0 +1,89 @@
+{{- /*
+Copyright 2026 The Paztport Authors
+SPDX-License-Identifier: Apache-2.0
+
+Attaches the processor to the routes, and has Envoy reach it over mutual TLS.
+
+The filter fails closed (failOpen: false): a processor that fails, is unreachable or does not answer within
+messageTimeout is a refusal (500). It sends the request's headers with the matched route's metadata, from which the
+processor names the HTTPRoute, and buffers the whole body before sending it. It sends the response's headers, and
+not its body, so that the processor can remove every Paztport header from the response. It allows mode overrides: the
+processor's answer to headers that a body follows asks for the request's trailers too (restating these same body
+and response modes), so that a request ending in trailers with no body reaches the processor, and is refused,
+rather than going on unstamped. There are no header mutation rules: the processor must be able to remove and set
+every Paztport header.
+
+Envoy checks the processor's certificate against the mesh CA, for the Service's name, and presents the edge's
+client certificate, the EnvoyProxy's backendTLS setting.
+*/ -}}
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: EnvoyExtensionPolicy
+metadata:
+  name: {{ .Values.name }}
+  labels:
+    {{- include "edge.labels" . | nindent 4 }}
+spec:
+  targetRefs:
+    {{- range .Values.routes }}
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: {{ .httpRoute }}
+    {{- end }}
+    {{- $mapped := list }}{{ range .Values.routes }}{{ $mapped = append $mapped .httpRoute }}{{ end }}
+    {{- range .Values.extraRoutes }}
+    {{- if has . $mapped }}{{ fail (printf "the HTTPRoute %s is in both routes and extraRoutes" .) }}{{ end }}
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: {{ . }}
+    {{- end }}
+  extProc:
+    - backendRefs:
+        - name: {{ .Values.name }}
+          port: 9002
+      failOpen: false
+      messageTimeout: {{ .Values.messageTimeout }}
+      processingMode:
+        allowModeOverride: true
+        request:
+          body: Buffered
+          attributes:
+            - xds.route_metadata
+        response: {}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: BackendTLSPolicy
+metadata:
+  name: {{ .Values.name }}
+  labels:
+    {{- include "edge.labels" . | nindent 4 }}
+spec:
+  targetRefs:
+    - group: ""
+      kind: Service
+      name: {{ .Values.name }}
+  validation:
+    hostname: {{ .Values.name }}
+    caCertificateRefs:
+      - group: ""
+        kind: ConfigMap
+        name: {{ include "edge.caConfigMap" . }}
+{{- if .Values.clientTrafficPolicy }}
+---
+{{- /*
+Envoy buffers a request's whole body before the processor stamps it, and Envoy Gateway v1.9 sets that buffer's limit
+per listener only: so the Gateway's listener limit is the body limit, and a longer body is refused.
+*/}}
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: ClientTrafficPolicy
+metadata:
+  name: {{ .Values.name }}
+  labels:
+    {{- include "edge.labels" . | nindent 4 }}
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: {{ .Values.gateway.name }}
+  connection:
+    bufferLimit: {{ .Values.bodyLimit | int64 }}
+{{- end }}
