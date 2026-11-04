@@ -3,6 +3,7 @@
 
 package org.paztport.spring;
 
+import io.micrometer.observation.ObservationRegistry;
 import org.paztport.core.stamp.Stamper;
 import org.paztport.core.verify.Verifier;
 import org.paztport.http.ModeHolder;
@@ -76,9 +77,9 @@ public class PaztportAutoConfiguration {
     @Bean
     @ConditionalOnProperty("paztport.partner.enabled")
     FilterRegistrationBean<PartnerFilter> partnerFilterRegistration(
-            PartnerSessions sessions, PaztportProperties props) {
-        FilterRegistrationBean<PartnerFilter> registration =
-                new FilterRegistrationBean<>(new PartnerFilter(sessions, props.getServiceName()));
+            PartnerSessions sessions, PaztportProperties props, ObjectProvider<ObservationRegistry> observations) {
+        FilterRegistrationBean<PartnerFilter> registration = new FilterRegistrationBean<>(new PartnerFilter(sessions,
+                props.getServiceName(), observations.getIfAvailable(() -> ObservationRegistry.NOOP)));
         registration.setOrder(Ordered.HIGHEST_PRECEDENCE);
         registration.addUrlPatterns("/*");
         return registration;
@@ -103,7 +104,8 @@ public class PaztportAutoConfiguration {
             ObjectProvider<ModeHolder> modeHolder,
             ObjectProvider<EventPublisher> publisher,
             ObjectProvider<ReceivedRequestListener> listener,
-            ObjectProvider<Stamper> stamper) {
+            ObjectProvider<Stamper> stamper,
+            ObjectProvider<ObservationRegistry> observations) {
         Verifier shared = verifier.getIfAvailable();
         if (props.isVerify() && shared == null) {
             throw new IllegalStateException("paztport.verify is true but paztport.keyring-path, "
@@ -112,7 +114,8 @@ public class PaztportAutoConfiguration {
         // The verifier goes to every service that has one: where requests are not verified, it decides attestation.
         InboundFilter filter = new InboundFilter(
                 shared, props.isVerify(), props.isOrigin(), props.getServiceName(), modeHolder.getIfAvailable(),
-                publisher.getIfAvailable(), listener.getIfAvailable(), stamper.getIfAvailable());
+                publisher.getIfAvailable(), listener.getIfAvailable(), stamper.getIfAvailable(),
+                observations.getIfAvailable(() -> ObservationRegistry.NOOP));
         FilterRegistrationBean<InboundFilter> registration = new FilterRegistrationBean<>(filter);
         registration.setOrder(Ordered.HIGHEST_PRECEDENCE);
         registration.addUrlPatterns("/*");

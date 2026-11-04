@@ -41,8 +41,21 @@
         </dependency>
 
         <dependency>
+            <!-- ObservationRegistry, in which the filters and the interceptor record each verification result.
+                 An application without a registry passes ObservationRegistry.NOOP. -->
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-observation</artifactId>
+        </dependency>
+
+        <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <!-- Test code only: TestObservationRegistry, to read the observations the filters record. -->
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-observation-test</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>

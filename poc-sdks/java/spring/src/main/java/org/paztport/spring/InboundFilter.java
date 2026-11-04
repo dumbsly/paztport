@@ -3,6 +3,8 @@
 
 package org.paztport.spring;
 
+import io.micrometer.observation.Observation;
+import io.micrometer.observation.ObservationRegistry;
 import jakarta.servlet.AsyncEvent;
 import jakarta.servlet.AsyncListener;
 import jakarta.servlet.FilterChain;
@@ -14,6 +16,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import org.paztport.core.stamp.Stamper;
 import org.paztport.core.verify.Peer;
 import org.paztport.core.verify.Verifier;
@@ -26,8 +29,10 @@ import org.paztport.http.RequestContext;
 import org.paztport.http.VerificationMode;
 import org.paztport.http.event.EventPublisher;
 import org.paztport.http.wire.PaztportHeaders;
+import org.paztport.spring.internal.ObservedValues;
 import org.paztport.spring.internal.PeerIdentity;
 import org.paztport.spring.internal.Refusals;
+import org.paztport.spring.observation.PaztportObservation;
 import org.springframework.web.filter.OncePerRequestFilter;
 import org.springframework.web.util.ContentCachingResponseWrapper;
 
@@ -52,7 +57,12 @@ import org.springframework.web.util.ContentCachingResponseWrapper;
  * the filter has returned: it is sent whole when the async work completes, without {@code X-Path-Response}, and its
  * caller counts it as untrusted.
  *
- * <p>The control plane ({@link #controlPlane}) is not filtered.
+ * <p>Each request filtered is recorded as one {@link PaztportObservation#REQUEST} observation: the mode, the reason
+ * the verification gave and whether the request was served or refused. It spans the decision and ends before the
+ * handler runs, with its error if the decision throws. Nothing from the request is tagged, only fixed words and
+ * reason codes' names.
+ *
+ * <p>The control plane ({@link #controlPlane}) is not filtered, so it is not observed.
  */
 public final class InboundFilter extends OncePerRequestFilter {
 
@@ -66,6 +76,7 @@ public final class InboundFilter extends OncePerRequestFilter {
     private final HttpReceiver receiver;
     private final boolean verifyRequests;
     private final ModeHolder modeHolder;
+    private final ObservationRegistry observations;
 
     /**
      * @param verifier this service's verifier, or null where it holds no keyring, root and pin; without one it
@@ -77,10 +88,13 @@ public final class InboundFilter extends OncePerRequestFilter {
      *     influence and never attests
      * @param receiver this service's name
      * @param stamper this service's stamper, or null where it has no stamp key and so cannot attest
+     * @param observations where each request's verification result is recorded; {@link ObservationRegistry#NOOP}
+     *     where the application has no Micrometer registry
      */
     public InboundFilter(
             Verifier verifier, boolean verifyRequests, boolean origin, String receiver, ModeHolder modeHolder,
-            EventPublisher publisher, ReceivedRequestListener listener, Stamper stamper) {
+            EventPublisher publisher, ReceivedRequestListener listener, Stamper stamper,
+            ObservationRegistry observations) {
         if (verifyRequests && (verifier == null || modeHolder == null || publisher == null)) {
             throw new IllegalArgumentException("verifying requests needs a verifier, a mode holder and a publisher");
         }
@@ -88,6 +102,7 @@ public final class InboundFilter extends OncePerRequestFilter {
                 .origin(origin).publisher(publisher).listener(listener).stamper(stamper).build();
         this.verifyRequests = verifyRequests;
         this.modeHolder = modeHolder;
+        this.observations = Objects.requireNonNull(observations, "observations");
     }
 
     @Override
@@ -141,8 +156,8 @@ public final class InboundFilter extends OncePerRequestFilter {
         byte[] body = CachedBodyHttpServletRequest.readAll(request);
         CachedBodyHttpServletRequest wrapped = new CachedBodyHttpServletRequest(request, body);
         VerificationMode mode = verifyRequests ? modeHolder.get() : VerificationMode.OFF;
-        try (RequestContext.Entered<Accepted> entered = RequestContext.accept(receiver, inbound(request, body),
-                PeerIdentity.from(request), mode)) {
+        try (RequestContext.Entered<Accepted> entered = observed(inbound(request, body), PeerIdentity.from(request),
+                mode)) {
             Accepted accepted = entered.result();
             if (accepted.refusal() != null) {
                 Refusals.write(response, accepted.refusal());
@@ -169,6 +184,34 @@ public final class InboundFilter extends OncePerRequestFilter {
                 }
             }
             cached.copyBodyToResponse();
+        }
+    }
+
+    /**
+     * The receiver's decision, as {@link RequestContext#accept(HttpReceiver, InboundRequest, Peer, VerificationMode)}
+     * makes it, recorded as an observation that is open while the decision runs and stopped before this returns, so
+     * before the handler. The mode is known at the start; the reason and the outcome only once it is made.
+     */
+    private RequestContext.Entered<Accepted> observed(InboundRequest inbound, Peer peer, VerificationMode mode) {
+        Observation observation = Observation.createNotStarted(PaztportObservation.REQUEST.getName(), observations)
+                .lowCardinalityKeyValue(PaztportObservation.Keys.MODE.withValue(
+                        verifyRequests ? mode.name().toLowerCase(Locale.ROOT) : ObservedValues.NONE))
+                .start();
+        String reason = ObservedValues.NONE;
+        String outcome = ObservedValues.REFUSED;
+        try (Observation.Scope open = observation.openScope()) {
+            RequestContext.Entered<Accepted> entered = RequestContext.accept(receiver, inbound, peer, mode);
+            Accepted accepted = entered.result();
+            reason = ObservedValues.reason(accepted.result());
+            outcome = accepted.refusal() == null ? ObservedValues.SERVED : ObservedValues.REFUSED;
+            return entered;
+        } catch (Throwable t) {
+            observation.error(t);
+            throw t;
+        } finally {
+            observation.lowCardinalityKeyValue(PaztportObservation.Keys.REASON.withValue(reason))
+                    .lowCardinalityKeyValue(PaztportObservation.Keys.OUTCOME.withValue(outcome))
+                    .stop();
         }
     }
 
