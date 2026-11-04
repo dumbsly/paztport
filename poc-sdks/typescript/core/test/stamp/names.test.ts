@@ -27,7 +27,9 @@ describe("stamping names", () => {
     it(`mintOrigin refuses rcv ${shown}`, () => expect(origin("session", bad)).toThrow(/^rcv must be a route node/));
     it(`stampLocalStep refuses svc ${shown}`, () => expect(localStep(bad)).toThrow(/^svc must be a route node/));
   }
-  it("stampLocalStep refuses a tool name that makes its receiver unroutable", () => expect(localStep("pi", "a/b")).toThrow(/^rcv must be a route node/));
+  it("stampLocalStep leaves the tool part of its receiver alone: an unlisted tool's refusal is still signed", () => {
+    expect(localStep("pi", "ext/bash")).not.toThrow();
+  });
   it("the message does not quote the value", () => {
     expect(() => requireStampableNames("a/secret", "pi")).toThrow(expect.objectContaining({ message: expect.not.stringContaining("secret") }));
   });

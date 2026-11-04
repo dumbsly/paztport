@@ -97,6 +97,17 @@ describe("verifyRecordedLocalStep", () => {
     });
   });
 
+  for (const tool of ["ext/bash", ".", ".."]) {
+    it(`anUnlistedToolNamed${JSON.stringify(tool)}IsStampedAndItsRefusalVerifies`, () => {
+      // the tool is data in `local:<tool>`, and an unlisted tool's route is never proven, so no route-node rule applies
+      const w = world();
+      expect(w.check(w.step({ tool, input: {}, resolved: NOTHING, verdict: "PATH_NOT_ALLOWED", routeAllowed: false }))).toEqual({
+        reason: "OK",
+        verdict: "PATH_NOT_ALLOWED",
+      });
+    });
+  }
+
   it("withNoRulesEveryStepIsScopeDenied", () => {
     const w = world();
     const none = w.client({ rules: null });

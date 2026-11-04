@@ -93,9 +93,10 @@ It implements protocol v3, as the [spec](../spec/README.md) defines it:
   are refused. `sanitiseVerdictReason` makes a server's refusal reason safe to show, since it reaches the model,
   `labelToEntry` turns a verified response's label into the influence entry a client records, and
   `shapedOnlyByTrusted` says whether influence holds no untrusted content. `mintOrigin` takes the origin name as
-  `svc`, which the policy and its receivers' allowed origins must carry too. `mintOrigin`, `stampLocalStep` and
-  `stampToolCall` refuse a signing name or a receiver that is not a route node (`requireStampableNames`), since such a
-  stamp could never verify; `signStamp`, the low-level builder, does not, so a test can still build a bad stamp.
+  `svc`, which the policy and its receivers' allowed origins must carry too. `mintOrigin` and `stampToolCall`
+  refuse a signing name or a receiver that is not a route node (`requireStampableNames`), since such a stamp could
+  never verify, and `stampLocalStep` refuses a signing name that is not one (the tool in its `local:<tool>` receiver is
+  data: an unlisted tool's refusal verifies without a route proof); `signStamp`, the low-level builder, does not, so a test can still build a bad stamp.
 
 ## @paztport/mcp
 
