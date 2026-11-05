@@ -127,10 +127,16 @@ const LENGTH = SCENARIO.stages ? SCENARIO.stages.reduce((sum, st) => sum + secon
   : seconds(SCENARIO.duration);
 const SECONDS = Math.ceil(LENGTH) + seconds(GRACEFUL_STOP) + 30;
 const KINDS = ['expected', '5xx', 'rest'];
+// One counter for each kind, each response tagged with its second. k6 puts a tag's counts in the summary only for a
+// threshold on it, so there is one, always met, on each second of each kind: built in the init that reads the
+// options (__VU 0) only, since a user of its own would carry them all, and thousands of users would not fit k6's pod.
 const perSecond = {};
-for (const kind of KINDS) {
-  perSecond[kind] = [];
-  for (let i = 0; i < SECONDS; i++) perSecond[kind].push(new Counter(`second_${kind}_${i}`));
+for (const kind of KINDS) perSecond[kind] = new Counter(`second_${kind}`);
+const thresholds = {};
+if (__VU === 0) {
+  for (const kind of KINDS) {
+    for (let i = 0; i < SECONDS; i++) thresholds[`second_${kind}{s:${i}}`] = ['count>=0'];
+  }
 }
 const late = new Counter('second_late');
 // When each response other than EXPECT came back, in ms from t0: its min and max are the first and the last.
@@ -138,6 +144,7 @@ const unexpectedAt = new Trend('unexpected_at');
 
 export const options = {
   scenarios: { edge: SCENARIO },
+  thresholds,
   summaryTrendStats: ['min', 'med', 'p(90)', 'p(99)', 'max'],
   maxRedirects: 0,
   // A run's numbers are its RESULT line alone.
@@ -171,7 +178,7 @@ export default function (data) {
   }
   const second = Math.max(0, Math.floor((at - data.t0) / 1000));
   if (second < SECONDS) {
-    perSecond[kind][second].add(1);
+    perSecond[kind].add(1, { s: String(second) });
   } else {
     late.add(1);
   }
@@ -216,7 +223,7 @@ export function handleSummary(data) {
   };
   for (const kind of KINDS) {
     const counts = [];
-    for (let i = 0; i < SECONDS; i++) counts.push(count(data, `second_${kind}_${i}`));
+    for (let i = 0; i < SECONDS; i++) counts.push(count(data, `second_${kind}{s:${i}}`));
     while (counts.length && counts[counts.length - 1] === 0) counts.pop();
     window[kind] = counts;
   }

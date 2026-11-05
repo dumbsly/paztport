@@ -313,7 +313,7 @@ netem_clear() {
   local pod n=0 qdiscs
   for pod in $(processor_pods); do
     qdiscs=$(pod_tc "$pod" qdisc show dev eth0) || return 1
-    if grep -qE 'netem|prio' <<<"$qdiscs"; then
+    if grep -qE '^qdisc (netem|prio) ' <<<"$qdiscs"; then
       pod_tc "$pod" qdisc del dev eth0 root || return 1
       n=$((n + 1))
     fi
@@ -362,7 +362,7 @@ tc qdisc add dev eth0 root netem delay $2ms" ;;
 # left; prints the node's time once it is gone, in epoch ms.
 unslow_pod() {
   pod_netns "$1" "tc qdisc del dev eth0 root 2>/dev/null || true
-if tc qdisc show dev eth0 | grep -qE 'netem|prio'; then exit 1; fi"
+if tc qdisc show dev eth0 | grep -qE '^qdisc (netem|prio) '; then exit 1; fi"
 }
 
 # kill_container <pod>: SIGKILLs the pod's running container's process, from the kind node, as the kernel's OOM
@@ -456,17 +456,17 @@ material_matches() {
   [ "$bad" -eq 0 ]
 }
 
-# baseline_reset: puts the cluster back as every suite starts from it, and prints that state. Any HTTPRoute but
-# orders, orders-unmapped, echo and echo-plain is taken off the Gateway first, and any BackendTrafficPolicy but
-# theirs deleted, then the chart is the measurements'
-# (two replicas, the autoscaler off), echo and its twin routes and the backends are as their files have them (enforce
-# mode, and no environment variable the file does not set: the run stops on one), no processor pod has a netem
-# queue (cleared first of all, since a delayed pod may not be ready, and every wait would then time out), and
-# everything is ready. A step that fails stops the whole run, and so
-# does an EnvoyExtensionPolicy that fails open, or material in any pod that is not out/'s: a suite that broke must not leave the next one measuring something
-# else. Nothing is rolled when nothing changed.
+# baseline_reset: puts the cluster back as every suite starts from it, and prints that state. No processor pod has a
+# netem queue (cleared first of all, since a delayed pod may not be ready, and every wait would then time out); any
+# HTTPRoute but orders, orders-unmapped, echo and echo-plain is taken off the Gateway, and any BackendTrafficPolicy
+# but theirs deleted; then the chart is the measurements' (two replicas, the autoscaler off), echo and its twin
+# routes and the backends are as their files have them (enforce mode, and no environment variable the file does not
+# set: the run stops on one), everything is ready, and Envoy routes to endpoints, its default (a routingType a suite
+# set is removed, and the wait made again). A step that fails stops the whole run, and so does an
+# EnvoyExtensionPolicy that fails open, or material in any pod that is not out/'s: a suite that broke must not leave
+# the next one measuring something else. Nothing is rolled when nothing changed.
 baseline_reset() {
-  local route policy name netem modes hpa replicas routes
+  local route policy name netem modes hpa replicas routes routing
   netem=$(netem_clear) || { echo "error: could not read or clear the processor pods' queues" >&2; exit 1; }
   for route in $(kn get httproutes -o name); do
     name="${route#*/}"
@@ -486,6 +486,13 @@ baseline_reset() {
   quietly "resetting echo and the twin routes" apply_routes kind/measure.yaml
   quietly "resetting the backends" k apply -f kind/backends.yaml
   quietly "waiting for the baseline" wait_measure
+  routing=$(envoy_routing) || { echo "error: could not read the EnvoyProxy's routingType" >&2; exit 1; }
+  if [ "$routing" != Endpoint ]; then
+    # Not through quietly: its subshell would lose the forward to Envoy's admin port the wait makes.
+    envoy_routing_set Endpoint || { echo "error: could not put Envoy back to routing to endpoints" >&2; exit 1; }
+    quietly "waiting for the baseline" wait_measure
+    routing="Endpoint (routingType $routing removed)"
+  fi
   backends_env_matches || {
     echo "error: the backends do not run as kind/backends.yaml has them; stopping" >&2
     exit 1
@@ -501,8 +508,9 @@ baseline_reset() {
   replicas=$(kn get deployment paztport-processor -o jsonpath='{.status.readyReplicas}/{.spec.replicas}')
   routes=$(kn get httproutes -o jsonpath='{.items[*].metadata.name}')
   routes+="; BackendTrafficPolicies $(kn get backendtrafficpolicies -o jsonpath='{.items[*].metadata.name}')"
-  echo "  baseline: processor $replicas ready, $hpa autoscaler(s), failOpen false; ${modes% }; routes $routes;" \
-    "netem removed from $netem pod(s), none left; material as out/'s in $MATERIAL_PODS pods"
+  echo "  baseline: processor $replicas ready, $hpa autoscaler(s), failOpen false; Envoy routing to $routing;" \
+    "${modes% }; routes $routes; netem removed from $netem pod(s), none left; material as out/'s in" \
+    "$MATERIAL_PODS pods"
 }
 
 # echo_counts: echo's counts, added up over its running pods: "<host> stamped=<n> unstamped=<n>" a line. Returns 1,
@@ -581,9 +589,11 @@ processor_outcomes() {
 }
 
 # outcomes_added <before> <after>: what processor_outcomes, or envoy_extproc_stats, added between two readings of
-# "<name>=<n>" words, as "<name> +<n>" for each name; or, for a counter lower than before, which started again
-# from zero in between (a processor pod that started again, a cluster Envoy was given anew), "<name> <n> since it
-# started again", as what it added before that is lost.
+# "<name>=<n>" words, as "<name> +<n>" for each name; or, for a counter lower than before, which started again from
+# zero in between (a processor pod that started again), "<name> <n> since it started again", as what it added before
+# that is lost. The cluster_ counters are one cluster's, which Envoy Gateway may delete and make again (it does when
+# the processor has no ready endpoint): when any of them is lower than before, every one of them is printed as
+# "<name> <n> since the cluster was made again", since a counter that merely did not fall lost its counts as well.
 outcomes_added() {
   awk -v a="$1" -v b="$2" 'BEGIN {
     n = split(a, x, " ")
@@ -591,10 +601,16 @@ outcomes_added() {
     n = split(b, y, " ")
     for (i = 1; i <= n; i++) {
       split(y[i], kv, "=")
-      if (kv[2] + 0 < before[kv[1]] + 0) {
-        out = out sep kv[1] " " kv[2] " since it started again"
+      name[i] = kv[1]; now[i] = kv[2]
+      if (kv[1] ~ /^cluster_/ && kv[2] + 0 < before[kv[1]] + 0) remade = 1
+    }
+    for (i = 1; i <= n; i++) {
+      if (remade && name[i] ~ /^cluster_/) {
+        out = out sep name[i] " " now[i] " since the cluster was made again"
+      } else if (now[i] + 0 < before[name[i]] + 0) {
+        out = out sep name[i] " " now[i] " since it started again"
       } else {
-        out = out sep kv[1] " " sprintf("%+d", kv[2] - before[kv[1]])
+        out = out sep name[i] " " sprintf("%+d", now[i] - before[name[i]])
       }
       sep = ", "
     }
@@ -615,14 +631,84 @@ processor_restarts() {
 
 # envoy_admin: a port-forward to the edge's Envoy's admin port (19000), made once -> ENVOY_ADMIN (its local address).
 # The admin port listens on Envoy's own loopback only, so a forward is the one way in.
+# A change to the EnvoyProxy can give Envoy a new pod: the forward is made again when its pod is not the one Envoy
+# runs in now, or the forward has stopped. A forward made in a subshell (a command substitution) is lost with it, so
+# a suite calls envoy_admin in its own shell first, and again after anything that may move Envoy.
 ENVOY_ADMIN=""
+ENVOY_ADMIN_POD=""
+ENVOY_ADMIN_PID=""
 envoy_admin() {
   local pod
-  [ -z "$ENVOY_ADMIN" ] || return 0
   pod=$(k -n "$EG_NS" get pods -l "gateway.envoyproxy.io/owning-gateway-name=edge" \
-    -o jsonpath='{.items[0].metadata.name}') || return 1
+    --field-selector=status.phase=Running -o jsonpath='{.items[0].metadata.name}') || return 1
+  if [ -n "$ENVOY_ADMIN" ] && [ "$pod" = "$ENVOY_ADMIN_POD" ] && kill -0 "$ENVOY_ADMIN_PID" 2>/dev/null; then
+    return 0
+  fi
+  [ -z "$ENVOY_ADMIN_PID" ] || { kill "$ENVOY_ADMIN_PID" 2>/dev/null; forget "$ENVOY_ADMIN_PID"; }
   forward "$EG_NS" "pod/$pod" 19000
   ENVOY_ADMIN="$FORWARDED"
+  ENVOY_ADMIN_POD="$pod"
+  ENVOY_ADMIN_PID="${forwards[${#forwards[@]} - 1]}"
+}
+
+# forget <pid>: takes a background process that has ended, or been waited for, out of forwards, so that measure.sh's
+# finish never signals its pid, which may be another process's by then.
+forget() {
+  local kept=() p
+  for p in ${forwards[@]+"${forwards[@]}"}; do
+    [ "$p" = "$1" ] || kept+=("$p")
+  done
+  forwards=(${kept[@]+"${kept[@]}"})
+}
+
+# envoy_routing: how Envoy reaches the backends and the processor, the EnvoyProxy edge's routingType: Endpoint (the
+# pods, Envoy Gateway's default when it is unset) or Service (the Service's cluster IP, which kube-proxy balances
+# per connection).
+envoy_routing() {
+  local routing
+  routing=$(k -n "$EG_NS" get envoyproxy edge -o jsonpath='{.spec.routingType}') || return 1
+  printf '%s' "${routing:-Endpoint}"
+}
+
+# envoy_routing_set Endpoint|Service: sets it (Endpoint by removing routingType, as kind/gateway.yaml has it), then
+# waits, for up to 120 s, until Envoy's cluster for the processor holds the hosts that routing gives: the processor's
+# pod IPs, or its Service's cluster IP. Run it in the suite's own shell, not a subshell (see envoy_admin).
+envoy_routing_set() {
+  local want hosts
+  if [ "$1" = Endpoint ]; then
+    if [ -n "$(k -n "$EG_NS" get envoyproxy edge -o jsonpath='{.spec.routingType}')" ]; then
+      k -n "$EG_NS" patch envoyproxy edge --type=json -p '[{"op": "remove", "path": "/spec/routingType"}]' \
+        >/dev/null || return 1
+    fi
+  else
+    k -n "$EG_NS" patch envoyproxy edge --type=merge -p "{\"spec\": {\"routingType\": \"$1\"}}" >/dev/null || return 1
+  fi
+  k -n "$EG_NS" rollout status deployment \
+    -l "gateway.envoyproxy.io/owning-gateway-name=edge,gateway.envoyproxy.io/owning-gateway-namespace=$NS" \
+    --timeout=180s >/dev/null || return 1
+  for _ in $(seq 1 120); do
+    if [ "$1" = Endpoint ]; then
+      want=$(kn get pods -l app.kubernetes.io/name=paztport-processor --field-selector=status.phase=Running \
+        -o jsonpath='{.items[*].status.podIP}' | tr ' ' '\n' | LC_ALL=C sort | paste -sd ' ' -)
+    else
+      want=$(kn get service paztport-processor -o jsonpath='{.spec.clusterIP}')
+    fi
+    # In this shell, so that a new forward, for a new Envoy pod, outlives the reading.
+    envoy_admin >/dev/null 2>&1 && hosts=$(processor_hosts 2>/dev/null) || hosts=""
+    [ -n "$want" ] && [ "$hosts" = "$want" ] && return 0
+    sleep 1
+  done
+  echo "error: Envoy's cluster for the processor holds [$hosts], not [$want], 120 s after routing to $1" >&2
+  return 1
+}
+
+# processor_hosts: the hosts of Envoy's cluster for the processor, from its admin port's /clusters, sorted, on one
+# line.
+processor_hosts() {
+  envoy_admin || return 1
+  curl -sf "http://$ENVOY_ADMIN/clusters" |
+    sed -n 's|^envoyextensionpolicy/[^:]*paztport-processor[^:]*::\([0-9.]*\):9002::health_flags::.*|\1|p' |
+    LC_ALL=C sort -u | paste -sd ' ' -
 }
 
 # envoy_extproc_stats: Envoy's counters for the processor: its ext_proc filter's streams (started, failed, timed
@@ -739,8 +825,9 @@ echo_unstamped() {
 # requests on its own: at 9000/s, with 500 ready and up to 4500 allowed, it dropped about 180 while the p99 was
 # 62 ms). By Little's law the pool then runs out only when the requests in flight average more than POOL_SECONDS,
 # 100 ms: past any stage that is sustained here (their mean stays well under it, though a sustained stage's p99 has
-# reached 87 ms), so a request dropped says that the system held the requests, not that k6 was short of users. At the highest stage, 25000/s, that is 2500 users, well
-# within k6's pod (about a quarter of a megabyte a user). Never fewer than CEILING_PREALLOC.
+# reached 87 ms), so a request dropped says that the system held the requests, not that k6 was short of users. At
+# the highest stage, 25000/s, that is 2500 users, well within k6's pod (about a quarter of a megabyte a user). Never
+# fewer than CEILING_PREALLOC.
 CEILING_PREALLOC=500
 POOL_SECONDS=0.1
 
