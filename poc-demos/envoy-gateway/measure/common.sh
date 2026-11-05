@@ -2,8 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # What the measurement suites share: the k6 runs, their alternation and summaries, error windows, the processor's
-# pods and the kind node, and the reset to the baseline every suite starts from. measure.sh sources it after
-# lib.sh, and sets RUN_DIR (this run's results), tmp (a scratch directory) and forwards (port-forwards to kill).
+# pods and the kind node and the faults put on them, echo's and the backends' counts, and the reset to the baseline
+# every suite starts from. measure.sh sources it after lib.sh, and sets RUN_DIR (this run's results), tmp (a scratch
+# directory) and forwards (the background processes to kill on exit: port-forwards and the like).
 # shellcheck shell=bash
 
 # k6, pinned by the digest of its index (k6 2.2.0, released 2026-08-10).
@@ -111,10 +112,11 @@ K6_MARGIN=120
 
 # k6_run <name> <VAR=value>...: runs measure/k6/edge.js in the Job k6-<name>, with the settings given (the last of
 # a name wins), and waits for it, for the run's length and K6_MARGIN more; prints its RESULT line, writes its FAIL
-# lines to $RUN_DIR/<name>.fails, and the expected status and the RESULT line to $RUN_DIR/<name>.result (for
-# window), adds the 200s on a twin's host to echo's tally, and deletes the Job. Returns 1, with what it saw, when
-# the run timed out (or its pod never started) or printed no RESULT line. Warns, without failing, when the Job
-# failed though k6 printed a RESULT line, and when the RESULT's statuses do not sum to its requests.
+# lines to $RUN_DIR/<name>.fails, the expected status and the RESULT line to $RUN_DIR/<name>.result, and its WINDOW
+# line to $RUN_DIR/<name>.window (for window and timeline), adds the 200s on a twin's host to echo's tally, and
+# deletes the Job. Returns 1, with what it saw, when the run timed out (or its pod never started) or printed no
+# RESULT line. Warns, without failing, when the Job failed though k6 printed a RESULT line, and when the RESULT's
+# statuses, or the WINDOW's seconds, do not sum to its requests.
 k6_run() {
   local name="$1" job="k6-$1" kv later seen env="" log state i j expect=200 result duration="" stages="" host=""
   local wait phase
@@ -212,14 +214,22 @@ EOF
   }
   case "$state" in
     */1) echo "warning: the k6 run $name printed a RESULT line, but its Job failed (k6 exited non-zero):" \
-      "$(grep -v '^FAIL \|^RESULT ' "$log" | tail -n 3 | tr '\n' ' ')" >&2 ;;
+      "$(grep -v '^FAIL \|^RESULT \|^WINDOW ' "$log" | tail -n 3 | tr '\n' ' ')" >&2 ;;
   esac
+  grep -m1 '^WINDOW ' "$log" >"$RUN_DIR/$name.window"
   python3 -c 'import json, sys
 r = json.loads(sys.argv[2][len("RESULT "):])
 total = sum(r["status"].values())
 if total != r["reqs"]:
-    print("warning: the k6 run %s: its statuses sum to %d, not to its %d requests" % (sys.argv[1], total, r["reqs"]))' \
-    "$name" "$result" >&2
+    print("warning: the k6 run %s: its statuses sum to %d, not to its %d requests" % (sys.argv[1], total, r["reqs"]))
+if not sys.argv[3]:
+    print("warning: the k6 run %s printed no WINDOW line" % sys.argv[1])
+else:
+    w = json.loads(sys.argv[3][len("WINDOW "):])
+    seconds = sum(sum(w[k]) for k in ("expected", "5xx", "rest")) + w["late"]
+    if seconds != r["reqs"]:
+        print("warning: the k6 run %s: its WINDOW counts %d responses, not its %d requests" % (sys.argv[1], seconds,
+              r["reqs"]))' "$name" "$result" "$(cat "$RUN_DIR/$name.window")" >&2
   printf '%s %s\n' "$expect" "$result" >"$RUN_DIR/$name.result"
   [ -z "$host" ] || echo_tally "$host" "$(printf '%s' "$result" | sed -n 's/.*"200":\([0-9]*\).*/\1/p')"
   printf '%s\n' "$result"
@@ -259,9 +269,9 @@ alternate() {
   python3 "$here/measure/summary.py" medians "$runs" "$la" "$lb"
 }
 
-# window <fails file>: the responses other than the expected that a run saw: how many, the first and the last, and
-# the span between them; and, when k6 listed fewer of them than the run counted (it lists at most 20000), that the
-# window covers only those listed.
+# window <fails file>: the responses other than the expected that a run saw: how many, by status, the first and
+# the last, and the span between them, from the run's WINDOW line, which counts every response. (For a run without
+# one, from the FAIL lines k6 listed, saying so when it listed fewer than the run counted: it lists at most 20000.)
 window() {
   python3 "$here/measure/summary.py" window "$1"
 }
@@ -297,17 +307,84 @@ pod_tc() {
   docker exec "$(node_container)" nsenter -t "$pid" -n tc "$@"
 }
 
-# netem_clear: removes a netem queue from each processor pod's interface, and prints how many it removed.
+# netem_clear: removes a netem queue, and the prio queue slow_pod puts one under, from each processor pod's
+# interface, and prints from how many pods it removed one.
 netem_clear() {
   local pod n=0 qdiscs
   for pod in $(processor_pods); do
     qdiscs=$(pod_tc "$pod" qdisc show dev eth0) || return 1
-    if grep -q netem <<<"$qdiscs"; then
+    if grep -qE 'netem|prio' <<<"$qdiscs"; then
       pod_tc "$pod" qdisc del dev eth0 root || return 1
       n=$((n + 1))
     fi
   done
   echo "$n"
+}
+
+# node_ms: the kind node's time, in epoch ms: the clock k6 reads, as every pod on the node does.
+node_ms() {
+  docker exec "$(node_container)" date +%s%3N
+}
+
+# pod_netns <pod> <script>: runs the sh script, which stops at its first failing command, in the pod's network
+# namespace, from the kind node (and with the node's tc); then prints the node's time, in epoch ms.
+pod_netns() {
+  local pod="$1" pid
+  pid=$(pod_pid "$pod") && [ -n "$pid" ] || { echo "no sandbox for the pod $pod" >&2; return 1; }
+  docker exec "$(node_container)" nsenter -t "$pid" -n sh -ec "$2
+date +%s%3N"
+}
+
+# slow_pod <pod> <ms> grpc|all: delays the packets the pod sends by ms, with tc netem in its network namespace:
+# grpc, only those from port 9002, the processor's gRPC port, so that it answers Envoy late while its probes, on
+# 9090, still answer in time; all, every packet, its probes' answers too. A delay already there is replaced. Prints
+# the node's time once the delay is in place, in epoch ms.
+slow_pod() {
+  local script="tc qdisc del dev eth0 root 2>/dev/null || true"
+  case "$3" in
+    # A prio queue whose priomap sends every packet to its first band, and a filter that sends those from port 9002
+    # to its third, the one under netem.
+    grpc) script+="
+tc qdisc add dev eth0 root handle 1: prio bands 3 priomap 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+tc qdisc add dev eth0 parent 1:3 handle 30: netem delay $2ms
+tc filter add dev eth0 parent 1: protocol ip prio 1 u32 match ip sport 9002 0xffff flowid 1:3" ;;
+    all) script+="
+tc qdisc add dev eth0 root netem delay $2ms" ;;
+    *)
+      echo "slow_pod: grpc or all, not $3" >&2
+      return 1
+      ;;
+  esac
+  pod_netns "$1" "$script"
+}
+
+# unslow_pod <pod>: removes what slow_pod added to the pod's interface, and checks that no netem or prio queue is
+# left; prints the node's time once it is gone, in epoch ms.
+unslow_pod() {
+  pod_netns "$1" "tc qdisc del dev eth0 root 2>/dev/null || true
+if tc qdisc show dev eth0 | grep -qE 'netem|prio'; then exit 1; fi"
+}
+
+# kill_container <pod>: SIGKILLs the pod's running container's process, from the kind node, as the kernel's OOM
+# killer would; the kubelet then starts the container again. Prints the node's time of the kill, in epoch ms.
+kill_container() {
+  local node sandbox cid pid
+  node=$(node_container)
+  sandbox=$(docker exec "$node" crictl pods --namespace "$NS" --name "^$1\$" -q 2>/dev/null | head -n1)
+  [ -n "$sandbox" ] || { echo "no sandbox for the pod $1" >&2; return 1; }
+  cid=$(docker exec "$node" crictl ps --pod "$sandbox" --state running -q 2>/dev/null | head -n1)
+  [ -n "$cid" ] || { echo "no running container in the pod $1" >&2; return 1; }
+  pid=$(docker exec "$node" crictl inspect -o go-template --template '{{.info.pid}}' "$cid" 2>/dev/null)
+  case "$pid" in
+    "" | *[!0-9]* | 0 | 1) echo "no process for the container in the pod $1 (${pid:-none})" >&2; return 1 ;;
+  esac
+  # shellcheck disable=SC2016 # the script runs in the node's shell
+  docker exec "$node" sh -c 'kill -KILL "$1" && date +%s%3N' sh "$pid"
+}
+
+# fail_open: the processor's EnvoyExtensionPolicy's failOpen, as the cluster has it (the chart sets false).
+fail_open() {
+  kn get envoyextensionpolicy paztport-processor -o jsonpath='{.spec.extProc[0].failOpen}'
 }
 
 # The files each pod mounts from out/, as "<volume>/<file>=<path in out/>", and the volumes they are in.
@@ -386,7 +463,7 @@ material_matches() {
 # mode, and no environment variable the file does not set: the run stops on one), no processor pod has a netem
 # queue (cleared first of all, since a delayed pod may not be ready, and every wait would then time out), and
 # everything is ready. A step that fails stops the whole run, and so
-# does material in any pod that is not out/'s: a suite that broke must not leave the next one measuring something
+# does an EnvoyExtensionPolicy that fails open, or material in any pod that is not out/'s: a suite that broke must not leave the next one measuring something
 # else. Nothing is rolled when nothing changed.
 baseline_reset() {
   local route policy name netem modes hpa replicas routes
@@ -414,13 +491,17 @@ baseline_reset() {
     exit 1
   }
   material_matches || { echo "error: the cluster's material is not out/'s; stopping" >&2; exit 1; }
+  if [ "$(fail_open)" != false ]; then
+    echo "error: the processor's EnvoyExtensionPolicy has failOpen $(fail_open), not the chart's false; stopping" >&2
+    exit 1
+  fi
   modes=$(kn get deployment orders payment \
     -o jsonpath='{range .items[*]}{.metadata.name}={.spec.template.spec.containers[0].env[?(@.name=="PAZTPORT_MODE")].value} {end}')
   hpa=$(kn get hpa -o name | grep -c . || true)
   replicas=$(kn get deployment paztport-processor -o jsonpath='{.status.readyReplicas}/{.spec.replicas}')
   routes=$(kn get httproutes -o jsonpath='{.items[*].metadata.name}')
   routes+="; BackendTrafficPolicies $(kn get backendtrafficpolicies -o jsonpath='{.items[*].metadata.name}')"
-  echo "  baseline: processor $replicas ready, $hpa autoscaler(s); ${modes% }; routes $routes;" \
+  echo "  baseline: processor $replicas ready, $hpa autoscaler(s), failOpen false; ${modes% }; routes $routes;" \
     "netem removed from $netem pod(s), none left; material as out/'s in $MATERIAL_PODS pods"
 }
 
@@ -500,7 +581,9 @@ processor_outcomes() {
 }
 
 # outcomes_added <before> <after>: what processor_outcomes, or envoy_extproc_stats, added between two readings of
-# "<name>=<n>" words, as "<name> +<n>" for each name.
+# "<name>=<n>" words, as "<name> +<n>" for each name; or, for a counter lower than before, which started again
+# from zero in between (a processor pod that started again, a cluster Envoy was given anew), "<name> <n> since it
+# started again", as what it added before that is lost.
 outcomes_added() {
   awk -v a="$1" -v b="$2" 'BEGIN {
     n = split(a, x, " ")
@@ -508,7 +591,11 @@ outcomes_added() {
     n = split(b, y, " ")
     for (i = 1; i <= n; i++) {
       split(y[i], kv, "=")
-      out = out sep kv[1] " " sprintf("%+d", kv[2] - before[kv[1]])
+      if (kv[2] + 0 < before[kv[1]] + 0) {
+        out = out sep kv[1] " " kv[2] " since it started again"
+      } else {
+        out = out sep kv[1] " " sprintf("%+d", kv[2] - before[kv[1]])
+      }
       sep = ", "
     }
     print out
@@ -539,8 +626,9 @@ envoy_admin() {
 }
 
 # envoy_extproc_stats: Envoy's counters for the processor: its ext_proc filter's streams (started, failed, timed
-# out, and let through for failing open) and its cluster's requests refused for a full circuit breaker or timed
-# out, as "<name>=<n>" words, the names shortened.
+# out, and let through for failing open), its cluster's requests refused for a full circuit breaker or timed out,
+# and its cluster's connections: none made for want of a healthy processor, failed, or closed by the processor with
+# requests on them; as "<name>=<n>" words, the names shortened.
 envoy_extproc_stats() {
   envoy_admin || return 1
   curl -sf "http://$ENVOY_ADMIN/stats" | awk -F': ' '
@@ -549,6 +637,9 @@ envoy_extproc_stats() {
     $1 ~ /^cluster\.envoyextensionpolicy\/.*paztport-processor/ && $1 !~ /\.internal\./ &&
       $1 ~ /\.upstream_rq_(active_overflow|pending_overflow|timeout)$/ {
       sub(/^.*\.upstream_rq_/, "cluster_rq_", $1); s[$1] += $2 }
+    $1 ~ /^cluster\.envoyextensionpolicy\/.*paztport-processor/ && $1 !~ /\.internal\./ &&
+      $1 ~ /\.upstream_cx_(none_healthy|connect_fail|destroy_remote_with_active_rq)$/ {
+      sub(/^.*\.upstream_cx_/, "cluster_cx_", $1); s[$1] += $2 }
     END { for (k in s) printf "%s=%d ", k, s[k] }' | tr ' ' '\n' | LC_ALL=C sort | paste -sd ' ' -
 }
 
@@ -586,4 +677,133 @@ backends_env_matches() {
   diff <(printf '%s\n' "$want") <(printf '%s\n' "$got") |
     sed -n 's/^</  the file has:    /p; s/^>/  the cluster has: /p' >&2
   return 1
+}
+
+# echo_unstamped: the behavioural lines at the end of a suite on the twins: echo's counts could be read from every
+# pod; echo saw no request without a stamp, and echo-plain none with one; and, for each twin, echo counted no fewer
+# requests than it answered 200 through the Gateway by the tally (k6's runs and the waits' probes, since echo's
+# pods started). It may count more: a request it answered whose response never came back as a 200 (a client
+# timeout, a reset) is in its count and not in the tally. Returns 1 if any line is FAIL.
+echo_unstamped() {
+  local counts e_stamped e_unstamped p_stamped p_unstamped ok=0 host counted sent
+  if ! counts=$(echo_counts); then
+    echo "  FAIL echo's counts: not every echo pod answered with its counts (above), so nothing can be said of them"
+    return 1
+  fi
+  echo "  echo's counts, since its pods started:"
+  printf '%s\n' "$counts" | sed 's/^/    /'
+  e_stamped=$(sed -n "s/^$ECHO_HOST stamped=\([0-9]*\) .*/\1/p" <<<"$counts")
+  e_unstamped=$(sed -n "s/^$ECHO_HOST .*unstamped=\([0-9]*\)$/\1/p" <<<"$counts")
+  p_stamped=$(sed -n "s/^$PLAIN_HOST stamped=\([0-9]*\) .*/\1/p" <<<"$counts")
+  p_unstamped=$(sed -n "s/^$PLAIN_HOST .*unstamped=\([0-9]*\)$/\1/p" <<<"$counts")
+  if [ "${e_stamped:-0}" -gt 0 ] && [ "$e_unstamped" = 0 ]; then
+    echo "  PASS echo (the processor's twin): every request it was sent was stamped ($e_stamped), 0 unstamped"
+  else
+    echo "  FAIL echo (the processor's twin): expected every request stamped, got ${e_stamped:-none} stamped," \
+      "${e_unstamped:-none} unstamped"
+    ok=1
+  fi
+  if [ "${p_unstamped:-0}" -gt 0 ] && [ "$p_stamped" = 0 ]; then
+    echo "  PASS echo-plain (plain Envoy): no request it was sent was stamped ($p_unstamped unstamped)"
+  else
+    echo "  FAIL echo-plain (plain Envoy): expected no request stamped, got ${p_stamped:-none} stamped," \
+      "${p_unstamped:-none} unstamped"
+    ok=1
+  fi
+  for host in "$ECHO_HOST" "$PLAIN_HOST"; do
+    if [ "$(echo_pod_uids)" != "$(cat "$RUN_DIR/echo-pods" 2>/dev/null)" ]; then
+      echo "  FAIL $host: echo's pods are not those the tally was kept for, so their counts have lost requests"
+      ok=1
+      continue
+    fi
+    if [ "$host" = "$ECHO_HOST" ]; then
+      counted=$((${e_stamped:-0} + ${e_unstamped:-0}))
+    else
+      counted=$((${p_stamped:-0} + ${p_unstamped:-0}))
+    fi
+    sent=$(echo_sent "$host")
+    if [ "$counted" -ge "$sent" ]; then
+      echo "  PASS $host: echo counted $counted requests, and answered $sent with a 200 through the Gateway" \
+        "($((counted - sent)) more counted than answered)"
+    else
+      echo "  FAIL $host: echo counted $counted requests, fewer than the $sent it answered with a 200 through the" \
+        "Gateway: its counts lost some"
+      ok=1
+    fi
+  done
+  return "$ok"
+}
+
+# The users k6 holds for the ceiling suite's open-model runs: a stage offered R requests a second has R x
+# POOL_SECONDS users, all of them started before the run (k6 starting users during a run is slow enough to drop
+# requests on its own: at 9000/s, with 500 ready and up to 4500 allowed, it dropped about 180 while the p99 was
+# 62 ms). By Little's law the pool then runs out only when the requests in flight average more than POOL_SECONDS,
+# 100 ms: past any stage that is sustained here (their mean stays well under it, though a sustained stage's p99 has
+# reached 87 ms), so a request dropped says that the system held the requests, not that k6 was short of users. At the highest stage, 25000/s, that is 2500 users, well
+# within k6's pod (about a quarter of a megabyte a user). Never fewer than CEILING_PREALLOC.
+CEILING_PREALLOC=500
+POOL_SECONDS=0.1
+
+# pool <rate> [least]: the users k6 holds for a run offered rate requests a second: rate x POOL_SECONDS, and never
+# fewer than least (CEILING_PREALLOC unless given).
+pool() {
+  awk -v r="$1" -v s="$POOL_SECONDS" -v p="${2:-$CEILING_PREALLOC}" \
+    'BEGIN { n = int(r * s + 0.5); printf "%d", (n > p ? n : p) }'
+}
+
+# sustained <route> <replicas>: the median over the ceiling suite's rounds of the highest stage sustained there, or
+# 0.
+sustained() {
+  awk -v r="$1" -v n="$2" '$1 == r && $2 == n { s = $3 } END { printf "%d", s }' "$RUN_DIR/ceiling-sustained"
+}
+
+# backend_reasons: what orders and payment counted, added up over their pods, read from /actuator/prometheus with
+# the operator's certificate: each request they decided, by mode, outcome and reason, and each response orders
+# checked, by reason; "<app> <series> <count>" a line.
+backend_reasons() {
+  local app ip text
+  for app in orders payment; do
+    for ip in $(kn get pods -l "app=$app" --field-selector=status.phase=Running \
+      -o jsonpath='{.items[*].status.podIP}'); do
+      text=$(kn exec checks -- curl -sf --max-time 10 --cacert /tls/ca.crt --cert /tls/operator.crt \
+        --key /tls/operator.key --resolve "$app:8080:$ip" "https://$app:8080/actuator/prometheus" 2>/dev/null) || {
+        echo "error: $app at $ip did not answer /actuator/prometheus" >&2
+        return 1
+      }
+      printf '%s\n' "$text" | grep -E '^paztport_(request|response)_seconds_count\{' | sed "s/^/$app /"
+    done
+  done | awk '{ n[$1 " " $2] += $3 } END { for (k in n) printf "%s %d\n", k, n[k] }' | LC_ALL=C sort
+}
+
+# reasons_added <before> <after>: what backend_reasons counted between two readings, each series that grew, and
+# then every reason but OK by name, or that there was none.
+reasons_added() {
+  python3 -c 'import re, sys
+def read(text):
+    out = {}
+    for line in text.splitlines():
+        if line.strip():
+            app, series, n = line.split()
+            out[(app, series)] = int(n)
+    return out
+before, after = read(sys.argv[1]), read(sys.argv[2])
+bad = []
+for (app, series), n in sorted(after.items()):
+    added = n - before.get((app, series), 0)
+    if not added:
+        continue
+    labels = dict(re.findall(r"(\w+)=\"([^\"]*)\"", series))
+    name = "request" if series.startswith("paztport_request") else "response checked"
+    shown = " ".join("%s=%s" % (k, labels[k]) for k in ("mode", "outcome", "reason") if k in labels)
+    print("    %-8s %-16s %-40s +%d" % (app, name, shown, added))
+    if labels.get("reason", "OK") != "OK":
+        bad.append("%s %s %s (+%d)" % (app, name, labels["reason"], added))
+print("  reasons other than OK: " + ("; ".join(bad) if bad else "none"))' "$1" "$2"
+}
+
+# backend_restarts: each orders and payment pod's restarts, "<pod> restarts=<n>; ..." on one line.
+backend_restarts() {
+  kn get pods -l 'app in (orders,payment)' \
+    -o jsonpath='{range .items[*]}{.metadata.name} restarts={.status.containerStatuses[0].restartCount}{"\n"}{end}' |
+    awk 'NF { printf "%s%s %s", sep, $1, $2; sep = "; " } END { print "" }'
 }

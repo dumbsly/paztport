@@ -21,7 +21,12 @@
 // and status, the count of each response status, with k6's status 0 (no response: a reset, a refused connection or a
 // timeout) and any status not listed counted as other, so that the counts sum to reqs. For each response with a
 // status other than EXPECT it prints FAIL {"t": <epoch ms>, "status": <status>}, at most 20000 in all: each virtual
-// user prints at most its share.
+// user prints at most its share. Then one line, WINDOW {json}, that covers every response, listed or not: t0, the
+// epoch ms at which the run began (k6's setup); first and last, the epoch ms of the first and the last response other
+// than EXPECT (null when there was none); and, for each whole second of the run from t0, how many responses came
+// back in it, as three lists: expected (EXPECT), 5xx (a 5xx other than EXPECT) and rest (any other, status 0
+// included), each ending at its last second with a response. A response later than the seconds counted (the run's
+// length, its gracefulStop and 30 s more) is counted in late, which is 0 unless something went very wrong.
 //
 // Every request has a 10 s timeout, and each scenario a 15 s gracefulStop, the time k6 lets requests in flight at
 // the end finish before it cuts them off: so a request that hangs ends as a timeout, counted as other, before k6
@@ -29,7 +34,7 @@
 // status.
 
 import http from 'k6/http';
-import { Counter } from 'k6/metrics';
+import { Counter, Trend } from 'k6/metrics';
 
 const env = __ENV;
 const TARGET = env.TARGET;
@@ -106,9 +111,34 @@ const SCENARIO = scenario();
 const USERS = SCENARIO.vus || SCENARIO.maxVUs;
 const FAILS_EACH = Math.max(1, Math.floor(MAX_FAILS / USERS));
 
+// seconds <duration>: a k6 duration (such as 20s, 1m30s or 500ms) in seconds.
+function seconds(d) {
+  const units = { ms: 0.001, s: 1, m: 60, h: 3600 };
+  const parts = String(d).match(/[0-9.]+(ms|h|m|s)/g);
+  if (!parts || parts.join('') !== String(d)) throw new Error(`not a k6 duration: ${d}`);
+  return parts.reduce((sum, p) => {
+    const unit = p.match(/(ms|h|m|s)$/)[0];
+    return sum + Number(p.slice(0, -unit.length)) * units[unit];
+  }, 0);
+}
+
+// The seconds the WINDOW line counts: the run's own length, its gracefulStop, and 30 s more.
+const LENGTH = SCENARIO.stages ? SCENARIO.stages.reduce((sum, st) => sum + seconds(st.duration), 0)
+  : seconds(SCENARIO.duration);
+const SECONDS = Math.ceil(LENGTH) + seconds(GRACEFUL_STOP) + 30;
+const KINDS = ['expected', '5xx', 'rest'];
+const perSecond = {};
+for (const kind of KINDS) {
+  perSecond[kind] = [];
+  for (let i = 0; i < SECONDS; i++) perSecond[kind].push(new Counter(`second_${kind}_${i}`));
+}
+const late = new Counter('second_late');
+// When each response other than EXPECT came back, in ms from t0: its min and max are the first and the last.
+const unexpectedAt = new Trend('unexpected_at');
+
 export const options = {
   scenarios: { edge: SCENARIO },
-  summaryTrendStats: ['med', 'p(90)', 'p(99)', 'max'],
+  summaryTrendStats: ['min', 'med', 'p(90)', 'p(99)', 'max'],
   maxRedirects: 0,
   // A run's numbers are its RESULT line alone.
   discardResponseBodies: true,
@@ -124,13 +154,30 @@ if (HOST) params.headers.Host = HOST;
 
 let fails = 0;
 
-export default function () {
+// The run's start, the same for every virtual user: the WINDOW line's t0.
+export function setup() {
+  return { t0: Date.now() };
+}
+
+export default function (data) {
   const res = http.post(TARGET, BODY, params);
+  const at = Date.now();
   const key = LISTED.includes(String(res.status)) ? String(res.status) : 'other';
   counters[key].add(1);
+  let kind = 'expected';
+  if (res.status !== EXPECT) {
+    kind = res.status >= 500 && res.status <= 599 ? '5xx' : 'rest';
+    unexpectedAt.add(at - data.t0);
+  }
+  const second = Math.max(0, Math.floor((at - data.t0) / 1000));
+  if (second < SECONDS) {
+    perSecond[kind][second].add(1);
+  } else {
+    late.add(1);
+  }
   if (res.status !== EXPECT && fails < FAILS_EACH) {
     fails++;
-    console.log(`FAIL ${JSON.stringify({ t: Date.now(), status: res.status })}`);
+    console.log(`FAIL ${JSON.stringify({ t: at, status: res.status })}`);
   }
 }
 
@@ -159,5 +206,19 @@ export function handleSummary(data) {
     dropped: count(data, 'dropped_iterations'),
     status,
   };
-  return { stdout: `RESULT ${JSON.stringify(result)}\n` };
+  const t0 = data.setup_data ? data.setup_data.t0 : null;
+  const at = data.metrics.unexpected_at ? data.metrics.unexpected_at.values : null;
+  const window = {
+    t0,
+    first: at && t0 !== null ? t0 + at.min : null,
+    last: at && t0 !== null ? t0 + at.max : null,
+    late: count(data, 'second_late'),
+  };
+  for (const kind of KINDS) {
+    const counts = [];
+    for (let i = 0; i < SECONDS; i++) counts.push(count(data, `second_${kind}_${i}`));
+    while (counts.length && counts[counts.length - 1] === 0) counts.pop();
+    window[kind] = counts;
+  }
+  return { stdout: `RESULT ${JSON.stringify(result)}\nWINDOW ${JSON.stringify(window)}\n` };
 }

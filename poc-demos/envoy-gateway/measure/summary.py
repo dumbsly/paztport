@@ -31,10 +31,26 @@
       ramps then carry no information about what the processor adds there.
 
   summary.py window <fails file>
-      The fails file holds edge.js's "FAIL {json}" lines: their count by status, the first and the last (UTC),
-      and the span between them. When the run's .result file is beside it ("<expected status> RESULT {json}", from
-      k6_run) and the run counted more responses other than the expected than were listed (edge.js lists at most
-      20000), it says so first: the window then covers only the ones listed, and the run went on past its end.
+      The responses other than the expected that a run saw: their count by status, the first and the last (UTC),
+      and the span between them. When the run's .result ("<expected status> RESULT {json}") and .window
+      ("WINDOW {json}") files from k6_run are beside the fails file, these come from them, and cover every response.
+      Otherwise from the fails file's edge.js "FAIL {json}" lines, which list at most 20000: when the .result file
+      says the run counted more than were listed, it says so first, as the window then covers only the ones listed.
+
+  summary.py timeline <fails file> <events file>
+      The run's timeline on k6's clock: the events file's "<epoch ms> <what happened>" lines, and the first and the
+      last response other than the expected, in order, each at its offset from the run's start (the .window file's
+      t0); then each second of the run, how many responses came back in it and how many of those were not the
+      expected, a run of seconds with none of those on one line.
+
+  summary.py seconds <fails file> <from epoch ms> <to epoch ms>
+      The run's whole seconds that lie between the two times: "<first> <last> <expected> <5xx> <rest>", the first
+      and the last second's offsets and the responses in them by kind (as edge.js's WINDOW counts them), or
+      "none" when no whole second does.
+
+  summary.py first <fails file> <epoch ms>
+      The first second of the run, from the one that holds the time given, with an expected response in it:
+      "<its offset> <the time given, as an offset from the run's start, in seconds>", or "none".
 """
 import datetime
 import json
@@ -187,8 +203,29 @@ def utc(ms):
     return t.strftime("%H:%M:%S.") + "%03dZ" % (ms % 1000)
 
 
-def unexpected(path):
-    """The count of responses other than the expected that the run's .result file gives, or None."""
+def read_window(path):
+    """The .window file beside a fails file, as its WINDOW json, or None."""
+    name = path[:-len(".fails")] + ".window" if path.endswith(".fails") else None
+    if not name or not os.path.exists(name):
+        return None
+    with open(name) as f:
+        line = f.readline().strip()
+    if not line:
+        return None
+    if not line.startswith("WINDOW "):
+        die("%s is not a 'WINDOW {json}' line" % name)
+    return json.loads(line[len("WINDOW "):])
+
+
+def need_window(path):
+    w = read_window(path)
+    if w is None or w.get("t0") is None:
+        die("no WINDOW line with a t0 beside %s" % path)
+    return w
+
+
+def result_of(path):
+    """The expected status and the RESULT json from the .result file beside a fails file, or None."""
     result = path[:-len(".fails")] + ".result" if path.endswith(".fails") else None
     if not result or not os.path.exists(result):
         return None
@@ -196,13 +233,30 @@ def unexpected(path):
         expect, _, rest = f.readline().strip().partition(" ")
     if not rest.startswith("RESULT "):
         die("%s is not an '<expected status> RESULT {json}' line" % result)
-    r = json.loads(rest[len("RESULT "):])
-    if expect not in r["status"]:
+    return expect, json.loads(rest[len("RESULT "):])
+
+
+def unexpected(path):
+    """The count of responses other than the expected that the run's .result file gives, or None."""
+    res = result_of(path)
+    if res is None or res[0] not in res[1]["status"]:
         return None
-    return r["reqs"] - r["status"][expect]
+    return res[1]["reqs"] - res[1]["status"][res[0]]
 
 
 def window(path):
+    w, res = read_window(path), result_of(path)
+    if w is not None and res is not None and res[0] in res[1]["status"]:
+        expect, r = res
+        by = {st: n for st, n in r["status"].items() if st != expect and n}
+        total = sum(by.values())
+        if not total:
+            print("  0 responses other than the expected")
+            return
+        print("  %d responses other than the expected (%s): first %s, last %s, span %.3f s" % (
+            total, ", ".join("%s: %d" % (st, n) for st, n in sorted(by.items())), utc(w["first"]), utc(w["last"]),
+            (w["last"] - w["first"]) / 1000))
+        return
     fails = []
     with open(path) as f:
         for n, line in enumerate(f, 1):
@@ -226,6 +280,73 @@ def window(path):
         utc(times[0]), utc(times[-1]), (times[-1] - times[0]) / 1000))
 
 
+def counts(w):
+    n = max(len(w["expected"]), len(w["5xx"]), len(w["rest"]))
+    pad = lambda xs: xs + [0] * (n - len(xs))
+    return list(zip(pad(w["expected"]), pad(w["5xx"]), pad(w["rest"])))
+
+
+def timeline(path, events_path):
+    w = need_window(path)
+    t0 = w["t0"]
+    items = []
+    with open(events_path) as f:
+        for n, line in enumerate(f, 1):
+            at, _, what = line.strip().partition(" ")
+            if not at.isdigit() or not what:
+                die("%s:%d is not an '<epoch ms> <what happened>' line" % (events_path, n))
+            items.append((int(at), what))
+    if w["first"] is not None:
+        items.append((w["first"], "the first response other than the expected"))
+        items.append((w["last"], "the last response other than the expected"))
+    print("  the timeline, on k6's clock (the run began at %s):" % utc(t0))
+    for at, what in sorted(items, key=lambda x: x[0]):
+        print("    %+8.2f s  %s  %s" % ((at - t0) / 1000, utc(at), what))
+    seconds = counts(w)
+    print("  each second of the run: the responses in it, and how many of them were not the expected (5xx, rest)")
+    words, i = [], 0
+    while i < len(seconds):
+        e, x, r = seconds[i]
+        if x + r == 0:
+            j, total = i, 0
+            while j < len(seconds) and seconds[j][1] + seconds[j][2] == 0:
+                total += seconds[j][0]
+                j += 1
+            span = "+%d" % i if j - i == 1 else "+%d-%d" % (i, j - 1)
+            words.append("%s: %d, none" % (span, total))
+            i = j
+        else:
+            words.append("+%d: %d, %d (%d, %d)" % (i, e + x + r, x + r, x, r))
+            i += 1
+    if w["late"]:
+        words.append("later than the seconds counted: %d" % w["late"])
+    for k in range(0, len(words), 5):
+        print("    " + "; ".join(words[k:k + 5]))
+
+
+def seconds_between(path, start, end):
+    w = need_window(path)
+    t0, inside = w["t0"], []
+    for i, c in enumerate(counts(w)):
+        if t0 + 1000 * i >= start and t0 + 1000 * (i + 1) <= end:
+            inside.append((i, c))
+    if not inside:
+        print("none")
+        return
+    print("%d %d %d %d %d" % (inside[0][0], inside[-1][0], sum(c[0] for _, c in inside),
+                              sum(c[1] for _, c in inside), sum(c[2] for _, c in inside)))
+
+
+def first_expected(path, at):
+    w = need_window(path)
+    t0 = w["t0"]
+    for i, c in enumerate(counts(w)):
+        if t0 + 1000 * (i + 1) > at and c[0]:
+            print("%d %.2f" % (i, (at - t0) / 1000))
+            return
+    print("none")
+
+
 def main(argv):
     if len(argv) >= 3 and argv[0] == "medians":
         medians(argv[1], argv[2:])
@@ -237,10 +358,18 @@ def main(argv):
         ceiling(argv[1], argv[2], argv[3], argv[4:])
     elif len(argv) == 2 and argv[0] == "window":
         window(argv[1])
+    elif len(argv) == 3 and argv[0] == "timeline":
+        timeline(argv[1], argv[2])
+    elif len(argv) == 4 and argv[0] == "seconds" and argv[2].isdigit() and argv[3].isdigit():
+        seconds_between(argv[1], int(argv[2]), int(argv[3]))
+    elif len(argv) == 3 and argv[0] == "first" and argv[2].isdigit():
+        first_expected(argv[1], int(argv[2]))
     else:
         die("usage: summary.py medians <runs file> <label>... | rate <runs file> <offered rate>"
             " | stages <runs file> <route> <replicas> <round> <rounds file>"
-            " | ceiling <rounds file> <sustained file> <replicas> <route>... | window <fails file>")
+            " | ceiling <rounds file> <sustained file> <replicas> <route>... | window <fails file>"
+            " | timeline <fails file> <events file> | seconds <fails file> <from ms> <to ms>"
+            " | first <fails file> <ms>")
 
 
 if __name__ == "__main__":

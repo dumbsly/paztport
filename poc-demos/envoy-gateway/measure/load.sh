@@ -149,61 +149,6 @@ for route, host in ((route_plain, plain_host), (route_echo, echo_host)):
 EOF
 }
 
-# echo_unstamped: the behavioural lines at the end of a suite on the twins: echo's counts could be read from every
-# pod; echo saw no request without a stamp, and echo-plain none with one; and, for each twin, echo counted no fewer
-# requests than it answered 200 through the Gateway by the tally (k6's runs and the waits' probes, since echo's
-# pods started). It may count more: a request it answered whose response never came back as a 200 (a client
-# timeout, a reset) is in its count and not in the tally. Returns 1 if any line is FAIL.
-echo_unstamped() {
-  local counts e_stamped e_unstamped p_stamped p_unstamped ok=0 host counted sent
-  if ! counts=$(echo_counts); then
-    echo "  FAIL echo's counts: not every echo pod answered with its counts (above), so nothing can be said of them"
-    return 1
-  fi
-  echo "  echo's counts, since its pods started:"
-  printf '%s\n' "$counts" | sed 's/^/    /'
-  e_stamped=$(sed -n "s/^$ECHO_HOST stamped=\([0-9]*\) .*/\1/p" <<<"$counts")
-  e_unstamped=$(sed -n "s/^$ECHO_HOST .*unstamped=\([0-9]*\)$/\1/p" <<<"$counts")
-  p_stamped=$(sed -n "s/^$PLAIN_HOST stamped=\([0-9]*\) .*/\1/p" <<<"$counts")
-  p_unstamped=$(sed -n "s/^$PLAIN_HOST .*unstamped=\([0-9]*\)$/\1/p" <<<"$counts")
-  if [ "${e_stamped:-0}" -gt 0 ] && [ "$e_unstamped" = 0 ]; then
-    echo "  PASS echo (the processor's twin): every request it was sent was stamped ($e_stamped), 0 unstamped"
-  else
-    echo "  FAIL echo (the processor's twin): expected every request stamped, got ${e_stamped:-none} stamped," \
-      "${e_unstamped:-none} unstamped"
-    ok=1
-  fi
-  if [ "${p_unstamped:-0}" -gt 0 ] && [ "$p_stamped" = 0 ]; then
-    echo "  PASS echo-plain (plain Envoy): no request it was sent was stamped ($p_unstamped unstamped)"
-  else
-    echo "  FAIL echo-plain (plain Envoy): expected no request stamped, got ${p_stamped:-none} stamped," \
-      "${p_unstamped:-none} unstamped"
-    ok=1
-  fi
-  for host in "$ECHO_HOST" "$PLAIN_HOST"; do
-    if [ "$(echo_pod_uids)" != "$(cat "$RUN_DIR/echo-pods" 2>/dev/null)" ]; then
-      echo "  FAIL $host: echo's pods are not those the tally was kept for, so their counts have lost requests"
-      ok=1
-      continue
-    fi
-    if [ "$host" = "$ECHO_HOST" ]; then
-      counted=$((${e_stamped:-0} + ${e_unstamped:-0}))
-    else
-      counted=$((${p_stamped:-0} + ${p_unstamped:-0}))
-    fi
-    sent=$(echo_sent "$host")
-    if [ "$counted" -ge "$sent" ]; then
-      echo "  PASS $host: echo counted $counted requests, and answered $sent with a 200 through the Gateway" \
-        "($((counted - sent)) more counted than answered)"
-    else
-      echo "  FAIL $host: echo counted $counted requests, fewer than the $sent it answered with a 200 through the" \
-        "Gateway: its counts lost some"
-      ok=1
-    fi
-  done
-  return "$ok"
-}
-
 # The users k6 holds ready for the load suite's open-model runs: many more than the rates need at these latencies,
 # so a run that falls behind shows as dropped requests, not as a lower rate.
 LOAD_PREALLOC=50
@@ -222,23 +167,6 @@ suite_load() {
     python3 "$here/measure/summary.py" rate "$RUN_DIR/load-$body.runs" "$rate"
   done
   echo_unstamped
-}
-
-# The users k6 holds for the ceiling suite's open-model runs: a stage offered R requests a second has R x
-# POOL_SECONDS users, all of them started before the run (k6 starting users during a run is slow enough to drop
-# requests on its own: at 9000/s, with 500 ready and up to 4500 allowed, it dropped about 180 while the p99 was
-# 62 ms). By Little's law the pool then runs out only when the requests in flight average more than POOL_SECONDS,
-# 100 ms: past any stage that is sustained here (their p99 stays under 70 ms), so a request dropped says that the
-# system held the requests, not that k6 was short of users. At the highest stage, 25000/s, that is 2500 users, well
-# within k6's pod (about a quarter of a megabyte a user). Never fewer than CEILING_PREALLOC.
-CEILING_PREALLOC=500
-POOL_SECONDS=0.1
-
-# pool <rate> [least]: the users k6 holds for a run offered rate requests a second: rate x POOL_SECONDS, and never
-# fewer than least (CEILING_PREALLOC unless given).
-pool() {
-  awk -v r="$1" -v s="$POOL_SECONDS" -v p="${2:-$CEILING_PREALLOC}" \
-    'BEGIN { n = int(r * s + 0.5); printf "%d", (n > p ? n : p) }'
 }
 
 # The users the saturation runs hold: more than the ramps', so that requests past what the processor sustains meet
@@ -266,12 +194,6 @@ ceiling_ramp() {
   done
   python3 "$here/measure/summary.py" stages "$runs" "$route" "$replicas" "$round" \
     "${RAMP_ROUNDS_FILE:-$RUN_DIR/ceiling-rounds}"
-}
-
-# sustained <route> <replicas>: the median over the ceiling suite's rounds of the highest stage sustained there, or
-# 0.
-sustained() {
-  awk -v r="$1" -v n="$2" '$1 == r && $2 == n { s = $3 } END { printf "%d", s }' "$RUN_DIR/ceiling-sustained"
 }
 
 # saturation: on one replica, the processor offered 1.5 and 2 times its highest sustained stage (the median of the
@@ -616,50 +538,6 @@ edge_undo() {
   fi
 }
 
-# backend_reasons: what orders and payment counted, added up over their pods, read from /actuator/prometheus with
-# the operator's certificate: each request they decided, by mode, outcome and reason, and each response orders
-# checked, by reason; "<app> <series> <count>" a line.
-backend_reasons() {
-  local app ip text
-  for app in orders payment; do
-    for ip in $(kn get pods -l "app=$app" --field-selector=status.phase=Running \
-      -o jsonpath='{.items[*].status.podIP}'); do
-      text=$(kn exec checks -- curl -sf --max-time 10 --cacert /tls/ca.crt --cert /tls/operator.crt \
-        --key /tls/operator.key --resolve "$app:8080:$ip" "https://$app:8080/actuator/prometheus" 2>/dev/null) || {
-        echo "error: $app at $ip did not answer /actuator/prometheus" >&2
-        return 1
-      }
-      printf '%s\n' "$text" | grep -E '^paztport_(request|response)_seconds_count\{' | sed "s/^/$app /"
-    done
-  done | awk '{ n[$1 " " $2] += $3 } END { for (k in n) printf "%s %d\n", k, n[k] }' | LC_ALL=C sort
-}
-
-# reasons_added <before> <after>: what backend_reasons counted between two readings, each series that grew, and
-# then every reason but OK by name, or that there was none.
-reasons_added() {
-  python3 -c 'import re, sys
-def read(text):
-    out = {}
-    for line in text.splitlines():
-        if line.strip():
-            app, series, n = line.split()
-            out[(app, series)] = int(n)
-    return out
-before, after = read(sys.argv[1]), read(sys.argv[2])
-bad = []
-for (app, series), n in sorted(after.items()):
-    added = n - before.get((app, series), 0)
-    if not added:
-        continue
-    labels = dict(re.findall(r"(\w+)=\"([^\"]*)\"", series))
-    name = "request" if series.startswith("paztport_request") else "response checked"
-    shown = " ".join("%s=%s" % (k, labels[k]) for k in ("mode", "outcome", "reason") if k in labels)
-    print("    %-8s %-16s %-40s +%d" % (app, name, shown, added))
-    if labels.get("reason", "OK") != "OK":
-        bad.append("%s %s %s (+%d)" % (app, name, labels["reason"], added))
-print("  reasons other than OK: " + ("; ".join(bad) if bad else "none"))' "$1" "$2"
-}
-
 # edge_compare: what differs, orders-plain made, then the two sides alternated at EDGE_RATE, each switch a
 # rollout and a discarded warm-up (EDGE_WARMUP), and no other warm-up, the first switch's included; each run, the
 # medians and spread, what Paztport adds, and whether k6 kept to the rate.
@@ -683,13 +561,6 @@ edge_compare() {
 # quarter of a megabyte a user here, so its pod's 2Gi holds about a third of that, and the stage says so. They are
 # all started before the run, so that none is dropped for want of a user k6 is still starting.
 EDGE_OVERLOAD_SECONDS=2
-
-# backend_restarts: each orders and payment pod's restarts, "<pod> restarts=<n>; ..." on one line.
-backend_restarts() {
-  kn get pods -l 'app in (orders,payment)' \
-    -o jsonpath='{range .items[*]}{.metadata.name} restarts={.status.containerStatuses[0].restartCount}{"\n"}{end}' |
-    awk 'NF { printf "%s%s %s", sep, $1, $2; sep = "; " } END { print "" }'
-}
 
 # max_age_ms: orders' maxAgeMs, from its environment, or the starter's default (5000).
 max_age_ms() {

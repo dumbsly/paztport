@@ -24,6 +24,10 @@
 #   EDGE_RATE (500) is the requests a second the edge suite offers each side, EDGE_WARMUP (30s) the discarded
 #   warm-up after each rollout, EDGE_STAGES its stages on the route orders, in requests a second, and
 #   EDGE_OVERLOAD_RATE (3000) its overload stage there.
+#   FAILURE_RATE is the requests a second the failure suite offers echo: unset, half the median the ceiling suite
+#   measured on echo with two processor replicas, when it ran in the same run, or else FAILURE_DEFAULT_RATE (5000,
+#   half the 10000/s that median was on this machine); FAILURE_ORDERS_RATE (750) is the rate on the route orders,
+#   half the 1500/s the edge suite's stages sustained there on this machine. See measure/failure.sh.
 #
 # Like envoy-gateway.sh, it needs the jars built and out/ made (material.sh); nothing is pushed anywhere, and every
 # kubectl and helm call names the cluster's own context.
@@ -49,6 +53,9 @@ EDGE_RATE="${EDGE_RATE:-500}"
 EDGE_WARMUP="${EDGE_WARMUP:-30s}"
 EDGE_STAGES="${EDGE_STAGES:-250 500 750 1000 1250 1500 2000 3000}"
 EDGE_OVERLOAD_RATE="${EDGE_OVERLOAD_RATE:-3000}"
+FAILURE_RATE="${FAILURE_RATE:-}"
+FAILURE_DEFAULT_RATE="${FAILURE_DEFAULT_RATE:-5000}"
+FAILURE_ORDERS_RATE="${FAILURE_ORDERS_RATE:-750}"
 # Every suite, in the order they run; a suite is there once a file in measure/ defines suite_<name>.
 ORDER="load ceiling edge failure gotchas observe rollout route rotation"
 
