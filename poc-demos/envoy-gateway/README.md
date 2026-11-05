@@ -14,12 +14,16 @@ This is the proof of concept, its behavioural checks, the harness for its measur
 
 The answers to the nine questions this proof of concept was built to ask, for someone deciding whether to put Paztport
 at their edge. The numbers are from one full run of `./run envoy-gateway measure` on 2026-11-05 (its results directory
-`20261105T192122Z`), on an Apple M5 Pro Mac whose Docker Desktop VM had 18 CPUs and 19.5 GiB of memory, and every one
-of them is indicative. One kind node runs Envoy, the processor, the backends and k6 together, so a ceiling here is the
-node's, not any one part's. Where a measurement was repeated, its median comes first and the lowest and highest
-after it, in brackets; a number from one run says so. The tables are under [Measurements](#measurements).
+`20261105T192122Z`), on an Apple M5 Pro Mac (the model is the host's; the run prints only its Docker Desktop VM's 18
+CPUs and 19.5 GiB of memory), and every one of them is indicative. One kind node runs Envoy, the processor, the
+backends and k6 together, so a ceiling here is the node's as much as any one part's. Where a measurement was
+repeated, its median comes first and the lowest and highest after it, in brackets; every other number is from a
+single run. The tables are under [Measurements](#measurements).
 
-1. **Load: does the edge become the bottleneck?** Not at these rates, and not by the processor's own work.
+1. **Load: does the edge become the bottleneck?** At 1000 requests a second the processor adds about half a
+   millisecond. One replica on this node saturates between 8000 and 10000/s, its tail latency growing from 6000/s,
+   and two replicas sustained one step less than plain Envoy. Why one replica saturates there is not measured: no
+   suite read the processor's CPU.
    - At 1000 requests a second with a 400-byte body, the processor adds 0.36 ms at p50 (one round's +0.32 to +0.37)
      and 0.53 ms at p99 (+0.52 to +0.58) to plain Envoy on the same listener. With a 256 KiB body at 500/s it adds
      0.47 ms and 1.41 ms: the cost of buffering the body and sending it to the processor. Stamping itself (hashing
@@ -27,33 +31,40 @@ after it, in brackets; a number from one run says so. The tables are under [Meas
    - The whole edge, `orders` calling `payment` at 500/s, answers 3.23 ms later at p50 (+3.19 to +3.23) and 2.97 ms
      at p99 (+2.92 to +3.05) with Paztport installed than without. That is every hop's work: the edge stamping, both
      backends verifying, `orders` stamping its call and both attesting their responses.
-   - One processor replica (one CPU) sustained 10000/s in all three rounds, but its latency climbs from 8000/s: p50
-     1.1 ms at 7000/s, 7.6 ms at 8000/s, 24 ms at 10000/s. Two replicas sustained 12000/s (12000-14000), four 14000/s (8000-14000).
-     Plain Envoy, which the processor's replicas do not touch, sustained 10000, 14000 and 12000/s in the same three
-     sets of ramps: above about 12000/s this node is the limit, not the processor. During the four-replica ramps'
-     25000/s stage, k6 itself used 1.6 to 1.7 of its 2 CPUs, read from its cgroup outside the harness, and was
-     throttled in at most 9 of about 190 scheduling periods (under 8 ms in all): close to its limit, but not held by
-     it.
-   - The route `orders` with Paztport sustained 2000/s; at 3000/s it achieved 2431/s, with p50 213 ms.
-   - Past saturation the edge refuses cleanly: one replica offered 15000/s and 20000/s answered 177645 and 426328
-     requests with Envoy's own 500, every one refused by Envoy's circuit breaker on the processor's cluster, and
-     none reached `echo` unstamped (see [Findings](#findings)).
-   - Memory, the question whether 256Mi is enough with the 1 MiB body limit: one replica's peak resident memory was
-     67.3, 94.2, 137.8 and 219.4 MiB with 10, 25, 50 and 100 clients each sending 1 MiB bodies back to back, every
-     response a 200 and no restart. It grows by about 1.7 MiB a body in flight, so by that rate 256Mi holds about
-     120 concurrent 1 MiB bodies a replica (an estimate: the steps end at 100). A route that expects more raises
-     `resources.limits.memory` or lowers `bodyLimit`.
-2. **Failure modes, replicas and load balancing.** At 6000/s on `echo`, with two replicas:
+   - One processor replica (one CPU) met the ramps' test for sustained up to 10000/s in all three rounds, but its p50
+     rose from 0.78 ms at 6000/s to 7.55 ms at 8000/s and 24.29 ms at 10000/s (the first round; p99 27 ms already at
+     6000/s), while plain Envoy's stayed near 0.2 ms on the same stages. Past 10000/s, Envoy's circuit breaker on the
+     processor's cluster shed load (below). The two sides' medians were equal at one replica (10000/s), so the ramps
+     alone say nothing about the processor there; the latency does.
+   - Two replicas sustained 12000/s (12000-14000) against plain Envoy's 14000/s (14000-16000): the processor cost a
+     step. At four, the medians crossed, 14000/s (8000-14000) against plain's 12000/s (8000-14000), within spreads
+     that overlap: there the node is the limit, as far as these ramps show.
+   - During the four-replica ramps' 25000/s stage, k6 itself used 1.6 to 1.7 of its 2 CPUs, read from its cgroup
+     outside the harness, and was throttled in at most 9 of about 190 scheduling periods (under 8 ms in any one run):
+     close to its limit, but not held by it.
+   - The route `orders` with Paztport sustained 2000/s (one ramp); at 3000/s it achieved 2431/s, with p50 213 ms.
+   - Past saturation the edge refuses cleanly (one run each): one replica offered 15000/s and 20000/s answered 177645
+     and 426328 requests with Envoy's own 500, every one refused by Envoy's circuit breaker on the processor's
+     cluster, and none reached `echo` unstamped (see [Findings](#findings)).
+   - Memory, the question whether 256Mi is enough with the 1 MiB body limit (one run): one replica's peak resident
+     memory was 67.3, 94.2, 137.8 and 219.4 MiB with 10, 25, 50 and 100 clients each sending 1 MiB bodies back to
+     back, every response a 200 and no restart. It grows by about 1.7 MiB a body in flight, so by that rate 256Mi
+     holds about 120 concurrent 1 MiB bodies a replica (an estimate: the steps end at 100). A route that expects
+     more raises `resources.limits.memory` or lowers `bodyLimit`.
+2. **Failure modes, replicas and load balancing.** At 6000/s on `echo`, with two replicas, one run a case:
    - one processor container killed: 3020 requests refused with 500, all within 0.72 s, both replicas ready again
      1.96 s after the kill, nothing unstamped;
    - a `kubectl rollout restart` of the processor: no error in 540045 requests;
-   - one replica slowed by 600 ms on its gRPC port: its `/readyz` kept answering 200, so readiness never took it out,
-     and Envoy answered 504 at the `messageTimeout` (500 ms) for its share: 96750 504s in the case. Slowing the
-     whole pod took it out of readiness 2.77 s later, but the errors went on until 4.92 s after the delay was
-     removed. Nothing here ejects a slow but live replica;
-   - every replica gone for 30 s: every response a 5xx while none existed (173991), the first 200 to a probe 0.89 s after two replicas
-     were asked for, and 3598 requests reached `echo` unstamped as they came back: Envoy Gateway's recovery leak
-     (see [Findings](#findings)). With `routingType: Service`, 0;
+   - one replica slowed by 600 ms on its gRPC port alone, for 60 s: its `/readyz` answered 200 to 20 of 20 probes, so
+     readiness never took it out, and Envoy answered 504 at the `messageTimeout` (500 ms) for its share, about 1500 a
+     second: 96750 504s in the case, nearly all of them in that minute. Nothing here ejects a replica that is slow
+     on its gRPC port but answers its probes (see [Findings](#findings));
+   - the same replica slowed as a whole pod: readiness took it out 2.77 s later, and the errors stopped within a
+     second. Its container was also restarted once during the case. 3 to 4 s after it was ready again, Envoy's
+     connections to it failed for about a second: 456 500s, with `cluster_cx_connect_fail` +395;
+   - every replica gone for 30 s: every response a 5xx while none existed (173991), the first 200 to a probe 0.89 s
+     after two replicas were asked for, and 3598 requests reached `echo` unstamped as they came back: Envoy
+     Gateway's recovery leak (see [Findings](#findings)). With `routingType: Service`, 0;
    - one `orders` container killed at 1000/s: 10 requests answered 503 within 0.16 s, Envoy retried 161 connections
      that failed, and `orders` served each of 89992 stamps once.
 
@@ -69,7 +80,7 @@ after it, in brackets; a number from one run says so. The tables are under [Meas
    CI with the policy key in an HSM) and shipped as Secrets and ConfigMaps; the processor and the backends read
    files at start and check every stamp locally. No suite needed a runtime service, and a route change is a signing
    event.
-5. **Adding or changing a route,** under 1000/s on `orders`:
+5. **Adding or changing a route,** under 1000/s on `orders`, one run a step:
    - a new URL on an existing service (a second HTTPRoute to `orders`): the processor's mapping changes and its pods
      roll, then the route is applied. No error in 90001 requests on `orders`, and none in 3801 on the new route;
    - a new service path, `edge/payment`, with `payment` exposed at the edge: a rebuilt policy, rolled out in three
@@ -78,12 +89,12 @@ after it, in brackets; a number from one run says so. The tables are under [Meas
      [Measurements](#route)).
 6. **Rollout safety.** In production every valid path is signed before release, and a service goes straight to
    `enforce`; `audit` is a tool for before production, for finding the paths a system takes. So the suite measured
-   the production order, at 1000/s on a route of its own: the processor attached to the route, then `orders` and
-   then `payment` rolled straight into `enforce`.
+   the production order, at 1000/s on a route of its own, one run a step: the processor attached to the route, then
+   `orders` and then `payment` rolled straight into `enforce`.
    - Attaching cost 2663 403s in 3.37 s, refused by the processor's old pods, whose routes did not yet map the
      route (see [Findings](#findings)).
    - Rolling the backends into `enforce` cost 238 of 150001 requests (10 refused `EXPIRED`; 193 500s, 3 503s and 32
-     client timeouts during and after the rollouts), and no request reached a backend without a stamp.
+     resets or timeouts, during and after the rollouts), and no request reached a backend without a stamp.
    - Then a request straight to `orders`, past the Gateway, was refused `403 CHAIN_MISSING`.
 7. **Observability.** The processor's `/metrics` counts what it decided, how long stamping took, the bodies' sizes and
    how long its material has left (6.9 days in the run); the backends count each request by mode, outcome and
@@ -93,8 +104,13 @@ after it, in brackets; a number from one run says so. The tables are under [Meas
 8. **Key custody, and who can reach the processor.** The edge's private key is a Secret only the processor mounts.
    The processor's gRPC port takes mutual TLS from a client certificate named `edge` and nothing else, and the
    NetworkPolicy admits only the Gateway's Envoy pods to it (check 6): the processor signs for whoever reaches it.
-   Even so, a stamp taken from it is refused `PEER_MISMATCH` from any connection but Envoy's (check 7). The edge's key was rotated under load in three overlap steps, and no request was refused for
-   the key: the processor's step cost no error, and the backends' two steps their rollouts' (see
+   Even so, a stamp taken from it is refused `PEER_MISMATCH` from any connection but Envoy's (check 7).
+
+   The edge's key was rotated at 1000/s in three overlap steps, one run each, and no request was refused for the
+   key. The processor's step cost no error. The first backends' step cost 477 non-200s. The last, `orders` and
+   `payment` rolled together onto the new keyring, cost 5740 of 150001, with about 5 s in which every request
+   failed: Envoy's circuit breaker on the processor's cluster refused 4636 of them, and `orders` refused 303
+   `EXPIRED`. We read that as the cost of rolling both backends at once under load, not of the key (see
    [Measurements](#rotation)).
 9. **Upgrades.** See [Why ext_proc now, and a dynamic module later](#why-ext_proc-now-and-a-dynamic-module-later).
 
@@ -442,22 +458,22 @@ What the checks and the measurements found, beyond the numbers.
   up, it would have been called twice for one order. Hence the rule: a Paztport route retries only what never
   reached the backend (`connect-failure`, `refused-stream`), as `orders-routes` does. On it, 50 such requests were
   each served once, Envoy retrying none, and with an `orders` container killed under load, 161 failed connections
-  were retried and every stamp was served once. A shared, expiring nonce store across replicas is the production step, for backends that
-  must refuse every replay.
-- **No central server is needed.** Everything the edge and the backends check is signed offline and read from files;
-  a route change is a signing event in CI, with the policy key in an HSM.
+  were retried and every stamp was served once. A shared, expiring nonce store across replicas is the production
+  step, for backends that must refuse every replay.
+- **No central server is needed:** see the fourth answer above.
 - **Spring Boot trusts `X-Forwarded-For` on Kubernetes.** Boot turns on Tomcat's `RemoteIpValve` when it detects
   Kubernetes, so the peer's instance a refusal's event names would come from a header the client sent. The backends
   set `SERVER_FORWARDHEADERSSTRATEGY=NONE`, and check 10 shows why.
-- **Containment.** Every route to a Paztport backend must pass the processor. Envoy presents the edge's certificate
-  on every upstream with a BackendTLSPolicy, so a route without the processor would carry a stamp a client holds as
-  the edge's. See [What the cluster showed](#what-the-cluster-showed) for the rules that follow.
+- **Containment:** every route to a Paztport backend must pass the processor; see
+  [What the cluster showed](#what-the-cluster-showed).
 - **Envoy Gateway leaks on recovery from no ready processor.** While the processor has no ready pod, Envoy Gateway
   marks its EnvoyExtensionPolicy `Accepted False`, turns the routes into a direct 500 and removes the `ext_proc`
   filter from the listener. Every request then is refused, so it fails closed while down. But when the processor
   comes back, Envoy Gateway restores the filter on a new listener, and the old one's filter chain drains: each
-  kept-alive client connection can pass one more request on it, without the processor and so unstamped. In the
-  run, 3598 requests reached `echo` that way, none while the processor was going and none while it was gone. The
+  kept-alive client connection can pass one more request on it, without the processor and so unstamped. That is a
+  reading the count fits rather than something the run shows directly: 3598 requests reached `echo` unstamped, all
+  after the processor was asked back, against k6's 3600 users, each with a connection of its own; none while the
+  processor was going and none while it was gone. The
   backends in `enforce` refuse such a request (`CHAIN_MISSING`), so it never reaches the application; the count is
   taken on `echo` because `echo` verifies nothing. The mitigation is the EnvoyProxy's `spec.routingType: Service`:
   Envoy then routes to the processor's Service, Envoy Gateway keeps the policy accepted and the filter in place, and
@@ -468,14 +484,26 @@ What the checks and the measurements found, beyond the numbers.
   long-lived HTTP/2 connections, which in the run split 50.7% and 49.3%, but which nothing keeps even. It is also
   Gateway-wide, for every route. The default, routing to endpoints, leaks; `failure` reports it as a FAIL, and the
   run exits 1 for it.
-- **Envoy's circuit breaker on the processor's cluster sheds load.** Envoy's default of 1024 requests at a time on
-  each cluster applies to the processor's, and an `ext_proc` stream lasts the whole request, the backend's time
-  included, since the processor is sent the response's headers. So past 1024 requests in flight on the Paztport
-  routes, Envoy refuses the rest with its own 500 (`cluster_rq_active_overflow`), failing closed. One replica
-  offered 15000/s refused 177645 that way while stamping every request that came back 200. On `orders` at 3000/s it
-  refused 12129 of 60001 while the processors stamped only 47872 in 20 s, far under what they sustain: `orders`
-  holding requests about 357 ms (p50) at 3000/s keeps more than 1024 in flight. The chart leaves the breaker at
-  Envoy's default.
+- **Envoy's circuit breaker on the processor's cluster sheds load.** The processor's cluster sets no limit of its
+  own (only `max_retries`, in Envoy's configuration as the run read it), so Envoy's default of 1024 requests at a
+  time applies, and the chart leaves it. Past it Envoy refuses with its own 500 (`cluster_rq_active_overflow`),
+  failing closed. Measured: one replica offered 15000/s refused 177645 that way while stamping every request that
+  came back 200; on `orders` at 3000/s Envoy refused 12129 of 60001 while the processors stamped only 47872 in
+  20 s, about 2400 a second, far under what two replicas sustained on `echo`; and rotation's last step, with both
+  backends rolling, counted 4636. Our reading of the `orders` case, not shown by the run: Envoy holds a request's
+  stream to the processor open until the response's headers, since the filter is sent them, so a slow backend holds
+  the processor's streams as well, and enough of them in flight fill the 1024 while the processor itself is idle.
+  The run does not give the number in flight: at the accepted rate, the p50 of 357 ms gives about 850 and the p90 of
+  623 ms about 1500.
+- **A replica slow on its gRPC port stays in service.** Slowed by 600 ms on port 9002 alone, a processor replica
+  kept answering `/readyz` (20 of 20 probes) and stayed ready, and Envoy answered 504 at the `messageTimeout` for its
+  share of the requests, about 1500 a second: 96750 504s in the case, nearly all of them in that minute. Nothing in
+  this set-up ejects it: the chart sets no outlier detection on the processor's cluster, and the readiness check
+  does not go through the gRPC port. Slowed as a whole pod, it was taken out by readiness 2.77 s later and the
+  errors stopped within a second. Its container was also restarted once during the case (restarts 2 after it, 1
+  before), and 3 to 4 s after it was ready again Envoy's connections to it failed for about a second (456 500s,
+  `cluster_cx_connect_fail` +395), a burst of its own. Outlier detection on the processor's cluster, or a readiness
+  check that goes through the gRPC port, is the follow-up for the port-only case.
 - **Attaching the processor to a route already being served costs a window of 403s.** The chart maps a route and
   attaches its policy in one release. Envoy enables the filter on the route as the policy changes, before the new
   processor pods, whose routes map it, take all of its streams; until then the old pods refuse the route as
@@ -489,17 +517,20 @@ What the checks and the measurements found, beyond the numbers.
   `CHAIN_MISSING`.
 - **A chainless request cannot be served on a multi-hop path, in `off` or `audit`.** A service that is not an origin,
   given a request with no chain, refuses to stamp its own outbound call. So with no processor in front and the
-  backends in `off`, `orders` answered 500 rather than calling `payment`, and `audit` takes the same path in the
-  code. The path is a later design: a chain starts only at an ingress or at an approved trigger (a service and one
-  of its triggers, such as a scheduled job), and `audit`, which belongs before production, starts a chain where it
-  serves a chainless request instead of sending its calls unstamped. The `edge` and `rollout` suites therefore compare
-  against the backends without Paztport installed, not against `off`.
-- **Rolling a backend under load costs errors, of this demo's backends.** Every step that rolled `orders` or
-  `payment` at 1000/s cost from 238 to 5740 non-200 responses, whatever the change: 500s and 503s, client timeouts,
-  `EXPIRED` where requests waited past `orders`' 5 s, and Envoy's circuit breaker once slow backends kept more than
-  1024 in flight. Every step that rolled only the processor cost none. `payment` runs one replica here, and
-  neither backend has a `preStop` pause or a readiness check beyond a TCP connection. The windows below count these
-  apart from refusals for material.
+  backends in `off`, `orders` answered 500 rather than calling `payment`; that was seen in an earlier attempt at the
+  `edge` suite's baseline, not in this run, and `audit` takes the same path in the code. The path is a later
+  design: a chain starts only at an ingress or at an approved trigger (a service and one of its triggers, such as a
+  scheduled job), and `audit`, which belongs before production, starts a chain where it serves a chainless request
+  instead of sending its calls unstamped. The `edge` and `rollout` suites therefore compare against the backends
+  without Paztport installed, not against `off`.
+- **Rolling a backend under load costs errors.** Every step that rolled `orders` or `payment` at 1000/s cost from
+  199 to 5740 non-200 responses apart from refusals for material, whatever the change: 500s and 503s, resets or
+  timeouts, `EXPIRED` where requests waited past `orders`' 5 s, and Envoy's circuit breaker. The 5740 were rotation's
+  last step, `orders` and `payment` rolled together, with about 5 s in which every request failed. Every step that
+  rolled only the processor, on routes it already mapped, cost none. We read these as the cost of this demo's
+  backends' rollouts: `payment` runs one replica here, and neither backend has a `preStop` pause or a readiness
+  check beyond a TCP connection. That is not compared against a better-tuned Deployment. The windows below count
+  these apart from refusals for material.
 
 ## Gotchas, and how each is handled
 
@@ -516,7 +547,7 @@ What the checks and the measurements found, beyond the numbers.
 | Merged gateways | the NetworkPolicy admits nothing, and the edge refuses everything | `gateway.envoyPodLabels` |
 | Every processor replica gone | refused while down; one request a kept-alive connection unstamped on recovery | backends in `enforce`; `routingType: Service`; the PodDisruptionBudget and two replicas |
 | More than 1024 requests in flight | Envoy's own 500 | capacity; it fails closed |
-| A slow but live processor replica | 504s at the `messageTimeout` for its share while it stays ready | nothing in this set-up: an operator's alert on 504s and `message_timeouts` |
+| A processor replica slow on its gRPC port | 504s at the `messageTimeout` for its share while it stays ready | nothing in this set-up: an operator's alert on 504s and `message_timeouts` (see [The path](#the-path)) |
 | `X-Forwarded-For` | Boot would take the peer's instance from it | `SERVER_FORWARDHEADERSSTRATEGY=NONE` |
 
 ## Operating it
@@ -573,6 +604,8 @@ What the checks and the measurements found, beyond the numbers.
   (the DPoP and passkey shape).
 - **Chains that start only at an ingress or an approved trigger,** with `audit` stamping (above).
 - **A map-then-attach option** in the chart, and `routingType: Service` or a fix in Envoy Gateway for the leak.
+- **Ejecting a slow processor replica:** outlier detection on the processor's cluster, or a readiness check that
+  goes through the gRPC port.
 
 ## Why ext_proc now, and a dynamic module later
 
@@ -676,19 +709,23 @@ http_filters:
           match_typed_subject_alt_names: [{san_type: DNS, matcher: {exact: paztport-processor}}]
 ```
 
-The rules are those above: every route to a Paztport backend carries the filter and a mapped route's metadata (a
-route the processor does not map is refused 403), only Envoy can reach the processor's port, and nothing retries a
-request that reached a backend.
+`STRICT_DNS` on `paztport-processor` gives Envoy whatever that name resolves to. For a ClusterIP Service that is
+one address, and kube-proxy balances Envoy's few long-lived HTTP/2 connections, as with `routingType: Service`
+above; a headless Service (`clusterIP: None`) gives Envoy every ready pod's address, and Envoy balances the requests
+itself. The rules are those above: every route to a Paztport backend carries the filter and a mapped route's
+metadata (a route the processor does not map is refused 403), only Envoy can reach the processor's port, and nothing
+retries a request that reached a backend.
 
 ## Measurements
 
 One full run, `./run envoy-gateway measure`, on 2026-11-05 from 19:21Z (results directory `20261105T192122Z`): an
-Apple M5 Pro Mac, Docker Desktop's VM with 18 CPUs and 19.5 GiB of memory, one kind node. Every number is indicative.
-A median is followed by the lowest and highest of its runs, in brackets; a single run says so. macOS's idle sleep was
-held off for the run (`caffeinate -i`), and every change and failure run met its offered rate within its planned
-time: a run that misses its rate or overruns its time fails, naming a stalled or sleeping host. The run exits 1 for
-one known line, `failure`'s "nothing reached echo unstamped" in the case with every processor replica gone, and its
-suite-end total: the recovery leak in [Findings](#findings). Every other line passed.
+Apple M5 Pro Mac (the model is the host's; the run prints only its Docker Desktop VM's 18 CPUs and 19.5 GiB of
+memory), one kind node. Every number is indicative. A median is followed by the lowest and highest of its runs, in
+brackets; a single run says so. In the status counts, `other` is a reset or a timeout, which k6 does not separate.
+macOS's idle sleep was held off for the run (`caffeinate -i`), and every change and failure run met its offered rate
+within its planned time: a run that misses its rate or overruns its time fails, naming a stalled or sleeping host.
+The run exits 1 for one known line, `failure`'s "nothing reached echo unstamped" in the case with every processor
+replica gone, and its suite-end total: the recovery leak in [Findings](#findings). Every other line passed.
 
 ### `load`
 
@@ -751,7 +788,7 @@ each.
 | Case | Requests | Not 200 | Window | Recovery | Unstamped at `echo` |
 |---|---|---|---|---|---|
 | one processor container killed | 360002 | 3020 (500) | 0.715 s | both ready 1.96 s after the kill | 0 |
-| one replica slowed 600 ms, port 9002 for 60 s, then the pod | 720002 | 97206 (504: 96750, 500: 456) | 89.445 s | out of readiness 2.77 s after the whole pod was slowed; last error 4.92 s after the delay was removed | 0 |
+| one replica slowed 600 ms, port 9002 for 60 s, then the pod | 720002 | 97206 (504: 96750, 500: 456) | 89.445 s | ready throughout the port-only delay (20 of 20 probes); out of readiness 2.77 s after the whole pod was slowed, the errors stopping within a second; its container restarted once; the 456 500s a burst 3-4 s after it was ready again (`cluster_cx_connect_fail` +395) | 0 |
 | every replica gone 30 s, routing to endpoints | 540004 | 191752 (500) | 31.959 s | first 200 to a probe 0.89 s after the upgrade to two | 3598, all after the upgrade to two |
 | every replica gone 30 s, `routingType: Service` | 540003 | 199083 (500: 134259, 504: 64824) | 35.272 s | first 200 to a probe 2.17 s after the upgrade to two | 0 |
 | the processor rolled (`kubectl rollout restart`) | 540045 | 0 | | two new replicas ready 2.45 s after the restart | 0 |
@@ -770,10 +807,22 @@ the Service.
 
 ### `observe`
 
-At 1000/s on `orders` for 20 s, 20001 requests, every one a 200 and stamped: stamping p50 26 µs, p99 95 µs, mean
-33 µs; bodies 400 B; material 598987 s (6.9 days) left on both pods; the backends counted only `OK`. Lines scanned
-for the markers, the stamp's values, any `X-Path-` name and the edge's key in five encodings: the processor 30009,
-Envoy 90209, `orders` 543219, `payment` 30028; found in none.
+One run at 1000/s on `orders` for 20 s, after a discarded warm-up.
+
+| What was counted | Value |
+|---|---|
+| requests | 20001, every one a 200 and stamped (`stamped` +20001, no refusal) |
+| stamping (`paztport_edge_stamp_seconds`) | p50 26 µs, p99 95 µs, mean 33 µs |
+| bodies (`paztport_edge_body_bytes`) | mean 400 B, all up to 1024 B |
+| material left (`paztport_edge_material_seconds_left`) | 598987 s (6.9 days), on both pods |
+| the backends' reasons | `OK` only |
+
+| Logs scanned for the markers, the stamp's values, any `X-Path-` name and the edge's key in five encodings | Lines | Found |
+|---|---|---|
+| the processor (both pods, every line) | 30009 | none |
+| Envoy (its access log included) | 90209 | none |
+| `orders` | 543219 | none |
+| `payment` | 30028 | none |
 
 ### `rollout`
 
@@ -808,7 +857,7 @@ The overlap against the old way, as the suite sums them; one run of each, so no 
 | rollouts | four: the backends twice, the processor twice | two: the backends and the processor once, together |
 | requests on `orders` | 390000 | 150001 |
 | refused for age (`EXPIRED`), at `orders` | 14 | 10 |
-| every other response not 200 | 1024 (403: 14; 500: 472; 503: 484; other: 54) | 199 (403: 8; 500: 152; 503: 5; other: 34) |
+| not 200, material refusals apart (age refusals included) | 1024 (403: 14; 500: 472; 503: 484; other: 54), the suite's sum | 199 (403: 8; 500: 152; 503: 5; other: 34): k6's 3497 non-200s less `orders`' 3298 `PATH_NOT_ALLOWED` |
 | load on `/pay` | 11302 requests, from just before its route was applied through step 3's rollouts | 6601, only after the rollouts, since its route comes after them |
 
 The overlap's other errors outnumber the old way's because it rolls the backends twice, over 2.6 times the
