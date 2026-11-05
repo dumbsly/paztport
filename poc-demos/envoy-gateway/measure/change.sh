@@ -345,11 +345,16 @@ NODE_LOGS=/var/tmp/paztport-measure-logs
 # a rollout deletes; and a file is linked within 0.2 s of its making, before any line of it can go. So every line an
 # orders or payment container writes in the step is kept, of every pod, rollouts included. A failed link is noted in
 # NODE_LOGS/.errors; the loop writes .ready after its first pass, and .stopped when logs_end stops it, or a guard on
-# the host does once this shell is gone (it gives up by itself after an hour as well). Waits for .ready.
+# the host does once this shell is gone (it gives up by itself after an hour as well). Waits for .ready, then starts
+# the guard, which watches this loop's own directory alone (marked .owner-<token>): a guard started before the loop
+# made its directory saw none, and stopped the loop after its first pass, so that a pod a rollout started later was
+# never linked; and one left from an earlier step must never stop a later step's loop.
 logs_begin() {
+  local token
+  token=$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')
   # shellcheck disable=SC2016 # the script runs in the node's shell
   docker exec "$(node_container)" sh -c 'd=$1
-    rm -rf "$d" && mkdir "$d" || exit 1
+    rm -rf "$d" && mkdir "$d" && : >"$d/.owner-$3" || exit 1
     end=$(($(date +%s) + 3600))
     while [ ! -e "$d/.stop" ]; do
       [ "$(date +%s)" -lt "$end" ] || exit 1
@@ -364,23 +369,26 @@ logs_begin() {
       [ -e "$d/.ready" ] || : >"$d/.ready"
       sleep 0.2
     done
-    : >"$d/.stopped"' sh "$NODE_LOGS" "$NS" >/dev/null 2>&1 9>&- &
+    : >"$d/.stopped"' sh "$NODE_LOGS" "$NS" "$token" >/dev/null 2>&1 9>&- &
   LOGS_PID=$!
   forwards+=("$LOGS_PID")
+  for _ in $(seq 1 50); do
+    docker exec "$(node_container)" test -e "$NODE_LOGS/.ready" && break
+    sleep 0.2
+  done
+  docker exec "$(node_container)" test -e "$NODE_LOGS/.ready" || {
+    echo "error: the loop that links the backends' logs on the kind node did not start" >&2
+    return 1
+  }
   # A guard on the host, outside forwards: should this shell go without stopping the loop (killed with SIGKILL,
   # which no trap sees), it stops the loop within 2 s; it ends by itself once the loop's directory is gone.
   (
-    while kill -0 "$$" 2>/dev/null && docker exec "$(node_container)" test -d "$NODE_LOGS" 2>/dev/null; do sleep 2; done
+    while kill -0 "$$" 2>/dev/null &&
+      docker exec "$(node_container)" test -e "$NODE_LOGS/.owner-$token" 2>/dev/null; do sleep 2; done
     # shellcheck disable=SC2016 # the script runs in the node's shell
-    docker exec "$(node_container)" sh -c 'if [ -d "$1" ]; then : >"$1/.stop"; fi' sh "$NODE_LOGS"
+    docker exec "$(node_container)" sh -c 'if [ -e "$1/.owner-$2" ]; then : >"$1/.stop"; fi' sh "$NODE_LOGS" "$token"
   ) >/dev/null 2>&1 9>&- &
   disown "$!"
-  for _ in $(seq 1 50); do
-    docker exec "$(node_container)" test -e "$NODE_LOGS/.ready" && return 0
-    sleep 0.2
-  done
-  echo "error: the loop that links the backends' logs on the kind node did not start" >&2
-  return 1
 }
 
 # logs_stop: stops the loop, waits for it, and removes NODE_LOGS from the node.
@@ -400,12 +408,18 @@ logs_stop() {
 
 # logs_end: a few seconds on, since a log line reaches the node's files a moment late, stops the loop, reads the
 # trace lines of every file it linked into $tmp/logs/traces ("<pod> <the node's line>"), then removes them. Prints,
-# and returns 1 for, what makes the reading incomplete: a loop that did not run to the end (no .stopped), a link that
-# failed, a file that could not be read, or no orders or payment pod's file linked at all.
+# and returns 1 for, what makes the reading incomplete: a loop that stopped before logs_end stopped it, or did not
+# run to the end (no .stopped), a link that failed, a file that could not be read, or no orders or payment pod's file
+# linked at all.
 logs_end() {
   local ok=0 said
   [ -n "$LOGS_PID" ] || return 1
   sleep 3
+  if docker exec "$(node_container)" test -e "$NODE_LOGS/.stopped"; then
+    echo "  the backends' logs: the loop that links them stopped before the step ended, so a file made after that" \
+      "was not linked" >&2
+    ok=1
+  fi
   docker exec "$(node_container)" sh -c ': >"$1/.stop"' sh "$NODE_LOGS"
   for _ in $(seq 1 50); do
     docker exec "$(node_container)" test -e "$NODE_LOGS/.stopped" && break
