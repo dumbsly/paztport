@@ -39,10 +39,6 @@ REWRITE_PATH=/api/orders
 # replicas, then payment's one, each a Spring Boot pod that takes some 20 s to start here.
 ROLLOUT_ATTACH_DURATION=90s
 ROLLOUT_ENFORCE_DURATION=150s
-# observe's run on orders is steady, at half what orders sustains, and nothing in it changes or fails: a request is
-# held at most the processor's messageTimeout (500 ms) at the edge, and orders' and payment's own time, which at that
-# rate is a few tens of ms. Its k6 users hold every request in flight were each one held this long.
-OBSERVE_POOL_SECONDS=1
 # The requests one at a time that show what orders does with a rewritten path, and what it does with a retry.
 GOTCHA_PROBES=10
 GOTCHA_REQUESTS=50
@@ -71,29 +67,16 @@ for line in sys.argv[1].splitlines():
           "reason") if k in labels), n))' "$reading"
 }
 
-# orders_counted <before> <n>: backend_reasons, read again for up to 5 s until orders' request counters have added
-# n since before: orders counts a request once its response is done, a moment after the client has it.
-orders_counted() {
-  local after=""
-  for _ in $(seq 1 10); do
-    after=$(backend_reasons) || return 1
-    python3 -c 'import re, sys
-def total(text):
-    return sum(int(line.split()[2]) for line in text.splitlines()
-               if line.startswith("orders paztport_request"))
-sys.exit(0 if total(sys.argv[2]) - total(sys.argv[1]) >= int(sys.argv[3]) else 1)' "$1" "$after" "$2" && break
-    sleep 0.5
-  done
-  printf '%s\n' "$after"
-}
-
 # routes_gone <route>...: the behavioural line that the test routes are gone: no HTTPRoute of those names, none the
 # target of a BackendTrafficPolicy or of the processor's EnvoyExtensionPolicy, and none in Envoy's routes (waited for
 # up to 30 s, as Envoy takes the change a moment late). Returns 1 on FAIL.
 routes_gone() {
   local left targets="" envoy="" route out
-  left=$(kn get httproutes -o jsonpath='{.items[*].metadata.name}' | tr ' ' '\n' | grep -xF -f <(printf '%s\n' "$@") |
-    paste -sd ' ' -)
+  if left=$(kn get httproutes -o jsonpath='{.items[*].metadata.name}'); then
+    left=$(tr ' ' '\n' <<<"$left" | grep -xF -f <(printf '%s\n' "$@") | paste -sd ' ' -)
+  else
+    left="(the HTTPRoutes could not be read)"
+  fi
   targets=$(kn get backendtrafficpolicies,envoyextensionpolicies -o json | python3 -c 'import json, sys
 names = set(sys.argv[1:])
 for p in json.load(sys.stdin)["items"]:
@@ -172,10 +155,37 @@ adopt_plain() {
   backends_counters "before the steps"
 }
 
+# attach_balance <Envoy's before> <after> <the new pods' outcomes> <the run's .result>: where the attachment's 403s
+# came from, as a sum the run's own counts make: the streams Envoy started to the processor in the run (none before
+# the attachment, as the route had no filter), against what the processor's new pods decided since they started (all
+# of them, as the run is the only load) and the run's 403s. When the streams are the new pods' and the 403s exactly,
+# every stream the new pods did not decide was answered 403; and a 403 on this route is a refusal of the processor's,
+# as orders without Paztport refuses nothing: so those are the old pods', whose routes do not map orders-adopt, and
+# whose counters went with them.
+attach_balance() {
+  python3 -c 'import json, sys
+def words(text):
+    return {k: int(v) for k, v in (w.split("=") for w in text.split())}
+before, after, new = words(sys.argv[1]), words(sys.argv[2]), words(sys.argv[3])
+r = json.loads(open(sys.argv[4]).read().strip().partition(" ")[2][len("RESULT "):])
+streams = after["streams_started"] - before["streams_started"]
+decided, refused = sum(new.values()), r["status"].get("403", 0)
+print("  Envoy started %d streams to the processor in the run; the new pods decided %d of them (all they decided);"
+      " the run had %d 403s: %d + %d = %d" % (streams, decided, refused, decided, refused, decided + refused))
+if refused and streams == decided + refused:
+    print("  so every stream the new pods did not decide was answered 403: refused by the old pods, whose routes do"
+          " not map orders-adopt (a 403 on this route is the processor'"'"'s refusal; their counters went with them)."
+          " Envoy enabled the filter on the route as the EnvoyExtensionPolicy changed, before the new pods, whose"
+          " routes map it, took all of its streams: the chart maps a route and attaches the processor to it in one"
+          " release, so attaching to a route that is already served costs this window")
+elif refused:
+    print("  the sum does not balance, so where the 403s came from is not shown")' "$1" "$2" "$3" "$4"
+}
+
 # adopt_attach: step 1, the processor attached to orders-adopt under load: the route added to the chart's routes, in
 # a helm upgrade in the background, while Envoy's routes are read until its filter is enabled on the route.
 adopt_attach() {
-  local served=0 outcomes refused
+  local served=0 outcomes envoy
   echo ""
   echo "-- (rollout, step 1) the processor attached to orders-adopt under load: orders-adopt added to the chart's" \
     "routes (receiver orders; helm upgrade: the processor's EnvoyExtensionPolicy then targets it, and its pods roll" \
@@ -193,14 +203,9 @@ adopt_attach() {
   policy_attached envoyextensionpolicy/paztport-processor || return 1
   event "the change done"
   step_end || return 1
-  outcomes=$(processor_outcomes) || return 1
+  outcomes=$(processor_outcomes) && envoy=$(envoy_extproc_stats) || return 1
   echo "  the processor's pods, new with the upgrade, decided since they started: $outcomes"
-  refused=$(sed -n 's/.*"403":\([0-9]*\).*/\1/p' "$RUN_DIR/$CASE.result")
-  if [ "${refused:-0}" -gt 0 ] && [ "${outcomes#*refused_route=0 }" != "$outcomes" ]; then
-    echo "  so the run's $refused 403s came from the old pods, whose routes do not map orders-adopt (a 403 there is" \
-      "the processor's refusal; their counters went with them): Envoy enabled the filter on the route as the" \
-      "EnvoyExtensionPolicy changed, before the new pods took all of its streams"
-  fi
+  attach_balance "$STEP_ENVOY" "$envoy" "$outcomes" "$RUN_DIR/$CASE.result"
   backends_counters "after step 1"
   [ "$served" -eq 0 ]
 }
@@ -224,6 +229,11 @@ adopt_enforce() {
   step_end || return 1
   STEP_VERIFY=""
   backends_counters "after step 2"
+  if backend_reasons 2>/dev/null | grep -q '^orders paztport_response.*reason="CHAIN_MISSING"'; then
+    echo "  response checked CHAIN_MISSING: payment's responses while it did not yet run Paztport, unattested. A" \
+      "response is content, never refused: an unattested one is recorded as untrusted influence, so this is not a" \
+      "request that reached a backend unstamped"
+  fi
 }
 
 # adopt_bypass: the behavioural line that a request straight to orders, past the Gateway (from the pod checks, over
@@ -327,6 +337,11 @@ processor_metrics() {
   done
 }
 
+# pods_named <identities>: processor_identity's words cut to each pod's name and uid.
+pods_named() {
+  tr ' ' '\n' <<<"$1" | cut -d/ -f1,2 | paste -sd ' ' -
+}
+
 # processor_identity: each processor pod's name, uid, restarts and start, of those running and not being deleted,
 # sorted, on one line: the same before and after means their counters and logs ran through.
 processor_identity() {
@@ -408,13 +423,17 @@ for (pod, name), v in sorted(after.items()):
 # pace and window, and what the processor and the backends counted of it.
 observe_load() {
   local users line ids m_before m_after r_before r_after
-  users=$(pool "$CHANGE_RATE_USED" "$(awk -v r="$CHANGE_RATE_USED" -v s="$OBSERVE_POOL_SECONDS" \
+  # k6's users, as the change steps' (change.sh's CHANGE_POOL_SECONDS): the run follows a reset whose rollouts may
+  # leave orders' or payment's JVM cold, and a covering run's warm-up then held requests up to 1.8 s (p99 1.4 s), so
+  # a pool sized for the warm path would drop requests.
+  users=$(pool "$CHANGE_RATE_USED" "$(awk -v r="$CHANGE_RATE_USED" -v s="$CHANGE_POOL_SECONDS" \
     'BEGIN { printf "%d", r * s + 0.5 }')")
   echo "-- what the edge and the backends count of a steady run on orders: $CHANGE_RATE_USED/s for $DURATION (k6" \
     "users: $users), after a discarded warm-up of $WARMUP"
   line=$(k6_run observe-warmup TARGET="$EDGE/orders" BODY=small EXECUTOR=rate RATE="$CHANGE_RATE_USED" \
     PREALLOC="$users" DURATION="$WARMUP") || return 1
   echo "  warm-up (discarded): $line"
+  python3 "$here/measure/summary.py" rate <(echo "warm-up $line") "$CHANGE_RATE_USED"
   ids=$(processor_identity)
   m_before=$(processor_metrics) && r_before=$(backend_reasons) || return 1
   line=$(k6_run observe-load TARGET="$EDGE/orders" BODY=small EXECUTOR=rate RATE="$CHANGE_RATE_USED" \
@@ -545,14 +564,16 @@ observe_markers() {
   copy="$tmp/observe/processor.log"
   said=$(pod_logs_copy "$NS" app.kubernetes.io/name=paztport-processor "$copy") || return 1
   ids_now=$(processor_identity)
-  if [ "$ids_now" = "$OBSERVE_IDS" ]; then
-    echo "  the scan's input: a scratch copy of every line the processor's containers wrote, from the node's log" \
-      "files ($said), each pod the same as when the suite began, before its first request"
-  else
-    echo "  the scan's input: a scratch copy of every line the processor's containers wrote, from the node's log" \
-      "files ($said); the pods changed during the suite (were [$OBSERVE_IDS], are [$ids_now]), so it reads only" \
-      "those there now"
+  # By name and uid: a container that started again keeps its earlier log file in its pod's directory.
+  if [ "$(pods_named "$ids_now")" != "$(pods_named "$OBSERVE_IDS")" ]; then
+    change_fail "the processor's logs hold nothing a request carried, no X-Path- value, and not the edge's key:" \
+      "cannot say: the processor's pods changed during the suite (were [$OBSERVE_IDS], are [$ids_now]), so the" \
+      "log files of a pod that served the requests may be gone"
+    observe_findings "$needles"
+    return 1
   fi
+  echo "  the scan's input: a scratch copy of every line the processor's containers wrote, from the node's log" \
+    "files ($said), each pod the same as when the suite began, before its first request"
   log_scan "$needles" "$copy" "the processor's logs hold nothing a request carried, no X-Path- value, and not the\
  edge's key" || true
   observe_findings "$needles"
@@ -600,24 +621,6 @@ suite_observe() {
 }
 
 # --- gotchas ---
-
-# processor_settled: until every processor pod is running and none is being deleted, and Envoy's cluster for the
-# processor holds those pods' addresses and no other, for up to 60 s: a helm upgrade that rolls the processor returns
-# while the old pods drain, and a request Envoy sends one of them meanwhile is refused for a route it does not map.
-processor_settled() {
-  local want hosts all
-  envoy_admin || return 1
-  for _ in $(seq 1 120); do
-    all=$(kn get pods -l app.kubernetes.io/name=paztport-processor -o name | grep -c . || true)
-    want=$(kn get pods -l app.kubernetes.io/name=paztport-processor --field-selector=status.phase=Running \
-      -o jsonpath='{.items[*].status.podIP}' | tr ' ' '\n' | LC_ALL=C sort | paste -sd ' ' -)
-    hosts=$(processor_hosts 2>/dev/null)
-    [ -n "$want" ] && [ "$hosts" = "$want" ] && [ "$all" -eq "$(wc -w <<<"$want")" ] && return 0
-    sleep 0.5
-  done
-  echo "error: the processor's pods did not settle: $all pods, Envoy's cluster for it holds [$hosts], not [$want]" >&2
-  return 1
-}
 
 # rewrite_route: the HTTPRoute orders-rewrite, POST /api/orders, its path rewritten to /orders (a URLRewrite filter,
 # which Envoy applies as it routes the request: after the processor stamped it), to orders.

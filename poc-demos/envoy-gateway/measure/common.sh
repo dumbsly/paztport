@@ -1052,6 +1052,45 @@ for (app, series), n in sorted(after.items()):
 print("  reasons other than OK: " + ("; ".join(bad) if bad else "none"))' "$1" "$2"
 }
 
+# orders_counted <before> <n>: backend_reasons, read again for up to 5 s until orders' request counters have added
+# n since before: orders counts a request once its response is done, a moment after the client has it.
+orders_counted() {
+  local after=""
+  for _ in $(seq 1 10); do
+    after=$(backend_reasons) || return 1
+    python3 -c 'import re, sys
+def total(text):
+    return sum(int(line.split()[2]) for line in text.splitlines()
+               if line.startswith("orders paztport_request"))
+sys.exit(0 if total(sys.argv[2]) - total(sys.argv[1]) >= int(sys.argv[3]) else 1)' "$1" "$after" "$2" && break
+    sleep 0.5
+  done
+  printf '%s\n' "$after"
+}
+
+# processor_settled: until every processor pod is running and none is being deleted, and Envoy's cluster for the
+# processor holds those pods' addresses and no other, for up to 60 s: a helm upgrade that rolls the processor returns
+# while the old pods drain (a pod being deleted is still Running through its preStop and its drain), and a request
+# Envoy sends one of them meanwhile is decided on the old pod's routes and material.
+processor_settled() {
+  local want hosts all live
+  envoy_admin || return 1
+  for _ in $(seq 1 120); do
+    all=$(kn get pods -l app.kubernetes.io/name=paztport-processor -o name | grep -c . || true)
+    # The pods running and not being deleted (processor_pods'), by address.
+    want=$(kn get pods -l app.kubernetes.io/name=paztport-processor --field-selector=status.phase=Running \
+      -o jsonpath='{range .items[*]}{.status.podIP} {.metadata.deletionTimestamp}{"\n"}{end}' |
+      awk 'NF == 1 { print $1 }' | LC_ALL=C sort | paste -sd ' ' -)
+    live=$(wc -w <<<"$want" | tr -d ' ')
+    hosts=$(processor_hosts 2>/dev/null)
+    [ -n "$want" ] && [ "$hosts" = "$want" ] && [ "$all" -eq "$live" ] && return 0
+    sleep 0.5
+  done
+  echo "error: the processor's pods did not settle: $all pods, $live running and not being deleted; Envoy's" \
+    "cluster for it holds [$hosts], not [$want]" >&2
+  return 1
+}
+
 # backend_restarts: each orders and payment pod's restarts, "<pod> restarts=<n>; ..." on one line.
 backend_restarts() {
   kn get pods -l 'app in (orders,payment)' \

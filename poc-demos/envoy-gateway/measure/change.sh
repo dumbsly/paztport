@@ -386,11 +386,13 @@ logs_begin() {
     : >"$d/.stopped"' sh "$NODE_LOGS" "$NS" "$token" >/dev/null 2>&1 9>&- &
   LOGS_PID=$!
   forwards+=("$LOGS_PID")
+  # This loop's .ready, beside its own mark: a .ready left by a loop an earlier shell lost (killed with SIGKILL) is
+  # not this one's.
   for _ in $(seq 1 50); do
-    docker exec "$(node_container)" test -e "$NODE_LOGS/.ready" && break
+    docker exec "$(node_container)" test -e "$NODE_LOGS/.owner-$token" -a -e "$NODE_LOGS/.ready" && break
     sleep 0.2
   done
-  docker exec "$(node_container)" test -e "$NODE_LOGS/.ready" || {
+  docker exec "$(node_container)" test -e "$NODE_LOGS/.owner-$token" -a -e "$NODE_LOGS/.ready" || {
     echo "error: the loop that links the backends' logs on the kind node did not start" >&2
     return 1
   }
@@ -765,21 +767,27 @@ backend_pods() {
 }
 
 # change_probes ok|refused <what>...: CHANGE_PROBES requests on the route orders from the pod checks, one at a time,
-# and what orders counted of them (its counters, read before and after, on the same pods). With ok, PASS when every
-# one was answered 200 and orders verified each OK; with refused, PASS when none was answered 200 and orders refused
-# each one, for a reason other than CHAIN_MISSING (the stamp was there, and its material is not pinned). Prints the
-# reasons by name. Returns 1 on FAIL.
+# once the processor's pods have settled, and what orders counted of them (its counters, read before and after, on
+# the same pods; after, until it has counted them all, as it counts a request once its response is done). With ok,
+# PASS when every one was answered 200 and orders verified each OK; with refused, PASS when none was answered 200 and
+# orders refused each one, for a reason other than CHAIN_MISSING (the stamp was there, and its material is not
+# pinned). Prints the reasons by name. Returns 1 on FAIL.
 change_probes() {
   local want="$1" what pods before after codes verdict
   shift
   what="$*"
+  # Not before the processor's old pods are gone: one still draining stamps under what it had.
+  processor_settled || { change_fail "$what: the processor's pods did not settle (above)"; return 1; }
   pods=$(backend_pods)
   before=$(backend_reasons) || { change_fail "$what: orders' counters could not be read"; return 1; }
   # shellcheck disable=SC2016 # the script runs in the pod's shell
   codes=$(kn exec checks -- sh -c 'i=0; while [ "$i" -lt "$1" ]; do
     curl -s -o /dev/null -w "%{http_code}\n" -X POST -H "content-type: application/json" -d "{}" "$2/orders"
     i=$((i + 1)); done' sh "$CHANGE_PROBES" "$EDGE" 2>/dev/null)
-  after=$(backend_reasons) || { change_fail "$what: orders' counters could not be read"; return 1; }
+  after=$(orders_counted "$before" "$CHANGE_PROBES") || {
+    change_fail "$what: orders' counters could not be read"
+    return 1
+  }
   if [ "$(backend_pods)" != "$pods" ]; then
     change_fail "$what: orders' or payment's pods changed during the requests, so their counters say nothing"
     return 1
