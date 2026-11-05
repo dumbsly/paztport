@@ -177,13 +177,15 @@ discover() {
         root="$c"
         ;;
     esac
+    # go list gives a module no directory in vendor mode; the walk below would then never reach its root.
+    [ -n "$root" ] || { fail "no module directory for $module $version (vendor mode?)"; continue; }
     echo "$module $version" >>"$prefix.modules"
     if [ "$pdir" != "$root" ] && [ "${pdir#"$root"/}" = "$pdir" ]; then
       fail "the package directory $pdir is not under its module's root, $root"
       continue
     fi
     x="$pdir"
-    while [ "$x" != "$root" ] && [ "${x#"$root"/}" != "$x" ]; do
+    while [ "$x" != "$root" ] && [ "$x" != / ] && [ "${x#"$root"/}" != "$x" ]; do
       licence_files "$x" notices >"$work/found"
       while IFS= read -r f; do
         printf '%s %s %s\t%s\n' "$module" "$version" "${f#"$root"/}" "$f" >>"$prefix.nested"
