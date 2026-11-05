@@ -175,7 +175,7 @@ adopt_plain() {
 # adopt_attach: step 1, the processor attached to orders-adopt under load: the route added to the chart's routes, in
 # a helm upgrade in the background, while Envoy's routes are read until its filter is enabled on the route.
 adopt_attach() {
-  local served=0
+  local served=0 outcomes refused
   echo ""
   echo "-- (rollout, step 1) the processor attached to orders-adopt under load: orders-adopt added to the chart's" \
     "routes (receiver orders; helm upgrade: the processor's EnvoyExtensionPolicy then targets it, and its pods roll" \
@@ -193,7 +193,14 @@ adopt_attach() {
   policy_attached envoyextensionpolicy/paztport-processor || return 1
   event "the change done"
   step_end || return 1
-  echo "  the processor's pods, new with the upgrade, decided since they started: $(processor_outcomes)"
+  outcomes=$(processor_outcomes) || return 1
+  echo "  the processor's pods, new with the upgrade, decided since they started: $outcomes"
+  refused=$(sed -n 's/.*"403":\([0-9]*\).*/\1/p' "$RUN_DIR/$CASE.result")
+  if [ "${refused:-0}" -gt 0 ] && [ "${outcomes#*refused_route=0 }" != "$outcomes" ]; then
+    echo "  so the run's $refused 403s came from the old pods, whose routes do not map orders-adopt (a 403 there is" \
+      "the processor's refusal; their counters went with them): Envoy enabled the filter on the route as the" \
+      "EnvoyExtensionPolicy changed, before the new pods took all of its streams"
+  fi
   backends_counters "after step 1"
   [ "$served" -eq 0 ]
 }
@@ -320,12 +327,13 @@ processor_metrics() {
   done
 }
 
-# processor_identity: each processor pod's name, uid, restarts and start, sorted, on one line: the same before and
-# after means their counters and logs ran through.
+# processor_identity: each processor pod's name, uid, restarts and start, of those running and not being deleted,
+# sorted, on one line: the same before and after means their counters and logs ran through.
 processor_identity() {
   local each='{.metadata.name}/{.metadata.uid}/{.status.containerStatuses[0].restartCount}/{.status.startTime}'
-  kn get pods -l app.kubernetes.io/name=paztport-processor -o jsonpath="{range .items[*]}$each {end}" |
-    tr ' ' '\n' | LC_ALL=C sort | paste -sd ' ' -
+  kn get pods -l app.kubernetes.io/name=paztport-processor --field-selector=status.phase=Running \
+    -o jsonpath="{range .items[*]}$each {.metadata.deletionTimestamp}{\"\\n\"}{end}" |
+    awk 'NF == 1 { print $1 }' | LC_ALL=C sort | paste -sd ' ' -
 }
 
 # observe_readings <before> <after>: what the processor counted between two processor_metrics: its outcomes, how
@@ -537,10 +545,14 @@ observe_markers() {
   copy="$tmp/observe/processor.log"
   said=$(pod_logs_copy "$NS" app.kubernetes.io/name=paztport-processor "$copy") || return 1
   ids_now=$(processor_identity)
-  echo "  the scan's input: a scratch copy of every line the processor's containers wrote, from the node's log" \
-    "files ($said), every pod the same as when the suite began, before its first request"
-  [ "$ids_now" = "$OBSERVE_IDS" ] || echo "  the processor's pods changed during the suite (were [$OBSERVE_IDS], are" \
-    "[$ids_now]): the scan reads only the pods there now"
+  if [ "$ids_now" = "$OBSERVE_IDS" ]; then
+    echo "  the scan's input: a scratch copy of every line the processor's containers wrote, from the node's log" \
+      "files ($said), each pod the same as when the suite began, before its first request"
+  else
+    echo "  the scan's input: a scratch copy of every line the processor's containers wrote, from the node's log" \
+      "files ($said); the pods changed during the suite (were [$OBSERVE_IDS], are [$ids_now]), so it reads only" \
+      "those there now"
+  fi
   log_scan "$needles" "$copy" "the processor's logs hold nothing a request carried, no X-Path- value, and not the\
  edge's key" || true
   observe_findings "$needles"
@@ -577,7 +589,8 @@ suite_observe() {
   baseline_reset
   CHANGE_FAILS=0
   UNDO="kn delete job -l app=k6 --ignore-not-found >/dev/null 2>&1"
-  envoy_admin && change_rate || return 1
+  # The pods the suite runs on, once the old ones a reset's roll left draining are gone.
+  envoy_admin && change_rate && processor_settled || return 1
   OBSERVE_IDS=$(processor_identity)
   observe_load || status=1
   observe_markers || status=1
