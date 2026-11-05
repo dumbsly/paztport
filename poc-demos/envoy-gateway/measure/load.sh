@@ -483,20 +483,27 @@ for c in json.load(sys.stdin).get("configs", []):
   fi
 }
 
+# backends_without: orders' and payment's Deployments given the environment without Paztport (above), which starts
+# their rollouts.
+backends_without() {
+  local exclude
+  exclude=$(backends_env file | sed -n 's/^payment SPRING_AUTOCONFIGURE_EXCLUDE=//p')
+  kn set env deployment/orders SPRING_AUTOCONFIGURE_EXCLUDE="$PAZTPORT_AUTOCONFIGURATION" \
+    SPRING_HTTP_CLIENTS_SSL_BUNDLE=mesh >/dev/null &&
+    kn set env deployment/payment SPRING_AUTOCONFIGURE_EXCLUDE="${exclude:+$exclude,}$PAZTPORT_AUTOCONFIGURATION" \
+      >/dev/null
+}
+
 # edge_side with|without: the backends' environment for that side, rolled out, and Envoy answering 200 on the side's
 # route; then, when the side changed, a discarded warm-up (EDGE_WARMUP long) on it, since every pod is new and its
 # JVM cold: longer than the runs' WARMUP, so that what follows a rollout is as warm as what follows a run. Sets RUN_VARS
 # for alternate: the host of the side's route.
 edge_side() {
-  local side="$1" exclude host="" code line
+  local side="$1" host="" code line
   if [ "$side" = without ]; then RUN_VARS=(HOST="$PLAIN_ORDERS_HOST"); host="$PLAIN_ORDERS_HOST"; else RUN_VARS=(); fi
   [ "$side" != "$EDGE_SIDE" ] || return 0
-  exclude=$(backends_env file | sed -n 's/^payment SPRING_AUTOCONFIGURE_EXCLUDE=//p')
   if [ "$side" = without ]; then
-    kn set env deployment/orders SPRING_AUTOCONFIGURE_EXCLUDE="$PAZTPORT_AUTOCONFIGURATION" \
-      SPRING_HTTP_CLIENTS_SSL_BUNDLE=mesh >/dev/null &&
-      kn set env deployment/payment SPRING_AUTOCONFIGURE_EXCLUDE="${exclude:+$exclude,}$PAZTPORT_AUTOCONFIGURATION" \
-        >/dev/null || return 1
+    backends_without || return 1
   else
     edge_env_back || return 1
   fi

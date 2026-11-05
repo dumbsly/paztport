@@ -33,9 +33,9 @@
 #   measured on echo with two processor replicas, when it ran in the same run, or else FAILURE_DEFAULT_RATE (5000,
 #   half the 10000/s that median was on this machine); FAILURE_ORDERS_RATE is the rate on the route orders. See
 #   measure/failure.sh.
-#   CHANGE_RATE is the requests a second the route and rotation suites offer the route orders throughout each
-#   change (each step's warm-up says when the edge does not hold it); CHANGE_NEW_RATE (50) is the small fixed rate
-#   they offer a route they add.
+#   CHANGE_RATE is the requests a second the route, rotation and rollout suites offer orders throughout each
+#   change (each step's warm-up says when the edge does not hold it), and the observe suite's steady run;
+#   CHANGE_NEW_RATE (50) is the small fixed rate route and rotation offer a route they add. See measure/rollout.sh.
 #   FAILURE_ORDERS_RATE and CHANGE_RATE, unset, are half the highest stage the edge suite sustained on orders in the
 #   same run, when it ran, or else ORDERS_DEFAULT_RATE (1000), a fallback measured on the author's machine: half the
 #   2000/s stage the edge suite sustained there; each suite prints which it used.

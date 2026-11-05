@@ -608,13 +608,14 @@ failure_roll() {
   case_after
 }
 
-# envoy_orders_retries: Envoy's counters for its cluster of the route orders that a killed backend moves:
-# connections that failed, requests retried (and the retries that then succeeded, and those over the retry
-# budget), requests ended by a reset, and connections orders closed with requests on them; "<name>=<n>" words.
+# envoy_orders_retries [route]: Envoy's counters for its cluster of the route orders (or the route named) that a
+# killed backend moves: connections that failed, requests retried (and the retries that then succeeded, and those
+# over the retry budget), requests ended by a reset, and connections orders closed with requests on them;
+# "<name>=<n>" words.
 envoy_orders_retries() {
   envoy_admin || return 1
-  curl -sf "http://$ENVOY_ADMIN/stats" | awk -F': ' '
-    $1 ~ /^cluster\.httproute\/paztport\/orders\// && $1 !~ /\.internal\./ &&
+  curl -sf "http://$ENVOY_ADMIN/stats" | awk -F': ' -v c="cluster.httproute/paztport/${1:-orders}/" '
+    index($1, c) == 1 && $1 !~ /\.internal\./ &&
       ($1 ~ /\.upstream_(cx_connect_fail|rq_retry|rq_retry_success|rq_retry_overflow|rq_rx_reset)$/ ||
       $1 ~ /\.upstream_cx_destroy_remote_with_active_rq$/) {
       sub(/^.*\.upstream_/, "", $1); s[$1] += $2 }
@@ -643,10 +644,11 @@ orders_traces() {
   rm -f "$logs"
 }
 
-# rids_once <traces file> <200s>: the behavioural lines on orders' traces: orders traced each rid once, and its
-# traces hold at least as many rids it verified OK as k6 counted 200s (each 200 is a request orders verified, so
-# fewer means traces are missing, and the first line would say nothing). It may hold more: a request orders verified
-# whose response never came back as a 200 (one it held when it was killed) is traced, and not among k6's 200s.
+# rids_once <traces file> <200s> [<what they are>]: the behavioural lines on orders' traces: orders traced each rid
+# once, and its traces hold at least as many rids it verified OK as k6 counted 200s (each 200 is a request orders
+# verified, so fewer means traces are missing, and the first line would say nothing). It may hold more: a request
+# orders verified whose response never came back as a 200 (one it held when it was killed) is traced, and not among
+# k6's 200s. With <what they are>, the count is of other responses each of which orders verified, so named.
 # Returns 1 if either is FAIL.
 rids_once() {
   python3 -c 'import collections, re, sys
@@ -663,7 +665,7 @@ for line in open(sys.argv[1]):
         if reason == "OK":
             ok.add(rid)
 twice = {rid: n for rid, n in rids.items() if n > 1}
-oks = int(sys.argv[2])
+oks, what = int(sys.argv[2]), sys.argv[3]
 print("  orders traced %d requests in the run, by reason: %s; %d without a rid" % (
     sum(reasons.values()), ", ".join("%s %d" % kv for kv in sorted(reasons.items())) or "none",
     sum(1 for line in open(sys.argv[1]) if " rid=- " in line)))
@@ -678,13 +680,14 @@ elif not rids:
 else:
     print("  PASS orders served each rid once: %d rids, none traced twice" % len(rids))
 if len(ok) >= oks:
-    print("  PASS orders traces cover the run: %d rids verified OK, at least as many as the %d 200s k6 counted (%d"
-          " more: requests orders verified whose response never came back as a 200)" % (len(ok), oks, len(ok) - oks))
+    print("  PASS orders traces cover the run: %d rids verified OK, at least as many as the %d %s (%d"
+          " more: requests orders verified whose response never came back as one)" % (len(ok), oks, what,
+                                                                                    len(ok) - oks))
 else:
-    print("  FAIL orders traces cover the run: %d rids verified OK, fewer than the %d 200s k6 counted, so traces"
-          " are missing" % (len(ok), oks))
+    print("  FAIL orders traces cover the run: %d rids verified OK, fewer than the %d %s, so traces are missing"
+          % (len(ok), oks, what))
     bad = 1
-sys.exit(bad)' "$1" "$2"
+sys.exit(bad)' "$1" "$2" "${3:-200s k6 counted}"
 }
 
 # failure_orders: one orders container killed (SIGKILL) under load on the route orders: the requests that fail

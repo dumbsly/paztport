@@ -83,6 +83,13 @@ STEP_ENVOY=""
 STEP_SINCE=""
 CHANGE_HELM_PID=""
 LOGS_PID=""
+# Settings every run on orders a step makes takes as well (step_begin's): HOST=<host>, say, to load orders through a
+# route of its own; none by default.
+STEP_VARS=()
+# Whether orders and payment verify in the step, for step_end's lines on their traces: empty, throughout; none, not at
+# all (neither runs Paztport, so neither verifies a request or writes a trace); or "from <epoch ms>", from then on
+# (they were rolled into it during the step).
+STEP_VERIFY=""
 # The suite's material directory, the rate on orders, and the behavioural lines that failed in the suite so far.
 MATERIAL=""
 CHANGE_RATE_USED=""
@@ -291,14 +298,11 @@ spec:
 EOF
 }
 
-# route_processed <route>: until Envoy's routes hold the HTTPRoute's with the processor's filter enabled on it, for up
-# to 30 s (Envoy takes a new route a moment late); records the event then, and prints PASS or FAIL. Returns 1 on
-# FAIL.
-route_processed() {
-  local out=""
+# route_filter <route>: whether Envoy's routes hold the HTTPRoute's, as one reading of its admin port: "on <the
+# ext_proc filters enabled on it>", "off" (there, without the processor's filter) or "none" (not there).
+route_filter() {
   envoy_admin || return 1
-  for _ in $(seq 1 60); do
-    out=$(curl -sf "http://$ENVOY_ADMIN/config_dump?resource=dynamic_route_configs" | python3 -c 'import json, sys
+  curl -sf "http://$ENVOY_ADMIN/config_dump?resource=dynamic_route_configs" | python3 -c 'import json, sys
 found = []
 for c in json.load(sys.stdin).get("configs", []):
     for vh in c.get("route_config", {}).get("virtual_hosts", []):
@@ -306,7 +310,17 @@ for c in json.load(sys.stdin).get("configs", []):
             if r.get("name", "").startswith("httproute/paztport/%s/" % sys.argv[1]):
                 found.append([k for k, v in r.get("typed_per_filter_config", {}).items()
                               if "ext_proc" in k and not v.get("disabled")])
-print("none" if not found else "on " + " ".join(found[0]) if all(found) else "off")' "$1" 2>/dev/null)
+print("none" if not found else "on " + " ".join(found[0]) if all(found) else "off")' "$1" 2>/dev/null
+}
+
+# route_processed <route>: until Envoy's routes hold the HTTPRoute's with the processor's filter enabled on it, for up
+# to 30 s (Envoy takes a new route a moment late); records the event then, and prints PASS or FAIL. Returns 1 on
+# FAIL.
+route_processed() {
+  local out=""
+  envoy_admin || return 1
+  for _ in $(seq 1 60); do
+    out=$(route_filter "$1")
     case "$out" in on*) break ;; esac
     sleep 0.5
   done
@@ -464,7 +478,7 @@ k6_started() {
 # (Envoy's counters for the processor), and the backends' logs noted from then (logs_begin); then its run on orders,
 # at that rate for duration, and with settings given (a new route that exists already), a run on that route for the
 # same length, at CHANGE_NEW_RATE, both in the background; waits until they run, and CHANGE_LEAD seconds more, so
-# that the change meets steady load.
+# that the change meets steady load. Every run on orders takes STEP_VARS as well.
 step_begin() {
   local users line
   CASE="$1"
@@ -474,11 +488,11 @@ step_begin() {
   : >"$RUN_DIR/$CASE.events"
   users=$(awk -v r="$CHANGE_RATE_USED" -v s="$CHANGE_POOL_SECONDS" 'BEGIN { printf "%d", r * s }')
   users=$(pool "$CHANGE_RATE_USED" "$users")
-  line=$(k6_run "$CASE-ramp" TARGET="$EDGE/orders" BODY=small EXECUTOR=ramp PREALLOC="$users" \
-    STAGES="[{\"target\": $CHANGE_RATE_USED, \"duration\": \"$CHANGE_RAMP\"}]") || return 1
+  line=$(k6_run "$CASE-ramp" TARGET="$EDGE/orders" ${STEP_VARS[@]+"${STEP_VARS[@]}"} BODY=small EXECUTOR=ramp \
+    PREALLOC="$users" STAGES="[{\"target\": $CHANGE_RATE_USED, \"duration\": \"$CHANGE_RAMP\"}]") || return 1
   echo "  warm-up on orders, ramped to $CHANGE_RATE_USED/s over $CHANGE_RAMP (discarded): $line"
-  line=$(k6_run "$CASE-warmup" TARGET="$EDGE/orders" BODY=small EXECUTOR=rate RATE="$CHANGE_RATE_USED" \
-    PREALLOC="$users" DURATION="$CHANGE_WARMUP") || return 1
+  line=$(k6_run "$CASE-warmup" TARGET="$EDGE/orders" ${STEP_VARS[@]+"${STEP_VARS[@]}"} BODY=small EXECUTOR=rate \
+    RATE="$CHANGE_RATE_USED" PREALLOC="$users" DURATION="$CHANGE_WARMUP") || return 1
   echo "  then held at $CHANGE_RATE_USED/s for $CHANGE_WARMUP (discarded): $line"
   python3 "$here/measure/summary.py" rate <(echo "warm-up $line") "$CHANGE_RATE_USED"
   case "$line" in
@@ -494,8 +508,8 @@ step_begin() {
   STEP_SINCE=$(docker exec "$(node_container)" date -u +%Y-%m-%dT%H:%M:%S.%3NZ) && logs_begin || return 1
   echo "  the run on orders: $CHANGE_RATE_USED/s for $STEP_DURATION (k6 users: $users), the change $CHANGE_LEAD s" \
     "into it"
-  k6_run "$CASE" TARGET="$EDGE/orders" BODY=small EXECUTOR=rate RATE="$CHANGE_RATE_USED" PREALLOC="$users" \
-    DURATION="$STEP_DURATION" >"$tmp/$CASE.line" 2>"$tmp/$CASE.err" &
+  k6_run "$CASE" TARGET="$EDGE/orders" ${STEP_VARS[@]+"${STEP_VARS[@]}"} BODY=small EXECUTOR=rate \
+    RATE="$CHANGE_RATE_USED" PREALLOC="$users" DURATION="$STEP_DURATION" >"$tmp/$CASE.line" 2>"$tmp/$CASE.err" &
   STEP_PID=$!
   forwards+=("$STEP_PID")
   k6_started "$CASE" || return 1
@@ -607,33 +621,46 @@ else:
 # logs_end found every pod's log read. The coverage is a lower bound: k6's 200s are the least each backend must have
 # verified OK (a 200 from a route to orders is a request orders verified, and payment too, which orders calls on
 # every one; a 200 from the route payment is one payment verified), so a shortfall shows lines lost, but lines lost
-# within a surplus of OK over 200s would not show; that is what <complete> is for. Returns 1 if either line is FAIL.
+# within a surplus of OK over 200s would not show; that is what <complete> is for. STEP_VERIFY says whether the
+# backends verified in the step: none prints what they decided (nothing, as neither traces) and no line; "from <ms>"
+# holds the coverage to the traces from then on and to k6's 200s from STEP_FROM_MARGIN whole seconds after it (a 200
+# then is a request the backends running Paztport verified, unless it took longer than that), while the line on
+# stamps covers every trace of the step: every request a pod running Paztport received, as one without it verifies
+# nothing and writes no trace. Returns 1 if either line is FAIL.
+STEP_FROM_MARGIN=2
 step_traces() {
-  python3 -c 'import collections, datetime, glob, os, re, sys
+  python3 -c 'import collections, datetime, glob, json, math, os, re, sys
 logs, to_orders, to_payment, whole, out, since = sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), \
     sys.argv[4] == "0", sys.argv[5], sys.argv[6]
+verify, run, margin = sys.argv[7].split(), sys.argv[8], int(sys.argv[9])
 def ms(stamp):
     """An RFC 3339 UTC time, its fraction of any length, in ms since the epoch."""
     whole, _, frac = stamp.rstrip("Z").partition(".")
     t = datetime.datetime.strptime(whole, "%Y-%m-%dT%H:%M:%S").replace(tzinfo=datetime.timezone.utc)
     return int(t.timestamp()) * 1000 + int((frac + "000")[:3])
+def utc(at):
+    return datetime.datetime.fromtimestamp(at / 1000, datetime.timezone.utc).strftime("%H:%M:%S.%f")[:-3] + "Z"
 since = ms(since)
-counts = collections.Counter()
+counts, later = collections.Counter(), collections.Counter()
 # Each pod'"'"'s trace lines, from every file of its log linked on the node, as "<pod> <time> stdout F <line>": the
 # line itself, which holds the time the service logged it and the request'"'"'s rid, is counted once for its pod, as a
-# file the kubelet rotated can be linked twice (as it was, and compressed).
-by_pod = collections.defaultdict(set)
+# file the kubelet rotated can be linked twice (as it was, and compressed); with the time the node first wrote it.
+by_pod = collections.defaultdict(dict)
 for line in open(os.path.join(logs, "traces"), errors="replace"):
     parts = line.rstrip("\n").split(" ", 4)
     if len(parts) < 5 or ms(parts[1]) < since:
         continue
-    by_pod[parts[0]].add(parts[4])
+    at = by_pod[parts[0]].get(parts[4])
+    by_pod[parts[0]][parts[4]] = ms(parts[1]) if at is None else min(at, ms(parts[1]))
+frm = int(verify[1]) if verify[:1] == ["from"] else None
 for pod, lines in sorted(by_pod.items()):
     app = pod.split("-")[0]
-    for rest in lines:
+    for rest, at in lines.items():
         m = re.search(r"PAZTPORT_TRACE request rid=\S+ reason=(\S+)", rest)
         if m:
             counts[(app, m.group(1))] += 1
+            if frm is not None and at >= frm:
+                later[(app, m.group(1))] += 1
 with open(out, "w") as f:
     for (app, reason), n in sorted(counts.items()):
         f.write("%s %s %d\n" % (app, reason, n))
@@ -641,15 +668,26 @@ print("  what orders and payment decided, from their traces (every pod'"'"'s log
 for app in ("orders", "payment"):
     mine = sorted(((reason, n) for (a, reason), n in counts.items() if a == app), key=lambda x: (x[0] != "OK", x[0]))
     print("    %-8s %s" % (app, ", ".join("%s %d" % kv for kv in mine) or "nothing"))
-ok_orders, ok_payment = counts[("orders", "OK")], counts[("payment", "OK")]
+if verify == ["none"]:
+    print("  no line on stamps at the backends: neither runs Paztport in this step, so neither verifies a request or"
+          " writes a trace (nothing above is that)")
+    sys.exit(0)
+seen, words = counts, "the step"
+if frm is not None:
+    w = json.loads(open(run + ".window").read()[len("WINDOW "):])
+    first = max(0, math.ceil((frm - w["t0"]) / 1000)) + margin
+    to_orders, to_payment, seen = sum(w["expected"][first:]), 0, later
+    words = ("the step from %s on, when both backends ran Paztport in enforce (k6'"'"'s 200s from the run'"'"'s"
+             " second +%d, %d s after)" % (utc(frm), first, margin))
+ok_orders, ok_payment = seen[("orders", "OK")], seen[("payment", "OK")]
 missing = counts[("orders", "CHAIN_MISSING")] + counts[("payment", "CHAIN_MISSING")]
 covered = whole and ok_orders >= to_orders and ok_payment >= to_orders + to_payment
 bad = 0
 if covered:
-    print("  PASS the traces cover the step: every file of every pod'"'"'s log was linked on the node and read;"
+    print("  PASS the traces cover %s: every file of every pod'"'"'s log was linked on the node and read;"
           " and, a lower bound, orders verified %d requests OK, no fewer than the %d 200s k6 counted on routes to"
           " orders; payment %d, no fewer than the %d on routes to orders or payment" % (
-              ok_orders, to_orders, ok_payment, to_orders + to_payment))
+              words, ok_orders, to_orders, ok_payment, to_orders + to_payment))
 else:
     why = [] if whole else ["not every pod'"'"'s log could be read (above)"]
     if ok_orders < to_orders:
@@ -658,20 +696,23 @@ else:
     if ok_payment < to_orders + to_payment:
         why.append("payment verified %d OK, fewer than the %d on routes to orders or payment" % (
             ok_payment, to_orders + to_payment))
-    print("  FAIL the traces cover the step: " + "; ".join(why))
+    print("  FAIL the traces cover %s: %s" % (words, "; ".join(why)))
     bad = 1
+over = "" if frm is None else (", over every trace of the step: every request a pod running Paztport received (one"
+                               " without it verifies nothing and writes no trace)")
 if missing:
     print("  FAIL no request reached a backend without a stamp: orders and payment refused %d with CHAIN_MISSING"
-          " (orders %d, payment %d)" % (missing, counts[("orders", "CHAIN_MISSING")],
-                                        counts[("payment", "CHAIN_MISSING")]))
+          " (orders %d, payment %d)%s" % (missing, counts[("orders", "CHAIN_MISSING")],
+                                         counts[("payment", "CHAIN_MISSING")], over))
     bad = 1
 elif not covered:
     print("  FAIL no request reached a backend without a stamp: no CHAIN_MISSING in the traces read, but they do not"
           " cover the step, so that says nothing")
     bad = 1
 else:
-    print("  PASS no request reached a backend without a stamp: CHAIN_MISSING 0 at orders and at payment")
-sys.exit(bad)' "$tmp/logs" "$1" "$2" "$3" "$RUN_DIR/$CASE.reasons" "$STEP_SINCE"
+    print("  PASS no request reached a backend without a stamp: CHAIN_MISSING 0 at orders and at payment%s" % over)
+sys.exit(bad)' "$tmp/logs" "$1" "$2" "$3" "$RUN_DIR/$CASE.reasons" "$STEP_SINCE" "${STEP_VERIFY:-all}" \
+    "$RUN_DIR/$CASE" "$STEP_FROM_MARGIN"
 }
 
 # step_end [payment]: waits for the step's runs and prints them, the window of the run on orders' responses other

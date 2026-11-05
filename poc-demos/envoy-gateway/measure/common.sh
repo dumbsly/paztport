@@ -544,17 +544,18 @@ material_matches() {
 
 # baseline_reset: puts the cluster back as every suite starts from it, and prints that state. No processor pod has a
 # netem queue (cleared first of all, since a delayed pod may not be ready, and every wait would then time out); any
-# HTTPRoute but orders, orders-unmapped, echo and echo-plain is taken off the Gateway, first, so that no route the
-# chart then stops mapping is ever served without the processor, and any BackendTrafficPolicy but theirs and any
+# HTTPRoute but orders, orders-unmapped, echo and echo-plain is taken off the Gateway, first, so that no route the chart
+# then stops mapping is ever served without the processor, and any BackendTrafficPolicy but theirs and any
 # BackendTLSPolicy but orders' and the processor's deleted; then the chart is the measurements' (two replicas, the
-# autoscaler off, out/'s material), the routes, echo and its twin routes and the backends are as their files have
-# them (enforce mode, out/'s material, and no environment variable the file does not set: the run stops on one),
-# everything is ready, a suite's own material objects are deleted, and Envoy routes to endpoints, its default (a
-# routingType a suite set is removed, and the wait made again). A step that fails stops the whole run, and so does
-# an EnvoyExtensionPolicy that fails open, or material in any pod that is not out/'s: a suite that broke must not
-# leave the next one measuring something else. Nothing is rolled when nothing changed.
+# autoscaler off, out/'s material), the routes, echo and its twin routes and the backends are as their files have them
+# (enforce mode, out/'s material, their replicas, scaled back if a suite left another count, and no environment variable
+# the file does not set: the run stops on one), everything is ready, a suite's own material objects are deleted, and
+# Envoy routes to endpoints, its default (a routingType a suite set is removed, and the wait made again). A step that
+# fails stops the whole run, and so does an EnvoyExtensionPolicy that fails open, or material in any pod that is not
+# out/'s: a suite that broke must not leave the next one measuring something else. Nothing is rolled when nothing
+# changed.
 baseline_reset() {
-  local route policy name netem modes hpa replicas routes routing object
+  local route policy name netem modes hpa replicas routes routing object replicas_back
   netem=$(netem_clear) || { echo "error: could not read or clear the processor pods' queues" >&2; exit 1; }
   for route in $(kn get httproutes -o name); do
     name="${route#*/}"
@@ -581,6 +582,10 @@ baseline_reset() {
   quietly "resetting the routes" apply_routes kind/routes.yaml
   quietly "resetting echo and the twin routes" apply_routes kind/measure.yaml
   quietly "resetting the backends" k apply -f kind/backends.yaml
+  replicas_back=$(backends_replicas_back) || {
+    echo "error: orders and payment could not be put back to kind/backends.yaml's replicas; stopping" >&2
+    exit 1
+  }
   quietly "waiting for the baseline" wait_measure
   for object in $SUITE_MATERIAL; do
     quietly "deleting the $object" kn delete "$object" --ignore-not-found
@@ -609,8 +614,36 @@ baseline_reset() {
   routes+="; BackendTrafficPolicies $(kn get backendtrafficpolicies -o jsonpath='{.items[*].metadata.name}')"
   routes+="; BackendTLSPolicies $(kn get backendtlspolicies -o jsonpath='{.items[*].metadata.name}')"
   echo "  baseline: processor $replicas ready, $hpa autoscaler(s), failOpen false; Envoy routing to $routing;" \
-    "${modes% }; routes $routes; netem removed from $netem pod(s), none left; material as out/'s in" \
-    "$MATERIAL_PODS pods"
+    "${modes% }; $replicas_back; routes $routes; netem removed from $netem pod(s), none left; material as out/'s" \
+    "in $MATERIAL_PODS pods"
+}
+
+# backends_replicas_back: orders and payment scaled back to the replicas kind/backends.yaml gives them, where a suite
+# left them at another count (the gotchas suite scales payment to 0), and their rollouts waited for. Prints each
+# one's replicas, and which were scaled back from what.
+backends_replicas_back() {
+  local want d n got said="" back=""
+  want=$(k create --dry-run=client -o json -f kind/backends.yaml | python3 -c 'import json, sys
+text, docs, at = sys.stdin.read(), [], 0
+decoder = json.JSONDecoder()
+while text[at:].strip():
+    while text[at].isspace():
+        at += 1
+    doc, at = decoder.raw_decode(text, at)
+    docs += doc.get("items", [doc]) if doc.get("kind") == "List" else [doc]
+for d in docs:
+    if d.get("kind") == "Deployment" and d["metadata"]["name"] in ("orders", "payment"):
+        print(d["metadata"]["name"], d["spec"].get("replicas", 1))') && [ -n "$want" ] || return 1
+  while read -r d n; do
+    got=$(kn get deployment "$d" -o jsonpath='{.spec.replicas}') || return 1
+    if [ "$got" != "$n" ]; then
+      kn scale "deployment/$d" --replicas="$n" >/dev/null || return 1
+      back+=", $d from $got"
+    fi
+    kn rollout status "deployment/$d" --timeout=300s >/dev/null || return 1
+    said+="${said:+, }$d $n"
+  done <<<"$want"
+  printf '%s replicas%s' "$said" "${back:+ (scaled back: ${back#, })}"
 }
 
 # echo_counts: echo's counts, added up over its running pods: "<host> stamped=<n> unstamped=<n>" a line. Returns 1,
