@@ -631,8 +631,8 @@ edge_overload() {
     "$EDGE_OVERLOAD_MEMORY"
   before=$(backend_reasons) && p_before=$(processor_outcomes) && e_before=$(envoy_extproc_stats) &&
     o_before=$(envoy_orders_stats) || return 1
-  line=$(K6_MEMORY="$EDGE_OVERLOAD_MEMORY" k6_run edge-overload TARGET="$EDGE/orders" BODY=small EXECUTOR=rate RATE="$rate" PREALLOC="$users" \
-    DURATION="$DURATION") || return 1
+  line=$(K6_MEMORY="$EDGE_OVERLOAD_MEMORY" k6_run edge-overload TARGET="$EDGE/orders" BODY=small EXECUTOR=rate \
+    RATE="$rate" PREALLOC="$users" DURATION="$DURATION") || return 1
   after=$(backend_reasons) && p_after=$(processor_outcomes) && e_after=$(envoy_extproc_stats) &&
     o_after=$(envoy_orders_stats) || return 1
   printf '  %6s/s  %s\n' "$rate" "$line"

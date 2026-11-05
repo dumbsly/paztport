@@ -344,8 +344,8 @@ NODE_LOGS=/var/tmp/paztport-measure-logs
 # lines whatever the kubelet then does with it: rotates it, compresses it, or removes it with the container of a pod
 # a rollout deletes; and a file is linked within 0.2 s of its making, before any line of it can go. So every line an
 # orders or payment container writes in the step is kept, of every pod, rollouts included. A failed link is noted in
-# NODE_LOGS/.errors; the loop writes .ready after its first pass, and .stopped when logs_end stops it (it gives up by
-# itself after an hour). Waits for .ready.
+# NODE_LOGS/.errors; the loop writes .ready after its first pass, and .stopped when logs_end stops it, or a guard on
+# the host does once this shell is gone (it gives up by itself after an hour as well). Waits for .ready.
 logs_begin() {
   # shellcheck disable=SC2016 # the script runs in the node's shell
   docker exec "$(node_container)" sh -c 'd=$1
@@ -367,6 +367,14 @@ logs_begin() {
     : >"$d/.stopped"' sh "$NODE_LOGS" "$NS" >/dev/null 2>&1 9>&- &
   LOGS_PID=$!
   forwards+=("$LOGS_PID")
+  # A guard on the host, outside forwards: should this shell go without stopping the loop (killed with SIGKILL,
+  # which no trap sees), it stops the loop within 2 s; it ends by itself once the loop's directory is gone.
+  (
+    while kill -0 "$$" 2>/dev/null && docker exec "$(node_container)" test -d "$NODE_LOGS" 2>/dev/null; do sleep 2; done
+    # shellcheck disable=SC2016 # the script runs in the node's shell
+    docker exec "$(node_container)" sh -c 'if [ -d "$1" ]; then : >"$1/.stop"; fi' sh "$NODE_LOGS"
+  ) >/dev/null 2>&1 9>&- &
+  disown "$!"
   for _ in $(seq 1 50); do
     docker exec "$(node_container)" test -e "$NODE_LOGS/.ready" && return 0
     sleep 0.2

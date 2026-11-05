@@ -76,12 +76,14 @@ and the difference.
 `ROUNDS` (3), `DURATION` (20s), `WARMUP` (10s), `VUS` (10), `LOAD_RATE_SMALL` and `LOAD_RATE_LARGE` set the runs;
 `CEILING_STAGES_1`, `CEILING_STAGES_2` and `CEILING_STAGES_4` (each a list of rates), `CEILING_ROUNDS` (3),
 `SATURATION_DURATION` (60s) and `MEMORY_VUS` (`10 25 50 100`) set `ceiling`'s; `EDGE_RATE`, `EDGE_WARMUP`,
-`EDGE_STAGES` and `EDGE_OVERLOAD_RATE` set `edge`'s; `FAILURE_RATE`, `FAILURE_DEFAULT_RATE` and `FAILURE_ORDERS_RATE` set `failure`'s; `CHANGE_RATE` and `CHANGE_NEW_RATE` set `route`'s and `rotation`'s, and `ORDERS_DEFAULT_RATE` the fallback rate on `orders` of `failure` and both. Everything printed, each run's
-responses other than the expected, and the Envoy configuration read go to `out/measurements/<UTC time>/`. Every
-number is indicative: one kind node on one machine runs Envoy, the processor, the backends and k6 alike, and each
-run prints the machine's CPUs and memory. The cluster is deleted at the end, unless `--keep`. `./run envoy-gateway
-measure` needs `python3` (3.9 or later) as well as the tools below. On macOS a run holds `caffeinate -i` so that the
-host does not sleep under it; a run that a stalled or sleeping host held up anyway fails its pace line.
+`EDGE_STAGES` and `EDGE_OVERLOAD_RATE` set `edge`'s; `FAILURE_RATE`, `FAILURE_DEFAULT_RATE` and `FAILURE_ORDERS_RATE`
+set `failure`'s; `CHANGE_RATE` and `CHANGE_NEW_RATE` set `route`'s and `rotation`'s, and `ORDERS_DEFAULT_RATE` the
+fallback rate on `orders` of `failure` and both. Everything printed, each run's responses other than the expected, and
+the Envoy configuration read go to `out/measurements/<UTC time>/`. Every number is indicative: one kind node on one
+machine runs Envoy, the processor, the backends and k6 alike, and each run prints the machine's CPUs and memory. The
+cluster is deleted at the end, unless `--keep`. `./run envoy-gateway measure` needs `python3` (3.9 or later) as well
+as the tools below. On macOS a run holds `caffeinate -i` so that the host does not sleep under it; a run that a
+stalled or sleeping host held up anyway fails its pace line.
 
 ## Prerequisites
 

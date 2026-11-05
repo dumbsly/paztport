@@ -25,10 +25,17 @@ FAILURE_SLOW_MS=600
 FAILURE_SLOW_GRPC=60
 FAILURE_SLOW_HOLD=20
 FAILURE_DOWN_HOLD=30
-# The k6 pool of the cases where requests may be held messageTimeout (500 ms), a slow processor and none at all,
-# holds a user for every request in flight were each one held that long and this much more: so that k6 runs short of
+# The k6 pool of a case is sized for the longest the case can hold a request, not for the healthy path, since a
+# request k6 drops for want of a user fails the case's pace line (run_paced). In every case on echo a request can be
+# held messageTimeout (500 ms): while its processor pod is killed, drains in a roll, is slowed, or is gone. So its
+# pool holds a user for every request in flight were each one held that long and this much more: k6 runs short of
 # users, and drops requests unsent, only if the edge holds them longer.
 FAILURE_HELD_POOL_SECONDS=0.6
+# The case on orders holds requests longer than messageTimeout: while the killed container starts again, the other
+# replica takes every request. Sized from a run of this case, at 1000/s with the 0.6 s pool: p99 591 ms, max 1687 ms,
+# and 262 requests dropped for want of a user. So its pool holds a user for every request in flight were each one
+# held this long, past that max.
+FAILURE_ORDERS_POOL_SECONDS=2.5
 # The length of each case's k6 run: its lead, its fault, the time to come back, and a tail of steady load.
 FAILURE_KILL_DURATION=60s
 FAILURE_SLOW_DURATION=120s
@@ -74,7 +81,7 @@ failure_rate() {
   fi
 }
 
-# held_pool <rate>: those cases' k6 users at that rate: rate x FAILURE_HELD_POOL_SECONDS, and pool's at least.
+# held_pool <rate>: a case's k6 users at that rate: rate x FAILURE_HELD_POOL_SECONDS, and pool's at least.
 held_pool() {
   pool "$1" "$(awk -v r="$1" -v s="$FAILURE_HELD_POOL_SECONDS" 'BEGIN { printf "%d", r * s + 0.5 }')"
 }
@@ -296,14 +303,15 @@ echo_run() {
 
 # failure_kill: one processor container killed (SIGKILL) under load, and the time until both replicas are ready.
 failure_kill() {
-  local pod restarts at
+  local pod restarts at users
   pod=$(processor_pods | head -n1)
+  users=$(held_pool "$FAILURE_RATE_USED")
   echo "-- one processor container killed (SIGKILL): echo offered $FAILURE_RATE_USED/s for" \
-    "$FAILURE_KILL_DURATION (k6 users: $(pool "$FAILURE_RATE_USED")), the kill $FAILURE_LEAD s into it"
+    "$FAILURE_KILL_DURATION (k6 users: $users), the kill $FAILURE_LEAD s into it"
   case_before || return 1
   restarts=$(pod_restarts "$pod")
   # shellcheck disable=SC2046 # the settings split on space
-  case_begin failure-kill $(echo_run "$FAILURE_KILL_DURATION") || return 1
+  case_begin failure-kill $(echo_run "$FAILURE_KILL_DURATION" "$users") || return 1
   at=$(kill_container "$pod") || return 1
   event_at "$at" "SIGKILL to the processor's container in $pod"
   until_ready app.kubernetes.io/name=paztport-processor 2 "$pod" "$restarts" 180 "both processor replicas ready" || {
@@ -575,12 +583,13 @@ failure_down_endpoint() { failure_down failure-down Endpoint; }
 
 # failure_roll: kubectl rollout restart of the processor under load: the window and its errors.
 failure_roll() {
-  local end
+  local end users
+  users=$(held_pool "$FAILURE_RATE_USED")
   echo "-- the processor rolled (kubectl rollout restart): echo offered $FAILURE_RATE_USED/s for" \
-    "$FAILURE_ROLL_DURATION (k6 users: $(pool "$FAILURE_RATE_USED")), the restart $FAILURE_LEAD s into it"
+    "$FAILURE_ROLL_DURATION (k6 users: $users), the restart $FAILURE_LEAD s into it"
   case_before || return 1
   # shellcheck disable=SC2046
-  case_begin failure-roll $(echo_run "$FAILURE_ROLL_DURATION") || return 1
+  case_begin failure-roll $(echo_run "$FAILURE_ROLL_DURATION" "$users") || return 1
   event "kubectl rollout restart deployment/paztport-processor"
   kn rollout restart deployment/paztport-processor >/dev/null || return 1
   kn rollout status deployment/paztport-processor --timeout=300s >/dev/null || return 1
@@ -682,17 +691,19 @@ sys.exit(bad)' "$1" "$2"
 # (those orders held when it died; a new connection refused is retried by the route's connect-failure retry), and
 # orders' traces, each rid served once.
 failure_orders() {
-  local pod restarts at since_time envoy_before envoy_after p_before p_after
+  local pod restarts at since_time envoy_before envoy_after p_before p_after users
   pod=$(live_pods app=orders | head -n1)
+  users=$(pool "$FAILURE_ORDERS_RATE_USED" \
+    "$(awk -v r="$FAILURE_ORDERS_RATE_USED" -v s="$FAILURE_ORDERS_POOL_SECONDS" 'BEGIN { printf "%d", r * s + 0.5 }')")
   echo "-- one orders container killed (SIGKILL): the route orders offered $FAILURE_ORDERS_RATE_USED/s for" \
-    "$FAILURE_ORDERS_DURATION (k6 users: $(pool "$FAILURE_ORDERS_RATE_USED")), the kill $FAILURE_LEAD s into it; the" \
+    "$FAILURE_ORDERS_DURATION (k6 users: $users), the kill $FAILURE_LEAD s into it; the" \
     "route retries a connection that failed, and nothing that reached orders"
   restarts=$(pod_restarts "$pod")
   envoy_before=$(envoy_orders_retries) && p_before=$(outcomes_by_pod) || return 1
   # From a second before the run, by the node's clock, which the logs' times are on.
   since_time=$(docker exec "$(node_container)" date -u -d '-1 second' +%Y-%m-%dT%H:%M:%S) || return 1
   case_begin failure-orders TARGET="$EDGE/orders" BODY=small EXECUTOR=rate RATE="$FAILURE_ORDERS_RATE_USED" \
-    PREALLOC="$(pool "$FAILURE_ORDERS_RATE_USED")" DURATION="$FAILURE_ORDERS_DURATION" || return 1
+    PREALLOC="$users" DURATION="$FAILURE_ORDERS_DURATION" || return 1
   at=$(kill_container "$pod") || return 1
   event_at "$at" "SIGKILL to orders' container in $pod"
   until_ready app=orders 2 "$pod" "$restarts" 300 "both orders replicas ready" || {
