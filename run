@@ -19,8 +19,8 @@ Usage: ./run <command> [options]
   envoy-gateway measure [--keep] [suite...]
                The same builds, keys and policy, then poc-demos/envoy-gateway/measure.sh on a cluster of its own:
                the measurement suites (every one, or those named), their results under
-               poc-demos/envoy-gateway/out/measurements/, and the cluster deleted at the end unless --keep
-               (needs python3 too).
+               poc-demos/envoy-gateway/measurements/ (kept from run to run: the new keys and policy replace
+               only out/), and the cluster deleted at the end unless --keep (needs python3 too).
   agents-mcp   Install the TypeScript SDK and the agents demo, set up demo keys, and start the demo page.
   test         The name and link checks, the Java SDK and Java demo suites, a check of what the built jars
                carry, the TypeScript type checks and the TypeScript SDK and demo suites, then gofmt, go vet

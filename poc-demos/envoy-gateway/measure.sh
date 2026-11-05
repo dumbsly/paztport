@@ -15,8 +15,9 @@
 # again, and leaves the cluster up at the end, as --keep does; each run has a results directory of its own. Then it
 # runs the suites named, or every one, in the order below, each from the same baseline (measure/common.sh's
 # baseline_reset), and deletes the cluster at the end, unless --keep. What it prints, and each run's files, go to
-# out/measurements/<UTC time>/. Every number is indicative: one kind node on this machine runs Envoy, the processor,
-# the backends and k6 alike.
+# measurements/<UTC time>/, beside out/ and not in it: out/ is material, which material.sh --fresh makes again (and
+# ./run envoy-gateway measure runs it), while a run's results cannot be made again, so nothing here deletes them.
+# Every number is indicative: one kind node on this machine runs Envoy, the processor, the backends and k6 alike.
 #
 #   ROUNDS (3), DURATION (20s), WARMUP (10s) and VUS (10) set the runs: see measure/common.sh's alternate.
 #   LOAD_RATE_SMALL (1000) and LOAD_RATE_LARGE (500) are the requests a second the load suite offers each twin,
@@ -139,7 +140,7 @@ elif cluster_exists; then
 fi
 [ -d "$KEYS" ] && [ -d "$POLICY" ] || { echo "no keys in $here/out: run material.sh first" >&2; exit 1; }
 
-RUN_DIR="$here/out/measurements/$(date -u +%Y%m%dT%H%M%SZ)"
+RUN_DIR="$here/measurements/$(date -u +%Y%m%dT%H%M%SZ)"
 # A directory of its own, never one an earlier run made, so that no run reads or writes another's results, or the
 # material its suites made.
 mkdir -p "${RUN_DIR%/*}" && mkdir "$RUN_DIR" || {
