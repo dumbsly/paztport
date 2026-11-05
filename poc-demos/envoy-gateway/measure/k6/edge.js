@@ -28,7 +28,8 @@
 // included), each ending at its last second with a response; and a fourth, 404, the responses of rest that were a
 // 404 (no route matched, as on a route not yet served), already counted in rest. A response later than the seconds
 // counted (the run's length, its gracefulStop and 30 s more) is counted in late, which is 0 unless something went
-// very wrong.
+// very wrong; and end, the epoch ms at which the summary was made, so that a run's length on the clock can be set
+// against the length it was given.
 //
 // Every request has a 10 s timeout, and each scenario a 15 s gracefulStop, the time k6 lets requests in flight at
 // the end finish before it cuts them off: so a request that hangs ends as a timeout, counted as other, before k6
@@ -225,6 +226,7 @@ export function handleSummary(data) {
     first: at && t0 !== null ? t0 + at.min : null,
     last: at && t0 !== null ? t0 + at.max : null,
     late: count(data, 'second_late'),
+    end: Date.now(),
   };
   for (const kind of COUNTED) {
     const counts = [];

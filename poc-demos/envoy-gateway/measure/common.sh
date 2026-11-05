@@ -118,6 +118,10 @@ total = secs(sys.argv[1]) if sys.argv[1] else sum(secs(st["duration"]) for st in
 print(math.ceil(total))' "$1" "$2"
 }
 
+# The memory k6's pod may use: enough for the pools the suites give it (about a third of a megabyte a user, and the
+# per-second counts). A run that needs more sets it for itself (K6_MEMORY=4Gi k6_run ...).
+K6_MEMORY=2Gi
+
 # How long k6_run waits beyond a run's own length: edge.js's gracefulStop (15 s), and the pod's scheduling, image
 # pull and start.
 K6_MARGIN=120
@@ -130,7 +134,7 @@ K6_MARGIN=120
 # RESULT line. Warns, without failing, when the Job failed though k6 printed a RESULT line, and when the RESULT's
 # statuses, or the WINDOW's seconds, do not sum to its requests.
 k6_run() {
-  local name="$1" job="k6-$1" kv later seen env="" log state i j expect=200 result duration="" stages="" host=""
+  local name="$1" job="k6-$1" kv later seen env="" log state i j expect=200 result duration="" stages="" host="" rate=""
   local wait phase
   shift
   local vars=("$@")
@@ -145,6 +149,7 @@ k6_run() {
     case "${kv%%=*}" in
       EXPECT) expect="${kv#*=}" ;;
       DURATION) duration="${kv#*=}" ;;
+      RATE) rate="${kv#*=}" ;;
       STAGES) stages="${kv#*=}" ;;
       HOST) host="${kv#*=}" ;;
     esac
@@ -179,7 +184,7 @@ spec:
           env:
 $env          resources:
             requests: {cpu: "2", memory: 512Mi}
-            limits: {cpu: "2", memory: 2Gi}
+            limits: {cpu: "2", memory: $K6_MEMORY}
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -243,8 +248,51 @@ else:
         print("warning: the k6 run %s: its WINDOW counts %d responses, not its %d requests" % (sys.argv[1], seconds,
               r["reqs"]))' "$name" "$result" "$(cat "$RUN_DIR/$name.window")" >&2
   printf '%s %s\n' "$expect" "$result" >"$RUN_DIR/$name.result"
+  # An open-model run's plan, its rate and length in seconds, for run_paced.
+  if [ -n "$rate" ] && [ -n "$duration" ]; then
+    printf '%s %s\n' "$rate" "$(run_seconds "$duration" "")" >"$RUN_DIR/$name.plan"
+  fi
   [ -z "$host" ] || echo_tally "$host" "$(printf '%s' "$result" | sed -n 's/.*"200":\([0-9]*\).*/\1/p')"
   printf '%s\n' "$result"
+}
+
+# The seconds past a run's length and edge.js's gracefulStop (15 s) that its summary may come before run_paced takes
+# it for a run the host held up.
+PACE_SLACK=10
+
+# run_paced <name>: the behavioural line that an open-model run (one k6_run gave a RATE and a DURATION) ran at its
+# pace: k6 achieved its offered rate, within 2% and with no request dropped (the rule summary.py's rate check
+# applies to the warm-ups), and its summary came no later than its length, the gracefulStop and PACE_SLACK seconds
+# after it began, by k6's clock. A host that stalled or slept (a laptop's idle sleep, say) does neither: k6 sends
+# nothing while it is held, and the run's numbers are not of the load it was given, so they say nothing of the edge.
+# Returns 1 on FAIL; prints nothing for a run without a plan.
+run_paced() {
+  [ -f "$RUN_DIR/$1.plan" ] || return 0
+  python3 -c 'import json, sys
+run = sys.argv[1]
+rate, secs = (float(x) for x in open(run + ".plan").read().split())
+r = json.loads(open(run + ".result").read().strip().partition(" ")[2][len("RESULT "):])
+w = json.loads(open(run + ".window").read()[len("WINDOW "):])
+name, slack = run.rsplit("/", 1)[1], float(sys.argv[2])
+off = (r["rps"] - rate) / rate * 100
+kept = abs(off) <= 2 and r["dropped"] == 0
+wall = (w["end"] - w["t0"]) / 1000 if w.get("end") and w.get("t0") else None
+gap = None if wall is None else wall - secs - 15
+held = wall is None or gap > slack
+said = "%.1f/s achieved of %g/s offered (%+.1f%%), %d dropped; its summary came %s after it began, for a run of" \
+    " %gs" % (r["rps"], rate, off, r["dropped"], "?" if wall is None else "%.1f s" % wall, secs)
+if kept and not held:
+    print("  PASS %s ran at its pace: %s" % (name, said))
+    sys.exit(0)
+why = []
+if not kept:
+    why.append("k6 did not keep to its rate")
+if held:
+    why.append("its summary came %s past its length and gracefulStop" % ("at no known time" if wall is None
+                                                                          else "%.1f s" % gap))
+print("  FAIL %s ran at its pace: %s; %s: the host stalled or slept (or k6 ran short of users), so this run'"'"'s"
+      " numbers are not of a steady load" % (name, said, " and ".join(why)))
+sys.exit(1)' "$RUN_DIR/$1" "$PACE_SLACK"
 }
 
 # alternate <name> <labelA> <setupA> <labelB> <setupB> <VAR=value>...: compares two setups like for like. Each
@@ -888,6 +936,37 @@ POOL_SECONDS=0.1
 pool() {
   awk -v r="$1" -v s="$POOL_SECONDS" -v p="${2:-$CEILING_PREALLOC}" \
     'BEGIN { n = int(r * s + 0.5); printf "%d", (n > p ? n : p) }'
+}
+
+# orders_rate <setting> <value>: sets ORDERS_RATE_USED, the requests a second a suite offers the route orders, and
+# prints where it came from: the setting's value, when it is set; else half the highest stage the edge suite
+# sustained on orders in this run (edge-rounds), when it ran; else ORDERS_DEFAULT_RATE, the fallback measured on the
+# author's machine. Returns 1 for a value that is not a number of requests a second.
+orders_rate() {
+  local sustained=0
+  case "$2" in
+    "") ;;
+    *[!0-9]* | 0)
+      echo "error: $1 is $2, not a number of requests a second" >&2
+      return 1
+      ;;
+    *)
+      ORDERS_RATE_USED="$2"
+      echo "  the rate on orders: $ORDERS_RATE_USED/s, from $1"
+      return 0
+      ;;
+  esac
+  [ ! -f "$RUN_DIR/edge-rounds" ] ||
+    sustained=$(awk '$1 == "orders" { s = $4 } END { printf "%d", s }' "$RUN_DIR/edge-rounds")
+  if [ "${sustained:-0}" -gt 0 ]; then
+    ORDERS_RATE_USED=$((sustained / 2))
+    echo "  the rate on orders: $ORDERS_RATE_USED/s, half the highest stage the edge suite sustained there in this" \
+      "run ($sustained/s, in edge-rounds)"
+  else
+    ORDERS_RATE_USED="$ORDERS_DEFAULT_RATE"
+    echo "  the rate on orders: $ORDERS_RATE_USED/s, ORDERS_DEFAULT_RATE, the fallback measured on the author's" \
+      "machine: this run has no stage the edge suite sustained on orders"
+  fi
 }
 
 # sustained <route> <replicas>: the median over the ceiling suite's rounds of the highest stage sustained there, or

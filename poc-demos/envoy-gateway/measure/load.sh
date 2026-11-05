@@ -557,10 +557,12 @@ edge_compare() {
 }
 
 # The users k6 may start for the overload stage: EDGE_OVERLOAD_RATE x EDGE_OVERLOAD_SECONDS. A stamp older than
-# orders' maxAgeMs (5 s) needs requests held about 6 s, so rate x 6 s users (18000 at 3000/s); k6 took about a
-# quarter of a megabyte a user here, so its pod's 2Gi holds about a third of that, and the stage says so. They are
-# all started before the run, so that none is dropped for want of a user k6 is still starting.
+# orders' maxAgeMs (5 s) needs requests held about 6 s, so rate x 6 s users (18000 at 3000/s), more than the stage
+# holds, and it says so. They are all started before the run, so that none is dropped for want of a user k6 is still
+# starting. k6 took about 0.23 MB a user idle here (1.37 GB for 6000) and 2.16 GB for 6000 at 3000/s, past the 2Gi
+# the other runs have: the stage's pod has EDGE_OVERLOAD_MEMORY.
 EDGE_OVERLOAD_SECONDS=2
+EDGE_OVERLOAD_MEMORY=4Gi
 
 # max_age_ms: orders' maxAgeMs, from its environment, or the starter's default (5000).
 max_age_ms() {
@@ -624,12 +626,12 @@ edge_overload() {
   want=$((rate * 6))
   echo "-- the route orders with Paztport overloaded: $rate requests a second for DURATION=$DURATION, from up to" \
     "$users k6 users"
-  echo "  k6's pool: waits past orders' maxAgeMs at $rate/s would need about $want users (the rate x 6 s); k6's pod" \
-    "(2Gi) does not hold that many, so it holds $users (the rate x $EDGE_OVERLOAD_SECONDS s), all started before" \
-    "the run"
+  echo "  k6's pool: waits past orders' maxAgeMs at $rate/s would need about $want users (the rate x 6 s); the" \
+    "stage holds $users (the rate x $EDGE_OVERLOAD_SECONDS s), all started before the run, in a k6 pod of" \
+    "$EDGE_OVERLOAD_MEMORY"
   before=$(backend_reasons) && p_before=$(processor_outcomes) && e_before=$(envoy_extproc_stats) &&
     o_before=$(envoy_orders_stats) || return 1
-  line=$(k6_run edge-overload TARGET="$EDGE/orders" BODY=small EXECUTOR=rate RATE="$rate" PREALLOC="$users" \
+  line=$(K6_MEMORY="$EDGE_OVERLOAD_MEMORY" k6_run edge-overload TARGET="$EDGE/orders" BODY=small EXECUTOR=rate RATE="$rate" PREALLOC="$users" \
     DURATION="$DURATION") || return 1
   after=$(backend_reasons) && p_after=$(processor_outcomes) && e_after=$(envoy_extproc_stats) &&
     o_after=$(envoy_orders_stats) || return 1

@@ -13,9 +13,10 @@
 # echo and its twin routes (kind/measure.yaml). With --reuse it does the opposite: it refuses unless the cluster
 # exists, makes nothing (the images and out/ are the ones that cluster was made with), adds echo and its twin routes
 # again, and leaves the cluster up at the end, as --keep does; each run has a results directory of its own. Then it
-# runs the suites named, or every one, in the order below, each from the same baseline (measure/common.sh's baseline_reset), and deletes the cluster at the end, unless
-# --keep. What it prints, and each run's files, go to out/measurements/<UTC time>/. Every number is indicative: one
-# kind node on this machine runs Envoy, the processor, the backends and k6 alike.
+# runs the suites named, or every one, in the order below, each from the same baseline (measure/common.sh's
+# baseline_reset), and deletes the cluster at the end, unless --keep. What it prints, and each run's files, go to
+# out/measurements/<UTC time>/. Every number is indicative: one kind node on this machine runs Envoy, the processor,
+# the backends and k6 alike.
 #
 #   ROUNDS (3), DURATION (20s), WARMUP (10s) and VUS (10) set the runs: see measure/common.sh's alternate.
 #   LOAD_RATE_SMALL (1000) and LOAD_RATE_LARGE (500) are the requests a second the load suite offers each twin,
@@ -29,14 +30,16 @@
 #   EDGE_OVERLOAD_RATE (3000) its overload stage there.
 #   FAILURE_RATE is the requests a second the failure suite offers echo: unset, half the median the ceiling suite
 #   measured on echo with two processor replicas, when it ran in the same run, or else FAILURE_DEFAULT_RATE (5000,
-#   half the 10000/s that median was on this machine); FAILURE_ORDERS_RATE (750) is the rate on the route orders,
-#   half the 1500/s the edge suite's stages sustained there on this machine. See measure/failure.sh.
+#   half the 10000/s that median was on this machine); FAILURE_ORDERS_RATE is the rate on the route orders. See
+#   measure/failure.sh.
 #   CHANGE_RATE is the requests a second the route and rotation suites offer the route orders throughout each
-#   change: unset, half the highest stage the edge suite sustained there, when it ran in the same run, or else
-#   CHANGE_DEFAULT_RATE (750, half the 1500/s that stage reached in an earlier run on this machine; each step's
-#   warm-up says when the edge does not hold the rate); CHANGE_NEW_RATE (50) is the small fixed rate they offer a
-#   route they add. PAZTPORT_JAVA names the java that runs the policy tool for the material they make (as for
-#   material.sh); otherwise java on the PATH. See measure/change.sh.
+#   change (each step's warm-up says when the edge does not hold it); CHANGE_NEW_RATE (50) is the small fixed rate
+#   they offer a route they add.
+#   FAILURE_ORDERS_RATE and CHANGE_RATE, unset, are half the highest stage the edge suite sustained on orders in the
+#   same run, when it ran, or else ORDERS_DEFAULT_RATE (1000), a fallback measured on the author's machine: half the
+#   2000/s stage the edge suite sustained there; each suite prints which it used.
+#   PAZTPORT_JAVA names the java that runs the policy tool for the material the route and rotation suites make (as
+#   for material.sh); otherwise java on the PATH. See measure/change.sh.
 #
 # Like envoy-gateway.sh, it needs the jars built and out/ made (material.sh); nothing is pushed anywhere, and every
 # kubectl and helm call names the cluster's own context.
@@ -64,9 +67,9 @@ EDGE_STAGES="${EDGE_STAGES:-250 500 750 1000 1250 1500 2000 3000}"
 EDGE_OVERLOAD_RATE="${EDGE_OVERLOAD_RATE:-3000}"
 FAILURE_RATE="${FAILURE_RATE:-}"
 FAILURE_DEFAULT_RATE="${FAILURE_DEFAULT_RATE:-5000}"
-FAILURE_ORDERS_RATE="${FAILURE_ORDERS_RATE:-750}"
+FAILURE_ORDERS_RATE="${FAILURE_ORDERS_RATE:-}"
 CHANGE_RATE="${CHANGE_RATE:-}"
-CHANGE_DEFAULT_RATE="${CHANGE_DEFAULT_RATE:-750}"
+ORDERS_DEFAULT_RATE="${ORDERS_DEFAULT_RATE:-1000}"
 CHANGE_NEW_RATE="${CHANGE_NEW_RATE:-50}"
 # Every suite, in the order they run; a suite is there once a file in measure/ defines suite_<name>.
 ORDER="load ceiling edge failure gotchas observe rollout route rotation"
@@ -159,7 +162,8 @@ finish() {
   rm -rf "$tmp"
   if [ -n "$made" ]; then
     if [ -n "$keep" ]; then
-      echo "The cluster is still up (kubectl context $CTX); remove it with poc-demos/envoy-gateway/envoy-gateway.sh down"
+      echo "The cluster is still up (kubectl context $CTX); remove it with" \
+        "poc-demos/envoy-gateway/envoy-gateway.sh down"
     else
       echo "== removing the cluster"
       bash "$here/envoy-gateway.sh" down
@@ -172,15 +176,24 @@ trap finish EXIT
 trap 'exit 130' INT TERM
 
 # Everything printed goes to the run's log as well. tee ignores an interrupt, which a terminal sends the whole
-# process group, so that it outlives this shell and keeps what finish prints while it puts the cluster back.
-exec > >(trap '' INT && exec tee "$RUN_DIR/measure.log") 2>&1
+# process group, and a TERM to the group, so that it outlives this shell and keeps what finish prints while it puts
+# the cluster back.
+exec > >(trap '' INT TERM && exec tee "$RUN_DIR/measure.log") 2>&1
 # The log, kept as fd 9 for finish: an interrupt that comes while a function runs with its output redirected (to
 # /dev/null, say) runs finish with that redirection still in place.
 exec 9>&1
+# On macOS, the host must not sleep while a run measures: a run across a sleep measures nothing (run_paced fails it).
+# caffeinate, which macOS has built in, holds the assertion until this shell exits.
+if command -v caffeinate >/dev/null 2>&1; then
+  caffeinate -i -w "$$" >/dev/null 2>&1 9>&- &
+  disown "$!"
+  echo "the host is kept from idle sleep for the run (caffeinate -i)"
+fi
 
 echo "== measuring the Envoy Gateway edge, $(date -u +%Y-%m-%dT%H:%M:%SZ): suites ${selected% }"
 docker info --format '{{.NCPU}} {{.MemTotal}} {{.OperatingSystem}}' 2>/dev/null |
-  awk '{ printf "machine: Docker with %d CPUs and %.1f GiB of memory (%s)\n", $1, $2 / 1073741824, substr($0, index($0, $3)) }'
+  awk '{ printf "machine: Docker with %d CPUs and %.1f GiB of memory (%s)\n", $1, $2 / 1073741824,
+    substr($0, index($0, $3)) }'
 echo "Every number is indicative: one kind node on this machine runs Envoy, the processor, the backends and k6."
 if [ -n "$reuse" ]; then
   echo "== on the cluster $CLUSTER an earlier run left up (--reuse)"

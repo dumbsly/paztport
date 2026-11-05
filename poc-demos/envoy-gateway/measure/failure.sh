@@ -8,7 +8,8 @@
 #            one processor pod slowed, its gRPC port and then the whole pod; every processor replica gone, then two
 #            again; the same with Envoy routing to the processor's Service instead of its pods (the EnvoyProxy's
 #            routingType Service), after how the load spreads over the replicas under each routing; the processor
-#            rolled; and on the route orders, at FAILURE_ORDERS_RATE, one orders container killed. Each case prints
+#            rolled; and on the route orders, at FAILURE_ORDERS_RATE (unset: common.sh's orders_rate), one orders
+#            container killed. Each case prints
 #            its run, the window and timeline of its responses other than 200, what the processor and Envoy
 #            counted, and that nothing reached echo unstamped; the last, orders' traces, each rid once.
 #
@@ -38,6 +39,8 @@ FAILURE_ORDERS_DURATION=90s
 # The case running now: its k6 run's pid, and a helm upgrade's pid while one runs in the background (CASE, its name,
 # is common.sh's).
 CASE_PID=""
+# The rate on the route orders the case there offers (orders_rate).
+FAILURE_ORDERS_RATE_USED=""
 HELM_PID=""
 # The behavioural lines that failed in this suite, so far.
 FAILURE_FAILS=0
@@ -98,7 +101,8 @@ case_begin() {
   sleep "$FAILURE_LEAD"
 }
 
-# case_end: waits for the case's run, then prints it, the window of its responses other than 200, and its timeline.
+# case_end: waits for the case's run, then prints it, whether it ran at its pace (run_paced; a FAIL is counted), the
+# window of its responses other than 200, and its timeline.
 # Returns 1 when the run failed.
 case_end() {
   local status dropped
@@ -109,6 +113,7 @@ case_end() {
   [ ! -s "$tmp/$CASE.err" ] || sed 's/^/  /' "$tmp/$CASE.err"
   [ "$status" -eq 0 ] || return 1
   printf '  %s\n' "$(cat "$tmp/$CASE.line")"
+  run_paced "$CASE" || FAILURE_FAILS=$((FAILURE_FAILS + 1))
   dropped=$(sed -n 's/.*"dropped":\([0-9]*\).*/\1/p' "$tmp/$CASE.line")
   if [ "${dropped:-0}" -gt 0 ]; then
     echo "  k6 had no free user for $dropped of the requests it was to send, so they were never sent: every count" \
@@ -679,15 +684,15 @@ sys.exit(bad)' "$1" "$2"
 failure_orders() {
   local pod restarts at since_time envoy_before envoy_after p_before p_after
   pod=$(live_pods app=orders | head -n1)
-  echo "-- one orders container killed (SIGKILL): the route orders offered $FAILURE_ORDERS_RATE/s for" \
-    "$FAILURE_ORDERS_DURATION (k6 users: $(pool "$FAILURE_ORDERS_RATE")), the kill $FAILURE_LEAD s into it; the" \
+  echo "-- one orders container killed (SIGKILL): the route orders offered $FAILURE_ORDERS_RATE_USED/s for" \
+    "$FAILURE_ORDERS_DURATION (k6 users: $(pool "$FAILURE_ORDERS_RATE_USED")), the kill $FAILURE_LEAD s into it; the" \
     "route retries a connection that failed, and nothing that reached orders"
   restarts=$(pod_restarts "$pod")
   envoy_before=$(envoy_orders_retries) && p_before=$(outcomes_by_pod) || return 1
   # From a second before the run, by the node's clock, which the logs' times are on.
   since_time=$(docker exec "$(node_container)" date -u -d '-1 second' +%Y-%m-%dT%H:%M:%S) || return 1
-  case_begin failure-orders TARGET="$EDGE/orders" BODY=small EXECUTOR=rate RATE="$FAILURE_ORDERS_RATE" \
-    PREALLOC="$(pool "$FAILURE_ORDERS_RATE")" DURATION="$FAILURE_ORDERS_DURATION" || return 1
+  case_begin failure-orders TARGET="$EDGE/orders" BODY=small EXECUTOR=rate RATE="$FAILURE_ORDERS_RATE_USED" \
+    PREALLOC="$(pool "$FAILURE_ORDERS_RATE_USED")" DURATION="$FAILURE_ORDERS_DURATION" || return 1
   at=$(kill_container "$pod") || return 1
   event_at "$at" "SIGKILL to orders' container in $pod"
   until_ready app=orders 2 "$pod" "$restarts" 300 "both orders replicas ready" || {
@@ -828,7 +833,8 @@ suite_failure() {
   baseline_reset
   FAILURE_FAILS=0
   # The forward to Envoy's admin port, in this shell: one made in a reading's subshell would be lost with it.
-  failure_rate && echo_primed && envoy_admin || return 1
+  failure_rate && orders_rate FAILURE_ORDERS_RATE "$FAILURE_ORDERS_RATE" &&
+    FAILURE_ORDERS_RATE_USED="$ORDERS_RATE_USED" && echo_primed && envoy_admin || return 1
   echo "  Envoy fails closed: a request whose stream to the processor fails is refused with Envoy's own 500, or 504" \
     "when the processor did not answer within messageTimeout (message_timeouts); of those 500s, the ones its" \
     "circuit breaker on the processor's cluster refused (past 1024 at a time) are cluster_rq_active_overflow. A" \

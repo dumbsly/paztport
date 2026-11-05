@@ -18,21 +18,21 @@
 #             the processor refusing to start on a keyring past it, which its unit tests show; it is not shown here.
 #
 # The rate on orders is CHANGE_RATE, or half what the edge suite sustained there in the same run, or else
-# CHANGE_DEFAULT_RATE (change_rate). Each step first runs a discarded warm-up, since the last change left new pods
-# with cold JVMs: ramped to that rate over CHANGE_RAMP, then held at it for CHANGE_WARMUP, and says whether the edge
-# held it with every response a 200: if it did not, the rate is an overload here, and the step measures a change
-# under overload, which it says. Each step is then one k6 run on orders at that rate with the change CHANGE_LEAD
-# seconds into it, and, on a step that applies a route, one on that route at CHANGE_NEW_RATE from just before the
-# route is applied (or, once it exists, for the whole step). Each prints its runs, the window of their responses
-# other than 200, the 404s on a new route before Envoy served it (expected, and counted apart from the errors), a
-# timeline, what Envoy counted of its streams to the processor, and what orders and payment decided, by reason, from
-# their traces: every pod's log since the step began, read from the kind node, since a counter goes with the pod a
-# rollout replaces. Then two lines: the traces cover the step (as many verified OK as k6's 200s, and every pod's log
-# read), and no request reached a
-# backend without a stamp (no CHAIN_MISSING), which the first must hold for. After the steps that pin and unpin, a
-# few requests one at a time show what orders accepts: a stamp under the new material while orders' own is still the
-# old one (so the overlap variable is what pins it), and, once the old material is unpinned, its refusal by reason
-# of a stamp under the old.
+# ORDERS_DEFAULT_RATE (common.sh's orders_rate). Each step first runs a discarded warm-up, since the last change left
+# new pods with cold JVMs: ramped to that rate over CHANGE_RAMP, then held at it for CHANGE_WARMUP, and says whether the
+# edge held it with every response a 200: if it did not, the rate is an overload here, and the step measures a change
+# under overload, which it says. Each step is then one k6 run on orders at that rate with the change CHANGE_LEAD seconds
+# into it, and, on a step that applies a route, one on that route at CHANGE_NEW_RATE from just before the route is
+# applied (or, once it exists, for the whole step). Each prints its runs, the window of their responses other than 200,
+# the 404s on a new route before Envoy served it (expected, and counted apart from the errors), a timeline, what Envoy
+# counted of its streams to the processor, and what orders and payment decided, by reason, from their traces (since a
+# counter goes with the pod a rollout replaces): every pod's log since the step began, each of its files hard-linked on
+# the kind node as it appears, so that none is lost to the kubelet (logs_begin). Then two lines: the traces cover the
+# step (every pod's log read, and, a lower bound, as many verified OK as k6's 200s), and no request reached a backend
+# without a stamp (no CHAIN_MISSING), which the first must hold for. After the steps that pin and unpin, a few requests
+# one at a time show what orders accepts: a stamp under the new material while orders' own is still the old one (so the
+# overlap variable is what pins it), and, once the old material is unpinned, its refusal by reason of a stamp under the
+# old.
 #
 # The material a suite makes, a rebuilt policy or a rotated key, is made with the policy tool in its own directory,
 # $RUN_DIR/material/<suite>/, which must be new, from a copy of out/keys' policy key and keyring: out/keys and
@@ -70,12 +70,14 @@ SHOP_HOST=shop.example
 POLICY_TOOL="$repo/poc-sdks/java/tools/policy-tool/target/policy-tool.jar"
 
 # The step running now: the pids of its runs, on orders and on a new route, the new route's run's name, a helm
-# upgrade's pid while one runs in the background, and logs_begin's.
+# upgrade's pid while one runs in the background, and the pid of logs_begin's loop.
 STEP_PID=""
 NEW_PID=""
 NEW_CASE=""
+# Whether the new route's run began before its route was applied (new) or with the route there (exists).
+NEW_ROUTE=""
 # The step's run's length, Envoy's counters for the processor when it began, and when it began by the node's clock
-# (UTC, to the second), from which the backends' logs are read.
+# (UTC, to the millisecond), from which the backends' logs are read.
 STEP_DURATION=""
 STEP_ENVOY=""
 STEP_SINCE=""
@@ -86,34 +88,9 @@ MATERIAL=""
 CHANGE_RATE_USED=""
 CHANGE_FAILS=0
 
-# change_rate: sets CHANGE_RATE_USED, the requests a second the steps offer orders, and prints where it came from:
-# CHANGE_RATE when set; else half the highest stage the edge suite sustained on orders, when that suite ran in this
-# run (edge-rounds); else CHANGE_DEFAULT_RATE.
+# change_rate: sets CHANGE_RATE_USED, the requests a second the steps offer orders (orders_rate, from CHANGE_RATE).
 change_rate() {
-  local sustained=0
-  case "$CHANGE_RATE" in
-    "") ;;
-    *[!0-9]* | 0)
-      echo "error: CHANGE_RATE is $CHANGE_RATE, not a number of requests a second" >&2
-      return 1
-      ;;
-    *)
-      CHANGE_RATE_USED="$CHANGE_RATE"
-      echo "  the rate on orders: $CHANGE_RATE_USED/s, from CHANGE_RATE"
-      return 0
-      ;;
-  esac
-  [ ! -f "$RUN_DIR/edge-rounds" ] || sustained=$(awk '$1 == "orders" { s = $4 } END { printf "%d", s }' \
-    "$RUN_DIR/edge-rounds")
-  if [ "${sustained:-0}" -gt 0 ]; then
-    CHANGE_RATE_USED=$((sustained / 2))
-    echo "  the rate on orders: $CHANGE_RATE_USED/s, half the highest stage the edge suite sustained there in this" \
-      "run ($sustained/s, in edge-rounds)"
-  else
-    CHANGE_RATE_USED="$CHANGE_DEFAULT_RATE"
-    echo "  the rate on orders: $CHANGE_RATE_USED/s, CHANGE_DEFAULT_RATE: this run has no stage the edge suite" \
-      "sustained on orders"
-  fi
+  orders_rate CHANGE_RATE "$CHANGE_RATE" && CHANGE_RATE_USED="$ORDERS_RATE_USED"
 }
 
 # change_fail <line>: prints a FAIL line, and counts it.
@@ -346,97 +323,105 @@ print("none" if not found else "on " + " ".join(found[0]) if all(found) else "of
   esac
 }
 
-# route_upstream <route>: the 2xx Envoy's cluster for the HTTPRoute's first rule has had back from its backend.
+# route_upstream <route>: the 2xx Envoy's cluster for the HTTPRoute's first rule has had back from its backend (0
+# before the cluster exists). Returns 1 when Envoy's stats cannot be read.
 route_upstream() {
-  envoy_admin || return 1
-  curl -sf "http://$ENVOY_ADMIN/stats" | awk -F': ' -v c="cluster.httproute/paztport/$1/rule/0.upstream_rq_2xx" \
-    '$1 == c { n = $2 } END { printf "%d", n }'
+  local stats
+  envoy_admin && stats=$(curl -sf "http://$ENVOY_ADMIN/stats") || {
+    echo "error: Envoy's stats could not be read" >&2
+    return 1
+  }
+  awk -F': ' -v c="cluster.httproute/paztport/$1/rule/0.upstream_rq_2xx" '$1 == c { n = $2 } END { printf "%d", n }' \
+    <<<"$stats"
 }
 
-# node_log <pod> <uid> <app>: every line the kind node keeps of the pod's container's log, as the node writes them
-# ("<time> stdout|stderr F|P <line>"): every attempt of the container, and the files the kubelet rotated (past
-# 10 MiB) as well as the current one.
-node_log() {
-  # shellcheck disable=SC2016 # the script runs in the node's shell
-  docker exec "$(node_container)" sh -c 'cd "/var/log/pods/$1_$2_$3/$4" 2>/dev/null || exit 3
-    for f in *; do case "$f" in *.gz) zcat "$f" ;; *) cat "$f" ;; esac || exit 1; done' sh "$NS" "$1" "$2" "$3"
-}
+# The kind node's directory, on the same file system as the pods' logs (/var), where logs_begin links their files.
+NODE_LOGS=/var/tmp/paztport-measure-logs
 
-# copy_log <pod>: the pod's log from the node into $tmp/logs/<pod>.log, replacing an earlier copy only when this one
-# was read whole. Returns 1 when it could not be read.
-copy_log() {
-  local dir="$tmp/logs" uid app
-  read -r uid app <"$dir/$1.seen" || return 1
-  node_log "$1" "$uid" "$app" >"$dir/$1.part" && mv "$dir/$1.part" "$dir/$1.log"
-}
-
-# logs_begin: reads every orders and payment pod's log from the step's start (STEP_SINCE) in the background, until
-# logs_end, two ways, since neither alone holds every line: a kubectl stream of each pod from the time its container
-# runs (<pod>.stream; it reads to the end of a container that stops, but can drop lines when the kubelet rotates a
-# busy log, past 10 MiB), and copies of the pod's files from the kind node, which hold every line, rotated ones
-# included, for as long as the container is there (<pod>.log: taken again and again while a pod is being deleted,
-# since the node removes a container's files with it, and once more by logs_end for every pod still there). The pods
-# are polled every half second.
+# logs_begin: on the kind node, in the background until logs_end, a loop that every 0.2 s hard-links each file of
+# every orders and payment container's log (in /var/log/pods: the current one, and those the kubelet rotated past
+# 10 MiB and compressed) into NODE_LOGS, once for each file (by inode), as <pod>.<inode>[.gz]. A link keeps a file's
+# lines whatever the kubelet then does with it: rotates it, compresses it, or removes it with the container of a pod
+# a rollout deletes; and a file is linked within 0.2 s of its making, before any line of it can go. So every line an
+# orders or payment container writes in the step is kept, of every pod, rollouts included. A failed link is noted in
+# NODE_LOGS/.errors; the loop writes .ready after its first pass, and .stopped when logs_end stops it (it gives up by
+# itself after an hour). Waits for .ready.
 logs_begin() {
-  local dir="$tmp/logs"
-  rm -rf "$dir" && mkdir "$dir" || return 1
-  (
-    local listed pod uid app running deleting each
-    each='{.metadata.name} {.metadata.uid} {.metadata.labels.app} {.status.containerStatuses[0].state.running.startedAt}'
-    each+=' {.metadata.deletionTimestamp}'
-    while :; do
-      listed=$(kn get pods -l 'app in (orders,payment)' -o jsonpath="{range .items[*]}$each{\"\\n\"}{end}" \
-        2>/dev/null) || listed=""
-      while read -r pod uid app running deleting; do
-        [ -n "$pod" ] && [ -n "$running" ] || continue
-        if [ ! -e "$dir/$pod.seen" ]; then
-          echo "$uid $app" >"$dir/$pod.seen"
-          # kubectl itself, so that its pid is the stream's.
-          kubectl --context "$CTX" -n "$NS" logs -f --timestamps --since-time="${STEP_SINCE}Z" "pod/$pod" \
-            >"$dir/$pod.stream" 2>"$dir/$pod.err" &
-          echo "$!" >"$dir/$pod.pid"
-        fi
-        [ -z "$deleting" ] || copy_log "$pod"
-      done <<<"$listed"
-      sleep 0.5
+  # shellcheck disable=SC2016 # the script runs in the node's shell
+  docker exec "$(node_container)" sh -c 'd=$1
+    rm -rf "$d" && mkdir "$d" || exit 1
+    end=$(($(date +%s) + 3600))
+    while [ ! -e "$d/.stop" ]; do
+      [ "$(date +%s)" -lt "$end" ] || exit 1
+      for f in /var/log/pods/"$2"_orders-*/orders/* /var/log/pods/"$2"_payment-*/payment/*; do
+        [ -f "$f" ] || continue
+        p=${f#/var/log/pods/*_}
+        p=${p%%_*}
+        i=$(stat -c %i "$f" 2>/dev/null) || continue
+        case "$f" in *.gz) t="$d/$p.$i.gz" ;; *) t="$d/$p.$i" ;; esac
+        [ -e "$t" ] || ln "$f" "$t" 2>>"$d/.errors" || true
+      done
+      [ -e "$d/.ready" ] || : >"$d/.ready"
+      sleep 0.2
     done
-  ) &
+    : >"$d/.stopped"' sh "$NODE_LOGS" "$NS" >/dev/null 2>&1 9>&- &
   LOGS_PID=$!
   forwards+=("$LOGS_PID")
+  for _ in $(seq 1 50); do
+    docker exec "$(node_container)" test -e "$NODE_LOGS/.ready" && return 0
+    sleep 0.2
+  done
+  echo "error: the loop that links the backends' logs on the kind node did not start" >&2
+  return 1
 }
 
-# logs_end: a few seconds on, since a log line reaches the node's files a moment late, stops noting pods, copies the
-# log of every pod still there from the node, and stops the streams. Prints, and returns 1 for, what was not read:
-# a stream that said something on its standard error, a pod still there whose files could not be copied, or no
-# orders or payment pod seen at all.
-logs_end() {
-  local dir="$tmp/logs" f pod app ok=0
-  [ -n "$LOGS_PID" ] || return 1
-  sleep 3
+# logs_stop: stops the loop, waits for it, and removes NODE_LOGS from the node.
+logs_stop() {
+  [ -n "$LOGS_PID" ] || return 0
+  docker exec "$(node_container)" sh -c 'if [ -d "$1" ]; then : >"$1/.stop"; fi' sh "$NODE_LOGS" 2>/dev/null
+  for _ in $(seq 1 50); do
+    kill -0 "$LOGS_PID" 2>/dev/null || break
+    sleep 0.2
+  done
   kill "$LOGS_PID" 2>/dev/null
   wait "$LOGS_PID" 2>/dev/null
   forget "$LOGS_PID"
   LOGS_PID=""
-  for f in "$dir"/*.seen; do
-    [ -e "$f" ] || continue
-    pod=$(basename "$f" .seen)
-    if kn get pod "$pod" -o name >/dev/null 2>&1 && ! copy_log "$pod"; then
-      echo "  the log of $pod, which is still there, could not be copied from the node" >&2
-      ok=1
-    fi
-    kill "$(cat "$dir/$pod.pid")" 2>/dev/null
+  docker exec "$(node_container)" rm -rf "$NODE_LOGS" 2>/dev/null
+}
+
+# logs_end: a few seconds on, since a log line reaches the node's files a moment late, stops the loop, reads the
+# trace lines of every file it linked into $tmp/logs/traces ("<pod> <the node's line>"), then removes them. Prints,
+# and returns 1 for, what makes the reading incomplete: a loop that did not run to the end (no .stopped), a link that
+# failed, a file that could not be read, or no orders or payment pod's file linked at all.
+logs_end() {
+  local ok=0 said
+  [ -n "$LOGS_PID" ] || return 1
+  sleep 3
+  docker exec "$(node_container)" sh -c ': >"$1/.stop"' sh "$NODE_LOGS"
+  for _ in $(seq 1 50); do
+    docker exec "$(node_container)" test -e "$NODE_LOGS/.stopped" && break
+    sleep 0.2
   done
-  for f in "$dir"/*.err; do
-    [ -s "$f" ] || continue
-    echo "  the log stream of $(basename "$f" .err) said: $(head -c 300 "$f")" >&2
-    ok=1
-  done
+  mkdir -p "$tmp/logs" || return 1
+  # shellcheck disable=SC2016 # the script runs in the node's shell
+  docker exec "$(node_container)" sh -c 'cd "$1" || exit 1
+    [ -e .stopped ] || { echo "the loop that links the logs did not run to the end of the step" >&2; exit 1; }
+    [ ! -s .errors ] || { echo "links that failed: $(head -c 300 .errors)" >&2; exit 1; }
+    for f in *; do
+      [ -f "$f" ] || continue
+      gzip -cdf "$f" >.read || { echo "$f could not be read" >&2; exit 1; }
+      grep -F "PAZTPORT_TRACE request" .read | sed "s|^|${f%%.*} |"
+    done' sh "$NODE_LOGS" >"$tmp/logs/traces" 2>"$tmp/logs/said" || ok=1
+  said=$(cat "$tmp/logs/said")
+  [ -z "$said" ] || { echo "  the backends' logs: $said" >&2; ok=1; }
   for app in orders payment; do
-    if ! compgen -G "$dir/$app-*.seen" >/dev/null; then
-      echo "  no $app pod was seen running in the step, so its log was not read" >&2
+    if ! docker exec "$(node_container)" sh -c 'ls "$1" | grep -q "^$2-"' sh "$NODE_LOGS" "$app"; then
+      echo "  the backends' logs: no file of any $app pod was linked" >&2
       ok=1
     fi
   done
+  logs_stop
   return "$ok"
 }
 
@@ -455,9 +440,9 @@ k6_started() {
 # step_begin <case> <duration> [<new route's settings>...]: a discarded warm-up on orders, ramped to the step's rate
 # over CHANGE_RAMP and then held at it for CHANGE_WARMUP, and whether the edge held it; the step's readings before it
 # (Envoy's counters for the processor), and the backends' logs noted from then (logs_begin); then its run on orders,
-# at that rate for duration, and with settings given (a new route that exists already), a run on that route for the same length, at
-# CHANGE_NEW_RATE, both in the background; waits until they run, and CHANGE_LEAD seconds more, so that the change
-# meets steady load.
+# at that rate for duration, and with settings given (a new route that exists already), a run on that route for the
+# same length, at CHANGE_NEW_RATE, both in the background; waits until they run, and CHANGE_LEAD seconds more, so
+# that the change meets steady load.
 step_begin() {
   local users line
   CASE="$1"
@@ -484,7 +469,7 @@ step_begin() {
       "change: the rate is an overload here now, so what follows is a change under overload"
   fi
   envoy_admin && STEP_ENVOY=$(envoy_extproc_stats) || return 1
-  STEP_SINCE=$(docker exec "$(node_container)" date -u +%Y-%m-%dT%H:%M:%S) && logs_begin || return 1
+  STEP_SINCE=$(docker exec "$(node_container)" date -u +%Y-%m-%dT%H:%M:%S.%3NZ) && logs_begin || return 1
   echo "  the run on orders: $CHANGE_RATE_USED/s for $STEP_DURATION (k6 users: $users), the change $CHANGE_LEAD s" \
     "into it"
   k6_run "$CASE" TARGET="$EDGE/orders" BODY=small EXECUTOR=rate RATE="$CHANGE_RATE_USED" PREALLOC="$users" \
@@ -492,7 +477,10 @@ step_begin() {
   STEP_PID=$!
   forwards+=("$STEP_PID")
   k6_started "$CASE" || return 1
-  if [ $# -gt 0 ]; then new_run "$STEP_DURATION" "$@" || return 1; fi
+  if [ $# -gt 0 ]; then
+    NEW_ROUTE=exists
+    new_run "$STEP_DURATION" "$@" || return 1
+  fi
   sleep "$CHANGE_LEAD"
 }
 
@@ -521,6 +509,7 @@ step_new_route() {
     echo "error: $left s of the run on orders are left for the new route's; the step's duration is too short" >&2
     return 1
   }
+  NEW_ROUTE=new
   new_run "${left}s" "$@" && sleep "$CHANGE_NEW_LEAD"
 }
 
@@ -533,6 +522,7 @@ run_done() {
   [ ! -s "$tmp/$2.err" ] || sed 's/^/  /' "$tmp/$2.err"
   [ "$status" -eq 0 ] || return 1
   printf '  %s: %s\n' "$2" "$(cat "$tmp/$2.line")"
+  run_paced "$2" || CHANGE_FAILS=$((CHANGE_FAILS + 1))
   dropped=$(sed -n 's/.*"dropped":\([0-9]*\).*/\1/p' "$tmp/$2.line")
   if [ "${dropped:-0}" -gt 0 ]; then
     echo "  k6 had no free user for $dropped of the requests it was to send, so they were never sent: every count" \
@@ -540,13 +530,14 @@ run_done() {
   fi
 }
 
-# new_route_window <name>: the new route's run: its 404s in the seconds up to the first with a 200, which came before
-# Envoy served the route and are expected; and its responses other than 200 after that, the errors. By k6's whole
-# seconds, so 404s in the second of the first 200 are counted as before it. Writes "<404s before> <errors> <200s>" to
-# $RUN_DIR/<name>.split. Returns 1 when the route never answered 200.
+# new_route_window <name> new|exists: a new route's run. With new (the run began before its route was applied), its
+# 404s in the seconds up to the first with a 200 came before Envoy served the route, and are expected: counted
+# apart, by k6's whole seconds, so that a 404 in the second of the first 200 is counted with them. Every other
+# response but a 200 is an error, a 404 after that second, or before it on a route that existed (exists), included.
+# Writes "<404s before> <errors> <200s>" to $RUN_DIR/<name>.split. Returns 1 when the route never answered 200.
 new_route_window() {
   python3 -c 'import json, sys
-run = sys.argv[1]
+run, existed = sys.argv[1], sys.argv[2] == "exists"
 w = json.loads(open(run + ".window").read()[len("WINDOW "):])
 expect, _, rest = open(run + ".result").read().strip().partition(" ")
 r = json.loads(rest[len("RESULT "):])
@@ -559,56 +550,64 @@ if first is None:
         "%s: %d" % kv for kv in sorted(r["status"].items()) if kv[1])))
     open(run + ".split", "w").write("0 %d 0\n" % r["reqs"])
     sys.exit(1)
-before = sum(col["404"][:first + 1])
+expected404 = [0] * n if existed else [col["404"][i] if i <= first else 0 for i in range(n)]
+before = sum(expected404)
 errors = r["reqs"] - oks - before
-seconds = [i for i in range(n) if col["5xx"][i] + col["rest"][i] - (col["404"][i] if i <= first else 0)]
+seconds = [i for i in range(n) if col["5xx"][i] + col["rest"][i] - expected404[i]]
 by = dict(r["status"])
 by["404"] = by.get("404", 0) - before
 by.pop("200", None)
-held = [i for i in range(first + 1) if col["404"][i]]
-if before:
+held = [i for i in range(n) if expected404[i]]
+if existed:
+    print("  the route existed through the run, so every response but a 200, a 404 included, is an error")
+elif before:
     print("  404s before Envoy served the route: %d, in the run'"'"'s seconds +%d to +%d (the first 200 came in +%d;"
           " by whole seconds, so a 404 in +%d after that 200 is counted here); expected, and not among the errors"
           % (before, held[0], held[-1], first, first))
 else:
     print("  404s before Envoy served the route: none (the first 200 came in the run'"'"'s second +%d)" % first)
+open(run + ".split", "w").write("%d %d %d\n" % (before, errors, oks))
+apart = "" if existed or not before else ", those 404s apart"
 if errors:
-    print("  %d responses other than 200 once the route was served (%s), in the run'"'"'s seconds +%d to +%d" % (
-        errors, ", ".join("%s: %d" % kv for kv in sorted(by.items()) if kv[1]), seconds[0], seconds[-1]))
+    when = ("in the run'"'"'s seconds +%d to +%d" % (seconds[0], seconds[-1])) if seconds else ""
+    if w["late"]:
+        when += ("%s%d after the seconds counted" % (", and " if when else "", w["late"]))
+    print("  %d responses other than 200%s (%s), %s" % (
+        errors, apart, ", ".join("%s: %d" % kv for kv in sorted(by.items()) if kv[1]),
+        when or "in no second counted"))
 else:
-    print("  0 responses other than 200 once the route was served")
-open(run + ".split", "w").write("%d %d %d\n" % (before, errors, oks))' "$RUN_DIR/$1"
+    print("  0 responses other than 200%s" % apart)' "$RUN_DIR/$1" "$2"
 }
 
 # step_traces <200s to orders> <200s to payment> <complete>: what orders and payment decided in the step, by
-# reason, from the trace lines in their logs since the step began, written to $RUN_DIR/$CASE.reasons; and the two behavioural lines.
-# k6's 200s are the least each backend must have verified OK: a 200 from a route to orders is a request orders
-# verified, and payment too, which orders calls on every one; a 200 from the route payment is one payment verified.
-# <complete> is 0 when every pod's log was read. Returns 1 if either line is FAIL.
+# reason, from the trace lines in their logs since the step began (logs_end's $tmp/logs/traces, a line read twice
+# counted once), written to $RUN_DIR/$CASE.reasons; and the two behavioural lines. <complete> is 0 when
+# logs_end found every pod's log read. The coverage is a lower bound: k6's 200s are the least each backend must have
+# verified OK (a 200 from a route to orders is a request orders verified, and payment too, which orders calls on
+# every one; a 200 from the route payment is one payment verified), so a shortfall shows lines lost, but lines lost
+# within a surplus of OK over 200s would not show; that is what <complete> is for. Returns 1 if either line is FAIL.
 step_traces() {
-  python3 -c 'import collections, glob, os, re, sys
+  python3 -c 'import collections, datetime, glob, os, re, sys
 logs, to_orders, to_payment, whole, out, since = sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), \
     sys.argv[4] == "0", sys.argv[5], sys.argv[6]
+def ms(stamp):
+    """An RFC 3339 UTC time, its fraction of any length, in ms since the epoch."""
+    whole, _, frac = stamp.rstrip("Z").partition(".")
+    t = datetime.datetime.strptime(whole, "%Y-%m-%dT%H:%M:%S").replace(tzinfo=datetime.timezone.utc)
+    return int(t.timestamp()) * 1000 + int((frac + "000")[:3])
+since = ms(since)
 counts = collections.Counter()
-# Each pod'"'"'s trace lines, from its stream and its copies alike, without the time the log adds in front (kubectl
-# and the node write it with different digits) and, in a copy, the stream and tag after it ("stdout F"): the line
-# itself, which holds the time the service logged it and the request'"'"'s rid, so that a line read both ways is
-# counted once.
-for seen in sorted(glob.glob(os.path.join(logs, "*.seen"))):
-    pod = os.path.basename(seen)[:-len(".seen")]
+# Each pod'"'"'s trace lines, from every file of its log linked on the node, as "<pod> <time> stdout F <line>": the
+# line itself, which holds the time the service logged it and the request'"'"'s rid, is counted once for its pod, as a
+# file the kubelet rotated can be linked twice (as it was, and compressed).
+by_pod = collections.defaultdict(set)
+for line in open(os.path.join(logs, "traces"), errors="replace"):
+    parts = line.rstrip("\n").split(" ", 4)
+    if len(parts) < 5 or ms(parts[1]) < since:
+        continue
+    by_pod[parts[0]].add(parts[4])
+for pod, lines in sorted(by_pod.items()):
     app = pod.split("-")[0]
-    lines = set()
-    for suffix, copy in ((".stream", False), (".log", True)):
-        path = os.path.join(logs, pod + suffix)
-        if not os.path.exists(path):
-            continue
-        for line in open(path, errors="replace"):
-            if "PAZTPORT_TRACE request " not in line or line[:19] < since:
-                continue
-            at, _, rest = line.rstrip("\n").partition(" ")
-            if copy:
-                rest = rest.split(" ", 2)[2] if rest.count(" ") >= 2 else rest
-            lines.add(rest)
     for rest in lines:
         m = re.search(r"PAZTPORT_TRACE request rid=\S+ reason=(\S+)", rest)
         if m:
@@ -625,9 +624,10 @@ missing = counts[("orders", "CHAIN_MISSING")] + counts[("payment", "CHAIN_MISSIN
 covered = whole and ok_orders >= to_orders and ok_payment >= to_orders + to_payment
 bad = 0
 if covered:
-    print("  PASS the traces cover the step: every pod'"'"'s log was read; orders verified %d requests OK, no fewer"
-          " than the %d 200s k6 counted on routes to orders; payment %d, no fewer than the %d on routes to orders or"
-          " payment" % (ok_orders, to_orders, ok_payment, to_orders + to_payment))
+    print("  PASS the traces cover the step: every file of every pod'"'"'s log was linked on the node and read;"
+          " and, a lower bound, orders verified %d requests OK, no fewer than the %d 200s k6 counted on routes to"
+          " orders; payment %d, no fewer than the %d on routes to orders or payment" % (
+              ok_orders, to_orders, ok_payment, to_orders + to_payment))
 else:
     why = [] if whole else ["not every pod'"'"'s log could be read (above)"]
     if ok_orders < to_orders:
@@ -671,8 +671,12 @@ step_end() {
   window "$RUN_DIR/$CASE.fails"
   if [ -n "$NEW_CASE" ]; then
     echo "  the run on the new route:"
-    new_route_window "$NEW_CASE" || CHANGE_FAILS=$((CHANGE_FAILS + 1))
-    new200=$(cut -d' ' -f3 "$RUN_DIR/$NEW_CASE.split")
+    new_route_window "$NEW_CASE" "$NEW_ROUTE" || CHANGE_FAILS=$((CHANGE_FAILS + 1))
+    new200=$(cut -d' ' -f3 "$RUN_DIR/$NEW_CASE.split" 2>/dev/null)
+    if [ -z "$new200" ]; then
+      change_fail "the new route's run was summed up: $NEW_CASE.split was not written (above)"
+      new200=0
+    fi
   fi
   python3 "$here/measure/summary.py" timeline "$RUN_DIR/$CASE.fails" "$RUN_DIR/$CASE.events"
   echo "  Envoy counted, of its streams to the processor: $(outcomes_added "$STEP_ENVOY" "$(envoy_extproc_stats)")"
@@ -903,16 +907,21 @@ route_old_way() {
   step_end payment && [ "$served" -eq 0 ]
 }
 
-# route_compare: the overlap's three steps against the old way's one, as the steps' files have them: the requests on
-# orders and on /pay, their responses other than 200 (the 404s on /pay before it was served apart), and what the
-# backends refused, by reason.
+# route_compare: the overlap's three steps against the old way's one, as the steps' files have them, one run each
+# and so no spread: first the material refusals, what the backends refused for any reason but OK, EXPIRED (a stamp
+# past orders' maxAgeMs, as a cold pod's queue makes) and CHAIN_MISSING (shown by each step's own line), which is
+# what the overlap is for; then, apart, everything the rollouts cost: the requests on orders and on /pay and their
+# responses other than 200, and the age refusals. The overlap rolls the backends twice (payment then orders, then
+# both together) and the processor twice; the old way each once, all at the same time. The load on /pay differs:
+# the overlap's runs from just before its route is applied through step 3's rollouts, the old way's only after its
+# rollouts, since the route comes after them.
 route_compare() {
   echo "-- the overlap against the old way: the same change (a rebuilt policy adding edge/payment, and the route" \
-    "payment), at the same rates ($CHANGE_RATE_USED/s on orders throughout; $CHANGE_NEW_RATE/s on /pay from just" \
-    "before its route was applied, and on through the overlap's step 3)"
+    "payment), $CHANGE_RATE_USED/s on orders throughout; one run of each, so no spread"
   python3 -c 'import json, os, sys
 d = sys.argv[1]
-def side(label, cases):
+ROLLOUT = ("OK", "EXPIRED", "CHAIN_MISSING")
+def side(label, rollouts, cases):
     reqs = bad = 0
     by, pay, refused = {}, [0, 0, 0, 0], {}
     for c in cases:
@@ -932,14 +941,20 @@ def side(label, cases):
             app, reason, n = line.split()
             if reason != "OK":
                 refused[(app, reason)] = refused.get((app, reason), 0) + int(n)
-    print("  %s (%s):" % (label, ", ".join(cases)))
-    print("    orders: %d requests, %d other than 200%s" % (reqs, bad,
-          " (" + ", ".join("%s: %d" % kv for kv in sorted(by.items())) + ")" if bad else ""))
-    print("    /pay: %d requests, %d 404s before it was served, %d other than 200 once it was, %d 200s" % tuple(pay))
-    print("    refused at the backends, by reason: %s" % (
-        ", ".join("%s %s %d" % (a, r, n) for (a, r), n in sorted(refused.items())) or "none"))
-side("the overlap, three steps", ["route-overlap-1", "route-overlap-2", "route-overlap-3"])
-side("the old way, one step", ["route-old-way"])' "$RUN_DIR"
+    material = {k: n for k, n in refused.items() if k[1] not in ROLLOUT}
+    age = {k: n for k, n in refused.items() if k[1] == "EXPIRED"}
+    words = lambda d: ", ".join("%s %s %d" % (a, r, n) for (a, r), n in sorted(d.items())) or "none"
+    print("  %s (%s; %s):" % (label, ", ".join(cases), rollouts))
+    print("    material refusals at the backends: %s" % words(material))
+    print("    what the rollouts cost, apart: orders %d requests, %d other than 200%s; /pay %d requests, %d 404s before"
+          " it was served, %d other than 200, %d 200s; age refusals (EXPIRED) %s" % (
+              reqs, bad, " (" + ", ".join("%s: %d" % kv for kv in sorted(by.items())) + ")" if bad else "",
+              pay[0], pay[1], pay[2], pay[3], words(age)))
+side("the overlap, three steps", "the backends rolled twice, payment then orders and then both, the processor twice",
+     ["route-overlap-1", "route-overlap-2", "route-overlap-3"])
+side("the old way, one step", "the backends and the processor rolled once, together", ["route-old-way"])' "$RUN_DIR"
+  echo "  the load on /pay differs: the overlap's ran from just before its route was applied, through step 3's" \
+    "rollouts; the old way's only after its rollouts, since its route comes after them"
 }
 
 # rotation_steps: the edge's key rotated on the material copy, then rolled out in three steps under load, the new
@@ -1004,12 +1019,7 @@ change_undo() {
   NEW_PID=""
   [ -z "$CHANGE_HELM_PID" ] || wait "$CHANGE_HELM_PID" 2>/dev/null
   CHANGE_HELM_PID=""
-  if [ -n "$LOGS_PID" ]; then
-    kill "$LOGS_PID" 2>/dev/null
-    wait "$LOGS_PID" 2>/dev/null
-    forget "$LOGS_PID"
-    LOGS_PID=""
-  fi
+  logs_stop
   kn delete job -l app=k6 --ignore-not-found >/dev/null 2>&1
   kn delete httproute orders-shop payment --ignore-not-found >/dev/null &&
     kn delete backendtlspolicy payment --ignore-not-found >/dev/null || {
@@ -1021,15 +1031,18 @@ change_undo() {
   case "$release" in
     pending-*)
       echo "  FAIL the processor's chart release is $release: a helm upgrade was stopped half-way, and nothing here" \
-        "rolls it back; remove the cluster with poc-demos/envoy-gateway/envoy-gateway.sh down"
-      return 1
+        "rolls it back; the rest is put back, the chart is not: remove the cluster with" \
+        "poc-demos/envoy-gateway/envoy-gateway.sh down"
+      ok=1
+      ;;
+    *)
+      measure_chart --force-conflicts --wait --timeout 5m >"$log" 2>&1 || {
+        echo "error: could not put the processor's chart back; helm said:" >&2
+        tail -n 5 "$log" >&2
+        ok=1
+      }
       ;;
   esac
-  measure_chart --force-conflicts --wait --timeout 5m >"$log" 2>&1 || {
-    echo "error: could not put the processor's chart back; helm said:" >&2
-    tail -n 5 "$log" >&2
-    ok=1
-  }
   make_material >/dev/null || { echo "error: could not apply out/'s material again" >&2; ok=1; }
   k apply -f kind/backends.yaml >/dev/null && rolled_out orders payment paztport-processor || {
     echo "error: could not put orders and payment back as kind/backends.yaml has them" >&2
