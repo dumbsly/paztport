@@ -17,12 +17,24 @@ BASE_ROUTES="orders orders-unmapped echo echo-plain"
 # The BackendTrafficPolicies of the baseline (kind/routes.yaml's and kind/measure.yaml's); baseline_reset deletes any
 # other.
 BASE_POLICIES="orders-routes echo-routes"
+# The BackendTLSPolicies of the baseline (kind/backends.yaml's, for orders, and the chart's, for the processor);
+# baseline_reset deletes any other.
+BASE_TLS_POLICIES="orders paztport-processor"
+# The ConfigMaps and Secrets a suite makes to carry material of its own into the pods (measure/change.sh's): none is
+# in the baseline, and baseline_reset deletes them once no pod mounts them.
+SUITE_MATERIAL="configmap/measure-policy secret/measure-edge-key"
 
 # measure_chart [helm args...]: the chart as the measurements run it: orders and echo mapped to the receiver
 # orders, the autoscaler off and two replicas, unless the args set others.
 measure_chart() {
   install_chart --set 'routes[1].httpRoute=echo' --set 'routes[1].receiver=orders' \
     --set autoscaling.enabled=false --set replicas=2 "$@"
+}
+
+# helm_release: the processor's chart release's status, such as deployed, failed or pending-upgrade.
+helm_release() {
+  helm --kube-context "$CTX" -n "$NS" status paztport -o json 2>/dev/null |
+    python3 -c 'import json, sys; print(json.load(sys.stdin)["info"]["status"])' 2>/dev/null
 }
 
 load_echo_image() {
@@ -326,6 +338,32 @@ node_ms() {
   docker exec "$(node_container)" date +%s%3N
 }
 
+# The case running now, in a suite whose cases each run k6 under a fault or a change: its name, which its files in
+# $RUN_DIR are named after.
+CASE=""
+
+# event <what>: records that what happened now, by the node's clock, in the case's events.
+event() {
+  event_at "$(node_ms)" "$*"
+}
+
+# event_at <epoch ms> <what>: records that what happened at that time, in the case's events.
+event_at() {
+  local at="$1"
+  shift
+  printf '%s %s\n' "$at" "$*" >>"$RUN_DIR/$CASE.events"
+}
+
+# event_ms <what>: the time of the case's first event that begins with what, or empty.
+event_ms() {
+  awk -v w="$1" 'index(substr($0, index($0, " ") + 1), w) == 1 { print $1; exit }' "$RUN_DIR/$CASE.events"
+}
+
+# since <from ms> <to ms>: the seconds between the two times, as "12.34".
+since() {
+  awk -v a="$1" -v b="$2" 'BEGIN { printf "%.2f", (b - a) / 1000 }'
+}
+
 # pod_netns <pod> <script>: runs the sh script, which stops at its first failing command, in the pod's network
 # namespace, from the kind node (and with the node's tc); then prints the node's time, in epoch ms.
 pod_netns() {
@@ -458,15 +496,17 @@ material_matches() {
 
 # baseline_reset: puts the cluster back as every suite starts from it, and prints that state. No processor pod has a
 # netem queue (cleared first of all, since a delayed pod may not be ready, and every wait would then time out); any
-# HTTPRoute but orders, orders-unmapped, echo and echo-plain is taken off the Gateway, and any BackendTrafficPolicy
-# but theirs deleted; then the chart is the measurements' (two replicas, the autoscaler off), echo and its twin
-# routes and the backends are as their files have them (enforce mode, and no environment variable the file does not
-# set: the run stops on one), everything is ready, and Envoy routes to endpoints, its default (a routingType a suite
-# set is removed, and the wait made again). A step that fails stops the whole run, and so does an
-# EnvoyExtensionPolicy that fails open, or material in any pod that is not out/'s: a suite that broke must not leave
-# the next one measuring something else. Nothing is rolled when nothing changed.
+# HTTPRoute but orders, orders-unmapped, echo and echo-plain is taken off the Gateway, first, so that no route the
+# chart then stops mapping is ever served without the processor, and any BackendTrafficPolicy but theirs and any
+# BackendTLSPolicy but orders' and the processor's deleted; then the chart is the measurements' (two replicas, the
+# autoscaler off, out/'s material), the routes, echo and its twin routes and the backends are as their files have
+# them (enforce mode, out/'s material, and no environment variable the file does not set: the run stops on one),
+# everything is ready, a suite's own material objects are deleted, and Envoy routes to endpoints, its default (a
+# routingType a suite set is removed, and the wait made again). A step that fails stops the whole run, and so does
+# an EnvoyExtensionPolicy that fails open, or material in any pod that is not out/'s: a suite that broke must not
+# leave the next one measuring something else. Nothing is rolled when nothing changed.
 baseline_reset() {
-  local route policy name netem modes hpa replicas routes routing
+  local route policy name netem modes hpa replicas routes routing object
   netem=$(netem_clear) || { echo "error: could not read or clear the processor pods' queues" >&2; exit 1; }
   for route in $(kn get httproutes -o name); do
     name="${route#*/}"
@@ -482,10 +522,21 @@ baseline_reset() {
       *) quietly "deleting the BackendTrafficPolicy $name" kn delete backendtrafficpolicy "$name" ;;
     esac
   done
+  for policy in $(kn get backendtlspolicies -o name); do
+    name="${policy#*/}"
+    case " $BASE_TLS_POLICIES " in
+      *" $name "*) ;;
+      *) quietly "deleting the BackendTLSPolicy $name" kn delete backendtlspolicy "$name" ;;
+    esac
+  done
   quietly "resetting the chart" measure_chart --wait --timeout 5m
+  quietly "resetting the routes" apply_routes kind/routes.yaml
   quietly "resetting echo and the twin routes" apply_routes kind/measure.yaml
   quietly "resetting the backends" k apply -f kind/backends.yaml
   quietly "waiting for the baseline" wait_measure
+  for object in $SUITE_MATERIAL; do
+    quietly "deleting the $object" kn delete "$object" --ignore-not-found
+  done
   routing=$(envoy_routing) || { echo "error: could not read the EnvoyProxy's routingType" >&2; exit 1; }
   if [ "$routing" != Endpoint ]; then
     # Not through quietly: its subshell would lose the forward to Envoy's admin port the wait makes.
@@ -508,6 +559,7 @@ baseline_reset() {
   replicas=$(kn get deployment paztport-processor -o jsonpath='{.status.readyReplicas}/{.spec.replicas}')
   routes=$(kn get httproutes -o jsonpath='{.items[*].metadata.name}')
   routes+="; BackendTrafficPolicies $(kn get backendtrafficpolicies -o jsonpath='{.items[*].metadata.name}')"
+  routes+="; BackendTLSPolicies $(kn get backendtlspolicies -o jsonpath='{.items[*].metadata.name}')"
   echo "  baseline: processor $replicas ready, $hpa autoscaler(s), failOpen false; Envoy routing to $routing;" \
     "${modes% }; routes $routes; netem removed from $netem pod(s), none left; material as out/'s in" \
     "$MATERIAL_PODS pods"

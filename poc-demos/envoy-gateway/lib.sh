@@ -187,7 +187,9 @@ await() {
 # kills on exit). The forward bypasses the NetworkPolicy, as kubectl's own traffic does.
 forward() {
   local log="$tmp/forward-${2//\//-}.log" addr=""
-  k -n "$1" port-forward "$2" ":$3" >"$log" 2>&1 &
+  # kubectl itself, not through k: a function in the background is a subshell, whose pid is not kubectl's, so that
+  # killing it would leave the forward running.
+  kubectl --context "$CTX" -n "$1" port-forward "$2" ":$3" >"$log" 2>&1 &
   forwards+=("$!")
   disown "$!"
   for _ in $(seq 1 40); do

@@ -25,8 +25,10 @@
 // epoch ms at which the run began (k6's setup); first and last, the epoch ms of the first and the last response other
 // than EXPECT (null when there was none); and, for each whole second of the run from t0, how many responses came
 // back in it, as three lists: expected (EXPECT), 5xx (a 5xx other than EXPECT) and rest (any other, status 0
-// included), each ending at its last second with a response. A response later than the seconds counted (the run's
-// length, its gracefulStop and 30 s more) is counted in late, which is 0 unless something went very wrong.
+// included), each ending at its last second with a response; and a fourth, 404, the responses of rest that were a
+// 404 (no route matched, as on a route not yet served), already counted in rest. A response later than the seconds
+// counted (the run's length, its gracefulStop and 30 s more) is counted in late, which is 0 unless something went
+// very wrong.
 //
 // Every request has a 10 s timeout, and each scenario a 15 s gracefulStop, the time k6 lets requests in flight at
 // the end finish before it cuts them off: so a request that hangs ends as a timeout, counted as other, before k6
@@ -44,7 +46,7 @@ if (!TARGET) {
 const HOST = env.HOST || '';
 const EXPECT = Number(env.EXPECT || 200);
 const EXECUTOR = env.EXECUTOR || 'vus';
-const LISTED = ['200', '403', '413', '500', '502', '503', '504'];
+const LISTED = ['200', '403', '404', '413', '500', '502', '503', '504'];
 const MAX_FAILS = 20000;
 // The request timeout must stay below the scenarios' gracefulStop (see the header).
 const TIMEOUT = '10s';
@@ -127,14 +129,16 @@ const LENGTH = SCENARIO.stages ? SCENARIO.stages.reduce((sum, st) => sum + secon
   : seconds(SCENARIO.duration);
 const SECONDS = Math.ceil(LENGTH) + seconds(GRACEFUL_STOP) + 30;
 const KINDS = ['expected', '5xx', 'rest'];
-// One counter for each kind, each response tagged with its second. k6 puts a tag's counts in the summary only for a
+// The kinds counted each second: the three, and the 404s among the rest.
+const COUNTED = KINDS.concat(['404']);
+// One counter for each, each response tagged with its second. k6 puts a tag's counts in the summary only for a
 // threshold on it, so there is one, always met, on each second of each kind: built in the init that reads the
 // options (__VU 0) only, since a user of its own would carry them all, and thousands of users would not fit k6's pod.
 const perSecond = {};
-for (const kind of KINDS) perSecond[kind] = new Counter(`second_${kind}`);
+for (const kind of COUNTED) perSecond[kind] = new Counter(`second_${kind}`);
 const thresholds = {};
 if (__VU === 0) {
-  for (const kind of KINDS) {
+  for (const kind of COUNTED) {
     for (let i = 0; i < SECONDS; i++) thresholds[`second_${kind}{s:${i}}`] = ['count>=0'];
   }
 }
@@ -179,6 +183,7 @@ export default function (data) {
   const second = Math.max(0, Math.floor((at - data.t0) / 1000));
   if (second < SECONDS) {
     perSecond[kind].add(1, { s: String(second) });
+    if (res.status === 404 && kind === 'rest') perSecond['404'].add(1, { s: String(second) });
   } else {
     late.add(1);
   }
@@ -221,7 +226,7 @@ export function handleSummary(data) {
     last: at && t0 !== null ? t0 + at.max : null,
     late: count(data, 'second_late'),
   };
-  for (const kind of KINDS) {
+  for (const kind of COUNTED) {
     const counts = [];
     for (let i = 0; i < SECONDS; i++) counts.push(count(data, `second_${kind}{s:${i}}`));
     while (counts.length && counts[counts.length - 1] === 0) counts.pop();

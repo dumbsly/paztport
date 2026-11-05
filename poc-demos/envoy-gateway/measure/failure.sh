@@ -35,9 +35,8 @@ FAILURE_DOWN_DURATION=90s
 FAILURE_ROLL_DURATION=90s
 FAILURE_ORDERS_DURATION=90s
 
-# The case running now: its name (its files in $RUN_DIR are named after it), its k6 run's pid, and a helm upgrade's
-# pid while one runs in the background.
-CASE=""
+# The case running now: its k6 run's pid, and a helm upgrade's pid while one runs in the background (CASE, its name,
+# is common.sh's).
 CASE_PID=""
 HELM_PID=""
 # The behavioural lines that failed in this suite, so far.
@@ -75,18 +74,6 @@ failure_rate() {
 # held_pool <rate>: those cases' k6 users at that rate: rate x FAILURE_HELD_POOL_SECONDS, and pool's at least.
 held_pool() {
   pool "$1" "$(awk -v r="$1" -v s="$FAILURE_HELD_POOL_SECONDS" 'BEGIN { printf "%d", r * s + 0.5 }')"
-}
-
-# event <what>: records that what happened now, by the node's clock, in the case's events.
-event() {
-  event_at "$(node_ms)" "$*"
-}
-
-# event_at <epoch ms> <what>: records that what happened at that time, in the case's events.
-event_at() {
-  local at="$1"
-  shift
-  printf '%s %s\n' "$at" "$*" >>"$RUN_DIR/$CASE.events"
 }
 
 # case_begin <name> <VAR=value>...: starts the case's k6 run (k6_run, with those settings) in the background, then
@@ -129,16 +116,6 @@ case_end() {
   fi
   window "$RUN_DIR/$CASE.fails"
   python3 "$here/measure/summary.py" timeline "$RUN_DIR/$CASE.fails" "$RUN_DIR/$CASE.events"
-}
-
-# event_ms <what>: the time of the case's first event that begins with what, or empty.
-event_ms() {
-  awk -v w="$1" 'index(substr($0, index($0, " ") + 1), w) == 1 { print $1; exit }' "$RUN_DIR/$CASE.events"
-}
-
-# since <from ms> <to ms>: the seconds between the two times, as "12.34".
-since() {
-  awk -v a="$1" -v b="$2" 'BEGIN { printf "%.2f", (b - a) / 1000 }'
 }
 
 # pod_ready <pod>: the pod's Ready condition, True or False, or gone.
@@ -741,12 +718,6 @@ orders_rids() {
   else
     rids_once "$traces" "$oks" || FAILURE_FAILS=$((FAILURE_FAILS + 1))
   fi
-}
-
-# helm_release: the processor's chart release's status, such as deployed, failed or pending-upgrade.
-helm_release() {
-  helm --kube-context "$CTX" -n "$NS" status paztport -o json 2>/dev/null |
-    python3 -c 'import json, sys; print(json.load(sys.stdin)["info"]["status"])' 2>/dev/null
 }
 
 # failure_undo: every fault put back: the case's run stopped, a helm upgrade it started let finish, no delay on any

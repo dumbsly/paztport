@@ -208,7 +208,8 @@ cmd_envoy_gateway() {
   (cd poc-sdks/java && mvn -q install -DskipTests)
   (cd poc-demos/java-mesh && mvn -q package -DskipTests)
   PAZTPORT_JAVA="$maven_java" poc-demos/envoy-gateway/material.sh --fresh
-  [ -z "$measure" ] || exec poc-demos/envoy-gateway/measure.sh "$@"
+  # The measurements make material of their own with the policy tool, on the same JDK.
+  [ -z "$measure" ] || PAZTPORT_JAVA="$maven_java" exec poc-demos/envoy-gateway/measure.sh "$@"
   poc-demos/envoy-gateway/envoy-gateway.sh up
   exec poc-demos/envoy-gateway/envoy-gateway.sh check
 }

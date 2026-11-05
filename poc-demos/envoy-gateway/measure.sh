@@ -7,10 +7,13 @@
 #   ./run envoy-gateway measure [--keep] [suite...]    builds the jars and the keys, then runs this
 #   measure.sh [--keep] [suite...]                      makes the cluster, runs the suites, and deletes the cluster
 #   measure.sh --check [--keep] [suite...]              only checks the arguments
+#   measure.sh --reuse [suite...]                       runs the suites on the cluster an earlier --keep run left up
 #
 # It refuses to run while the cluster exists: it makes its own, with envoy-gateway.sh up, and adds the upstream
-# echo and its twin routes (kind/measure.yaml). Then it runs the suites named, or every one, in the order below,
-# each from the same baseline (measure/common.sh's baseline_reset), and deletes the cluster at the end, unless
+# echo and its twin routes (kind/measure.yaml). With --reuse it does the opposite: it refuses unless the cluster
+# exists, makes nothing (the images and out/ are the ones that cluster was made with), adds echo and its twin routes
+# again, and leaves the cluster up at the end, as --keep does; each run has a results directory of its own. Then it
+# runs the suites named, or every one, in the order below, each from the same baseline (measure/common.sh's baseline_reset), and deletes the cluster at the end, unless
 # --keep. What it prints, and each run's files, go to out/measurements/<UTC time>/. Every number is indicative: one
 # kind node on this machine runs Envoy, the processor, the backends and k6 alike.
 #
@@ -28,6 +31,12 @@
 #   measured on echo with two processor replicas, when it ran in the same run, or else FAILURE_DEFAULT_RATE (5000,
 #   half the 10000/s that median was on this machine); FAILURE_ORDERS_RATE (750) is the rate on the route orders,
 #   half the 1500/s the edge suite's stages sustained there on this machine. See measure/failure.sh.
+#   CHANGE_RATE is the requests a second the route and rotation suites offer the route orders throughout each
+#   change: unset, half the highest stage the edge suite sustained there, when it ran in the same run, or else
+#   CHANGE_DEFAULT_RATE (750, half the 1500/s that stage reached in an earlier run on this machine; each step's
+#   warm-up says when the edge does not hold the rate); CHANGE_NEW_RATE (50) is the small fixed rate they offer a
+#   route they add. PAZTPORT_JAVA names the java that runs the policy tool for the material they make (as for
+#   material.sh); otherwise java on the PATH. See measure/change.sh.
 #
 # Like envoy-gateway.sh, it needs the jars built and out/ made (material.sh); nothing is pushed anywhere, and every
 # kubectl and helm call names the cluster's own context.
@@ -56,6 +65,9 @@ EDGE_OVERLOAD_RATE="${EDGE_OVERLOAD_RATE:-3000}"
 FAILURE_RATE="${FAILURE_RATE:-}"
 FAILURE_DEFAULT_RATE="${FAILURE_DEFAULT_RATE:-5000}"
 FAILURE_ORDERS_RATE="${FAILURE_ORDERS_RATE:-750}"
+CHANGE_RATE="${CHANGE_RATE:-}"
+CHANGE_DEFAULT_RATE="${CHANGE_DEFAULT_RATE:-750}"
+CHANGE_NEW_RATE="${CHANGE_NEW_RATE:-50}"
 # Every suite, in the order they run; a suite is there once a file in measure/ defines suite_<name>.
 ORDER="load ceiling edge failure gotchas observe rollout route rotation"
 
@@ -74,16 +86,18 @@ suites() {
 }
 
 usage() {
-  echo "usage: $self [--check] [--keep] [suite...]; the suites: $(suites | paste -sd " " -)"
+  echo "usage: $self [--check] [--keep | --reuse] [suite...]; the suites: $(suites | paste -sd " " -)"
 }
 
 keep=""
 check=""
+reuse=""
 wanted=" "
 for arg in "$@"; do
   case "$arg" in
     --keep) keep=1 ;;
     --check) check=1 ;;
+    --reuse) reuse=1 ;;
     -h | --help)
       usage
       exit 0
@@ -102,23 +116,40 @@ selected=""
 for s in $(suites); do
   if [ "$wanted" = " " ] || [ "${wanted#* "$s" }" != "$wanted" ]; then selected+="$s "; fi
 done
+if [ -n "$reuse" ] && [ -n "$keep" ]; then
+  echo "measure.sh: --reuse leaves the cluster up already; it takes no --keep" >&2
+  usage >&2
+  exit 2
+fi
 [ -z "$check" ] || exit 0
 
-if cluster_exists; then
+if [ -n "$reuse" ]; then
+  cluster_exists || {
+    echo "measure.sh --reuse: there is no cluster $CLUSTER to run on; a run with --keep leaves one" >&2
+    exit 1
+  }
+  keep=1
+elif cluster_exists; then
   echo "the cluster $CLUSTER is up already; $self makes its own: remove it with" \
-    "poc-demos/envoy-gateway/envoy-gateway.sh down" >&2
+    "poc-demos/envoy-gateway/envoy-gateway.sh down, or run on it with --reuse" >&2
   exit 1
 fi
 [ -d "$KEYS" ] && [ -d "$POLICY" ] || { echo "no keys in $here/out: run material.sh first" >&2; exit 1; }
 
 RUN_DIR="$here/out/measurements/$(date -u +%Y%m%dT%H%M%SZ)"
-mkdir -p "$RUN_DIR" || exit 1
+# A directory of its own, never one an earlier run made, so that no run reads or writes another's results, or the
+# material its suites made.
+mkdir -p "${RUN_DIR%/*}" && mkdir "$RUN_DIR" || {
+  echo "measure.sh: could not make $RUN_DIR as a new directory" >&2
+  exit 1
+}
 tmp="$(mktemp -d)"
 forwards=()
 made=""
 
 finish() {
   local status=$?
+  [ ! -e /dev/fd/9 ] || exec >&9 2>&9
   [ ${#forwards[@]} -eq 0 ] || kill "${forwards[@]}" 2>/dev/null
   # A suite that stopped half-way puts back what it changed, so that a kept cluster is left as the baseline.
   if [ -n "$made" ] && [ -n "$keep" ] && [ -n "$UNDO" ]; then
@@ -140,18 +171,27 @@ finish() {
 trap finish EXIT
 trap 'exit 130' INT TERM
 
-# Everything printed goes to the run's log as well.
-exec > >(tee "$RUN_DIR/measure.log") 2>&1
+# Everything printed goes to the run's log as well. tee ignores an interrupt, which a terminal sends the whole
+# process group, so that it outlives this shell and keeps what finish prints while it puts the cluster back.
+exec > >(trap '' INT && exec tee "$RUN_DIR/measure.log") 2>&1
+# The log, kept as fd 9 for finish: an interrupt that comes while a function runs with its output redirected (to
+# /dev/null, say) runs finish with that redirection still in place.
+exec 9>&1
 
 echo "== measuring the Envoy Gateway edge, $(date -u +%Y-%m-%dT%H:%M:%SZ): suites ${selected% }"
 docker info --format '{{.NCPU}} {{.MemTotal}} {{.OperatingSystem}}' 2>/dev/null |
   awk '{ printf "machine: Docker with %d CPUs and %.1f GiB of memory (%s)\n", $1, $2 / 1073741824, substr($0, index($0, $3)) }'
 echo "Every number is indicative: one kind node on this machine runs Envoy, the processor, the backends and k6."
-echo "== building the echo image"
-quietly "building the echo image" docker build -q -f "$repo/poc-demos/envoy-gateway/processor/Dockerfile" \
-  --target echo -t paztport-echo:dev "$repo"
-made=1
-bash "$here/envoy-gateway.sh" up || exit 1
+if [ -n "$reuse" ]; then
+  echo "== on the cluster $CLUSTER an earlier run left up (--reuse)"
+  made=1
+else
+  echo "== building the echo image"
+  quietly "building the echo image" docker build -q -f "$repo/poc-demos/envoy-gateway/processor/Dockerfile" \
+    --target echo -t paztport-echo:dev "$repo"
+  made=1
+  bash "$here/envoy-gateway.sh" up || exit 1
+fi
 echo "== echo, its twin routes, and k6's script"
 install_measure
 
