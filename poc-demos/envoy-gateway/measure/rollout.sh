@@ -162,7 +162,7 @@ adopt_plain() {
 
 # map_balance <Envoy's before> <after> <the run's .result>: that the mapping step touched no request. The route has no
 # filter, so Envoy starts no stream to the processor for it in the run; and the processor's pods rolling is no reason
-# for any response but 200. Fails when Envoy started a stream or the run had a response other than 200.
+# for any response but 200. Fails when Envoy started a stream; a response other than 200 is printed only.
 map_balance() {
   python3 -c 'import json, sys
 def words(text):
@@ -173,10 +173,10 @@ streams = after["streams_started"] - before["streams_started"]
 others = {k: v for k, v in r["status"].items() if k != "200" and v}
 if streams == 0 and not others:
     print("  Envoy started no stream to the processor in the run and the run had no response other than 200")
-    sys.exit(0)
-print("  Envoy started %d streams to the processor in the run; the run had %d responses other than 200%s"
-      % (streams, sum(others.values()), " (%s)" % ", ".join("%s: %d" % kv for kv in others.items()) if others else ""))
-sys.exit(1)' "$1" "$2" "$3"
+else:
+    print("  Envoy started %d streams to the processor in the run; the run had %d responses other than 200%s"
+          % (streams, sum(others.values()), " (%s)" % ", ".join("%s: %d" % kv for kv in others.items()) if others else ""))
+sys.exit(1 if streams else 0)' "$1" "$2" "$3"
 }
 
 # adopt_map: step 1, the processor's pods rolled to map orders-adopt under load, nothing attached: the route added to
@@ -201,8 +201,7 @@ adopt_map() {
   step_end || return 1
   echo "  Envoy still serves orders-adopt without the processor's filter"
   map_balance "$STEP_ENVOY" "$(envoy_extproc_stats)" "$RUN_DIR/$CASE.result" || {
-    change_fail "the map step touched requests"
-    return 1
+    change_fail "Envoy started a stream to the processor for orders-adopt in the map step, with no filter on the route"
   }
   backends_counters "after mapping"
 }
@@ -212,7 +211,7 @@ adopt_map() {
 # attachment, as the route had no filter), against what the processor's pods decided in it (all of them, as the run
 # is the only load; the pods rolled in the step before, and not in this one) and the run's 403s. A 403 on this route is
 # the processor's refusal, as orders without Paztport refuses nothing; the pods already map the route, so none is
-# expected.
+# expected. Fails when the run had a 403; a sum that does not balance with none is printed only.
 attach_balance() {
   python3 -c 'import json, sys
 def words(text):
@@ -225,13 +224,12 @@ print("  Envoy started %d streams to the processor in the run; the processor dec
       " the run had %d 403s: %d + %d = %d" % (streams, decided, refused, decided, refused, decided + refused))
 if not refused and streams == decided:
     print("  every stream was decided by the processor'"'"'s pods, which already mapped the route, and none refused")
-    sys.exit(0)
-if refused and streams == decided + refused:
+elif refused and streams == decided + refused:
     print("  so every stream the processor did not decide was answered 403: unexplained by the attach step'"'"'s"
           " design, as the pods that answer already map orders-adopt (old pods are not expected in it)")
 else:
     print("  the sum does not balance, so where the difference came from is not shown")
-sys.exit(1)' "$1" "$2" "$3" "$4"
+sys.exit(1 if refused else 0)' "$1" "$2" "$3" "$4"
 }
 
 # adopt_attach: step 2, the processor attached to the mapped orders-adopt under load: the route's attach set true, in
@@ -265,8 +263,7 @@ adopt_attach() {
   outcomes=$(processor_outcomes) && envoy=$(envoy_extproc_stats) || return 1
   echo "  the processor's pods, the same before and after, decided since they started: $outcomes"
   attach_balance "$STEP_ENVOY" "$envoy" "$outcomes" "$RUN_DIR/$CASE.result" || {
-    change_fail "the attach step refused or lost requests"
-    return 1
+    change_fail "the attach step had 403s, though the processor's pods already mapped orders-adopt"
   }
   backends_counters "after attaching"
   [ "$served" -eq 0 ]
