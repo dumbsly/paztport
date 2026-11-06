@@ -44,12 +44,13 @@ gateway:
 #     - httpRoute: orders-adopt
 #       receiver: orders
 #       attach: false
-# That is for a route Envoy already serves. Mapping it changes the routes file, which rolls the processor's pods;
+# That is only for a route Envoy serves without the processor. Mapping it changes the routes file, which rolls the processor's pods;
 # attaching it in the same release makes the old pods refuse its requests (403) until the new ones take its
 # streams. So adopt it in two releases: add it with `attach: false`; once the new pods have rolled, remove the
 # line, and the second release attaches it and rolls nothing. Do not use it on a route not yet served: Envoy then
 # serves the route without the processor once it is applied. Such a route goes in with attach true, before it is
-# applied.
+# applied. On a route the processor is attached to, attach: false detaches it in place, and Envoy then serves the
+# route without it: the backends' own checks (a backend in enforce refusing CHAIN_MISSING) are what is left.
 routes: []
 
 # Further HTTPRoutes the processor is attached to that `routes` does not map. It refuses every request on them with
@@ -61,8 +62,8 @@ extraRoutes: []
 # backend. A whole number of bytes, from 1 to 1073741824 (1 GiB), such as 1048576: not a quantity such as 1Mi.
 bodyLimit: 1048576
 
-# When true, the chart sets that limit on the routes in routes and extraRoutes, and on no other route, with a
-# BackendTrafficPolicy of its own (requestBuffer.limit, bodyLimit bytes). Envoy Gateway attaches one
+# When true, the chart sets that limit on the attached routes in routes and those in extraRoutes, and on no other
+# route, with a BackendTrafficPolicy of its own (requestBuffer.limit, bodyLimit bytes). Envoy Gateway attaches one
 # BackendTrafficPolicy to a route: of two on the same route, the older is attached and the newer is not accepted for
 # that route (its status condition Accepted is False, with the reason Conflicted). So when the routes already have
 # a BackendTrafficPolicy, set this false and give that one requestBuffer.limit equal to bodyLimit. A route with no

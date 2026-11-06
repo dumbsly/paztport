@@ -333,7 +333,7 @@ processor's Deployment (with a PodDisruptionBudget, a HorizontalPodAutoscaler on
 and otherwise keeps its minimum, resource requests and limits, and a `preStop` pause before the processor drains),
 its Service, and:
 
-- an EnvoyExtensionPolicy on the routes in `routes` and `extraRoutes`: `failOpen: false`, a `messageTimeout`
+- an EnvoyExtensionPolicy on the routes in `routes` not set `attach: false`, and those in `extraRoutes`: `failOpen: false`, a `messageTimeout`
   (500 ms by default), request bodies `Buffered`, the `xds.route_metadata` attribute, response headers sent and
   response bodies not, and mode overrides allowed, so that the processor can ask for a request's trailers. It sets no
   header mutation rules;
@@ -393,10 +393,12 @@ it leaves `routes`, and the chart is never uninstalled (`helm uninstall`) while 
 A route that Envoy already serves is adopted in two releases, not one. The first adds it to `routes` with
 `attach: false`: the processor's routes file maps it and its pods roll, and the processor is not yet attached to the
 route, so the route's requests are untouched. Once the new pods are ready, the second release removes the
-`attach: false` line; that attaches the processor and rolls nothing. A route not yet served does not take this path:
-with `attach: false` Envoy would serve it without the processor once applied, so it goes in with `attach` true, as
-above. The reason for two releases is that attaching and mapping in one release makes the old pods, which do not map
-the route, refuse its requests (403) until the new pods take its streams.
+`attach: false` line; that attaches the processor and rolls nothing. `attach: false` is only for a route Envoy serves
+without the processor. A route not yet served goes in with `attach` true, as above, since with `attach: false` Envoy
+would serve it without the processor once applied. On a route the processor is attached to, `attach: false` detaches it
+in place, and Envoy then serves the route without the processor: the backends' own checks (a backend in `enforce`
+refusing CHAIN_MISSING) are what is left. The reason for two releases is that attaching and mapping in one release
+makes the old pods, which do not map the route, refuse its requests (403) until the new pods take its streams.
 
 `values.yaml` describes each value. `routes`, `gateway.name` and `image.tag` have no default, and the chart refuses to
 install without them; `envoy-gateway.sh` passes them with `--set`. Pod placement (`nodeSelector`, `tolerations`,
@@ -451,7 +453,7 @@ Envoy's 413 with its own 500 (11), and the request buffer taken off the routes' 
 - Containment needs every route to a Paztport backend to pass the processor. Envoy presents the edge's certificate
   on every upstream with a BackendTLSPolicy, so on a route without the processor a stamp the client holds is accepted
   as the edge's (seen with the policy detached: a stamp taken from the processor was served). Each such route must be
-  in `routes` or `extraRoutes` before it is attached to the Gateway. The chart's EnvoyExtensionPolicy must be the only
+  in `routes` with `attach` true, or in `extraRoutes`, before it is attached to the Gateway. The chart's EnvoyExtensionPolicy must be the only
   one on it: Envoy Gateway attaches the oldest and marks others Conflicted, and a policy on a rule of the route
   overrides it (see the chart, above, for one on the Gateway). No route may point at the processor's Service.
   Whoever can attach routes to the Gateway is inside the edge's trust. `envoy-gateway.sh up` waits for the policy to
@@ -575,8 +577,9 @@ What the checks and the measurements found, beyond the numbers.
 - **Adopting a route.** Material first, so the backends hold a policy that allows the route's paths. Then map the route,
   then attach the processor to it: add it to the chart's `routes` with `attach: false` (the processor's pods roll),
   and once they have, remove the `attach: false` line (nothing rolls). Mapping and attaching in one release, on a
-  route already being served: 3.37 s of 403s at 1000/s in the run. Then roll the backends straight into `enforce`, caller first, since a callee in `enforce` refuses
-  every call its caller does not stamp yet: 238 errors of 150001, none a request unstamped. `audit` belongs before
+  route already being served: 3.37 s of 403s at 1000/s in the run. Then roll the backends straight into `enforce`,
+  caller first, since a callee in `enforce` refuses every
+  call its caller does not stamp yet: 238 errors of 150001, none a request unstamped. `audit` belongs before
   production, to find the paths a system takes and to check a release's policy against them.
 - **A new route.** Into the chart's `routes` (the processor's pods roll), then the route applied; off the Gateway
   before it leaves `routes`.
