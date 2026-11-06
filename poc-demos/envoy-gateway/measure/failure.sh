@@ -580,7 +580,9 @@ failure_down() {
   # The behavioural line: k6's whole seconds while no processor pod existed.
   seconds=$(python3 "$here/measure/summary.py" seconds "$RUN_DIR/$CASE.fails" "$gone_at" "$back_at")
   if [ -z "$seconds" ]; then
-    echo "  the run's per-second counts could not be read for the window while no processor pod existed"
+    echo "  FAIL every response refused with a 5xx while no processor pod existed: the run's per-second" \
+      "counts could not be read for that window, so nothing can be said"
+    FAILURE_FAILS=$((FAILURE_FAILS + 1))
   elif [ "$seconds" = none ]; then
     echo "  FAIL every response refused with a 5xx while no processor pod existed: no whole second of the run fell" \
       "between the last pod going and the upgrade to two"
