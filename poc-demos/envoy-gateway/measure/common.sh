@@ -7,8 +7,8 @@
 # directory) and forwards (the background processes to kill on exit: port-forwards and the like).
 # shellcheck shell=bash
 
-# k6, pinned by the digest of its index (k6 2.2.0, released 2026-08-10).
-K6_IMAGE=docker.io/grafana/k6:2.2.0@sha256:9bd01d6941fca969cb61bb57d2da5ee9b385fe2aa8881df3798c196564d6ace6
+# k6, pinned by the digest of its index (k6 2.3.0, released 2026-09-21).
+K6_IMAGE=docker.io/grafana/k6:2.3.0@sha256:2dd4756ec6e14e62778916e1eb850108e4b499304c02df56760fa0bdb0fba0b8
 # The twin routes' hosts (kind/measure.yaml): the processor is attached to the first, never to the second.
 ECHO_HOST=echo.example
 PLAIN_HOST=echo-plain.example

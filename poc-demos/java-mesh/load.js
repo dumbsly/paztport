@@ -11,7 +11,7 @@
 //     -v "$PWD/out/keys/tls/operator.key:/tls/operator.key:ro" \
 //     -e TARGET=https://gateway:8080/checkout -e VUS=10 -e DURATION=20s \
 //     -v "$PWD/load.js:/scripts/load.js:ro" \
-//     docker.io/grafana/k6:2.2.0@sha256:9bd01d6941fca969cb61bb57d2da5ee9b385fe2aa8881df3798c196564d6ace6 \
+//     docker.io/grafana/k6:2.3.0@sha256:2dd4756ec6e14e62778916e1eb850108e4b499304c02df56760fa0bdb0fba0b8 \
 //     run /scripts/load.js
 //
 // measure.sh runs it with payment in `off` and in `enforce` mode (toggled via

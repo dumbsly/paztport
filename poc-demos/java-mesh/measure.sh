@@ -35,10 +35,10 @@ cd "$(dirname "$0")"
 : "${PAZTPORT_ADMIN_TOKEN:?set PAZTPORT_ADMIN_TOKEN to the token payment was started with}"
 
 MESH="paztport-mesh"
-# Each image pinned by the digest of its index: curl 8.22.0, as the Envoy Gateway checks run it, and k6 2.2.0
-# (released 2026-08-10).
-CURL="docker.io/curlimages/curl:8.22.0@sha256:58adaa4e8dca9c988bae2aba4ab3434a0bb2da16bbe3f92dec39ec7785166777"
-K6="docker.io/grafana/k6:2.2.0@sha256:9bd01d6941fca969cb61bb57d2da5ee9b385fe2aa8881df3798c196564d6ace6"
+# Each image pinned by the digest of its index: curl 8.23.0, as the Envoy Gateway checks run it, and k6 2.3.0
+# (released 2026-09-21).
+CURL="docker.io/curlimages/curl:8.23.0@sha256:3fb7e13e5d179a845c97d78204f3f1064d1907037f26a3ebf91710571151fd93"
+K6="docker.io/grafana/k6:2.3.0@sha256:2dd4756ec6e14e62778916e1eb850108e4b499304c02df56760fa0bdb0fba0b8"
 VUS="${VUS:-10}"
 DURATION="${DURATION:-20s}"
 WARMUP="${WARMUP:-10s}"

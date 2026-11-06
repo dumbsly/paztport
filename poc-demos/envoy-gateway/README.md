@@ -164,7 +164,7 @@ Each suite starts from the same baseline, and prints it: two processor replicas 
 the processor, no delay added to any pod's network, Envoy
 routing to endpoints (a `routingType` a suite set is removed), the processor's EnvoyExtensionPolicy failing closed
 (`failOpen` false; the run stops if it is not), and every pod's keys and policy those in `out/` (the run stops if they
-are not). Load comes from k6 (`measure/k6/edge.js`, `grafana/k6:2.2.0` by digest) in a Job in the cluster, which counts
+are not). Load comes from k6 (`measure/k6/edge.js`, `grafana/k6:2.3.0` by digest) in a Job in the cluster, which counts
 every response by its status, a reset or a timeout included, and, for every response that was not the status expected,
 counts it in the second of the run it came back in and keeps the time of the first and the last (it also lists up to
 20000 of them with their times). A comparison runs a discarded warm-up of each side, then rounds of one run each, the
@@ -300,7 +300,7 @@ docker build -f poc-demos/envoy-gateway/processor/Dockerfile -t paztport-process
 
 Each version is pinned: kind 0.33 with the node image `kindest/node:v1.36.4` by digest, Envoy Gateway v1.10.0 from its
 Helm chart (its controller's image by digest, and Gateway API v1.6.1, which the chart installs), Envoy
-`distroless-v1.40.2` by digest (in the EnvoyProxy), and the checks' `curlimages/curl:8.22.0` by digest. kind's own
+`distroless-v1.40.2` by digest (in the EnvoyProxy), and the checks' `curlimages/curl:8.23.0` by digest. kind's own
 network plugin enforces NetworkPolicy, so no other is installed.
 
 Envoy Gateway runs in `envoy-gateway-system`; everything else is in the namespace `paztport`. `kind/gateway.yaml` is
@@ -917,9 +917,3 @@ The edge's key rotated at 1000/s on `orders`, one run a step.
 A stamp under the new key was accepted while the backends' keyring was still the old one (20 of 20), and one under
 the old key refused `BAD_SIGNATURE` once it was unpinned (20 of 20). No request reached a backend without a stamp in
 any step of `rollout`, `route` or `rotation`.
-
-## Dependency notes
-
-- java-mesh's services run on `eclipse-temurin:25.0.4.1_1-jre`, pinned by digest in `../java-mesh/Dockerfile`,
-  which predates the October 2026 Java critical patch update. Move to a 25.0.5 image once one has been pushed two
-  weeks: `25.0.5_8-jre` was first pushed on 2026-10-29, so on or after 2026-11-12.
