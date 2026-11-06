@@ -181,7 +181,7 @@ func with(base []header, more ...header) []header {
 	return slices.Concat(base, more)
 }
 
-// apply returns hs after m, as Envoy v1.39.1's ext_proc applies a header mutation: every value of each
+// apply returns hs after m, as Envoy v1.40.2's ext_proc applies a header mutation: every value of each
 // removed name, in any case, then each set header, replacing every value of its name. It fails the test on
 // a set header that would append, or that carries its value anywhere but raw_value, which is where Envoy
 // reads it.
@@ -192,7 +192,7 @@ func apply(t *testing.T, hs []header, m *extprocv3.HeaderMutation) []header {
 		out = slices.DeleteFunc(out, func(h header) bool { return strings.EqualFold(h.name, name) })
 	}
 	for _, o := range m.GetSetHeaders() {
-		//lint:ignore SA1019 Envoy v1.39.1's ext_proc decides append or replace by this field alone.
+		//lint:ignore SA1019 Envoy v1.40.2's ext_proc decides append or replace by this field alone.
 		appends := o.GetAppend()
 		if appends != nil || o.GetAppendAction() != corev3.HeaderValueOption_OVERWRITE_IF_EXISTS_OR_ADD {
 			t.Fatalf("set header %q does not overwrite: append %v, action %v",

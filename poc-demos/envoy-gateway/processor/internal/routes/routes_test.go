@@ -50,7 +50,7 @@ func httpRoute(namespace, name string) map[string]any {
 // TestFromAttributesReadsACapturedRoute reads the route from route metadata exactly as Envoy v1.39.1 sent it
 // to the processor under Envoy Gateway v1.9.2, for the HTTPRoute paztport/orders with the
 // BackendTrafficPolicy orders-routes attached: one line, ending in a space, with the attached policies listed
-// before the route's resources.
+// before the route's resources. The checks still pass on Envoy Gateway v1.10.0.
 func TestFromAttributesReadsACapturedRoute(t *testing.T) {
 	b, err := os.ReadFile(filepath.Join("testdata", "route-metadata.captured.txtpb"))
 	if err != nil {

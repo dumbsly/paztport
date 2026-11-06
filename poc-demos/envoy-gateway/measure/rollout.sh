@@ -746,7 +746,7 @@ EOF
 
 # retry_route: the HTTPRoute orders-retry, POST /orders on the host retry.example, to orders, and its own
 # BackendTrafficPolicy, orders-retry-routes: the edge's body limit as its request buffer's, as every route the
-# processor maps keeps, and a retry on any 5xx, twice, as an operator might set one. Envoy Gateway v1.9.2's
+# processor maps keeps, and a retry on any 5xx, twice, as an operator might set one. Envoy Gateway v1.10.0's
 # BackendTrafficPolicy names it spec.retry.retryOn.triggers, whose values its CRD lists (5xx, gateway-error, reset,
 # reset-before-request, connect-failure, retriable-4xx, refused-stream, retriable-status-codes, cancelled,
 # deadline-exceeded, internal, resource-exhausted, unavailable), beside spec.retry.retryOn.httpStatusCodes for
