@@ -285,7 +285,8 @@ class PaztportAutoConfigurationTest {
                     assertThat(context).hasFailed();
                     assertThat(context.getStartupFailure()).rootCause().isInstanceOf(IllegalStateException.class)
                             .hasMessageContaining("paztport.max-age-ms")
-                            .hasMessageContaining(Long.toString(huge));
+                            .hasMessageContaining(Long.toString(huge))
+                            .hasMessageContaining("too large");
                 });
     }
 
@@ -304,7 +305,7 @@ class PaztportAutoConfigurationTest {
     }
 
     @Test
-    void anApplicationBeanNamedLikeAnOldStarterBeanDoesNotStopStartup(@TempDir Path dir) throws Exception {
+    void anApplicationBeanWithAPlainNameDoesNotCollideWithTheStarters(@TempDir Path dir) throws Exception {
         writeWorld(dir);
         runner.withPropertyValues(VERIFIER_PROPS)
                 .withPropertyValues(trust(dir))

@@ -439,6 +439,10 @@ class HttpReceiverTest {
         assertEquals(403, accepted.refusal().status());
         assertEquals("{\"reason\":\"INFLUENCE_MISMATCH\"}", text(accepted.refusal()));
         assertNull(accepted.cacheFailure());
+        assertNull(accepted.verifiedChain());
+        assertFalse(accepted.attests());
+        assertEquals(1, events.all.size());
+        assertEquals("INFLUENCE_MISMATCH", events.all.get(0).reason());
         assertEquals(0, cache.asked, "verification refuses before the nonce cache is asked");
     }
 
@@ -455,6 +459,8 @@ class HttpReceiverTest {
         assertEquals(400, accepted.refusal().status());
         assertEquals("{\"reason\":\"INFLUENCE_MISMATCH\"}", text(accepted.refusal()));
         assertNull(accepted.cacheFailure());
+        assertNull(accepted.verifiedChain());
+        assertFalse(accepted.attests());
         assertEquals(1, events.all.size());
         assertEquals("INFLUENCE_MISMATCH", events.all.get(0).reason());
         assertEquals(0, cache.asked, "verification fails before the nonce cache is asked");
