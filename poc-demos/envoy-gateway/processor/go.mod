@@ -4,10 +4,10 @@ go 1.27
 
 require (
 	github.com/dumbsly/paztport/poc-sdks/go v0.0.0
-	github.com/envoyproxy/go-control-plane/envoy v1.39.0
+	github.com/envoyproxy/go-control-plane/envoy v1.40.0
 	github.com/prometheus/client_golang v1.25.0
-	golang.org/x/net v0.61.0
-	google.golang.org/grpc v1.84.0
+	golang.org/x/net v0.62.0
+	google.golang.org/grpc v1.85.0
 	google.golang.org/protobuf v1.36.12
 )
 
@@ -23,7 +23,7 @@ require (
 	github.com/prometheus/procfs v0.22.0 // indirect
 	golang.org/x/sys v0.49.0 // indirect
 	golang.org/x/text v0.43.0 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20260706201446-f0a921348800 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20260817212433-ac3dfec99bb1 // indirect
 )
 
 replace github.com/dumbsly/paztport/poc-sdks/go => ../../../poc-sdks/go
