@@ -195,14 +195,25 @@ class PaztportAutoConfigurationTest {
     @Test
     void theApplicationsNonceCacheIsTheOneTheVerifierUses(@TempDir Path dir) throws Exception {
         writeWorld(dir);
-        CountingCache mine = new CountingCache(15_000);
+        CountingCache mine = new CountingCache(20_000);
         runner.withPropertyValues(VERIFIER_PROPS)
                 .withPropertyValues(trust(dir))
                 .withBean(NonceCache.class, () -> mine)
                 .run(context -> {
                     assertThat(context).hasSingleBean(NonceCache.class);
                     assertThat(context.getBean(NonceCache.class)).isSameAs(mine);
-                    assertThat(context.getBean(Verifier.class).nonceTtlMs()).isEqualTo(15_000);
+                    Verifier verifier = context.getBean(Verifier.class);
+                    assertThat(verifier.nonceTtlMs()).isEqualTo(20_000);
+
+                    // A request through the verifier spends its key in the application's cache.
+                    Stamper.Stamped sent = new Stamper("gateway", "gw-1", gateway.getPrivate(), true,
+                            () -> "rid-mine", System::currentTimeMillis)
+                            .next(null, "orders", "b", List.of(),
+                                    ProofBundle.load(dir.resolve("proofs-gateway.json")));
+                    VerifyInput input = new VerifyInput(Chains.toJson(sent.chain()), "b", "[]",
+                            sent.proof().toJson(), "orders", true, "rid-mine|gateway|req", null);
+                    assertThat(verifier.verify(input).reason()).isEqualTo(ReasonCode.OK);
+                    assertThat(mine.keys).contains("rid-mine|gateway|req");
                 });
     }
 
