@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"net/http"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -646,27 +647,59 @@ func failingReceiver(t *testing.T, c vectors.Node, err error) *paztporthttp.Rece
 }
 
 // TestAcceptCacheError decides a request whose nonce cache cannot answer: enforce refuses it 503 with
-// no body, and audit and no mode serve it unverified and unattested; either way the cache's error is
-// exposed, and nothing is carried, verified, attested or delivered. ctx reaches the cache.
+// no body, and audit and no mode serve it unverified and unattested, carrying the chain and the influence
+// as received, as a request that fails in audit mode is. Either way the cache's error is exposed, and
+// nothing is verified, attested or delivered. An origin carries nothing in any mode. ctx reaches the
+// cache.
 func TestAcceptCacheError(t *testing.T) {
-	c := verifiedCase(t)
+	c := influenceCase(t)
 	down := errors.New("the store is down")
-	for _, mode := range []paztporthttp.Mode{paztporthttp.ModeEnforce, paztporthttp.ModeAudit, paztporthttp.ModeNone} {
-		a := failingReceiver(t, c, down).Accept(t.Context(), caseRequest(t, c.Get("request")), nil, mode)
+	received := accept(t, c, caseRequest(t, c.Get("request")), paztporthttp.ModeOff)
+	if received.Inbound == nil || len(received.Influence) == 0 {
+		t.Fatalf("the case carries Inbound %v, Influence %v; want both", received.Inbound, received.Influence)
+	}
+	wantUndecided := func(t *testing.T, a paztporthttp.Accepted, refused bool) {
+		t.Helper()
 		if !errors.Is(a.CacheErr, down) {
-			t.Fatalf("%v: CacheErr = %v, want the cache's", mode, a.CacheErr)
+			t.Fatalf("CacheErr = %v, want the cache's", a.CacheErr)
 		}
-		if mode == paztporthttp.ModeEnforce {
+		if refused {
 			if a.Refusal == nil || a.Refusal.Status != 503 || len(a.Refusal.Body) != 0 {
-				t.Fatalf("%v: Refusal = %+v, want 503 and no body", mode, a.Refusal)
+				t.Fatalf("Refusal = %+v, want 503 and no body", a.Refusal)
 			}
 		} else if a.Refusal != nil {
-			t.Fatalf("%v: Refusal = %+v, want the request served", mode, a.Refusal)
+			t.Fatalf("Refusal = %+v, want the request served", a.Refusal)
 		}
-		if _, ok := a.Delivery(); ok || a.Verified || a.Attests() || a.Inbound != nil || a.Influence != nil ||
-			a.Result != nil {
-			t.Fatalf("%v: Accepted = %+v with the error, want nothing carried or verified", mode, a)
+		if _, ok := a.Delivery(); ok || a.Verified || a.Attests() || a.Result != nil || a.Audit {
+			t.Fatalf("Accepted = %+v with the error, want nothing verified", a)
 		}
+	}
+	for _, mode := range []paztporthttp.Mode{paztporthttp.ModeEnforce, paztporthttp.ModeAudit, paztporthttp.ModeNone} {
+		t.Run(mode.String(), func(t *testing.T) {
+			a := failingReceiver(t, c, down).Accept(t.Context(), caseRequest(t, c.Get("request")), nil, mode)
+			wantUndecided(t, a, mode == paztporthttp.ModeEnforce)
+			if mode == paztporthttp.ModeEnforce {
+				if a.Inbound != nil || a.Influence != nil {
+					t.Fatalf("a refusal carries Inbound %v, Influence %v", a.Inbound, a.Influence)
+				}
+				return
+			}
+			if !reflect.DeepEqual(a.Inbound, received.Inbound) || !reflect.DeepEqual(a.Influence, received.Influence) {
+				t.Fatalf("Inbound %v, Influence %v; want the chain and the influence as received",
+					a.Inbound, a.Influence)
+			}
+		})
+	}
+	for _, mode := range []paztporthttp.Mode{paztporthttp.ModeEnforce, paztporthttp.ModeAudit} {
+		t.Run("origin, "+mode.String(), func(t *testing.T) {
+			r := failingReceiver(t, c, down)
+			r.Origin, r.Stamper.Origin = true, true
+			a := r.Accept(t.Context(), caseRequest(t, c.Get("request")), nil, mode)
+			wantUndecided(t, a, mode == paztporthttp.ModeEnforce)
+			if a.Inbound != nil || a.Influence != nil {
+				t.Fatalf("an origin carries Inbound %v, Influence %v", a.Inbound, a.Influence)
+			}
+		})
 	}
 
 	r := caseReceiver(t, c)
@@ -702,6 +735,10 @@ func TestAcceptDelivery(t *testing.T) {
 	want := paztporthttp.Delivery{RID: a.Inbound[0].RID, Svc: last.Svc, Bind: last.Bind}
 	if !ok || d != want || d.RID == "" || d.Svc == "" || d.Bind == "" {
 		t.Fatalf("Delivery = %+v, %v; want %+v", d, ok, want)
+	}
+	// With no mode, a request verified to attest is verified at this hop too.
+	if d, ok := accept(t, c, caseRequest(t, c.Get("request")), paztporthttp.ModeNone).Delivery(); !ok || d != want {
+		t.Fatalf("no mode: Delivery = %+v, %v; want %+v", d, ok, want)
 	}
 
 	none := func(name string, a paztporthttp.Accepted) {

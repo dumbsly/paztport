@@ -129,7 +129,10 @@ type Caller struct {
 	// one.
 	Bundle policy.ProofBundle
 	// Verifier is this service's verifier, pinned to its own policy material, or nil for a service that
-	// holds none: it checks no response, so every response counts as one local-untrusted entry.
+	// holds none: it checks no response, so every response counts as one local-untrusted entry. Its nonce
+	// cache can stay in memory, apart from a receiver's shared one: a response stamp chains onto the stamp
+	// this caller sent, so only the replica that sent the call can check its answer, and there is nothing
+	// to share. [Caller.Check] returns the cache's error, when it could not answer.
 	Verifier *verify.Verifier
 }
 

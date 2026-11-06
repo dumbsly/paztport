@@ -8,13 +8,14 @@ import (
 	"github.com/dumbsly/paztport/poc-sdks/go/reason"
 )
 
-// Answer is an answer the SDK gives in place of a handler's: a refusal, or the handshake endpoint's
-// reply. The adapter sends Body exactly as these bytes, with the header Content-Type: wire.ContentType
-// and no parameters, so that a framework neither serialises it again nor guesses its type.
+// Answer is an answer the SDK gives in place of a handler's: a refusal, [Unavailable], or the handshake
+// endpoint's reply. The adapter sends Body exactly as these bytes, and when Body is not empty with the
+// header Content-Type: wire.ContentType and no parameters, so that a framework neither serialises it
+// again nor guesses its type. An empty body, as [Unavailable]'s, carries no Content-Type.
 type Answer struct {
 	// Status is the HTTP status.
 	Status int
-	// Body is the body, UTF-8 JSON text.
+	// Body is the body: UTF-8 JSON text, or empty.
 	Body []byte
 }
 

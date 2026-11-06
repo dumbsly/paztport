@@ -44,7 +44,8 @@ type Receiver struct {
 // Accepted.CacheErr is its error, for the embedder's own log, and the request is never verified,
 // attested or given a [Accepted.Delivery]. Under [ModeEnforce] it is refused with [Unavailable], 503 and
 // no body, as it cannot be shown to be no replay. Under [ModeAudit], and for a receiver with no mode,
-// which refuses nothing, it is served, unverified and unattested.
+// which refuses nothing, it is served unverified and unattested, carrying the chain and the influence
+// as received, as a request that fails in audit mode is; influence that does not read is still refused.
 //
 // Accept panics on a receiver with no Verifier that is given ModeEnforce, ModeAudit or a value that is no
 // mode: it is to verify requests with nothing to verify them with, which is a fault in the program, and
@@ -62,19 +63,24 @@ func (r *Receiver) Accept(ctx context.Context, req InboundRequest, peer *verify.
 			panic("paztport http: a receiver that verifies requests under a mode needs a Verifier")
 		}
 		res, err := r.Verifier.Verify(ctx, in)
-		if err != nil {
-			return cacheFailed(err, mode == ModeEnforce)
+		switch {
+		case err != nil && mode != ModeAudit:
+			return cacheFailed(err)
+		case err != nil:
+			// No verdict, so nothing is verified, and audit serves the request as received.
+			a.CacheErr = err
+		default:
+			a.Result, a.Audit = &res, mode == ModeAudit
+			if !res.OK() && !a.Audit {
+				return refused(Refusal(403, res.Reason), a)
+			}
+			a.Verified = res.OK() && chain != nil
 		}
-		a.Result, a.Audit = &res, mode == ModeAudit
-		if !res.OK() && !a.Audit {
-			return refused(Refusal(403, res.Reason), a)
-		}
-		a.Verified = res.OK() && chain != nil
 	}
 	if r.Origin {
 		// An origin starts the request tree afresh: whatever its verdict, it carries nothing from the
 		// request, vouches for nothing and never attests.
-		return Accepted{Result: a.Result, Audit: a.Audit}
+		return Accepted{Result: a.Result, Audit: a.Audit, CacheErr: a.CacheErr}
 	}
 	es, ok := readInfluence(req.Influence)
 	if !ok {
@@ -84,11 +90,13 @@ func (r *Receiver) Accept(ctx context.Context, req InboundRequest, peer *verify.
 	if mode == ModeOff || r.Verifier == nil || r.Stamper == nil || chain == nil {
 		return a
 	}
-	if a.Result == nil {
-		// A service with no mode verifies the chain for attestation alone, and refuses nothing.
+	if a.Result == nil && a.CacheErr == nil {
+		// A service with no mode verifies the chain for attestation alone, and refuses nothing. A request
+		// whose nonce cache could not answer in audit mode is not verified again.
 		res, err := r.Verifier.Verify(ctx, in)
 		if err != nil {
-			return cacheFailed(err, false)
+			a.CacheErr = err
+			return a
 		}
 		a.Result, a.Verified = &res, res.OK()
 	}
@@ -98,19 +106,15 @@ func (r *Receiver) Accept(ctx context.Context, req InboundRequest, peer *verify.
 	return a
 }
 
-// cacheFailed returns what is decided of a request whose nonce cache could not answer with err: the
-// refusal [Unavailable] when refuse, and otherwise the request served with nothing carried from it, which
-// is unverified and unattested. An origin carries nothing in any case.
-func cacheFailed(err error, refuse bool) Accepted {
-	a := Accepted{CacheErr: err}
-	if refuse {
-		answer := Unavailable()
-		a.Refusal = &answer
-	}
-	return a
+// cacheFailed returns the refusal [Unavailable] of a request whose nonce cache could not answer with
+// err, under a mode that refuses: nothing is carried from it, verified or attested.
+func cacheFailed(err error) Accepted {
+	answer := Unavailable()
+	return Accepted{Refusal: &answer, CacheErr: err}
 }
 
-// refused returns the refusal answer, with the result and mode of a, the request's verdict so far.
+// refused returns the refusal answer, with the result and mode of a, the request's verdict so far, and
+// the nonce cache's error when it could not answer.
 func refused(answer Answer, a Accepted) Accepted {
-	return Accepted{Refusal: &answer, Result: a.Result, Audit: a.Audit}
+	return Accepted{Refusal: &answer, Result: a.Result, Audit: a.Audit, CacheErr: a.CacheErr}
 }

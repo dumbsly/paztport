@@ -24,21 +24,22 @@ type Accepted struct {
 	Inbound stamp.Chain
 	// Verified reports whether Inbound passed the live order at this hop, so that Influence is the one
 	// its caller committed to. A chain that failed in audit mode, was not checked (the hop is off, or has
-	// nothing to verify with) or came to an origin is not verified.
+	// nothing to verify with), whose nonce cache could not answer or came to an origin is not verified.
 	Verified bool
 	// Influence is what the handler starts from: the entries the request carried, which are the ones its
 	// last stamp commits to when Verified. It is empty at an origin and for a refusal.
 	Influence []influence.Entry
-	// Result is the live order's result on the request, or nil when it did not run. Under a mode it is
-	// the result to report; for a service with no mode it decided only whether to attest. The embedder
-	// may build an event from it; the caller is never told it.
+	// Result is the live order's result on the request, or nil when it did not run or its nonce cache
+	// could not answer. Under a mode it is the result to report; for a service with no mode it decided
+	// only whether to attest. The embedder may build an event from it; the caller is never told it.
 	Result *verify.Result
 	// Audit reports that Result came from verification in audit mode, so an event built from it is an
 	// audit event.
 	Audit bool
 	// CacheErr is the nonce cache's error, when it could not answer, for the embedder's own log; nil
 	// otherwise. The request is then undecided: it is refused with [Unavailable] under enforce, and
-	// otherwise served unverified and unattested, with no Result and nothing carried.
+	// otherwise served unverified and unattested, with no Result, carrying the chain and the influence as
+	// received; influence that does not read is still refused 400.
 	CacheErr error
 
 	attest *attester // nil unless the answer is attested
@@ -53,9 +54,10 @@ type attester struct {
 }
 
 // Delivery names the delivery of a request that was verified at this hop: the rid its first stamp
-// carries, and the signer and request binding of its last stamp. It is false for a request that
-// was not verified, such as one at an origin, with the hop off, in audit mode or whose nonce cache could
-// not answer. It tells one delivery of a request from another.
+// carries, and the signer and request binding of its last stamp. It is false for a request that was not
+// verified, such as one at an origin, with the hop off, that failed in audit mode or whose nonce cache
+// could not answer. Two deliveries of one request give the same key, so the application can tell a
+// request it has already handled.
 func (a Accepted) Delivery() (Delivery, bool) {
 	if !a.Verified || len(a.Inbound) == 0 {
 		return Delivery{}, false
@@ -64,9 +66,14 @@ func (a Accepted) Delivery() (Delivery, bool) {
 	return Delivery{RID: a.Inbound[0].RID, Svc: last.Svc, Bind: last.Bind}, true
 }
 
-// Delivery is the key of one delivery of a verified request: the request's rid, which its first stamp
-// carries, and the signer (Svc) and request binding (Bind) of its last stamp, which name the hop that
-// sent this call and the call itself.
+// Delivery is the key of one delivery of a verified request, for the application's own idempotency
+// handling: the request's rid, which its first stamp carries, and the signer (Svc) and request binding
+// (Bind) of its last stamp, which name the hop that sent this call and the call itself.
+//
+// The key (RID, Svc) names the delivery, and with a peer (mutual TLS) no one but that signer can send
+// it. The same key and Bind is the same request sent again by that signer. The same key with another
+// Bind is a different request under a reused key, to refuse. A user's second click or a client's own
+// resend is a new rid, and needs the application's own idempotency key.
 type Delivery struct {
 	RID, Svc, Bind string
 }

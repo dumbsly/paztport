@@ -77,8 +77,9 @@ replace github.com/dumbsly/paztport/poc-sdks/go => ../path/to/poc-sdks/go
 The packages decide; the code that embeds them carries out what they decide:
 
 - **Sends the bytes.** It sends each `paztporthttp.Answer`, header list and
-  `boundary.Step` exactly as given, an `Answer` with `Content-Type:
-  application/json` and no parameters, and passes the authenticated peer:
+  `boundary.Step` exactly as given, an `Answer` with a body with `Content-Type:
+  application/json` and no parameters (an empty body carries no Content-Type),
+  and passes the authenticated peer:
   `paztporthttp.PeerFromCertificate` reads one from a client certificate under
   mutual TLS. Before it sets each header it is given, replacing and never appending,
   it removes every header of the request that `wire.IsPaztport` names, all values
@@ -87,7 +88,8 @@ The packages decide; the code that embeds them carries out what they decide:
   `Accepted` only. When the `verify.NonceCache` returns an error, the request is
   undecided and `Accepted.CacheErr` holds the error, for the adapter's own log.
   Under `enforce` the adapter sends `paztporthttp.Unavailable()` (503, no body);
-  under `audit` it serves the request, unverified and unattested.
+  under `audit`, and with no mode, it serves the request unverified and
+  unattested, with the chain and the influence as received.
 - **Offers the delivery key.** `Accepted.Delivery()` gives the `Delivery` (`RID`,
   `Svc`, `Bind`) of a request whose chain was verified at this hop, and false
   otherwise. A duplicate delivery, such as a proxy's retry to another replica,
@@ -97,6 +99,9 @@ The packages decide; the code that embeds them carries out what they decide:
 - **Attests and checks answers.** It sends the `X-Path-Response` header that
   `Accepted.Attest` gives for the handler's complete answer. As a caller, it reads
   each response whole and passes it to `Caller.Check` before anything reads it.
+  The caller's verifier can keep its nonce cache in memory: only the replica that
+  sent a call can check its answer, so there is nothing to share. `Check` returns
+  the cache's error when it cannot answer.
 - **Applies the rules to its writes.** A handler's write to a public
   destination is decided by `influence.PublicWriteRefused`, over the handler's
   influence and everything it has read since, with the destination's owner
