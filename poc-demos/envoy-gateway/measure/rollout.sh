@@ -8,12 +8,12 @@
 #            orders-adopt (host adopt.example) to orders, which the chart's routes do not name, with orders and
 #            payment as they ran before Paztport was installed (the edge suite's baseline, measure/load.sh's
 #            backends_without); then (step 1) the processor mapped to it, orders-adopt added to the chart's routes with
-#            attach=false, so that the processor's pods roll and map it while no policy targets it; then (step 2) the
-#            processor attached to it, attach=true, which rolls no pod; then (step 3) orders and payment rolled
-#            straight into enforce: orders first, then payment, since a callee in enforce refuses every call its
-#            caller does not stamp yet. No audit step: audit is for before
-#            production, where every path is signed before its release. Then a request straight to orders, past the
-#            Gateway, refused CHAIN_MISSING; and orders-adopt removed, and shown gone.
+#            attach=false, so that the processor's pods roll and map it while its EnvoyExtensionPolicy does not target
+#            it; then (step 2) the processor attached to it, attach=true, which rolls no pod; then (step 3) orders and
+#            payment rolled straight into enforce: orders first, then payment, since a callee in enforce refuses every
+#            call its caller does not stamp yet. No audit step: audit is for before production, where every path is
+#            signed before its release. Then a request straight to orders, past the Gateway, refused CHAIN_MISSING;
+#            and orders-adopt removed, and shown gone.
 #   observe  what the edge and the backends count under load (the processor's outcomes, how long stamping took and
 #            the bodies' sizes from its histograms, how long its material has left, the backends' reasons); then
 #            requests that carry a marker, in the body and in a header of the client's, and a stamp the processor
@@ -175,32 +175,44 @@ if streams == 0 and not others:
     print("  Envoy started no stream to the processor in the run and the run had no response other than 200")
 else:
     print("  Envoy started %d streams to the processor in the run; the run had %d responses other than 200%s"
-          % (streams, sum(others.values()), " (%s)" % ", ".join("%s: %d" % kv for kv in others.items()) if others else ""))
+          % (streams, sum(others.values()),
+             " (%s)" % ", ".join("%s: %d" % kv for kv in others.items()) if others else ""))
 sys.exit(1 if streams else 0)' "$1" "$2" "$3"
 }
 
 # adopt_map: step 1, the processor's pods rolled to map orders-adopt under load, nothing attached: the route added to
-# the chart's routes with attach=false, so that the processor's routes file names it and neither policy targets it. In
-# the foreground: with nothing attached, no stream of the route's waits on the pods that are not up yet.
+# the chart's routes with attach=false, so that the processor's routes file names it and its EnvoyExtensionPolicy does
+# not target it. In the foreground: with nothing attached, no stream of the route's waits on the pods that are not up
+# yet.
 adopt_map() {
+  local out stats
   echo ""
-  echo "-- (rollout, step 1) the processor's pods rolled to map orders-adopt under load: orders-adopt added to the" \
-    "chart's routes with attach=false (receiver orders; helm upgrade: the processor's routes file names it, and" \
-    "neither policy targets it); orders and payment still without Paztport, so neither verifies"
+  echo "-- (rollout, step 1) the processor's pods rolled to map orders-adopt under load: attach=false on the route" \
+    "(helm upgrade: the routes file names it; its EnvoyExtensionPolicy does not); orders and payment still without" \
+    "Paztport, so neither verifies"
   STEP_VERIFY=none
   step_begin rollout-map "$ROLLOUT_MAP_DURATION" || return 1
   event "the change began: helm upgrade, orders-adopt in the chart's routes, not attached"
   upgraded measure_chart --set 'routes[2].httpRoute=orders-adopt' --set 'routes[2].receiver=orders' \
     --set 'routes[2].attach=false' || return 1
   event "helm upgrade done: the processor's pods rolled"
-  if [ "$(route_filter orders-adopt)" != off ]; then
-    change_fail "Envoy has a filter on orders-adopt after the map step: $(route_filter orders-adopt)"
+  out=$(route_filter orders-adopt)
+  if [ "$out" != off ]; then
+    change_fail "Envoy has a filter on orders-adopt after the map step: its route is ${out:-unreadable}"
     return 1
   fi
   event "the change done"
   step_end || return 1
   echo "  Envoy still serves orders-adopt without the processor's filter"
-  map_balance "$STEP_ENVOY" "$(envoy_extproc_stats)" "$RUN_DIR/$CASE.result" || {
+  stats=$(envoy_extproc_stats)
+  case $stats in
+    *streams_started=*) ;;
+    *)
+      echo "error: Envoy's stream count could not be read after the map step" >&2
+      return 1
+      ;;
+  esac
+  map_balance "$STEP_ENVOY" "$stats" "$RUN_DIR/$CASE.result" || {
     change_fail "Envoy started a stream to the processor for orders-adopt in the map step, with no filter on the route"
   }
   backends_counters "after mapping"
@@ -270,6 +282,13 @@ adopt_attach() {
   event "the change done"
   step_end || return 1
   outcomes=$(processor_outcomes) && envoy=$(envoy_extproc_stats) || return 1
+  case $envoy in
+    *streams_started=*) ;;
+    *)
+      echo "error: Envoy's stream count could not be read after the attach step" >&2
+      return 1
+      ;;
+  esac
   echo "  the processor's pods, the same before and after, decided since they started: $outcomes"
   attach_balance "$STEP_ENVOY" "$envoy" "$outcomes" "$RUN_DIR/$CASE.result" || {
     change_fail "the attach step had 403s, though the processor's pods already mapped orders-adopt"
