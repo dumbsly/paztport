@@ -185,6 +185,14 @@ cmd_envoy_gateway() {
   if [ "${1:-}" = measure ]; then
     measure=1
     shift
+    # It makes new keys and a cluster of its own, so it cannot run on the cluster an earlier run kept.
+    for arg in "$@"; do
+      if [ "$arg" = --reuse ]; then
+        echo "./run envoy-gateway measure makes new keys and a cluster of its own, so it takes no --reuse; to run" \
+          "suites on the cluster a --keep run left up, run poc-demos/envoy-gateway/measure.sh --reuse [suite...]" >&2
+        exit 2
+      fi
+    done
   fi
   need_java
   need_docker

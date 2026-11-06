@@ -26,7 +26,7 @@ FAILURE_SLOW_GRPC=60
 FAILURE_SLOW_HOLD=20
 FAILURE_DOWN_HOLD=30
 # The k6 pool of a case is sized for the longest the case can hold a request, not for the healthy path, since a
-# request k6 drops for want of a user fails the case's pace line (run_paced). In every case on echo a request can be
+# request k6 drops for want of a user fails the case's rate line (run_rated). In every case on echo a request can be
 # held messageTimeout (500 ms): while its processor pod is killed, drains in a roll, is slowed, or is gone. So its
 # pool holds a user for every request in flight were each one held that long and this much more: k6 runs short of
 # users, and drops requests unsent, only if the edge holds them longer.
@@ -81,51 +81,25 @@ failure_rate() {
   fi
 }
 
-# held_pool <rate>: a case's k6 users at that rate: rate x FAILURE_HELD_POOL_SECONDS, and pool's at least.
-held_pool() {
-  pool "$1" "$(awk -v r="$1" -v s="$FAILURE_HELD_POOL_SECONDS" 'BEGIN { printf "%d", r * s + 0.5 }')"
-}
-
 # case_begin <name> <VAR=value>...: starts the case's k6 run (k6_run, with those settings) in the background, then
 # waits until k6's pod is running and FAILURE_LEAD seconds more, so that the fault meets steady load.
 case_begin() {
-  local phase=""
   CASE="$1"
   shift
   : >"$RUN_DIR/$CASE.events"
   k6_run "$CASE" "$@" >"$tmp/$CASE.line" 2>"$tmp/$CASE.err" &
   CASE_PID=$!
   forwards+=("$CASE_PID")
-  for _ in $(seq 1 300); do
-    phase=$(kn get pods -l "job-name=k6-$CASE" -o jsonpath='{.items[*].status.phase}' 2>/dev/null)
-    [ "$phase" = Running ] && break
-    sleep 1
-  done
-  if [ "$phase" != Running ]; then
-    echo "error: the k6 run $CASE did not start (its pod: ${phase:-none})" >&2
-    return 1
-  fi
+  k6_running "$CASE" || return 1
   sleep "$FAILURE_LEAD"
 }
 
-# case_end: waits for the case's run, then prints it, whether it ran at its pace (run_paced; a FAIL is counted), the
-# window of its responses other than 200, and its timeline.
-# Returns 1 when the run failed.
+# case_end: waits for the case's run, then prints it and whether it kept its rate (run_wait), the window of its
+# responses other than 200, and its timeline. Returns 1 when the run failed.
 case_end() {
-  local status dropped
-  wait "$CASE_PID"
-  status=$?
-  forget "$CASE_PID"
+  local pid="$CASE_PID"
   CASE_PID=""
-  [ ! -s "$tmp/$CASE.err" ] || sed 's/^/  /' "$tmp/$CASE.err"
-  [ "$status" -eq 0 ] || return 1
-  printf '  %s\n' "$(cat "$tmp/$CASE.line")"
-  run_paced "$CASE" || FAILURE_FAILS=$((FAILURE_FAILS + 1))
-  dropped=$(sed -n 's/.*"dropped":\([0-9]*\).*/\1/p' "$tmp/$CASE.line")
-  if [ "${dropped:-0}" -gt 0 ]; then
-    echo "  k6 had no free user for $dropped of the requests it was to send, so they were never sent: every count" \
-      "here, the errors' included, is a lower bound set by k6's pool"
-  fi
+  run_wait "$pid" "$CASE" || return 1
   window "$RUN_DIR/$CASE.fails"
   python3 "$here/measure/summary.py" timeline "$RUN_DIR/$CASE.fails" "$RUN_DIR/$CASE.events"
 }
@@ -264,12 +238,15 @@ echo_case() {
     echo "  FAIL nothing reached echo unstamped during the case: echo's counts could not be read"
   elif [ "$(echo_pod_uids)" != "$(cat "$RUN_DIR/echo-pods" 2>/dev/null)" ] || [ "$s1" -lt "$s0" ]; then
     echo "  FAIL nothing reached echo unstamped during the case: echo's pods started again, and lost their counts"
-  elif [ "$u1" -eq "$u0" ]; then
-    echo "  PASS nothing reached echo unstamped during the case: echo counted stamped +$((s1 - s0)), unstamped +0"
-    return 0
-  else
+  elif [ "$u1" -ne "$u0" ]; then
     echo "  FAIL nothing reached echo unstamped during the case: echo counted stamped +$((s1 - s0))," \
       "unstamped +$((u1 - u0))"
+  elif [ "$s1" -eq "$s0" ]; then
+    echo "  FAIL nothing reached echo unstamped during the case: cannot say: echo counted no request at all in it" \
+      "(stamped +0, unstamped +0), so nothing reached it"
+  else
+    echo "  PASS nothing reached echo unstamped during the case: echo counted stamped +$((s1 - s0)), unstamped +0"
+    return 0
   fi
   FAILURE_FAILS=$((FAILURE_FAILS + 1))
   return 1
@@ -305,7 +282,7 @@ echo_run() {
 failure_kill() {
   local pod restarts at users
   pod=$(processor_pods | head -n1)
-  users=$(held_pool "$FAILURE_RATE_USED")
+  users=$(held_pool "$FAILURE_RATE_USED" "$FAILURE_HELD_POOL_SECONDS")
   echo "-- one processor container killed (SIGKILL): echo offered $FAILURE_RATE_USED/s for" \
     "$FAILURE_KILL_DURATION (k6 users: $users), the kill $FAILURE_LEAD s into it"
   case_before || return 1
@@ -327,10 +304,11 @@ failure_kill() {
 # failure_slow: one processor pod's gRPC port slowed, with its probes still answered, then the whole pod, until
 # readiness takes it out; then the delay removed.
 failure_slow() {
-  local pod ip at end code ready probes=0 ok=0 readings=0 ready_seen=0 codes="" out_at unslow_at last users
+  local pod ip at end code ready probes=0 ok=0 readings=0 ready_seen=0 codes="" unslow_at users restarts now ended
   pod=$(processor_pods | head -n1)
   ip=$(kn get pod "$pod" -o jsonpath='{.status.podIP}')
-  users=$(held_pool "$FAILURE_RATE_USED")
+  restarts=$(pod_restarts "$pod")
+  users=$(held_pool "$FAILURE_RATE_USED" "$FAILURE_HELD_POOL_SECONDS")
   echo "-- one processor pod slowed by $FAILURE_SLOW_MS ms (tc netem, from the kind node): its gRPC port (9002) alone" \
     "for $FAILURE_SLOW_GRPC s, then the whole pod until readiness takes it out and $FAILURE_SLOW_HOLD s more; echo" \
     "offered $FAILURE_RATE_USED/s for $FAILURE_SLOW_DURATION (k6 users: $users, enough for every request to be" \
@@ -342,7 +320,8 @@ failure_slow() {
   event_at "$at" "$pod's packets from port 9002 delayed $FAILURE_SLOW_MS ms"
   end=$((SECONDS + FAILURE_SLOW_GRPC))
   while [ "$SECONDS" -lt "$end" ]; do
-    code=$(kn exec checks -- curl -s -o /dev/null -w '%{http_code}' --max-time 2 "http://$ip:9090/readyz" 2>/dev/null)
+    code=$(kn exec checks -- curl -s -o /dev/null -w '%{http_code}' --max-time 2 "http://$ip:9090/readyz" \
+      2>/dev/null)
     ready=$(pod_ready "$pod")
     probes=$((probes + 1))
     readings=$((readings + 1))
@@ -364,24 +343,52 @@ failure_slow() {
     echo "  WARN the pod was meant to stay ready while only its gRPC port was slowed, and it did not: the delay" \
       "reached its probes, so what follows is not the case it says"
   fi
-  out_at=$(event_ms "readiness took")
-  last=$(sed -n 's/.*"last":\([0-9]*\).*/\1/p' "$RUN_DIR/$CASE.window")
-  if [ -z "$out_at" ]; then
-    echo "  readiness did not take the whole slowed pod out within 60 s"
-  elif [ -z "$last" ]; then
-    echo "  readiness took the whole slowed pod out $(since "$(event_ms "the whole pod")" "$out_at") s after the" \
-      "delay; no response other than 200 in the run"
-  elif [ "$last" -lt "$unslow_at" ]; then
-    echo "  readiness took the whole slowed pod out $(since "$(event_ms "the whole pod")" "$out_at") s after the" \
-      "delay; the errors stopped while it was still delayed: the last response other than 200 came" \
-      "$(since "$out_at" "$last") s after it was taken out, $(since "$last" "$unslow_at") s before the delay was" \
-      "removed"
-  else
-    echo "  readiness took the whole slowed pod out $(since "$(event_ms "the whole pod")" "$out_at") s after the" \
-      "delay, but the errors went on: the last response other than 200 came $(since "$unslow_at" "$last") s after" \
-      "the delay was removed"
+  slow_after "$(event_ms "the whole pod")" "$(event_ms "readiness took")" "$unslow_at" "$(event_ms "$pod ready again")"
+  now=$(pod_restarts "$pod")
+  if [ -z "$now" ]; then
+    echo "  the slowed pod $pod is gone"
+  elif [ "$now" -gt "$restarts" ]; then
+    ended=$(processor_restarts | awk -v p="$pod" '$1 == p { sub(/^last=/, "", $3); sub(/@/, " at ", $3); print $3 }')
+    echo "  the slowed pod's container started again during the case: restarts $restarts before it, $now after (it" \
+      "last ended $ended)"
   fi
   case_after
+}
+
+# slow_after <slowed at> <out at> <removed at> <ready at>: once the whole pod was slowed (at the first time, in epoch
+# ms), when readiness took it out (the second; empty when it did not), and, from the run's per-second counts (k6's
+# whole seconds), the last second with a response other than 200 between then and the delay's removal (the third);
+# then, on a line of its own, the responses other than 200 from the second the pod was ready again in (the fourth;
+# empty when it was not) on.
+slow_after() {
+  local slowed="$1" out="$2" removed="$3" ready="$4" last after
+  if [ -z "$out" ]; then
+    echo "  readiness did not take the whole slowed pod out within 60 s"
+  else
+    last=$(python3 "$here/measure/summary.py" last "$RUN_DIR/$CASE.fails" "$out" "$removed")
+    if [ "$last" = none ]; then
+      echo "  readiness took the whole slowed pod out $(since "$slowed" "$out") s after the delay; from then until" \
+        "the delay was removed, no response other than 200"
+    elif [ "${last#* }" -ge "$removed" ]; then
+      echo "  readiness took the whole slowed pod out $(since "$slowed" "$out") s after the delay, but the errors" \
+        "went on until the delay was removed: the run's second +${last% *}, which holds the removal, had" \
+        "responses other than 200"
+    else
+      echo "  readiness took the whole slowed pod out $(since "$slowed" "$out") s after the delay, and the errors" \
+        "stopped within $(since "$out" "${last#* }") s of it: the last second with a response other than 200" \
+        "before the delay was removed was the run's +${last% *}, which ended $(since "${last#* }" "$removed") s" \
+        "before the removal"
+    fi
+  fi
+  [ -n "$ready" ] || return 0
+  after=$(python3 "$here/measure/summary.py" after "$RUN_DIR/$CASE.fails" "$ready")
+  if [ "$after" = none ]; then
+    echo "  after the pod was ready again: no response other than 200"
+  else
+    echo "  after the pod was ready again, a burst of its own: $(head -n1 <<<"$after" |
+      awk '{ printf "%d responses other than 200 in %d second(s)", $1, $2 }'), from the second the pod was ready" \
+      "in on: $(sed 1d <<<"$after" | paste -sd ';' - | sed 's/;/; /g')"
+  fi
 }
 
 # failure_down <name> <routing>: every processor replica gone (replicas=0) for FAILURE_DOWN_HOLD seconds, then two
@@ -392,7 +399,7 @@ failure_slow() {
 failure_down() {
   local name="$1" routing="$2" gone_at back_at seconds first probe_at helm code end e x r from to
   local echo_gone echo_back policy filters route fives failed s0 u0 s1 u1 s2 u2 s3 u3 users
-  users=$(held_pool "$FAILURE_RATE_USED")
+  users=$(held_pool "$FAILURE_RATE_USED" "$FAILURE_HELD_POOL_SECONDS")
   echo "-- every processor replica gone (helm upgrade, replicas=0) for $FAILURE_DOWN_HOLD s, then two again, Envoy" \
     "routing to the processor's $(lower "$routing")s: echo offered $FAILURE_RATE_USED/s for" \
     "$FAILURE_DOWN_DURATION (k6 users: $users, enough for every request to be held messageTimeout), the upgrade" \
@@ -584,7 +591,7 @@ failure_down_endpoint() { failure_down failure-down Endpoint; }
 # failure_roll: kubectl rollout restart of the processor under load: the window and its errors.
 failure_roll() {
   local end users
-  users=$(held_pool "$FAILURE_RATE_USED")
+  users=$(held_pool "$FAILURE_RATE_USED" "$FAILURE_HELD_POOL_SECONDS")
   echo "-- the processor rolled (kubectl rollout restart): echo offered $FAILURE_RATE_USED/s for" \
     "$FAILURE_ROLL_DURATION (k6 users: $users), the restart $FAILURE_LEAD s into it"
   case_before || return 1
@@ -622,28 +629,6 @@ envoy_orders_retries() {
     END { for (k in s) printf "%s=%d ", k, s[k] }' | tr ' ' '\n' | LC_ALL=C sort | paste -sd ' ' -
 }
 
-# orders_traces <since>: orders' trace lines for the requests it received since the time (UTC, to the second, as
-# 2026-01-02T03:04:05), from the log files the kind node keeps for every orders pod running: every container's,
-# the one killed included, and the files the kubelet rotated (past 10 MiB) as well as the current one, which is all
-# kubectl logs would read. "PAZTPORT_TRACE request rid=<rid> reason=<reason> ..." a line. Returns 1, saying which,
-# when a pod's log files could not be read.
-orders_traces() {
-  local pod uid logs="$tmp/orders-logs"
-  : >"$logs"
-  for pod in $(live_pods app=orders); do
-    uid=$(kn get pod "$pod" -o jsonpath='{.metadata.uid}') || return 1
-    # shellcheck disable=SC2016 # the script runs in the node's shell
-    docker exec "$(node_container)" sh -c 'cd "/var/log/pods/$1_$2_$3/orders" || exit 1
-      for f in *; do case "$f" in *.gz) zcat "$f" ;; *) cat "$f" ;; esac || exit 1; done' sh "$NS" "$pod" "$uid" \
-      >>"$logs" || {
-      echo "error: could not read the log files of orders' pod $pod on the node" >&2
-      return 1
-    }
-  done
-  awk -v s="$1" 'substr($1, 1, 19) >= s' "$logs" | grep -F 'PAZTPORT_TRACE request' || true
-  rm -f "$logs"
-}
-
 # rids_once <traces file> <200s> [<what they are>]: the behavioural lines on orders' traces: orders traced each rid
 # once, and its traces hold at least as many rids it verified OK as k6 counted 200s (each 200 is a request orders
 # verified, so fewer means traces are missing, and the first line would say nothing). It may hold more: a request
@@ -679,7 +664,11 @@ elif not rids:
     bad = 1
 else:
     print("  PASS orders served each rid once: %d rids, none traced twice" % len(rids))
-if len(ok) >= oks:
+if not oks:
+    print("  FAIL orders traces cover the run: cannot say: there were no %s, so the traces have nothing to be held"
+          " to" % what)
+    bad = 1
+elif len(ok) >= oks:
     print("  PASS orders traces cover the run: %d rids verified OK, at least as many as the %d %s (%d"
           " more: requests orders verified whose response never came back as one)" % (len(ok), oks, what,
                                                                                     len(ok) - oks))
@@ -696,8 +685,7 @@ sys.exit(bad)' "$1" "$2" "${3:-200s k6 counted}"
 failure_orders() {
   local pod restarts at since_time envoy_before envoy_after p_before p_after users
   pod=$(live_pods app=orders | head -n1)
-  users=$(pool "$FAILURE_ORDERS_RATE_USED" \
-    "$(awk -v r="$FAILURE_ORDERS_RATE_USED" -v s="$FAILURE_ORDERS_POOL_SECONDS" 'BEGIN { printf "%d", r * s + 0.5 }')")
+  users=$(held_pool "$FAILURE_ORDERS_RATE_USED" "$FAILURE_ORDERS_POOL_SECONDS")
   echo "-- one orders container killed (SIGKILL): the route orders offered $FAILURE_ORDERS_RATE_USED/s for" \
     "$FAILURE_ORDERS_DURATION (k6 users: $users), the kill $FAILURE_LEAD s into it; the" \
     "route retries a connection that failed, and nothing that reached orders"
@@ -751,7 +739,7 @@ failure_undo() {
   CASE_PID=""
   [ -z "$HELM_PID" ] || wait "$HELM_PID" 2>/dev/null
   HELM_PID=""
-  kn delete job -l app=k6 --ignore-not-found >/dev/null 2>&1
+  k6_stop
   netem_clear >/dev/null || { echo "error: could not clear the processor pods' delays" >&2; ok=1; }
   release=$(helm_release)
   case "$release" in
@@ -782,8 +770,8 @@ failure_undo() {
   return "$ok"
 }
 
-# spread <routing>: a steady run on echo at the cases' rate, DURATION long, and how the processor's two replicas
-# shared it: each pod's stamped requests, and its share.
+# spread <routing>: a steady run on echo at the cases' rate, DURATION long, whether it kept that rate, and how the
+# processor's two replicas shared it: each pod's stamped requests, and its share.
 spread() {
   local before after line
   before=$(outcomes_by_pod) || return 1
@@ -791,6 +779,8 @@ spread() {
   line=$(k6_run "failure-spread-$(lower "$1")" $(echo_run "$DURATION")) || return 1
   after=$(outcomes_by_pod) || return 1
   echo "  Envoy routing to the processor's $(lower "$1")s, $FAILURE_RATE_USED/s for $DURATION: $line"
+  # A share is of a steady load: a FAIL is counted against the suite with its other pace checks (pace_line).
+  run_rated "failure-spread-$(lower "$1")" || true
   python3 -c 'import sys
 def read(text):
     out = {}
@@ -829,8 +819,7 @@ failure_service() {
     echo "error: with Envoy routing to Services, echo or echo-plain does not answer 200 (above)" >&2
     return 1
   }
-  code=$(kn exec checks -- curl -s -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' \
-    -d '{}' "$EDGE/orders" 2>/dev/null)
+  code=$(edge_posts 1 /orders)
   echo "  with Envoy routing to Services: echo and echo-plain answer 200, the route orders answers $code"
   [ "$code" = 200 ] || { echo "error: with Envoy routing to Services, the route orders answers $code" >&2; return 1; }
   spread Service || return 1

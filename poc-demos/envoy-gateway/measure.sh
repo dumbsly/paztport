@@ -9,17 +9,20 @@
 #   measure.sh --check [--keep] [suite...]              only checks the arguments
 #   measure.sh --reuse [suite...]                       runs the suites on the cluster an earlier --keep run left up
 #
-# It refuses to run while the cluster exists: it makes its own, with envoy-gateway.sh up, and adds the upstream
-# echo and its twin routes (kind/measure.yaml). With --reuse it does the opposite: it refuses unless the cluster
-# exists, makes nothing (the images and out/ are the ones that cluster was made with), adds echo and its twin routes
-# again, and leaves the cluster up at the end, as --keep does; each run has a results directory of its own. Then it
-# runs the suites named, or every one, in the order below, each from the same baseline (measure/common.sh's
-# baseline_reset), and deletes the cluster at the end, unless --keep. What it prints, and each run's files, go to
-# measurements/<UTC time>/, beside out/ and not in it: out/ is material, which material.sh --fresh makes again (and
-# ./run envoy-gateway measure runs it), while a run's results cannot be made again, so nothing here deletes them.
-# Every number is indicative: one kind node on this machine runs Envoy, the processor, the backends and k6 alike.
+# It refuses to run while the cluster exists: it makes its own, with envoy-gateway.sh up, and adds the upstream echo and
+# its twin routes (kind/measure.yaml). With --reuse it does the opposite: it refuses unless the cluster exists, makes
+# nothing (the images and out/ are the ones that cluster was made with), adds echo and its twin routes again, and leaves
+# the cluster up at the end, as --keep does; each run has a results directory of its own, and starts echo again, so that
+# echo's counts are its own and never an earlier run's. Then it runs the suites named, or every one, in the order below,
+# each from the same baseline (measure/common.sh's baseline_reset), and deletes the cluster at the end, unless --keep.
+# What it prints, and each run's files, go to measurements/<UTC time>/, beside out/ and not in it: out/ is material,
+# which material.sh --fresh makes again (and ./run envoy-gateway measure runs it), while a run's results cannot be made
+# again, so nothing here deletes them, but for the private keys in the material its suites made, removed when they end
+# (measure/change.sh's material_keys_remove). Every k6 run is held to its time, and each run that must keep its rate to
+# that rate; each suite ends with a line on its runs' pace (measure/common.sh's pace_line). Every number is indicative:
+# one kind node on this machine runs Envoy, the processor, the backends and k6 alike.
 #
-#   ROUNDS (3), DURATION (20s), WARMUP (10s) and VUS (10) set the runs: see measure/common.sh's alternate.
+#   ROUNDS (3), DURATION (20s) and WARMUP (10s) set the runs: see measure/common.sh's alternate.
 #   LOAD_RATE_SMALL (1000) and LOAD_RATE_LARGE (500) are the requests a second the load suite offers each twin,
 #   with the small and the large body.
 #   CEILING_STAGES_1, CEILING_STAGES_2 and CEILING_STAGES_4 are the ceiling suite's stages, in requests a second,
@@ -53,7 +56,6 @@ self="poc-demos/envoy-gateway/measure.sh"
 ROUNDS="${ROUNDS:-3}"
 DURATION="${DURATION:-20s}"
 WARMUP="${WARMUP:-10s}"
-VUS="${VUS:-10}"
 LOAD_RATE_SMALL="${LOAD_RATE_SMALL:-1000}"
 LOAD_RATE_LARGE="${LOAD_RATE_LARGE:-500}"
 CEILING_STAGES_1="${CEILING_STAGES_1:-2000 4000 6000 7000 8000 9000 10000 12000}"
@@ -160,6 +162,8 @@ finish() {
     echo "== putting back what the suite changed: $UNDO"
     undo
   fi
+  # Whatever the exit, no private key stays in the run's results.
+  material_keys_remove
   rm -rf "$tmp"
   if [ -n "$made" ]; then
     if [ -n "$keep" ]; then
@@ -183,7 +187,7 @@ exec > >(trap '' INT TERM && exec tee "$RUN_DIR/measure.log") 2>&1
 # The log, kept as fd 9 for finish: an interrupt that comes while a function runs with its output redirected (to
 # /dev/null, say) runs finish with that redirection still in place.
 exec 9>&1
-# On macOS, the host must not sleep while a run measures: a run across a sleep measures nothing (run_paced fails it).
+# On macOS, the host must not sleep while a run measures: a run across a sleep measures nothing (run_timed fails it).
 # caffeinate, which macOS has built in, holds the assertion until this shell exits.
 if command -v caffeinate >/dev/null 2>&1; then
   caffeinate -i -w "$$" >/dev/null 2>&1 9>&- &
@@ -212,7 +216,12 @@ install_measure
 failed=""
 for s in $selected; do
   echo ""
-  "suite_$s" || failed+="$s "
+  mark=$(pace_mark)
+  status=0
+  "suite_$s" || status=1
+  # The suite's k6 runs, each held to its time and those that must keep a rate to it: counted against the suite.
+  pace_line "$mark" || status=1
+  [ "$status" -eq 0 ] || failed+="$s "
 done
 echo ""
 if [ -n "$failed" ]; then

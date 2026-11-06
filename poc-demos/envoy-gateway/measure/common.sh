@@ -42,21 +42,51 @@ load_echo_image() {
 }
 
 # install_measure: what the measurements add to the cluster up made: echo in the chart's routes first, then echo,
-# its twin routes and their BackendTrafficPolicy, and k6's script.
+# its twin routes and their BackendTrafficPolicy, echo started again, and k6's script.
 install_measure() {
   quietly "loading the echo image into kind" load_echo_image
   quietly "mapping echo in the chart" measure_chart --wait --timeout 5m
   quietly "applying echo and the twin routes" apply_routes kind/measure.yaml
+  quietly "starting echo again, so that its counts are this run's" echo_restart
   quietly "loading k6's script" apply_files "$NS" configmap k6-edge "edge.js=$here/measure/k6/edge.js"
   quietly "waiting for the twin routes" wait_measure
+}
+
+# echo_restart: echo's pods started again, and its old ones gone, for up to 60 s. echo's counts are its process's,
+# from its start, and a cluster an earlier run kept (measure.sh --reuse) holds that run's: started again, they are
+# this run's alone, and every line on them is this run's.
+echo_restart() {
+  local all live
+  kn rollout restart deployment/echo && kn rollout status deployment/echo --timeout=120s || return 1
+  for _ in $(seq 1 120); do
+    all=$(kn get pods -l app=echo -o name | grep -c . || true)
+    live=$(echo_pod_uids | wc -w | tr -d ' ')
+    [ "$all" -eq "$live" ] && return 0
+    sleep 0.5
+  done
+  echo "error: echo's old pods were still there 60 s after it was started again: $all pods, $live new" >&2
+  return 1
+}
+
+# edge_posts <n> <path> [host]: n POSTs of an empty JSON body to the path through the Gateway, with the Host header
+# given (none by default), from the pod checks, one after another in one kubectl exec; prints each one's status, one
+# a line.
+edge_posts() {
+  # shellcheck disable=SC2016 # the script runs in the pod's shell
+  kn exec checks -- sh -c 'i=0; while [ "$i" -lt "$1" ]; do
+    if [ -n "$4" ]; then
+      curl -s -o /dev/null -w "%{http_code}\n" -X POST -H "host: $4" -H "content-type: application/json" -d "{}" "$2$3"
+    else
+      curl -s -o /dev/null -w "%{http_code}\n" -X POST -H "content-type: application/json" -d "{}" "$2$3"
+    fi
+    i=$((i + 1)); done' sh "$1" "$EDGE" "$2" "${3:-}" 2>/dev/null
 }
 
 # edge_status <host>: the status of one POST /orders through the Gateway for the host, from the pod checks. A 200
 # on a twin's host is a request echo answered, and goes into the tally echo's counts are checked against.
 edge_status() {
   local code
-  code=$(kn exec checks -- curl -s -o /dev/null -w '%{http_code}' -X POST -H "host: $1" \
-    -H 'content-type: application/json' -d '{}' "$EDGE/orders" 2>/dev/null)
+  code=$(edge_posts 1 /orders "$1")
   [ "$code" != 200 ] || echo_tally "$1" 1
   printf '%s' "$code"
 }
@@ -126,16 +156,58 @@ K6_MEMORY=2Gi
 # pull and start.
 K6_MARGIN=120
 
+# How long a finished k6 Job is kept, in seconds, should k6_run not delete it (an interrupt while it waits).
+K6_JOB_TTL=300
+
+# k6_stop: every k6 Job deleted, and its pod with it: a run's own, or one an interrupted run left.
+k6_stop() {
+  kn delete job -l app=k6 --ignore-not-found >/dev/null 2>&1
+}
+
+# k6_running <name>: waits until the pod of the k6 run in the background is running, for up to 300 s; returns 1,
+# saying so, when it is not.
+k6_running() {
+  local phase=""
+  for _ in $(seq 1 300); do
+    phase=$(kn get pods -l "job-name=k6-$1" -o jsonpath='{.items[*].status.phase}' 2>/dev/null)
+    [ "$phase" = Running ] && return 0
+    sleep 1
+  done
+  echo "error: the k6 run $1 did not start (its pod: ${phase:-none})" >&2
+  return 1
+}
+
+# run_wait <pid> <name>: waits for a k6 run in the background (k6_run, its output in $tmp/<name>.line and its
+# errors in $tmp/<name>.err), takes it out of forwards, and prints its errors and then the run; whether it kept its
+# rate (run_rated: such a run is a case under a fault or a change, at a constant rate); and, when k6 dropped
+# requests, that its counts are a lower bound. Returns 1 when the run failed.
+run_wait() {
+  local status dropped
+  wait "$1"
+  status=$?
+  forget "$1"
+  [ ! -s "$tmp/$2.err" ] || sed 's/^/  /' "$tmp/$2.err"
+  [ "$status" -eq 0 ] || return 1
+  printf '  %s: %s\n' "$2" "$(cat "$tmp/$2.line")"
+  # A FAIL is counted against the suite with its other pace checks (pace_line).
+  run_rated "$2" || true
+  dropped=$(sed -n 's/.*"dropped":\([0-9]*\).*/\1/p' "$tmp/$2.line")
+  if [ "${dropped:-0}" -gt 0 ]; then
+    echo "  k6 had no free user for $dropped of the requests it was to send, so they were never sent: every count" \
+      "of $2, the errors' included, is a lower bound set by k6's pool"
+  fi
+}
+
 # k6_run <name> <VAR=value>...: runs measure/k6/edge.js in the Job k6-<name>, with the settings given (the last of
 # a name wins), and waits for it, for the run's length and K6_MARGIN more; prints its RESULT line, writes its FAIL
 # lines to $RUN_DIR/<name>.fails, the expected status and the RESULT line to $RUN_DIR/<name>.result, and its WINDOW
-# line to $RUN_DIR/<name>.window (for window and timeline), adds the 200s on a twin's host to echo's tally, and
-# deletes the Job. Returns 1, with what it saw, when the run timed out (or its pod never started) or printed no
-# RESULT line. Warns, without failing, when the Job failed though k6 printed a RESULT line, and when the RESULT's
-# statuses, or the WINDOW's seconds, do not sum to its requests.
+# line to $RUN_DIR/<name>.window (for window and timeline), holds the run to its time (run_timed), adds the 200s on
+# a twin's host to echo's tally, and deletes the Job. Returns 1, with what it saw, when the run timed out (or its
+# pod never started) or printed no RESULT line. Warns, without failing, when the Job failed though k6 printed a
+# RESULT line, and when the RESULT's statuses, or the WINDOW's seconds, do not sum to its requests.
 k6_run() {
   local name="$1" job="k6-$1" kv later seen env="" log state i j expect=200 result duration="" stages="" host="" rate=""
-  local wait phase
+  local length wait phase
   shift
   local vars=("$@")
   for ((i = 0; i < ${#vars[@]}; i++)); do
@@ -166,6 +238,7 @@ metadata:
   labels: {app: k6}
 spec:
   backoffLimit: 0
+  ttlSecondsAfterFinished: $K6_JOB_TTL
   template:
     metadata:
       labels: {app: k6}
@@ -198,8 +271,8 @@ $env          resources:
         - name: tmp
           emptyDir: {}
 EOF
-  wait=$(run_seconds "$duration" "$stages") || return 1
-  wait=$((wait + K6_MARGIN))
+  length=$(run_seconds "$duration" "$stages") || return 1
+  wait=$((length + K6_MARGIN))
   state=""
   for _ in $(seq 1 "$wait"); do
     state=$(kn get job "$job" -o jsonpath='{.status.succeeded}/{.status.failed}' 2>/dev/null)
@@ -212,8 +285,10 @@ EOF
       phase=$(kn get pods -l "job-name=$job" \
         -o jsonpath='{range .items[*]}{.status.phase} {.status.conditions[?(@.type=="PodScheduled")].reason}{end}')
       case "$phase" in
-        "" | Pending*) echo "error: the k6 run $name timed out after $wait s: its pod never started (${phase:-no pod})" >&2 ;;
-        *) echo "error: the k6 run $name timed out after $wait s, its pod ${phase% }; its last output:" >&2
+        "" | Pending*)
+          echo "error: the k6 run $name timed out after $wait s: its pod never started (${phase:-no pod})" >&2 ;;
+        *)
+          echo "error: the k6 run $name timed out after $wait s, its pod ${phase% }; its last output:" >&2
           kn logs "job/$job" 2>&1 | tail -n 20 >&2 ;;
       esac
       kn delete job "$job" --wait=false >/dev/null 2>&1
@@ -248,59 +323,123 @@ else:
         print("warning: the k6 run %s: its WINDOW counts %d responses, not its %d requests" % (sys.argv[1], seconds,
               r["reqs"]))' "$name" "$result" "$(cat "$RUN_DIR/$name.window")" >&2
   printf '%s %s\n' "$expect" "$result" >"$RUN_DIR/$name.result"
-  # An open-model run's plan, its rate and length in seconds, for run_paced.
+  # An open-model run's plan, its rate and length in seconds, for run_rated.
   if [ -n "$rate" ] && [ -n "$duration" ]; then
-    printf '%s %s\n' "$rate" "$(run_seconds "$duration" "")" >"$RUN_DIR/$name.plan"
+    printf '%s %s\n' "$rate" "$length" >"$RUN_DIR/$name.plan"
   fi
+  # A FAIL goes to stderr, beside the run's own errors: the RESULT line alone is the run's output.
+  [ -z "$duration$stages" ] || run_timed "$name" "$length" >&2
   [ -z "$host" ] || echo_tally "$host" "$(printf '%s' "$result" | sed -n 's/.*"200":\([0-9]*\).*/\1/p')"
   printf '%s\n' "$result"
 }
 
-# The seconds past a run's length and edge.js's gracefulStop (15 s) that its summary may come before run_paced takes
+# The seconds past a run's length and edge.js's gracefulStop (15 s) that its summary may come before run_timed takes
 # it for a run the host held up.
 PACE_SLACK=10
 
-# run_paced <name>: the behavioural line that an open-model run (one k6_run gave a RATE and a DURATION) ran at its
-# pace: k6 achieved its offered rate, within 2% and with no request dropped (the rule summary.py's rate check
-# applies to the warm-ups), and its summary came no later than its length, the gracefulStop and PACE_SLACK seconds
-# after it began, by k6's clock. A host that stalled or slept (a laptop's idle sleep, say) does neither: k6 sends
-# nothing while it is held, and the run's numbers are not of the load it was given, so they say nothing of the edge.
-# Returns 1 on FAIL; prints nothing for a run without a plan.
-run_paced() {
+# The pace checks of this run's k6 runs, one a line, in $RUN_DIR/pace: "<name> time PASS|FAIL <seconds past its
+# length>" for every run of known length (run_timed), and "<name> rate PASS|FAIL" for every run that must keep its
+# offered rate (run_rated). measure.sh holds each suite to the checks its runs added (pace_line).
+
+# run_timed <name> <length>: the check that a k6 run kept to its time: its summary came no later than its length,
+# the gracefulStop and PACE_SLACK seconds after it began, by k6's clock. A host that stalled or slept (a laptop's
+# idle sleep, say) holds k6 up with the rest, and the run's numbers are then not of the load it was given, whatever
+# its own rate says, as k6 sends nothing while it is held. Prints a FAIL line, and returns 1, for a run held up, or
+# one whose WINDOW line gives no time; prints nothing for a run that kept to it. Every run of known length takes it.
+run_timed() {
+  python3 -c 'import json, sys
+run, secs, slack = sys.argv[1], float(sys.argv[2]), float(sys.argv[3])
+name = run.rsplit("/", 1)[1]
+try:
+    w = json.loads(open(run + ".window").read()[len("WINDOW "):])
+except (OSError, ValueError):
+    w = {}
+wall = (w["end"] - w["t0"]) / 1000 if w.get("end") and w.get("t0") else None
+past = None if wall is None else wall - secs
+held = wall is None or past - 15 > slack
+with open(run.rsplit("/", 1)[0] + "/pace", "a") as f:
+    f.write("%s time %s %s\n" % (name, "FAIL" if held else "PASS", "-" if past is None else "%.1f" % past))
+if held:
+    print("  FAIL %s kept to its time: its summary came %s, for a run of %gs: more than the gracefulStop (15 s)"
+          " and %g s past its length, so the host stalled or slept, and this run'"'"'s numbers are not of the load it"
+          " was given" % (name, "at no known time" if wall is None else "%.1f s after it began" % wall, secs,
+                          slack))
+    sys.exit(1)' "$RUN_DIR/$1" "$2" "$PACE_SLACK"
+}
+
+# run_rated <name>: the behavioural line that an open-model run (one k6_run gave a RATE and a DURATION) kept to its
+# offered rate: k6 achieved it within 2%, with no request dropped (the rule summary.py's rate check applies to the
+# warm-ups). Only a run that must keep its rate takes it: an alternated round, a steady run, a case under a fault or
+# a change; a ceiling, saturation, ramp or overload stage measures what is achieved, and does not. Returns 1 on FAIL;
+# prints nothing for a run without a plan.
+run_rated() {
   [ -f "$RUN_DIR/$1.plan" ] || return 0
   python3 -c 'import json, sys
 run = sys.argv[1]
-rate, secs = (float(x) for x in open(run + ".plan").read().split())
+rate = float(open(run + ".plan").read().split()[0])
 r = json.loads(open(run + ".result").read().strip().partition(" ")[2][len("RESULT "):])
-w = json.loads(open(run + ".window").read()[len("WINDOW "):])
-name, slack = run.rsplit("/", 1)[1], float(sys.argv[2])
+name = run.rsplit("/", 1)[1]
 off = (r["rps"] - rate) / rate * 100
 kept = abs(off) <= 2 and r["dropped"] == 0
-wall = (w["end"] - w["t0"]) / 1000 if w.get("end") and w.get("t0") else None
-gap = None if wall is None else wall - secs - 15
-held = wall is None or gap > slack
-said = "%.1f/s achieved of %g/s offered (%+.1f%%), %d dropped; its summary came %s after it began, for a run of" \
-    " %gs" % (r["rps"], rate, off, r["dropped"], "?" if wall is None else "%.1f s" % wall, secs)
-if kept and not held:
-    print("  PASS %s ran at its pace: %s" % (name, said))
+with open(run.rsplit("/", 1)[0] + "/pace", "a") as f:
+    f.write("%s rate %s\n" % (name, "PASS" if kept else "FAIL"))
+said = "%.1f/s achieved of %g/s offered (%+.1f%%), %d dropped" % (r["rps"], rate, off, r["dropped"])
+if kept:
+    print("  PASS %s kept its rate: %s" % (name, said))
+    sys.exit(0)
+print("  FAIL %s kept its rate: %s: k6 did not keep to it (the host stalled, or k6 ran short of users), so this"
+      " run'"'"'s numbers are not of a steady load at that rate" % (name, said))
+sys.exit(1)' "$RUN_DIR/$1"
+}
+
+# pace_mark: how many pace checks this run has recorded so far, for pace_line.
+pace_mark() {
+  if [ -f "$RUN_DIR/pace" ]; then grep -c . "$RUN_DIR/pace" || true; else echo 0; fi
+}
+
+# pace_line <mark>: the behavioural line on a suite's k6 runs, from the pace checks recorded after mark (pace_mark,
+# before the suite): every run of known length kept to its time, and every run that must keep its rate kept it.
+# Returns 1 on FAIL; says so, with no line, for a suite that ran no k6 run.
+pace_line() {
+  python3 -c 'import sys
+checks = []
+try:
+    with open(sys.argv[1]) as f:
+        checks = [line.split() for line in f if line.strip()][int(sys.argv[2]):]
+except OSError:
+    pass
+timed = [c for c in checks if c[1] == "time"]
+rated = [c for c in checks if c[1] == "rate"]
+if not checks:
+    print("  no k6 run in the suite, so no line on their pace")
+    sys.exit(0)
+late = [c[0] for c in timed if c[2] != "PASS"]
+missed = [c[0] for c in rated if c[2] != "PASS"]
+past = [float(c[3]) for c in timed if c[3] != "-"]
+if not late and not missed and timed:
+    print("  PASS the suite'"'"'s k6 runs kept their pace: each of its %d runs kept to its time (the latest summary"
+          " %.1f s after its run'"'"'s length), and %s" % (
+              len(timed), max(past), "each of the %d that must keep its rate kept it" % len(rated) if rated
+              else "none of them must keep a rate (each measures what it achieves)"))
     sys.exit(0)
 why = []
-if not kept:
-    why.append("k6 did not keep to its rate")
-if held:
-    why.append("its summary came %s past its length and gracefulStop" % ("at no known time" if wall is None
-                                                                          else "%.1f s" % gap))
-print("  FAIL %s ran at its pace: %s; %s: the host stalled or slept (or k6 ran short of users), so this run'"'"'s"
-      " numbers are not of a steady load" % (name, said, " and ".join(why)))
-sys.exit(1)' "$RUN_DIR/$1" "$PACE_SLACK"
+if not timed:
+    why.append("no run of known length was held to its time")
+if late:
+    why.append("%d of %d ran past their time (%s)" % (len(late), len(timed), ", ".join(late[:5])))
+if missed:
+    why.append("%d of %d missed their rate (%s)" % (len(missed), len(rated), ", ".join(missed[:5])))
+print("  FAIL the suite'"'"'s k6 runs kept their pace: %s, so their numbers are not of the load they were given"
+      % "; ".join(why))
+sys.exit(1)' "$RUN_DIR/pace" "$1"
 }
 
 # alternate <name> <labelA> <setupA> <labelB> <setupB> <VAR=value>...: compares two setups like for like. Each
 # setup is a command, evaluated before each run of its label, that may set RUN_VARS (an array) to that label's own
 # k6 settings. First a warm-up of each label (WARMUP long, discarded; none when WARMUP is 0, for setups that warm
-# up themselves); then ROUNDS rounds of one run of each
-# (DURATION long), the leading label alternating from round to round. Prints each run, then summary.py's medians,
-# spread and what B adds to A.
+# up themselves); then ROUNDS rounds of one run of each (DURATION long), the leading label alternating from round to
+# round. Prints each run, and whether it kept its rate (run_rated: a comparison is of two sides at the same load), then
+# summary.py's medians, spread and what B adds to A.
 alternate() {
   local name="$1" la="$2" sa="$3" lb="$4" sb="$5" round label setup line order
   shift 5
@@ -323,6 +462,8 @@ alternate() {
       eval "$setup" || return 1
       line=$(k6_run "$name-$label-r$round" "$@" ${RUN_VARS[@]+"${RUN_VARS[@]}"}) || return 1
       printf '  round %-2s %-8s %s\n' "$round" "$label" "$line"
+      # A FAIL is counted against the suite with its other pace checks (pace_line).
+      run_rated "$name-$label-r$round" || true
       printf '%s %s\n' "$label" "$line" >>"$runs"
     done
   done
@@ -339,7 +480,8 @@ window() {
 # live_pods <selector>: the pods the selector picks that are running and not being deleted, one a line.
 live_pods() {
   kn get pods -l "$1" --field-selector=status.phase=Running \
-    -o jsonpath='{range .items[*]}{.metadata.name} {.metadata.deletionTimestamp}{"\n"}{end}' | awk 'NF == 1 { print $1 }'
+    -o jsonpath='{range .items[*]}{.metadata.name} {.metadata.deletionTimestamp}{"\n"}{end}' |
+    awk 'NF == 1 { print $1 }'
 }
 
 processor_pods() {
@@ -475,15 +617,16 @@ fail_open() {
 
 # The files each pod mounts from out/, as "<volume>/<file>=<path in out/>", and the volumes they are in.
 ORDERS_FILES="keys/orders.key=keys/orders.key keys/keyring.json=keys/keyring.json keys/policy.pub=keys/policy.pub
-  policy/root.json=policy/root.json policy/proofs-orders.json=policy/proofs-orders.json tls/orders.crt=keys/tls/orders.crt
-  tls/orders.key=keys/tls/orders.key tls/ca.crt=keys/tls/ca.crt"
+  policy/root.json=policy/root.json policy/proofs-orders.json=policy/proofs-orders.json
+  tls/orders.crt=keys/tls/orders.crt tls/orders.key=keys/tls/orders.key tls/ca.crt=keys/tls/ca.crt"
 PAYMENT_FILES="keys/payment.key=keys/payment.key keys/keyring.json=keys/keyring.json keys/policy.pub=keys/policy.pub
   policy/root.json=policy/root.json tls/payment.crt=keys/tls/payment.crt tls/payment.key=keys/tls/payment.key
   tls/ca.crt=keys/tls/ca.crt"
 # routes.txt, in the processor's policy volume, is the chart's own, not material.
 PROCESSOR_FILES="key/edge.key=keys/edge.key tls/tls.crt=keys/tls/paztport-processor.crt
   tls/tls.key=keys/tls/paztport-processor.key ca/ca.crt=keys/tls/ca.crt policy/policy.pub=keys/policy.pub
-  policy/keyring-0.json=keys/keyring.json policy/root-0.json=policy/root.json policy/proofs-edge.json=policy/proofs-edge.json"
+  policy/keyring-0.json=keys/keyring.json policy/root-0.json=policy/root.json
+  policy/proofs-edge.json=policy/proofs-edge.json"
 
 # mounted <pod> <volume>...: "<sha256>  <volume>/<file>" for each file in the pod's volumes of those names, as the
 # node holds them, but routes.txt.
@@ -535,7 +678,8 @@ material_matches() {
       if [ "$got" != "$want" ]; then
         bad=$((bad + 1))
         echo "error: the pod $pod mounts material that is not out/'s:" >&2
-        diff <(printf '%s\n' "$want") <(printf '%s\n' "$got") | sed -n 's/^</  out\/ has:   /p; s/^>/  pod has:    /p' >&2
+        diff <(printf '%s\n' "$want") <(printf '%s\n' "$got") |
+          sed -n 's/^</  out\/ has:   /p; s/^>/  pod has:    /p' >&2
       fi
     done
   done
@@ -543,20 +687,21 @@ material_matches() {
 }
 
 # baseline_reset: puts the cluster back as every suite starts from it, and prints that state. No processor pod has a
-# netem queue (cleared first of all, since a delayed pod may not be ready, and every wait would then time out); any
-# HTTPRoute but orders, orders-unmapped, echo and echo-plain is taken off the Gateway, first, so that no route the chart
-# then stops mapping is ever served without the processor, and any BackendTrafficPolicy but theirs and any
-# BackendTLSPolicy but orders' and the processor's deleted; then the chart is the measurements' (two replicas, the
-# autoscaler off, out/'s material), the routes, echo and its twin routes and the backends are as their files have them
-# (enforce mode, out/'s material, their replicas, scaled back if a suite left another count, and no environment variable
-# the file does not set: the run stops on one), everything is ready, a suite's own material objects are deleted, and
-# Envoy routes to endpoints, its default (a routingType a suite set is removed, and the wait made again). A step that
-# fails stops the whole run, and so does an EnvoyExtensionPolicy that fails open, or material in any pod that is not
-# out/'s: a suite that broke must not leave the next one measuring something else. Nothing is rolled when nothing
-# changed.
+# netem queue (cleared first of all, since a delayed pod may not be ready, and every wait would then time out); no k6
+# Job is left (one an interrupted run left would load the node through the next suite's runs); any HTTPRoute but orders,
+# orders-unmapped, echo and echo-plain is taken off the Gateway, first, so that no route the chart then stops mapping is
+# ever served without the processor, and any BackendTrafficPolicy but theirs and any BackendTLSPolicy but orders' and
+# the processor's deleted; then the chart is the measurements' (two replicas, the autoscaler off, out/'s material), the
+# routes, echo and its twin routes and the backends are as their files have them (enforce mode, out/'s material, their
+# replicas, scaled back if a suite left another count, and no environment variable the file does not set: the run stops
+# on one), everything is ready, a suite's own material objects are deleted, and Envoy routes to endpoints, its default
+# (a routingType a suite set is removed, and the wait made again). A step that fails stops the whole run, and so does an
+# EnvoyExtensionPolicy that fails open, or material in any pod that is not out/'s: a suite that broke must not leave the
+# next one measuring something else. Nothing is rolled when nothing changed.
 baseline_reset() {
   local route policy name netem modes hpa replicas routes routing object replicas_back
   netem=$(netem_clear) || { echo "error: could not read or clear the processor pods' queues" >&2; exit 1; }
+  quietly "deleting any k6 Job left" k6_stop
   for route in $(kn get httproutes -o name); do
     name="${route#*/}"
     case " $BASE_ROUTES " in
@@ -606,8 +751,8 @@ baseline_reset() {
     echo "error: the processor's EnvoyExtensionPolicy has failOpen $(fail_open), not the chart's false; stopping" >&2
     exit 1
   fi
-  modes=$(kn get deployment orders payment \
-    -o jsonpath='{range .items[*]}{.metadata.name}={.spec.template.spec.containers[0].env[?(@.name=="PAZTPORT_MODE")].value} {end}')
+  local mode='{.spec.template.spec.containers[0].env[?(@.name=="PAZTPORT_MODE")].value}'
+  modes=$(kn get deployment orders payment -o jsonpath="{range .items[*]}{.metadata.name}=$mode {end}")
   hpa=$(kn get hpa -o name | grep -c . || true)
   replicas=$(kn get deployment paztport-processor -o jsonpath='{.status.readyReplicas}/{.spec.replicas}')
   routes=$(kn get httproutes -o jsonpath='{.items[*].metadata.name}')
@@ -618,12 +763,10 @@ baseline_reset() {
     "in $MATERIAL_PODS pods"
 }
 
-# backends_replicas_back: orders and payment scaled back to the replicas kind/backends.yaml gives them, where a suite
-# left them at another count (the gotchas suite scales payment to 0), and their rollouts waited for. Prints each
-# one's replicas, and which were scaled back from what.
-backends_replicas_back() {
-  local want d n got said="" back=""
-  want=$(k create --dry-run=client -o json -f kind/backends.yaml | python3 -c 'import json, sys
+# json_items: the objects of kubectl's JSON on stdin, one document or several (as kubectl create -o json writes a
+# file of many), a List's items in its place, as one JSON array.
+json_items() {
+  python3 -c 'import json, sys
 text, docs, at = sys.stdin.read(), [], 0
 decoder = json.JSONDecoder()
 while text[at:].strip():
@@ -631,7 +774,16 @@ while text[at:].strip():
         at += 1
     doc, at = decoder.raw_decode(text, at)
     docs += doc.get("items", [doc]) if doc.get("kind") == "List" else [doc]
-for d in docs:
+json.dump(docs, sys.stdout)'
+}
+
+# backends_replicas_back: orders and payment scaled back to the replicas kind/backends.yaml gives them, where a suite
+# left them at another count (the gotchas suite scales payment to 0), and their rollouts waited for. Prints each
+# one's replicas, and which were scaled back from what.
+backends_replicas_back() {
+  local want d n got said="" back=""
+  want=$(k create --dry-run=client -o json -f kind/backends.yaml | json_items | python3 -c 'import json, sys
+for d in json.load(sys.stdin):
     if d.get("kind") == "Deployment" and d["metadata"]["name"] in ("orders", "payment"):
         print(d["metadata"]["name"], d["spec"].get("replicas", 1))') && [ -n "$want" ] || return 1
   while read -r d n; do
@@ -676,11 +828,13 @@ echo_sent() {
 # A suite's undo: one command that puts back what the suite changed in the cluster (its replicas, say). The suite
 # sets UNDO when it makes the change and runs undo when it is done with it, on its error paths as well; measure.sh's
 # finish runs it on any other exit (an interrupt, or a step that stops the whole run) while the cluster is kept.
+# UNDO is cleared once the command has run, not before: an interrupt while it runs leaves it for finish to run again.
 UNDO=""
 undo() {
-  local cmd="$UNDO"
+  local status=0
+  [ -z "$UNDO" ] || eval "$UNDO" || status=$?
   UNDO=""
-  [ -z "$cmd" ] || eval "$cmd"
+  return "$status"
 }
 
 # processor_replicas <n>: the chart as the measurements run it, but with n processor replicas, and waits until n
@@ -871,18 +1025,11 @@ backends_env() {
   else
     json=$(kn get deployment orders payment -o json) || return 1
   fi
-  python3 -c 'import json, sys
-text, docs, at = sys.stdin.read(), [], 0
-decoder = json.JSONDecoder()
-while text[at:].strip():
-    while text[at].isspace():
-        at += 1
-    doc, at = decoder.raw_decode(text, at)
-    docs += doc.get("items", [doc]) if doc.get("kind") == "List" else [doc]
-for d in docs:
+  json_items <<<"$json" | python3 -c 'import json, sys
+for d in json.load(sys.stdin):
     if d.get("kind") == "Deployment" and d["metadata"]["name"] in ("orders", "payment"):
         for e in d["spec"]["template"]["spec"]["containers"][0].get("env", []):
-            print("%s %s=%s" % (d["metadata"]["name"], e["name"], e.get("value", "")))' <<<"$json"
+            print("%s %s=%s" % (d["metadata"]["name"], e["name"], e.get("value", "")))'
 }
 
 # backends_env_matches: whether orders and payment run exactly kind/backends.yaml's environment; prints what
@@ -898,11 +1045,12 @@ backends_env_matches() {
   return 1
 }
 
-# echo_unstamped: the behavioural lines at the end of a suite on the twins: echo's counts could be read from every
-# pod; echo saw no request without a stamp, and echo-plain none with one; and, for each twin, echo counted no fewer
-# requests than it answered 200 through the Gateway by the tally (k6's runs and the waits' probes, since echo's
-# pods started). It may count more: a request it answered whose response never came back as a 200 (a client
-# timeout, a reset) is in its count and not in the tally. Returns 1 if any line is FAIL.
+# echo_unstamped: the behavioural lines at the end of a suite on the twins: echo's counts could be read from every pod;
+# echo saw no request without a stamp, and echo-plain none with one; and, for each twin, echo counted no fewer requests
+# than it answered 200 through the Gateway by the tally (k6's runs and the waits' probes, since echo's pods started,
+# which is within this run: install_measure starts echo again). It may count more: a request it answered whose response
+# never came back as a 200 (a client timeout, a reset) is in its count and not in the tally. Returns 1 if any line is
+# FAIL.
 echo_unstamped() {
   local counts e_stamped e_unstamped p_stamped p_unstamped ok=0 host counted sent
   if ! counts=$(echo_counts); then
@@ -969,6 +1117,12 @@ POOL_SECONDS=0.1
 pool() {
   awk -v r="$1" -v s="$POOL_SECONDS" -v p="${2:-$CEILING_PREALLOC}" \
     'BEGIN { n = int(r * s + 0.5); printf "%d", (n > p ? n : p) }'
+}
+
+# held_pool <rate> <seconds>: the users k6 holds for a run offered rate requests a second whose requests may each be
+# held that long: rate x seconds, and pool's at least.
+held_pool() {
+  pool "$1" "$(awk -v r="$1" -v s="$2" 'BEGIN { printf "%d", r * s + 0.5 }')"
 }
 
 # orders_rate <setting> <value>: sets ORDERS_RATE_USED, the requests a second a suite offers the route orders, and
@@ -1052,6 +1206,21 @@ for (app, series), n in sorted(after.items()):
 print("  reasons other than OK: " + ("; ".join(bad) if bad else "none"))' "$1" "$2"
 }
 
+# orders_decided <before> <after>: what orders decided between two readings of backend_reasons, by reason, from its
+# request counters: "<reason> <n>" a line, sorted, for each reason it counted more of.
+orders_decided() {
+  python3 -c 'import collections, re, sys
+def read(text):
+    out = collections.Counter()
+    for line in text.splitlines():
+        app, series, count = line.split()
+        if app == "orders" and series.startswith("paztport_request"):
+            out[dict(re.findall(r"(\w+)=\"([^\"]*)\"", series)).get("reason", "?")] += int(count)
+    return out
+for reason, n in sorted((read(sys.argv[2]) - read(sys.argv[1])).items()):
+    print(reason, n)' "$1" "$2"
+}
+
 # orders_counted <before> <n>: backend_reasons, read again for up to 5 s until orders' request counters have added
 # n since before: orders counts a request once its response is done, a moment after the client has it.
 orders_counted() {
@@ -1066,6 +1235,30 @@ sys.exit(0 if total(sys.argv[2]) - total(sys.argv[1]) >= int(sys.argv[3]) else 1
     sleep 0.5
   done
   printf '%s\n' "$after"
+}
+
+# orders_traces <since> [by-pod]: orders' trace lines for the requests it received since the time (UTC, to the second,
+# as 2026-01-02T03:04:05), from the log files the kind node keeps for every orders pod running: every container's, one
+# killed included, and the files the kubelet rotated (past 10 MiB) as well as the current one, which is all kubectl
+# logs would read. "PAZTPORT_TRACE request rid=<rid> reason=<reason> ..." a line, as the node's file holds it ("<time>
+# stdout F PAZTPORT_TRACE ..."), each after its pod's name with by-pod. Returns 1, saying which, when a pod's log
+# files could not be read.
+orders_traces() {
+  local pod uid logs="$tmp/orders-logs"
+  for pod in $(live_pods app=orders); do
+    uid=$(kn get pod "$pod" -o jsonpath='{.metadata.uid}') || return 1
+    # shellcheck disable=SC2016 # the script runs in the node's shell
+    docker exec "$(node_container)" sh -c 'cd "/var/log/pods/$1_$2_$3/orders" || exit 1
+      for f in *; do case "$f" in *.gz) zcat "$f" ;; *) cat "$f" ;; esac || exit 1; done' sh "$NS" "$pod" "$uid" \
+      >"$logs" || {
+      echo "error: could not read the log files of orders' pod $pod on the node" >&2
+      rm -f "$logs"
+      return 1
+    }
+    awk -v s="$1" -v p="$([ "${2:-}" = by-pod ] && printf '%s ' "$pod")" \
+      'substr($1, 1, 19) >= s && index($0, "PAZTPORT_TRACE request") { print p $0 }' "$logs"
+  done
+  rm -f "$logs"
 }
 
 # processor_settled: until every processor pod is running and none is being deleted, and Envoy's cluster for the

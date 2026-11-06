@@ -116,6 +116,16 @@ material_refuses_empty() {
   material_refuses 'is empty' '' && material_refuses 'is empty' --fresh ''
 }
 
+# measure_reuse_refused: with only the basic tools on PATH, ./run envoy-gateway measure --reuse exits 2 before it
+# checks for anything, naming measure.sh --reuse, which runs on a kept cluster.
+measure_reuse_refused() {
+  local bin out status
+  bin="$(basic_tools)"
+  out="$(PATH="$bin" "$bin/bash" "$repo/run" envoy-gateway measure --reuse load 2>&1)"; status=$?
+  rm -rf "$bin"
+  [ "$status" -eq 2 ] && grep -qF "measure.sh --reuse" <<<"$out" && [ "$(wc -l <<<"$out")" -eq 1 ]
+}
+
 no_argument_prints_usage() {
   "$repo/run" | grep -q "Usage"
 }
@@ -153,6 +163,7 @@ check "envoy-gateway with a kubectl below 1.35 prints one 'missing: kubectl' lin
 check "envoy-gateway measure -h prints usage" help_after "envoy-gateway measure"
 check "envoy-gateway measure without python3 prints one 'missing: python3' line and exits 1" \
   envoy_missing -measure python3 "Client Version: v1.36.0" "v4.2.0"
+check "envoy-gateway measure --reuse is refused, pointing at measure.sh --reuse" measure_reuse_refused
 check "material.sh will not write over an existing directory" material_refuses "exists; the cluster's keys" taken
 check "material.sh will not take an empty directory name, with or without --fresh" material_refuses_empty
 check "material.sh --fresh will not delete /" material_refuses "will not delete" --fresh /

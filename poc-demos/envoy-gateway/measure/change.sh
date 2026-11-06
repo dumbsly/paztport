@@ -39,7 +39,8 @@
 # out/policy are never written, and the suite shows they are unchanged. A rebuild also re-signs the copy's keyring,
 # which no pod mounts. The pods are given the new files through the ConfigMap measure-policy and the Secret
 # measure-edge-key, which kind/backends.yaml's Deployments are applied with as extra files and variables, and the
-# chart as values.
+# chart as values. When the suite ends, on any exit, the copy's private keys (the policy key, and the rotated
+# edge.next.key) are removed from it (material_keys_remove); its public files stay with the run's results.
 #
 # Every change is undone by change_undo: between the route suite's changes, at the end of each suite, when a step
 # fails, and, through measure.sh's finish, on any other exit (an interrupt included) while the cluster is kept: the
@@ -145,6 +146,25 @@ change_material() {
   echo "  the suite's material: ${dir#"$repo"/}, from a copy of out/keys' policy.key and keyring.json"
 }
 
+# material_keys_remove: every private key (a .key file) in this run's material copies, under $RUN_DIR/material/,
+# removed, and said; the public files (roots, bundles, keyrings and paths.yaml) are kept, as what a reader of the
+# results needs. A suite that made material runs it when it ends, and measure.sh's finish on any exit. It deletes
+# nothing outside that directory: it walks it without following a link, and removes only the regular files found
+# there, each by its path under it.
+material_keys_remove() {
+  local dir="$RUN_DIR/material" f removed=""
+  case "$RUN_DIR" in "$here"/measurements/?*) ;; *) return 0 ;; esac
+  [ -d "$dir" ] && [ ! -L "$dir" ] || return 0
+  find "$dir" -type f -name '*.key' >"$tmp/material-keys" || return 1
+  while IFS= read -r f; do
+    case "$f" in "$dir"/*) ;; *) continue ;; esac
+    [ -f "$f" ] && [ ! -L "$f" ] || continue
+    rm -f -- "$f" && removed+=" ${f#"$dir"/}"
+  done <"$tmp/material-keys"
+  rm -f "$tmp/material-keys"
+  [ -z "$removed" ] || echo "  the private keys removed from this run's material copies, the public files kept:$removed"
+}
+
 # policy_tool <args...>: the repository's policy tool, on PAZTPORT_JAVA (or java on the PATH), with none of the
 # variables that would make it renew, rotate or write a reply certificate unless the args say so.
 policy_tool() {
@@ -181,15 +201,8 @@ rebuild() {
 backend_set() {
   local json
   json=$(k create --dry-run=client -o json -f kind/backends.yaml) || return 1
-  python3 -c 'import json, sys
-text, docs, at = sys.stdin.read(), [], 0
-decoder = json.JSONDecoder()
-while text[at:].strip():
-    while text[at].isspace():
-        at += 1
-    doc, at = decoder.raw_decode(text, at)
-    docs += doc.get("items", [doc]) if doc.get("kind") == "List" else [doc]
-d = [x for x in docs if x.get("kind") == "Deployment" and x["metadata"]["name"] == sys.argv[1]][0]
+  json_items <<<"$json" | python3 -c 'import json, sys
+d = [x for x in json.load(sys.stdin) if x.get("kind") == "Deployment" and x["metadata"]["name"] == sys.argv[1]][0]
 spec = d["spec"]["template"]["spec"]
 container = spec["containers"][0]
 for change in sys.argv[2:]:
@@ -201,7 +214,7 @@ for change in sys.argv[2:]:
     else:
         name, _, value = change.partition("=")
         container["env"] = [e for e in container["env"] if e["name"] != name] + [{"name": name, "value": value}]
-print(json.dumps(d))' "$@" <<<"$json" | k apply -f - >/dev/null
+print(json.dumps(d))' "$@" | k apply -f - >/dev/null
 }
 
 # rolled_out <deployment>...: waits for each one's rollout, until no old replica is counted.
@@ -463,16 +476,9 @@ logs_end() {
   return "$ok"
 }
 
-# k6_started <name>: waits until the run's pod runs, for up to 300 s; records the event.
+# k6_started <name>: waits until the run's pod runs, for up to 300 s (k6_running); records the event.
 k6_started() {
-  local phase=""
-  for _ in $(seq 1 300); do
-    phase=$(kn get pods -l "job-name=k6-$1" -o jsonpath='{.items[*].status.phase}' 2>/dev/null)
-    [ "$phase" = Running ] && break
-    sleep 1
-  done
-  [ "$phase" = Running ] || { echo "error: the k6 run $1 did not start (its pod: ${phase:-none})" >&2; return 1; }
-  event "k6's run $1 running"
+  k6_running "$1" && event "k6's run $1 running"
 }
 
 # step_begin <case> <duration> [<new route's settings>...]: a discarded warm-up on orders, ramped to the step's rate
@@ -488,8 +494,7 @@ step_begin() {
   shift 2
   NEW_CASE=""
   : >"$RUN_DIR/$CASE.events"
-  users=$(awk -v r="$CHANGE_RATE_USED" -v s="$CHANGE_POOL_SECONDS" 'BEGIN { printf "%d", r * s }')
-  users=$(pool "$CHANGE_RATE_USED" "$users")
+  users=$(held_pool "$CHANGE_RATE_USED" "$CHANGE_POOL_SECONDS")
   line=$(k6_run "$CASE-ramp" TARGET="$EDGE/orders" ${STEP_VARS[@]+"${STEP_VARS[@]}"} BODY=small EXECUTOR=ramp \
     PREALLOC="$users" STAGES="[{\"target\": $CHANGE_RATE_USED, \"duration\": \"$CHANGE_RAMP\"}]") || return 1
   echo "  warm-up on orders, ramped to $CHANGE_RATE_USED/s over $CHANGE_RAMP (discarded): $line"
@@ -549,23 +554,6 @@ step_new_route() {
   }
   NEW_ROUTE=new
   new_run "${left}s" "$@" && sleep "$CHANGE_NEW_LEAD"
-}
-
-# run_done <pid> <name>: waits for a run, and prints it; returns 1 when it failed.
-run_done() {
-  local status dropped
-  wait "$1"
-  status=$?
-  forget "$1"
-  [ ! -s "$tmp/$2.err" ] || sed 's/^/  /' "$tmp/$2.err"
-  [ "$status" -eq 0 ] || return 1
-  printf '  %s: %s\n' "$2" "$(cat "$tmp/$2.line")"
-  run_paced "$2" || CHANGE_FAILS=$((CHANGE_FAILS + 1))
-  dropped=$(sed -n 's/.*"dropped":\([0-9]*\).*/\1/p' "$tmp/$2.line")
-  if [ "${dropped:-0}" -gt 0 ]; then
-    echo "  k6 had no free user for $dropped of the requests it was to send, so they were never sent: every count" \
-      "of $2, the errors' included, is a lower bound set by k6's pool"
-  fi
 }
 
 # new_route_window <name> new|exists: a new route's run. With new (the run began before its route was applied), its
@@ -724,10 +712,10 @@ sys.exit(bad)' "$tmp/logs" "$1" "$2" "$3" "$RUN_DIR/$CASE.reasons" "$STEP_SINCE"
 # orders but its tail; counts each FAIL line.
 step_end() {
   local status=0 whole=0 to_orders to_payment=0 new200=0 t0 done_at end
-  run_done "$STEP_PID" "$CASE" || status=1
+  run_wait "$STEP_PID" "$CASE" || status=1
   STEP_PID=""
   if [ -n "$NEW_CASE" ]; then
-    run_done "$NEW_PID" "$NEW_CASE" || status=1
+    run_wait "$NEW_PID" "$NEW_CASE" || status=1
     NEW_PID=""
   fi
   logs_end || whole=1
@@ -780,10 +768,7 @@ change_probes() {
   processor_settled || { change_fail "$what: the processor's pods did not settle (above)"; return 1; }
   pods=$(backend_pods)
   before=$(backend_reasons) || { change_fail "$what: orders' counters could not be read"; return 1; }
-  # shellcheck disable=SC2016 # the script runs in the pod's shell
-  codes=$(kn exec checks -- sh -c 'i=0; while [ "$i" -lt "$1" ]; do
-    curl -s -o /dev/null -w "%{http_code}\n" -X POST -H "content-type: application/json" -d "{}" "$2/orders"
-    i=$((i + 1)); done' sh "$CHANGE_PROBES" "$EDGE" 2>/dev/null)
+  codes=$(edge_posts "$CHANGE_PROBES" /orders)
   after=$(orders_counted "$before" "$CHANGE_PROBES") || {
     change_fail "$what: orders' counters could not be read"
     return 1
@@ -792,16 +777,9 @@ change_probes() {
     change_fail "$what: orders' or payment's pods changed during the requests, so their counters say nothing"
     return 1
   fi
-  verdict=$(python3 -c 'import collections, re, sys
+  verdict=$(python3 -c 'import collections, sys
 want, n, codes = sys.argv[1], int(sys.argv[2]), collections.Counter(sys.argv[3].split())
-def read(text):
-    out = collections.Counter()
-    for line in text.splitlines():
-        app, series, count = line.split()
-        if app == "orders" and series.startswith("paztport_request"):
-            out[dict(re.findall(r"(\w+)=\"([^\"]*)\"", series)).get("reason", "?")] += int(count)
-    return out
-added = read(sys.argv[5]) - read(sys.argv[4])
+added = collections.Counter({r: int(c) for r, c in (line.split() for line in sys.argv[4].splitlines())})
 words = "answered %s; orders decided %s" % (", ".join("%s %d" % kv for kv in sorted(codes.items())) or "nothing",
                                             ", ".join("%s %d" % kv for kv in sorted(added.items())) or "nothing")
 if want == "ok":
@@ -809,7 +787,8 @@ if want == "ok":
 else:
     good = (codes["200"] == 0 and sum(codes.values()) == n and sum(added.values()) == n and not added["OK"]
             and not added["CHAIN_MISSING"])
-print("%s %s" % ("PASS" if good else "FAIL", words))' "$want" "$CHANGE_PROBES" "$codes" "$before" "$after")
+print("%s %s" % ("PASS" if good else "FAIL", words))' "$want" "$CHANGE_PROBES" "$codes" \
+    "$(orders_decided "$before" "$after")")
   case "$verdict" in
     PASS*) echo "  PASS $what: of $CHANGE_PROBES requests, ${verdict#PASS }" ;;
     *) change_fail "$what: of $CHANGE_PROBES requests, ${verdict#FAIL }"; return 1 ;;
@@ -1091,7 +1070,7 @@ change_undo() {
   [ -z "$CHANGE_HELM_PID" ] || wait "$CHANGE_HELM_PID" 2>/dev/null
   CHANGE_HELM_PID=""
   logs_stop
-  kn delete job -l app=k6 --ignore-not-found >/dev/null 2>&1
+  k6_stop
   kn delete httproute orders-shop payment --ignore-not-found >/dev/null &&
     kn delete backendtlspolicy payment --ignore-not-found >/dev/null || {
     echo "error: could not delete the routes orders-shop and payment, or payment's BackendTLSPolicy" >&2
@@ -1165,6 +1144,7 @@ suite_route() {
   [ "$status" -ne 0 ] || route_compare || status=1
   echo "-- after the changes"
   out_unchanged "$sums"
+  material_keys_remove || status=1
   [ "$CHANGE_FAILS" -eq 0 ] || status=1
   return "$status"
 }
@@ -1183,6 +1163,7 @@ suite_rotation() {
   undo || status=1
   echo "-- after the rotation"
   out_unchanged "$sums"
+  material_keys_remove || status=1
   [ "$CHANGE_FAILS" -eq 0 ] || status=1
   return "$status"
 }

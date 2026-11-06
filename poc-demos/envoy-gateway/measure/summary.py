@@ -51,6 +51,15 @@
   summary.py first <fails file> <epoch ms>
       The first second of the run, from the one that holds the time given, with an expected response in it:
       "<its offset> <the time given, as an offset from the run's start, in seconds>", or "none".
+
+  summary.py last <fails file> <from epoch ms> <to epoch ms>
+      The last second of the run that overlaps the two times and holds a response other than the expected:
+      "<its offset> <its end, in epoch ms>", or "none".
+
+  summary.py after <fails file> <epoch ms>
+      The responses other than the expected in the seconds of the run from the one that holds the time given:
+      "<how many> <in how many seconds>", then one line for each such second, "+<offset>: <n> (5xx <n>, other
+      <n>)"; or "none".
 """
 import datetime
 import json
@@ -347,6 +356,27 @@ def first_expected(path, at):
     print("none")
 
 
+def last_unexpected(path, start, end):
+    w = need_window(path)
+    t0, found = w["t0"], None
+    for i, c in enumerate(counts(w)):
+        if t0 + 1000 * (i + 1) > start and t0 + 1000 * i < end and c[1] + c[2]:
+            found = i
+    print("none" if found is None else "%d %d" % (found, t0 + 1000 * (found + 1)))
+
+
+def after_unexpected(path, at):
+    w = need_window(path)
+    t0 = w["t0"]
+    seconds = [(i, c) for i, c in enumerate(counts(w)) if t0 + 1000 * (i + 1) > at and c[1] + c[2]]
+    if not seconds:
+        print("none")
+        return
+    print("%d %d" % (sum(c[1] + c[2] for _, c in seconds), len(seconds)))
+    for i, c in seconds:
+        print("+%d: %d (5xx %d, other %d)" % (i, c[1] + c[2], c[1], c[2]))
+
+
 def main(argv):
     if len(argv) >= 3 and argv[0] == "medians":
         medians(argv[1], argv[2:])
@@ -364,12 +394,16 @@ def main(argv):
         seconds_between(argv[1], int(argv[2]), int(argv[3]))
     elif len(argv) == 3 and argv[0] == "first" and argv[2].isdigit():
         first_expected(argv[1], int(argv[2]))
+    elif len(argv) == 4 and argv[0] == "last" and argv[2].isdigit() and argv[3].isdigit():
+        last_unexpected(argv[1], int(argv[2]), int(argv[3]))
+    elif len(argv) == 3 and argv[0] == "after" and argv[2].isdigit():
+        after_unexpected(argv[1], int(argv[2]))
     else:
         die("usage: summary.py medians <runs file> <label>... | rate <runs file> <offered rate>"
             " | stages <runs file> <route> <replicas> <round> <rounds file>"
             " | ceiling <rounds file> <sustained file> <replicas> <route>... | window <fails file>"
             " | timeline <fails file> <events file> | seconds <fails file> <from ms> <to ms>"
-            " | first <fails file> <ms>")
+            " | first <fails file> <ms> | last <fails file> <from ms> <to ms> | after <fails file> <ms>")
 
 
 if __name__ == "__main__":

@@ -108,7 +108,8 @@ else:
     listener_name, which, filters, http_filters = chains[0]
     extproc = [h for h in http_filters if "ext_proc" in h["name"]]
     if not extproc or not all(h.get("disabled") for h in extproc):
-        problems.append("the listener's ext_proc filters are not all disabled by default: %s" % [h["name"] for h in extproc])
+        problems.append("the listener's ext_proc filters are not all disabled by default: %s"
+                        % [h["name"] for h in extproc])
 
 vhdiff = diff(norm({k: v for k, v in vh_plain.items() if k != "routes"}),
               norm({k: v for k, v in vh_echo.items() if k != "routes"}))
@@ -143,9 +144,11 @@ if problems:
 print("  PASS the twins are alike but for the processor: one route configuration (%s), served by the listener %s's"
       " %s, whose HTTP filters are %s; their virtual hosts, routes and clusters are the same but for their names,"
       " and the routes differ only in %s, enabled on echo"
-      % (rc_echo, listener_name, which, " ".join(filters), " ".join(n[len(".typed_per_filter_config."):] for n in want)))
+      % (rc_echo, listener_name, which, " ".join(filters),
+         " ".join(n[len(".typed_per_filter_config."):] for n in want)))
 for route, host in ((route_plain, plain_host), (route_echo, echo_host)):
-    print("  %s typed_per_filter_config: %s" % (host, json.dumps(route.get("typed_per_filter_config", {}), sort_keys=True)))
+    print("  %s typed_per_filter_config: %s"
+          % (host, json.dumps(route.get("typed_per_filter_config", {}), sort_keys=True)))
 EOF
 }
 
@@ -154,18 +157,21 @@ EOF
 LOAD_PREALLOC=50
 
 suite_load() {
-  local body rate
+  local body rate status=0
   echo "== load: plain Envoy (echo-plain) against Envoy and the processor (echo), at the same offered rate"
   baseline_reset
-  twins_alike || return 1
+  UNDO="k6_stop"
+  twins_alike || status=1
   for body in small large; do
+    [ "$status" -eq 0 ] || break
     if [ "$body" = small ]; then rate="$LOAD_RATE_SMALL"; else rate="$LOAD_RATE_LARGE"; fi
     echo "-- $body body: $rate requests a second offered to each twin (from up to $LOAD_PREALLOC k6 users)," \
       "DURATION=$DURATION a run, WARMUP=$WARMUP, ROUNDS=$ROUNDS"
     alternate "load-$body" plain twin_plain stamped twin_stamped TARGET="$EDGE/orders" BODY="$body" \
-      EXECUTOR=rate RATE="$rate" PREALLOC="$LOAD_PREALLOC" DURATION="$DURATION" || return 1
-    python3 "$here/measure/summary.py" rate "$RUN_DIR/load-$body.runs" "$rate"
+      EXECUTOR=rate RATE="$rate" PREALLOC="$LOAD_PREALLOC" DURATION="$DURATION" || status=1
   done
+  undo
+  [ "$status" -eq 0 ] || return 1
   echo_unstamped
 }
 
@@ -233,7 +239,7 @@ saturation() {
 # /metrics, as "<epoch s> <bytes>" (or "<epoch s> none" when it does not answer) lines in file: one reading, then a
 # second's sleep, so a little over a second apart (each reading is a kubectl exec, up to a second more when the
 # processor is slow), until $file.stop exists or that many samples are taken. Its pid goes into forwards, which
-# measure.sh kills on exit.
+# measure.sh kills on exit, until the caller has waited for it and taken it out (forget).
 rss_sample() {
   local ip="$1" file="$2" samples="$3"
   : >"$file"
@@ -276,6 +282,7 @@ memory() {
     status=$?
     touch "$file.stop"
     wait "$RSS_PID" 2>/dev/null
+    forget "$RSS_PID"
     rm -f "$file.stop"
     [ "$status" -eq 0 ] || return 1
     after=$(processor_restarts)
@@ -344,8 +351,9 @@ suite_ceiling() {
   return "$status"
 }
 
-# ceiling_undo: two processor replicas again, the baseline's.
+# ceiling_undo: no k6 run left, and two processor replicas again, the baseline's.
 ceiling_undo() {
+  k6_stop
   processor_replicas 2 >/dev/null || echo "error: could not put the processor back to two replicas" >&2
 }
 
@@ -514,8 +522,7 @@ edge_side() {
     return 1
   }
   for _ in $(seq 1 60); do
-    code=$(kn exec checks -- curl -s -o /dev/null -w '%{http_code}' -X POST ${host:+-H "host: $host"} \
-      -H 'content-type: application/json' -d '{}' "$EDGE/orders" 2>/dev/null)
+    code=$(edge_posts 1 /orders "$host")
     [ "$code" = 200 ] && break
     sleep 1
   done
@@ -534,9 +541,10 @@ edge_env_back() {
     k apply -f kind/backends.yaml >/dev/null && backends_env_matches
 }
 
-# edge_undo: orders-plain deleted and the backends as their file has them, rolled out.
+# edge_undo: orders-plain deleted, no k6 run left, and the backends as their file has them, rolled out.
 edge_undo() {
   edge_plain_remove || echo "error: could not delete orders-plain" >&2
+  k6_stop
   if [ "$EDGE_SIDE" != with ] || ! backends_env_matches 2>/dev/null; then
     edge_env_back && kn rollout status deployment/orders --timeout=300s >/dev/null &&
       kn rollout status deployment/payment --timeout=300s >/dev/null ||
@@ -547,7 +555,7 @@ edge_undo() {
 
 # edge_compare: what differs, orders-plain made, then the two sides alternated at EDGE_RATE, each switch a
 # rollout and a discarded warm-up (EDGE_WARMUP), and no other warm-up, the first switch's included; each run, the
-# medians and spread, what Paztport adds, and whether k6 kept to the rate.
+# medians and spread, what Paztport adds, and whether each run kept to the rate.
 edge_compare() {
   echo "-- the whole edge: $EDGE_RATE requests a second offered to each side ($CEILING_PREALLOC k6 users ready)," \
     "small body, DURATION=$DURATION a run, ROUNDS=$ROUNDS; each switch a rollout and a discarded warm-up of" \
@@ -559,8 +567,7 @@ edge_compare() {
   diff <(backends_env file) <(backends_env) | sed -n 's/^</    with:    /p; s/^>/    without: /p'
   # alternate's own warm-ups would only repeat the switches' (WARMUP=0 leaves them out).
   WARMUP=0 alternate edge plain edge_plain paztport edge_paztport TARGET="$EDGE/orders" BODY=small EXECUTOR=rate \
-    RATE="$EDGE_RATE" PREALLOC="$CEILING_PREALLOC" DURATION="$DURATION" || return 1
-  python3 "$here/measure/summary.py" rate "$RUN_DIR/edge.runs" "$EDGE_RATE"
+    RATE="$EDGE_RATE" PREALLOC="$CEILING_PREALLOC" DURATION="$DURATION"
 }
 
 # The users k6 may start for the overload stage: EDGE_OVERLOAD_RATE x EDGE_OVERLOAD_SECONDS. A stamp older than
@@ -623,8 +630,9 @@ print(max(json.loads(line)["max"] for line in sys.stdin if line.strip()))')
   edge_overload
 }
 
-# edge_overload: the route orders offered EDGE_OVERLOAD_RATE for DURATION, from a pool of k6 users as large as its
-# pod holds: what Envoy did with what it could not pass on (its circuit breakers' refusals, counted for the
+# edge_overload: the route orders offered EDGE_OVERLOAD_RATE for DURATION, from EDGE_OVERLOAD_RATE x
+# EDGE_OVERLOAD_SECONDS k6 users (6000 at 3000/s) in a pod of EDGE_OVERLOAD_MEMORY: what Envoy did with what it could
+# not pass on (its circuit breakers' refusals, counted for the
 # processor's cluster and for orders'), what the processor, orders and payment decided, their restarts, and whether
 # a stamp could have been too old.
 edge_overload() {

@@ -71,19 +71,21 @@ for line in sys.argv[1].splitlines():
 # target of a BackendTrafficPolicy or of the processor's EnvoyExtensionPolicy, and none in Envoy's routes (waited for
 # up to 30 s, as Envoy takes the change a moment late). Returns 1 on FAIL.
 routes_gone() {
-  local left targets="" envoy="" route out
+  local left targets="" envoy="" route out policies
   if left=$(kn get httproutes -o jsonpath='{.items[*].metadata.name}'); then
     left=$(tr ' ' '\n' <<<"$left" | grep -xF -f <(printf '%s\n' "$@") | paste -sd ' ' -)
   else
     left="(the HTTPRoutes could not be read)"
   fi
-  targets=$(kn get backendtrafficpolicies,envoyextensionpolicies -o json | python3 -c 'import json, sys
-names = set(sys.argv[1:])
-for p in json.load(sys.stdin)["items"]:
-    for t in p["spec"].get("targetRefs", []):
-        if t.get("name") in names:
-            print("%s/%s->%s" % (p["kind"], p["metadata"]["name"], t["name"]))' "$@" | paste -sd ' ' -) ||
+  # Read first, each step with its own status: through a pipe, a failed read would leave no target, as none would.
+  if ! policies=$(kn get backendtrafficpolicies,envoyextensionpolicies -o json); then
     targets="(the policies could not be read)"
+  elif ! targets=$(python3 -c 'import json, sys
+names = set(sys.argv[2:])
+print(" ".join("%s/%s->%s" % (p["kind"], p["metadata"]["name"], t["name"]) for p in json.loads(sys.argv[1])["items"]
+               for t in p["spec"].get("targetRefs", []) if t.get("name") in names))' "$policies" "$@"); then
+    targets="(the policies could not be parsed)"
+  fi
   envoy_admin || return 1
   for _ in $(seq 1 30); do
     envoy=""
@@ -141,8 +143,7 @@ adopt_plain() {
   routes_policy orders-adopt && adopt_route || return 1
   for _ in $(seq 1 60); do
     out=$(route_filter orders-adopt)
-    code=$(kn exec checks -- curl -s -o /dev/null -w '%{http_code}' -X POST -H "host: $ADOPT_HOST" \
-      -H 'content-type: application/json' -d '{}' "$EDGE/orders" 2>/dev/null)
+    code=$(edge_posts 1 /orders "$ADOPT_HOST")
     [ "$out" = off ] && [ "$code" = 200 ] && break
     sleep 1
   done
@@ -256,16 +257,8 @@ adopt_bypass() {
     change_fail "straight to orders: orders' or payment's pods changed meanwhile, so their counters say nothing"
     return 1
   fi
-  verdict=$(python3 -c 'import collections, re, sys
-def read(text):
-    out = collections.Counter()
-    for line in text.splitlines():
-        app, series, count = line.split()
-        if app == "orders" and series.startswith("paztport_request"):
-            out[dict(re.findall(r"(\w+)=\"([^\"]*)\"", series)).get("reason", "?")] += int(count)
-    return out
-added = read(sys.argv[2]) - read(sys.argv[1])
-print(", ".join("%s %d" % kv for kv in sorted(added.items())) or "nothing")' "$before" "$after")
+  verdict=$(orders_decided "$before" "$after" | paste -sd ',' - | sed 's/,/, /g')
+  verdict="${verdict:-nothing}"
   if [ "$code" = 403 ] && grep -q CHAIN_MISSING <<<"$body" && [ "$verdict" = "CHAIN_MISSING 1" ]; then
     echo "  PASS straight to orders, past the Gateway: refused, HTTP 403 CHAIN_MISSING; orders counted" \
       "$verdict"
@@ -419,15 +412,14 @@ for (pod, name), v in sorted(after.items()):
             pod, v, v / 86400))' "$1" "$2"
 }
 
-# observe_load: a discarded warm-up, then a steady run on orders at the suite's rate, DURATION long: the run, its
-# pace and window, and what the processor and the backends counted of it.
+# observe_load: a discarded warm-up, then a steady run on orders at the suite's rate, DURATION long: the run, whether
+# it kept that rate, its window, and what the processor and the backends counted of it.
 observe_load() {
   local users line ids m_before m_after r_before r_after
   # k6's users, as the change steps' (change.sh's CHANGE_POOL_SECONDS): the run follows a reset whose rollouts may
   # leave orders' or payment's JVM cold, and a covering run's warm-up then held requests up to 1.8 s (p99 1.4 s), so
   # a pool sized for the warm path would drop requests.
-  users=$(pool "$CHANGE_RATE_USED" "$(awk -v r="$CHANGE_RATE_USED" -v s="$CHANGE_POOL_SECONDS" \
-    'BEGIN { printf "%d", r * s + 0.5 }')")
+  users=$(held_pool "$CHANGE_RATE_USED" "$CHANGE_POOL_SECONDS")
   echo "-- what the edge and the backends count of a steady run on orders: $CHANGE_RATE_USED/s for $DURATION (k6" \
     "users: $users), after a discarded warm-up of $WARMUP"
   line=$(k6_run observe-warmup TARGET="$EDGE/orders" BODY=small EXECUTOR=rate RATE="$CHANGE_RATE_USED" \
@@ -440,7 +432,8 @@ observe_load() {
     PREALLOC="$users" DURATION="$DURATION") || return 1
   m_after=$(processor_metrics) && r_after=$(backend_reasons) || return 1
   echo "  the run: $line"
-  run_paced observe-load || CHANGE_FAILS=$((CHANGE_FAILS + 1))
+  # A FAIL is counted against the suite with its other pace checks (pace_line).
+  run_rated observe-load || true
   window "$RUN_DIR/observe-load.fails"
   if [ "$(processor_identity)" != "$ids" ]; then
     echo "  the processor's pods changed or started again during the run, so what they counted is not all of it"
@@ -506,25 +499,42 @@ for name, text in needles:
 }
 
 # log_scan <needles> <file> <what>: the behavioural line that the file, a scratch copy of the processor's logs, holds
-# none of the needles: their names and counts, never their text. Returns 1 on FAIL.
+# none of the needles: their names and counts, never their text; a FAIL for a file with no line, as there is then
+# nothing to say. Returns 1 on FAIL.
 log_scan() {
   local counts found lines
   counts=$(needle_counts "$1" "$2") || { change_fail "$3: the scan could not read its input"; return 1; }
   found=$(awk -F'\t' '$2 > 0 { printf "%s%s (%d lines)", sep, $1, $2; sep = "; " }' <<<"$counts")
   lines=$(grep -c . "$2" || true)
-  if [ "$lines" -gt 0 ] && [ -z "$found" ]; then
+  if [ "${lines:-0}" -eq 0 ]; then
+    change_fail "$3: cannot say: no line to scan"
+    return 1
+  elif [ -z "$found" ]; then
     echo "  PASS $3: none, in $lines lines, of: $(cut -f1 <<<"$counts" | paste -sd ',' - | sed 's/,/, /g')"
   else
-    change_fail "$3: expected none in ${lines:-0} lines, found $found"
+    change_fail "$3: expected none in $lines lines, found $found"
     return 1
   fi
+}
+
+# markers_answered <what> <status>...: whether the requests that carried the markers were each answered 200, so
+# that each reached the processor and was stamped, and the scan of its logs has them to look for; a FAIL, counted,
+# when one was not. Returns 1 then.
+markers_answered() {
+  local what="$1" code bad=""
+  shift
+  for code in "$@"; do [ "$code" = 200 ] || bad+=" ${code:-none}"; done
+  [ -n "$bad" ] || return 0
+  change_fail "$what: cannot say: a request that carried a marker was answered${bad}, not 200, so it may never" \
+    "have reached the processor"
+  return 1
 }
 
 # observe_markers: requests that carry markers, and a stamp the processor made, sent through the Gateway; the
 # processor's logs scanned for them and for the edge's key; and what Envoy's and the backends' logs hold of them.
 observe_markers() {
   local id body_marker header_marker stamp code1 code3 chain proof addr needles="$tmp/observe/needles" copy said names
-  local ids_now
+  local ids_now what
   echo ""
   echo "-- what the logs hold of what requests carried: markers, a stamp the processor made, and the edge's key"
   mkdir -p "$tmp/observe" || return 1
@@ -574,8 +584,10 @@ observe_markers() {
   fi
   echo "  the scan's input: a scratch copy of every line the processor's containers wrote, from the node's log" \
     "files ($said), each pod the same as when the suite began, before its first request"
-  log_scan "$needles" "$copy" "the processor's logs hold nothing a request carried, no X-Path- value, and not the\
- edge's key" || true
+  what="the processor's logs hold nothing a request carried, no X-Path- value, and not the edge's key"
+  if markers_answered "$what" "$code1" "$code3"; then
+    log_scan "$needles" "$copy" "$what" || true
+  fi
   observe_findings "$needles"
 }
 
@@ -609,7 +621,7 @@ suite_observe() {
   echo "== observe: what the edge and the backends count under load, and what the logs hold of what requests carried"
   baseline_reset
   CHANGE_FAILS=0
-  UNDO="kn delete job -l app=k6 --ignore-not-found >/dev/null 2>&1"
+  UNDO="k6_stop"
   # The pods the suite runs on, once the old ones a reset's roll left draining are gone.
   envoy_admin && change_rate && processor_settled || return 1
   OBSERVE_IDS=$(processor_identity)
@@ -687,19 +699,6 @@ spec:
 EOF
 }
 
-# gotcha_requests <n> <path> [host]: n POSTs through the Gateway from the pod checks, one at a time; prints each
-# response's status, one a line.
-gotcha_requests() {
-  # shellcheck disable=SC2016 # the script runs in the pod's shell
-  kn exec checks -- sh -c 'i=0; while [ "$i" -lt "$1" ]; do
-    if [ -n "$4" ]; then
-      curl -s -o /dev/null -w "%{http_code}\n" -X POST -H "host: $4" -H "content-type: application/json" -d "{}" "$2$3"
-    else
-      curl -s -o /dev/null -w "%{http_code}\n" -X POST -H "content-type: application/json" -d "{}" "$2$3"
-    fi
-    i=$((i + 1)); done' sh "$1" "$EDGE" "$2" "${3:-}" 2>/dev/null
-}
-
 # statuses <codes>: the statuses, counted, on one line.
 statuses() {
   sort <<<"$1" | uniq -c | awk 'NF == 2 { printf "%s%s %d", sep, $2, $1; sep = ", " } END { print "" }'
@@ -721,29 +720,22 @@ gotcha_rewrite() {
   route_processed orders-rewrite && processor_settled || return 1
   pods=$(backend_pods)
   before=$(backend_reasons) || return 1
-  codes=$(gotcha_requests "$GOTCHA_PROBES" "$REWRITE_PATH")
+  codes=$(edge_posts "$GOTCHA_PROBES" "$REWRITE_PATH")
   after=$(orders_counted "$before" "$GOTCHA_PROBES") || return 1
   if [ "$(backend_pods)" != "$pods" ]; then
     change_fail "orders refuses a request whose path Envoy rewrote after the edge stamped it: orders' or payment's" \
       "pods changed meanwhile, so their counters say nothing"
     return 1
   fi
-  verdict=$(python3 -c 'import collections, re, sys
+  verdict=$(python3 -c 'import collections, sys
 n, codes = int(sys.argv[1]), collections.Counter(sys.argv[2].split())
-def read(text):
-    out = collections.Counter()
-    for line in text.splitlines():
-        app, series, count = line.split()
-        if app == "orders" and series.startswith("paztport_request"):
-            out[dict(re.findall(r"(\w+)=\"([^\"]*)\"", series)).get("reason", "?")] += int(count)
-    return out
-added = read(sys.argv[4]) - read(sys.argv[3])
+added = collections.Counter({r: int(c) for r, c in (line.split() for line in sys.argv[3].splitlines())})
 good = (sum(codes.values()) == n and not codes["200"] and added["BINDING_MISMATCH"] == n
         and sum(added.values()) == n)
 print("%s answered %s; orders decided %s" % ("PASS" if good else "FAIL",
       ", ".join("%s %d" % kv for kv in sorted(codes.items())) or "nothing",
-      ", ".join("%s %d" % kv for kv in sorted(added.items())) or "nothing"))' "$GOTCHA_PROBES" "$codes" "$before" \
-    "$after")
+      ", ".join("%s %d" % kv for kv in sorted(added.items())) or "nothing"))' "$GOTCHA_PROBES" "$codes" \
+    "$(orders_decided "$before" "$after")")
   case "$verdict" in
     PASS*) echo "  PASS orders refuses a request whose path Envoy rewrote after the edge stamped it" \
       "(BINDING_MISMATCH): of $GOTCHA_PROBES requests on $REWRITE_PATH, ${verdict#PASS }" ;;
@@ -751,21 +743,6 @@ print("%s answered %s; orders decided %s" % ("PASS" if good else "FAIL",
       "(BINDING_MISMATCH): of $GOTCHA_PROBES requests on $REWRITE_PATH, ${verdict#FAIL }"
       return 1 ;;
   esac
-}
-
-# orders_traces_by_pod <since>: orders' trace lines since the time (UTC, to the second), from the log files the kind
-# node keeps for every orders pod running (failure.sh's orders_traces, each line after its pod's name): "<pod> <time>
-# stdout F PAZTPORT_TRACE request rid=<rid> reason=<reason> ..." a line.
-orders_traces_by_pod() {
-  local pod uid
-  for pod in $(live_pods app=orders); do
-    uid=$(kn get pod "$pod" -o jsonpath='{.metadata.uid}') || return 1
-    # shellcheck disable=SC2016 # the script runs in the node's shell
-    docker exec "$(node_container)" sh -c 'cd "/var/log/pods/$1_$2_$3/orders" || exit 1
-      for f in *; do case "$f" in *.gz) zcat "$f" ;; *) cat "$f" ;; esac || exit 1; done' sh "$NS" "$pod" "$uid" |
-      awk -v s="$1" -v p="$pod" 'substr($1, 1, 19) >= s && index($0, "PAZTPORT_TRACE request") { print p " " $0 }' ||
-      return 1
-  done
 }
 
 # node_second <offset>: the kind node's time, UTC to the second, offset by so many seconds (+1, say).
@@ -821,7 +798,7 @@ gotcha_retry() {
   retry_route && policy_attached backendtrafficpolicy/orders-retry-routes &&
     policy_attached envoyextensionpolicy/paztport-processor || return 1
   route_processed orders-retry && processor_settled || return 1
-  echo "  orders-retry answers $(gotcha_requests 1 /orders "$RETRY_HOST") with payment up"
+  echo "  orders-retry answers $(edge_posts 1 /orders "$RETRY_HOST") with payment up"
   kn scale deployment/payment --replicas=0 >/dev/null &&
     kn wait --for=delete pod -l app=payment --timeout=120s >/dev/null 2>&1 || return 1
   n=$(kn get deployment payment -o jsonpath='{.status.replicas}')
@@ -830,7 +807,7 @@ gotcha_retry() {
   echo "  on the route orders ($GOTCHA_REQUESTS requests, one at a time):"
   since=$(node_second +1) && sleep 2 || return 1
   e_before=$(envoy_orders_retries orders) || return 1
-  codes=$(gotcha_requests "$GOTCHA_REQUESTS" /orders)
+  codes=$(edge_posts "$GOTCHA_REQUESTS" /orders)
   e_after=$(envoy_orders_retries orders) || return 1
   echo "  answered: $(statuses "$codes")"
   echo "  Envoy counted, of its requests to orders: $(outcomes_added "$e_before" "$e_after")"
@@ -846,13 +823,13 @@ gotcha_retry() {
   echo "  on orders-retry ($GOTCHA_REQUESTS requests, one at a time), the finding, no PASS or FAIL:"
   since=$(node_second +1) && sleep 2 || return 1
   e_before=$(envoy_orders_retries orders-retry) || return 1
-  codes=$(gotcha_requests "$GOTCHA_REQUESTS" /orders "$RETRY_HOST")
+  codes=$(edge_posts "$GOTCHA_REQUESTS" /orders "$RETRY_HOST")
   e_after=$(envoy_orders_retries orders-retry) || return 1
   echo "  answered: $(statuses "$codes")"
   echo "  Envoy counted, of its requests to orders on orders-retry: $(outcomes_added "$e_before" "$e_after")" \
     "(a retry whose answer Envoy does not retry again, a 403 included, it counts as rq_retry_success)"
   sleep 3
-  orders_traces_by_pod "$since" >"$RUN_DIR/$CASE-retry.traces" || {
+  orders_traces "$since" by-pod >"$RUN_DIR/$CASE-retry.traces" || {
     change_fail "the retry's finding: orders' log files could not be read (above)"
     return 1
   }
