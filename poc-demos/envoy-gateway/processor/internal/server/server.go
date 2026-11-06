@@ -17,6 +17,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/keepalive"
 
 	"github.com/dumbsly/paztport/poc-demos/envoy-gateway/processor/internal/edge"
@@ -32,8 +33,8 @@ const headroom = 1 << 20
 // closes their streams.
 const shutdownGrace = 10 * time.Second
 
-// Server is the edge's processor, served: the ext_proc service on the gRPC port, over mutual TLS that
-// admits only the edge, and /metrics, /readyz and /livez on the admin port, over plain HTTP.
+// Server is the edge's processor, served: the ext_proc service and the gRPC health service on the gRPC
+// port, over mutual TLS that admits only the edge, and /metrics, /readyz and /livez on the admin port, over plain HTTP.
 type Server struct {
 	log      *slog.Logger
 	now      func() time.Time
@@ -94,6 +95,7 @@ func New(cfg Config, log *slog.Logger, now func() time.Time) (*Server, error) {
 		grpc.KeepaliveParams(keepalive.ServerParameters{Time: 30 * time.Second, Timeout: 10 * time.Second}),
 	)
 	extprocv3.RegisterExternalProcessorServer(s.grpc, p)
+	grpc_health_v1.RegisterHealthServer(s.grpc, health{s: s})
 
 	mux := http.NewServeMux()
 	mux.Handle("GET /metrics", promhttp.HandlerFor(m.registry, promhttp.HandlerOpts{
@@ -188,16 +190,14 @@ func Run(ctx context.Context, cfg Config, log *slog.Logger, now func() time.Time
 	return errors.Join(<-served, stopErr)
 }
 
-// readyz reports the processor ready while its material is current and it is not shutting down.
+// readyz reports the processor ready while its material is current and it is not shutting down, as the
+// gRPC health service does.
 func (s *Server) readyz(w http.ResponseWriter, _ *http.Request) {
-	switch {
-	case s.draining.Load():
-		text(w, http.StatusServiceUnavailable, "shutting down\n")
-	case s.set.Ready(s.now().UnixMilli()) != nil:
-		text(w, http.StatusServiceUnavailable, "the policy material has expired\n")
-	default:
-		text(w, http.StatusOK, "ready\n")
+	if why := s.notReady(); why != "" {
+		text(w, http.StatusServiceUnavailable, why+"\n")
+		return
 	}
+	text(w, http.StatusOK, "ready\n")
 }
 
 // text answers with status and a plain-text body.
