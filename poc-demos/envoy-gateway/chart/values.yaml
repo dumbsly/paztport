@@ -59,7 +59,8 @@ extraRoutes: []
 
 # The most bytes of request body the edge stamps. Envoy buffers the whole body before the processor stamps it, so
 # the same number must be the routes' request buffer limit; a longer body is refused (413), and never reaches its
-# backend. A whole number of bytes, from 1 to 1073741824 (1 GiB), such as 1048576: not a quantity such as 1Mi.
+# backend. A whole number of bytes, from 1 to 1073741824 (1 GiB), such as 1048576, as a number or a string of digits
+# without a leading zero: not a quantity such as 1Mi.
 bodyLimit: 1048576
 
 # When true, the chart sets that limit on the attached routes in routes and those in extraRoutes, and on no other
@@ -85,7 +86,7 @@ backendTrafficPolicyMergeType: StrategicMerge
 mergeType: ""
 
 # How long Envoy waits for each of the processor's answers. It waits for the request's whole body first, so this
-# bounds the stamping, not the upload; a processor that does not answer in time is a refusal (500).
+# bounds the stamping, not the upload; a processor that does not answer in time is refused with a 504.
 messageTimeout: 500ms
 
 # Envoy's own health check of each processor replica, the standard gRPC health service on the processor's gRPC port
@@ -100,8 +101,8 @@ messageTimeout: 500ms
 #   unhealthyThreshold: failed checks in a row before a replica is left out. Two puts a dead one out in about two
 #     intervals, and one late answer (a garbage collection pause, one lost packet) does not put out a healthy one.
 #   healthyThreshold: passed checks in a row before a replica is let back in.
-# Both thresholds are whole numbers from 1 to 4294967295 (Envoy Gateway's fields are 32 bits), as a number or a string of
-# digits without a leading zero.
+# Both thresholds are whole numbers from 1 to 4294967295 (Envoy Gateway's fields are 32 bits), as a number or a
+# string of digits without a leading zero.
 # If every replica fails its check, or too few pass it (fewer than about a third healthy, by default), Envoy's panic
 # threshold has it send to all of them, as it would without the check, rather than to none.
 healthCheck:

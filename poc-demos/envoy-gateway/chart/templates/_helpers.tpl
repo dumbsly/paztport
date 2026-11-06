@@ -89,24 +89,30 @@ twice in extraRoutes, is refused.
 {{- end -}}
 
 {{- /*
-A whole number, as a number or a string of digits (as --set-string or a quoted YAML value gives): prints it, or
-nothing for anything else (a fraction, a bool, a string that is not digits, nothing). Its range is the caller's.
+A whole number, as a number or a string of decimal digits (as --set-string or a quoted YAML value gives): prints
+it, or nothing for anything else: a fraction, a bool, nothing, or a string that is not plain digits (no leading zero,
+which sprig would read as octal, and no more than 18 digits, which could pass int64). Its range is the caller's.
 */ -}}
 {{- define "edge.whole" -}}
 {{- $v := . -}}
-{{- $n := $v | int64 -}}
-{{- if kindIs "string" $v }}{{ if regexMatch "^[0-9]+$" $v }}{{ $n }}{{ end }}
-{{- else if kindIs "float64" $v }}{{ if eq $v (float64 $n) }}{{ $n }}{{ end }}
-{{- else if or (kindIs "int" $v) (kindIs "int64" $v) }}{{ $n }}
+{{- if kindIs "string" $v }}{{ if regexMatch "^[1-9][0-9]{0,17}$" $v }}{{ $v | int64 }}{{ end }}
+{{- else if kindIs "float64" $v }}{{ if and (eq $v (floor $v)) (ge $v -1e15) (le $v 1e15) }}{{ $v | int64 }}{{ end }}
+{{- else if or (kindIs "int" $v) (kindIs "int64" $v) }}{{ $v | int64 }}
 {{- end }}
+{{- end -}}
+
+{{- /* A value as the message shows it: a whole float without an exponent, anything else as it is. */ -}}
+{{- define "edge.show" -}}
+{{- if and (kindIs "float64" .) (eq . (floor .)) (ge . -1e15) (le . 1e15) }}{{ . | int64 }}{{ else }}{{ . }}{{ end }}
 {{- end -}}
 
 {{- /*
 Refuses values the processor would not start with, or that would leave the edge without a limit: no route mapped,
 an attach that is not true or false, no keyring or root, and a body limit that is not a whole number of bytes from 1
 to 1 GiB (1073741824), the processor's own bounds. bodyLimit is a plain number of bytes, such as 1048576, as a number
-or a string of digits: a quantity such as 1Mi, a fraction or anything else is refused. It refuses as well no Gateway
-for the NetworkPolicy to admit the Envoy pods of, and a mergeType Envoy Gateway does not take for a policy on routes
+or a string of digits without a leading zero: a quantity such as 1Mi, a fraction or anything else is refused. It
+refuses as well no Gateway for the NetworkPolicy to admit the Envoy pods of, and a mergeType Envoy Gateway does not
+take for a policy on routes
 (it refuses Replace).
 */ -}}
 {{- define "edge.validate" -}}
@@ -129,7 +135,7 @@ for the NetworkPolicy to admit the Envoy pods of, and a mergeType Envoy Gateway 
 {{- fail (printf "backendTrafficPolicyMergeType %v is not StrategicMerge, JSONMerge or empty" .) }}
 {{- end }}
 {{- end }}
-{{- if or (kindIs "invalid" .Values.healthCheck.interval) (eq (toString .Values.healthCheck.interval) "") }}
+{{- if or (kindIs "invalid" .Values.healthCheck.interval) (eq (trim (toString .Values.healthCheck.interval)) "") }}
 {{- fail "healthCheck.interval is empty: Envoy Gateway would use 3s unasked; give a duration such as 1s" }}
 {{- end }}
 {{- range $name := list "unhealthyThreshold" "healthyThreshold" }}
@@ -138,11 +144,9 @@ for the NetworkPolicy to admit the Envoy pods of, and a mergeType Envoy Gateway 
 {{- fail (printf "healthCheck.%s is not set: a whole number from 1 to 4294967295" $name) }}
 {{- end }}
 {{- $n := include "edge.whole" $t }}
-{{- if and (kindIs "string" $t) (regexMatch "^0[0-9]" $t) }}
-{{- fail (printf "healthCheck.%s %v has a leading zero: write it as a plain whole number from 1 to 4294967295" $name $t) }}
-{{- end }}
 {{- if or (not $n) (lt ($n | int64) 1) (gt ($n | int64) 4294967295) }}
-{{- fail (printf "healthCheck.%s %v is not a whole number from 1 to 4294967295" $name $t) }}
+{{- fail (printf "healthCheck.%s %v is not a whole number from 1 to 4294967295, in digits with no leading zero"
+  $name (include "edge.show" $t)) }}
 {{- end }}
 {{- end }}
 {{- if not .Values.material.keyrings }}{{ fail "material.keyrings needs at least one keyring" }}{{ end }}
@@ -151,6 +155,6 @@ for the NetworkPolicy to admit the Envoy pods of, and a mergeType Envoy Gateway 
 {{- $limit := $whole | int64 }}
 {{- if or (not $whole) (le $limit 0) (gt $limit 1073741824) }}
 {{- fail (printf "bodyLimit %v is not a whole number of bytes from 1 to 1073741824, such as 1048576"
-  .Values.bodyLimit) }}
+  (include "edge.show" .Values.bodyLimit)) }}
 {{- end }}
 {{- end -}}
