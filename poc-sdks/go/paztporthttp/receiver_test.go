@@ -718,6 +718,56 @@ func TestAcceptCacheError(t *testing.T) {
 	}
 }
 
+// askedCache is a nonce cache that fails with err and counts how often it is asked.
+type askedCache struct {
+	err   error
+	asked *int
+}
+
+func (c askedCache) SeenBefore(context.Context, string, int64) (bool, error) {
+	*c.asked++
+	return false, c.err
+}
+func (askedCache) TTL() int64 { return verify.NonceTTLMs }
+
+// TestAcceptDownCacheNeverMasksUnreadableInfluence: a request whose influence does not read fails
+// verification before the nonce cache is asked, so a cache that is down never turns it into a 503. Enforce
+// refuses it 403 INFLUENCE_MISMATCH; audit serves past the verdict, then refuses it 400 INFLUENCE_MISMATCH,
+// the verdict in its Result. Either way the cache is never called.
+func TestAcceptDownCacheNeverMasksUnreadableInfluence(t *testing.T) {
+	c := verifiedCase(t)
+	req := withHeaders(t, c, map[string][]string{
+		wire.Chain:     {header(c, wire.Chain)},
+		wire.Proof:     {header(c, wire.Proof)},
+		wire.Influence: {"not*base64url"},
+	})
+	for _, tt := range []struct {
+		mode   paztporthttp.Mode
+		status int
+	}{{paztporthttp.ModeEnforce, 403}, {paztporthttp.ModeAudit, 400}} {
+		t.Run(tt.mode.String(), func(t *testing.T) {
+			asked := 0
+			r := caseReceiver(t, c)
+			r.Verifier = pinnedVerifier(t, c.Get("material").Str(), verify.Config{
+				AllowedOrigins: c.Get("allowedOrigins").Strs(),
+				Nonces:         askedCache{errors.New("the store is down"), &asked},
+				Now:            func() int64 { return c.Get("now").Int() },
+				CallMaxAgeMs:   c.Get("callMaxAgeMs").Int(),
+				RunMaxAgeMs:    c.Get("runMaxAgeMs").Int(),
+			})
+			a := r.Accept(t.Context(), req, nil, tt.mode)
+			wantRefused(t, a, tt.status, reason.InfluenceMismatch)
+			if a.CacheErr != nil || asked != 0 {
+				t.Fatalf("CacheErr = %v, cache asked %d times; want none and never", a.CacheErr, asked)
+			}
+			audit := tt.mode == paztporthttp.ModeAudit
+			if a.Result == nil || a.Result.Reason != reason.InfluenceMismatch || a.Audit != audit {
+				t.Fatalf("Result %+v, Audit %v; want the verdict INFLUENCE_MISMATCH", a.Result, a.Audit)
+			}
+		})
+	}
+}
+
 // TestUnavailable is 503 and no body.
 func TestUnavailable(t *testing.T) {
 	if a := paztporthttp.Unavailable(); a.Status != 503 || len(a.Body) != 0 {
