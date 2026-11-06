@@ -139,11 +139,14 @@ public final class Verifier {
         return routed;
     }
 
-    /** The cache's answer; a cache that cannot give one has no verdict, which is not a rejection. */
+    /**
+     * The cache's answer; a cache that cannot give one has no verdict, which is not a rejection. Any exception is
+     * caught, as a checked one can be thrown where the compiler cannot see it (from Kotlin, say).
+     */
     private boolean seenBefore(String key, long now) {
         try {
             return cfg.nonces().seenBefore(key, now);
-        } catch (RuntimeException e) {
+        } catch (Exception e) {
             throw new NonceCacheUnavailableException(e);
         }
     }

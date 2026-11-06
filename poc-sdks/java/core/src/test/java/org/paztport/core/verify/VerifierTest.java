@@ -272,6 +272,31 @@ class VerifierTest {
     }
 
     @Test
+    void cacheThrowingACheckedExceptionIsUnavailable() {
+        IOException down = new IOException("store unreachable");
+        NonceCache broken = new NonceCache() {
+            @Override
+            public boolean seenBefore(String key, long now) {
+                throw VerifierTest.<RuntimeException>sneaky(down);
+            }
+
+            @Override
+            public long ttlMs() {
+                return 2 * CALL;
+            }
+        };
+        NonceCacheUnavailableException thrown = assertThrows(NonceCacheUnavailableException.class,
+                () -> run(new Case(), broken));
+        assertSame(down, thrown.getCause());
+    }
+
+    /** Throws {@code t}, checked or not, where the compiler cannot see it, as a Kotlin cache can. */
+    @SuppressWarnings("unchecked")
+    private static <T extends Throwable> T sneaky(Throwable t) throws T {
+        throw (T) t;
+    }
+
+    @Test
     void clockFaultStillPropagatesUnwrapped() {
         IllegalStateException broken = new IllegalStateException("clock down");
         Keyring ring = Keyring.of(Map.of("session", SESSION.getPublic(), "pi", PI.getPublic()));

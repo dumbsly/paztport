@@ -10,10 +10,10 @@ package org.paztport.core.verify;
  * the cache never has to understand it. A deployment that wants one cache across its replicas can supply a
  * shared, expiring implementation.
  *
- * <p>A cache that cannot answer (a shared store that is down or too slow) throws an unchecked exception from
+ * <p>A cache that cannot answer (a shared store that is down or too slow) throws an exception from
  * {@link #seenBefore}. It must not answer "unseen" instead, which would let a replay through. The verifier wraps
- * whatever {@link RuntimeException} the cache throws in {@link NonceCacheUnavailableException}, and the host
- * decides what the request then gets. The verifier takes no timeout, so the cache owns its own and throws when it
+ * whatever exception the cache throws in {@link NonceCacheUnavailableException}, and the host decides what the
+ * request then gets. The verifier takes no timeout, so the cache owns its own and throws when it
  * is reached.
  */
 public interface NonceCache {

@@ -7,13 +7,14 @@ import java.nio.charset.StandardCharsets;
 import org.paztport.core.verify.ReasonCode;
 
 /**
- * An answer the SDK gives in place of a handler's: a refusal, or the session endpoint's reply. The body is JSON,
- * sent labelled {@code application/json}, with no parameters, and exactly as these bytes, so a framework writes it
- * out and does not serialise it again. Each read of {@link #json} is a copy, so no caller can change what another is
- * sent.
+ * An answer the SDK gives in place of a handler's: a refusal, {@link #unavailable}, or the session endpoint's reply.
+ * The body is sent exactly as these bytes, so a framework writes it out and does not serialise it again: a body that
+ * is not empty is JSON, sent labelled {@code application/json} with no parameters, and an empty body, as
+ * {@link #unavailable}'s, carries no Content-Type. Each read of {@link #json} is a copy, so no caller can change what
+ * another is sent.
  *
  * @param status the HTTP status
- * @param json the body: UTF-8 JSON text
+ * @param json the body: UTF-8 JSON text, or empty
  */
 public record HttpAnswer(int status, byte[] json) {
 
