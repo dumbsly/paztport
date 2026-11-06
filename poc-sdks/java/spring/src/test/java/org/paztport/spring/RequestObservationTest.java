@@ -172,7 +172,7 @@ class RequestObservationTest {
                 nonces, () -> NOW, 5000, 5000));
     }
 
-    /** A cache that cannot answer, as a shared store that is down would not. */
+    /** A cache that cannot answer, as a shared store that is down cannot. */
     private static NonceCache unreachableCache(RuntimeException failure) {
         return new NonceCache() {
             @Override

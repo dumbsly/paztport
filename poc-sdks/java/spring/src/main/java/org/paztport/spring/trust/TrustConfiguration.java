@@ -34,8 +34,8 @@ import org.springframework.context.annotation.Configuration;
 
 /**
  * Builds what this service signs and verifies with from its {@code paztport.*} files and settings: its stamper and
- * route proofs, the pinned verifier, and the verification mode with its admin endpoint.
- * {@link PaztportAutoConfiguration} imports it; it is not for an application to use directly.
+ * route proofs, the pinned verifiers for requests and for responses, and the verification mode with its admin
+ * endpoint. {@link PaztportAutoConfiguration} imports it; it is not for an application to use directly.
  */
 @Configuration(proxyBeanMethods = false)
 public class TrustConfiguration {
@@ -61,8 +61,8 @@ public class TrustConfiguration {
     }
 
     /**
-     * The replay cache, in memory, unless the application defines its own {@link NonceCache}, as a service run as
-     * several replicas may, to share one expiring store. The default remembers a key for
+     * The requests' replay cache, in memory, unless the application defines its own {@link NonceCache}, as a service
+     * run as several replicas may, to share one expiring store. The default remembers a key for
      * {@link VerifierConfig#nonceTtlFor(long)} of the call window.
      */
     @Bean
@@ -72,15 +72,28 @@ public class TrustConfiguration {
         return new InMemoryNonceCache(VerifierConfig.nonceTtlFor(props.getMaxAgeMs()));
     }
 
+    /** The requests' verifier: the response verifier's pinned material, over the requests' {@link NonceCache}. */
     @Bean
     @ConditionalOnProperty({"paztport.keyring-path", "paztport.root-path", "paztport.policy-key-path"})
-    Verifier verifier(PaztportProperties props, NonceCache nonces) {
+    Verifier verifier(PaztportProperties props, NonceCache nonces, ResponseVerifier responses) {
         long minTtlMs = 2 * props.getMaxAgeMs();
         if (nonces.ttlMs() < minTtlMs) {
             throw new IllegalStateException("the nonce cache remembers a key for " + nonces.ttlMs()
                     + " ms, under the " + minTtlMs + " ms that paztport.max-age-ms (" + props.getMaxAgeMs()
                     + ") needs: at least twice the call window, or a replay could outlive its record");
         }
+        VerifierConfig m = responses.material();
+        return new Verifier(new VerifierConfig(m.keyrings(), m.roots(), m.policyNotAfter(), m.allowedOrigins(),
+                m.sess(), nonces, m.clock(), m.callMaxAgeMs(), m.runMaxAgeMs()));
+    }
+
+    /**
+     * The pinned material, read and judged once, and the verifier for responses over the starter's own in-memory
+     * cache, which remembers a key for {@link VerifierConfig#nonceTtlFor(long)} of the call window.
+     */
+    @Bean
+    @ConditionalOnProperty({"paztport.keyring-path", "paztport.root-path", "paztport.policy-key-path"})
+    ResponseVerifier responseVerifier(PaztportProperties props) {
         long runMaxAgeMs = props.getRunMaxAgeMs() != null ? props.getRunMaxAgeMs() : props.getMaxAgeMs();
         KeyringFile keyring = OwnMaterial.loadKeyring(Path.of(props.getKeyringPath()));
         SignedRoot root = OwnMaterial.loadRoot(Path.of(props.getRootPath()));
@@ -109,14 +122,14 @@ public class TrustConfiguration {
                     rootFiles.size() == 1 ? "root" : "roots", keyringFiles.size(),
                     keyringFiles.size() == 1 ? "keyring" : "keyrings");
         }
-        return new Verifier(VerifierConfig.pinned(
+        return new ResponseVerifier(VerifierConfig.pinned(
                 keyrings,
                 roots,
                 pin,
                 startup,
                 Set.copyOf(props.getOrigins()),
                 "",
-                nonces,
+                new InMemoryNonceCache(VerifierConfig.nonceTtlFor(props.getMaxAgeMs())),
                 System::currentTimeMillis,
                 props.getMaxAgeMs(),
                 runMaxAgeMs));

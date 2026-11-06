@@ -124,15 +124,19 @@ whole. `PartnerReceiver.accept(InboundRequest, PeerCert)` does the same for a
 partner, in the session the caller names. `Accepted.result()` is the
 verification result the decision rests on, or null where none ran, for an
 adapter to report; `PartnerAccepted.result()` is the same for a partner's call.
-The caller is never told it. `Accepted.delivery()` is the request's `Delivery` (`rid`, the last
-signer's `svc` and the last stamp's `bind`), or null unless its chain passed the live order at this in-mesh hop; it is
-the key for the application's own idempotency handling, which a duplicate delivery needs (a proxy's retry reaches
-another replica with its own cache). The same key and `bind` is the same request sent again by that signer; the same
-key with another `bind` is a different request under a reused key, to refuse; a user's second click is a new `rid`.
-A `NonceCache` that cannot answer, because its `seenBefore` throws, gives no verdict: the verifier wraps what it
-throws in `NonceCacheUnavailableException`, and the receiver refuses the request as unavailable
-(`HttpAnswer.unavailable()`, 503) in `ENFORCE`, with `Accepted.cacheFailure()` set, or serves it unverified in
-`AUDIT`. The cache owns its own timeouts. `PeerCert.of(certificate, address)` reads the peer
+The caller is never told it. `Accepted.delivery()` is the request's `Delivery`
+(`rid`, the last signer's `svc` and the last stamp's `bind`), or null unless its
+chain passed the live order at this in-mesh hop; it is the key for the
+application's own idempotency handling, which a duplicate delivery needs (a
+proxy's retry reaches another replica with its own cache). The same key and
+`bind` is the same request sent again by that signer; the same key with another
+`bind` is a different request under a reused key, to refuse; a user's second
+click is a new `rid`. A `NonceCache` that cannot answer, because its
+`seenBefore` throws, gives no verdict: the verifier wraps what it throws in
+`NonceCacheUnavailableException`, and the receiver refuses the request as
+unavailable (`HttpAnswer.unavailable()`, 503) in `ENFORCE`, with
+`Accepted.cacheFailure()` set, or serves it unverified in `AUDIT`. The cache
+owns its own timeouts. `PeerCert.of(certificate, address)` reads the peer
 and its issuer from a client certificate. `PartnerSessions` keeps a partner's
 sessions; its `builder()` refuses own material no client could accept, naming
 each `Fault`. `HttpSessions.serve` answers one handshake, and `UnsafeOperations`
@@ -332,11 +336,14 @@ hands a session request's body to `HttpSessions.serve`.
   after `max(15 s, 2 × paztport.max-age-ms)`: never sooner than twice the call
   window, which the verifier requires, and never so late that it grows without end.
   An application that defines its own `NonceCache` bean, to share one store across
-  replicas, replaces it; startup fails if that cache's `ttlMs()` is under
-  `2 × paztport.max-age-ms`. A cache that throws gives no verdict: under `enforce`
-  the filter answers 503 with an empty body and no content type, under `audit` it
-  serves the request unverified, and either way the `paztport.request` observation
-  records the error with reason `none`.
+  replicas, replaces it for requests only; startup fails if that cache's `ttlMs()`
+  is under `2 × paztport.max-age-ms`. Responses are still checked with the
+  starter's own in-memory cache (the `ResponseVerifier` bean), since only the
+  replica that sent a call can check its answer, and a store that is down then
+  fails no call the downstream has already acted on. A cache that throws gives no
+  verdict: under `enforce` the filter answers 503 with an empty body and no content
+  type, under `audit` it serves the request unverified, and either way the
+  `paztport.request` observation records the error with reason `none`.
 - **The context scope.** Influence is recorded only inside a `RequestContext`
   scope. The filter opens one per request; background work, such as a scheduled
   job, can open its own around one unit of work. Outside one, calls are still
@@ -501,14 +508,14 @@ hands a session request's body to `HttpSessions.serve`.
   peer can evict only its own sessions, so memory is bounded by the peers the
   trusted CAs vouch for times the cap. A handshake body over 256 KiB is
   `INVALID_PARAMS`, and a certificate with no single common name is `NO_SESSION`.
-  One nonce cache is shared across sessions. A call with no `X-Path-Session` is
-  unsafe; one naming no live session opened by the same issuer and common name
-  (another peer's, an evicted or an expired one; issuers are told apart by their
-  distinguished name, not by the CA's key) is `403 SESSION_UNKNOWN`. In an attested
-  session the chain is verified by that session's own verifier, and the handler gets
-  the verified influence and chain. The client's boundary chain is also the handler's
-  `inboundChain()`, so a partner entry should not call into its own mesh from a
-  partner request: its stamps would append to the client's chain.
+  A replica's sessions share its one in-memory nonce cache. A call with no
+  `X-Path-Session` is unsafe; one naming no live session opened by the same issuer
+  and common name (another peer's, an evicted or an expired one; issuers are told
+  apart by their distinguished name, not by the CA's key) is `403 SESSION_UNKNOWN`.
+  In an attested session the chain is verified by that session's own verifier, and
+  the handler gets the verified influence and chain. The client's boundary chain is
+  also the handler's `inboundChain()`, so a partner entry should not call into its
+  own mesh from a partner request: its stamps would append to the client's chain.
   `PartnerGate`, a handler interceptor, refuses with `403 UNSAFE_SESSION` any request
   outside an attested session that matches an `unsafe-disabled` entry, by the
   handler Spring dispatched to, so `/refund;x=1` is `POST /refund`; a `HEAD` is

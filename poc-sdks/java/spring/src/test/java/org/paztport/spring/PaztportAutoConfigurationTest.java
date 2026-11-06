@@ -81,6 +81,7 @@ import org.paztport.http.wire.HttpWire;
 import org.paztport.http.wire.PaztportHeaders;
 import org.paztport.spring.internal.OwnMaterial;
 import org.paztport.spring.outbound.PooledTlsClient;
+import org.paztport.spring.trust.ResponseVerifier;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.AnnotatedBeanDefinition;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
@@ -214,6 +215,34 @@ class PaztportAutoConfigurationTest {
                             sent.proof().toJson(), "orders", true, "rid-mine|gateway|req", null);
                     assertThat(verifier.verify(input).reason()).isEqualTo(ReasonCode.OK);
                     assertThat(mine.keys).contains("rid-mine|gateway|req");
+                });
+    }
+
+    @Test
+    void responsesAreCheckedWithTheStartersOwnCacheNotTheApplications(@TempDir Path dir) throws Exception {
+        writeWorld(dir);
+        CountingCache mine = new CountingCache(60_000);
+        runner.withPropertyValues(VERIFIER_PROPS)
+                .withPropertyValues(trust(dir))
+                .withPropertyValues("paztport.max-age-ms=20000")
+                .withBean(NonceCache.class, () -> mine)
+                .run(context -> {
+                    assertThat(context).hasSingleBean(Verifier.class).hasSingleBean(ResponseVerifier.class);
+                    Verifier responses = context.getBean(ResponseVerifier.class).verifier();
+                    assertThat(responses).isNotSameAs(context.getBean(Verifier.class));
+                    assertThat(responses.nonceTtlMs()).isEqualTo(VerifierConfig.nonceTtlFor(20_000));
+
+                    // A check through the response verifier spends its key in its own cache, never in the
+                    // application's, and the same key again is a replay there.
+                    Stamper.Stamped sent = new Stamper("gateway", "gw-1", gateway.getPrivate(), true,
+                            () -> "rid-resp", System::currentTimeMillis)
+                            .next(null, "orders", "b", List.of(),
+                                    ProofBundle.load(dir.resolve("proofs-gateway.json")));
+                    VerifyInput input = new VerifyInput(Chains.toJson(sent.chain()), "b", "[]",
+                            sent.proof().toJson(), "orders", true, "rid-resp|orders|resp", null);
+                    assertThat(responses.verify(input).reason()).isEqualTo(ReasonCode.OK);
+                    assertThat(responses.verify(input).reason()).isEqualTo(ReasonCode.REPLAY);
+                    assertThat(mine.keys).isEmpty();
                 });
     }
 
@@ -1051,6 +1080,7 @@ class PaztportAutoConfigurationTest {
                 "paztport-org.paztport.spring.PaztportProperties",
                 "paztportPublicWrites",
                 "paztportRestClientCustomizer",
+                "responseVerifier",
                 "stamper",
                 "verifier");
         // The same with a responder and paztport.tls-bundle, as an application would have its clients.
@@ -1066,6 +1096,7 @@ class PaztportAutoConfigurationTest {
                 "paztportRestClientCustomizer",
                 "paztportTlsClient",
                 "paztportTlsRestClientCustomizer",
+                "responseVerifier",
                 "stamper",
                 "verifier");
         // paztport.boundary.url: an egress to a partner, with everything its client needs.
@@ -1095,6 +1126,7 @@ class PaztportAutoConfigurationTest {
                 "paztportPublicWrites",
                 "paztportRestClientCustomizer",
                 "proofBundle",
+                "responseVerifier",
                 "stamper",
                 "verifier");
         // paztport.partner.enabled=true: a partner's entry.
@@ -1109,6 +1141,7 @@ class PaztportAutoConfigurationTest {
                 "paztportPartnerSessions",
                 "paztportPublicWrites",
                 "paztportRestClientCustomizer",
+                "responseVerifier",
                 "stamper",
                 "verifier");
     }

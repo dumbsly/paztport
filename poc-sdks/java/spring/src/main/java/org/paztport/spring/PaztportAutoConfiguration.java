@@ -33,7 +33,7 @@ import org.springframework.core.Ordered;
  * a keyring, a root and the policy pin gets a Verifier, and every service gets
  * the inbound filter, which verifies requests only where {@code paztport.verify=true}.
  * Wherever there is a Verifier, the interceptor also checks every response it
- * gets. A non-origin service with both a stamper and a Verifier attests the
+ * gets, with a {@code ResponseVerifier} over the same material. A non-origin service with both a stamper and a Verifier attests the
  * responses it sends, but only to requests whose chain verified there, and not
  * while a service that verifies requests is in {@code off} mode; an origin never
  * attests.
@@ -43,7 +43,10 @@ import org.springframework.core.Ordered;
  * tree is one call, so the session is empty and the run's age defaults to the
  * call's. Its replay cache forgets a key once it is older than the verifier
  * needs, at least twice the call window, so memory follows the traffic in that
- * window rather than every request and response ever checked.
+ * window rather than every request and response ever checked. An application's
+ * own {@code NonceCache} bean replaces the cache for requests only: responses
+ * are checked with the starter's own, in memory, since only the replica that
+ * sent a call can check its answer.
  *
  * <p>Under mutual TLS, {@code paztport.tls-bundle} names the SSL bundle this
  * service presents: on the shared {@code RestClient.Builder}, beside the
