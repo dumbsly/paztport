@@ -275,6 +275,35 @@ class PaztportAutoConfigurationTest {
     }
 
     @Test
+    void aWindowTooLargeToDoubleFailsAtStartupNamingTheProperty(@TempDir Path dir) throws Exception {
+        writeWorld(dir);
+        long huge = Long.MAX_VALUE / 2 + 1;
+        runner.withPropertyValues(VERIFIER_PROPS)
+                .withPropertyValues(trust(dir))
+                .withPropertyValues("paztport.max-age-ms=" + huge)
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure()).rootCause().isInstanceOf(IllegalStateException.class)
+                            .hasMessageContaining("paztport.max-age-ms")
+                            .hasMessageContaining(Long.toString(huge));
+                });
+    }
+
+    @Test
+    void twoNonceCacheBeansFailStartupNamingTheType(@TempDir Path dir) throws Exception {
+        writeWorld(dir);
+        runner.withPropertyValues(VERIFIER_PROPS)
+                .withPropertyValues(trust(dir))
+                .withBean("firstCache", NonceCache.class, () -> new CountingCache(20_000))
+                .withBean("secondCache", NonceCache.class, () -> new CountingCache(20_000))
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(stackTrace(context.getStartupFailure())).contains("NonceCache")
+                            .contains("firstCache").contains("secondCache");
+                });
+    }
+
+    @Test
     void anApplicationCacheThatRemembersTwiceTheWindowStarts(@TempDir Path dir) throws Exception {
         writeWorld(dir);
         runner.withPropertyValues(VERIFIER_PROPS)

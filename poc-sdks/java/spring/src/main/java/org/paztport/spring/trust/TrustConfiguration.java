@@ -76,7 +76,13 @@ public class TrustConfiguration {
     @Bean
     @ConditionalOnProperty({"paztport.keyring-path", "paztport.root-path", "paztport.policy-key-path"})
     Verifier verifier(PaztportProperties props, NonceCache nonces, ResponseVerifier responses) {
-        long minTtlMs = 2 * props.getMaxAgeMs();
+        long minTtlMs;
+        try {
+            minTtlMs = Math.multiplyExact(2L, props.getMaxAgeMs());
+        } catch (ArithmeticException overflow) {
+            throw new IllegalStateException("paztport.max-age-ms (" + props.getMaxAgeMs()
+                    + ") is too large: twice the call window must fit in a long");
+        }
         if (nonces.ttlMs() < minTtlMs) {
             throw new IllegalStateException("the nonce cache remembers a key for " + nonces.ttlMs()
                     + " ms, under the " + minTtlMs + " ms that paztport.max-age-ms (" + props.getMaxAgeMs()

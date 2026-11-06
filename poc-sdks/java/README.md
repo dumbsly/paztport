@@ -336,7 +336,8 @@ hands a session request's body to `HttpSessions.serve`.
   after `max(15 s, 2 × paztport.max-age-ms)`: never sooner than twice the call
   window, which the verifier requires, and never so late that it grows without end.
   An application that defines its own `NonceCache` bean, to share one store across
-  replicas, replaces it for requests only; startup fails if that cache's `ttlMs()`
+  replicas, replaces it for requests only, and defines exactly one: with two, startup fails
+  with Spring's own error naming both. Startup also fails if that cache's `ttlMs()`
   is under `2 × paztport.max-age-ms`. Responses are still checked with the
   starter's own in-memory cache (the `ResponseVerifier` bean), since only the
   replica that sent a call can check its answer, and a store that is down then
