@@ -100,9 +100,9 @@ need_docker() {
 }
 
 # The cluster tools of the Envoy Gateway proof of concept. Each minimum is the lowest the scaffold is written for:
-# kind 0.33 (the cluster is written for it), kubectl 1.35 (Kubernetes supports kubectl within one minor version of the
-# API server, and the pinned node image is 1.36, so 1.35 to 1.37; only the lower bound is checked) and helm 4.2 (the
-# lowest Helm release that Helm's version-skew table, helm.sh/docs/topics/version_skew, lists for Kubernetes 1.36).
+# kind 0.33 (the cluster is written for it), kubectl 1.36 (Kubernetes supports kubectl within one minor version of the
+# API server, and the pinned node image is 1.37, so 1.36 to 1.38; only the lower bound is checked) and helm 4.3 (the
+# lowest Helm release that Helm's version-skew table, helm.sh/docs/topics/version_skew, lists for Kubernetes 1.37).
 # tool_version <pattern> <command...>: the first dotted version the command prints, or nothing.
 tool_version() {
   local pattern="$1"
@@ -119,16 +119,16 @@ need_kind() {
 
 need_kubectl() {
   local found
-  command -v kubectl >/dev/null 2>&1 || missing kubectl 1.35 "https://kubernetes.io/docs/tasks/tools/ or your package manager"
+  command -v kubectl >/dev/null 2>&1 || missing kubectl 1.36 "https://kubernetes.io/docs/tasks/tools/ or your package manager"
   found="$(tool_version 'Client Version:' kubectl version --client)"
-  [ -n "$found" ] && at_least "$found" 1.35 || missing kubectl 1.35 "https://kubernetes.io/docs/tasks/tools/ or your package manager"
+  [ -n "$found" ] && at_least "$found" 1.36 || missing kubectl 1.36 "https://kubernetes.io/docs/tasks/tools/ or your package manager"
 }
 
 need_helm() {
   local found
-  command -v helm >/dev/null 2>&1 || missing helm 4.2 "https://helm.sh/docs/intro/install/ or your package manager"
+  command -v helm >/dev/null 2>&1 || missing helm 4.3 "https://helm.sh/docs/intro/install/ or your package manager"
   found="$(tool_version '' helm version --template '{{.Version}}')"
-  [ -n "$found" ] && at_least "$found" 4.2 || missing helm 4.2 "https://helm.sh/docs/intro/install/ or your package manager"
+  [ -n "$found" ] && at_least "$found" 4.3 || missing helm 4.3 "https://helm.sh/docs/intro/install/ or your package manager"
 }
 
 install_ts_sdk() {

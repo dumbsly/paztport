@@ -158,11 +158,11 @@ check "bench with no java at Maven's JDK prints one 'missing: java' line and exi
   missing_stops_early java bench "Java version: 25.0.1, vendor: Test, runtime: /nonexistent"
 check "envoy-gateway -h prints usage" help_after envoy-gateway
 check "envoy-gateway without kind prints one 'missing: kind' line and exits 1" envoy_missing kind
-check "envoy-gateway with a kubectl below 1.35 prints one 'missing: kubectl' line and exits 1" \
-  envoy_missing kubectl "Client Version: v1.34.9"
+check "envoy-gateway with a kubectl below 1.36 prints one 'missing: kubectl' line and exits 1" \
+  envoy_missing kubectl "Client Version: v1.35.9"
 check "envoy-gateway measure -h prints usage" help_after "envoy-gateway measure"
 check "envoy-gateway measure without python3 prints one 'missing: python3' line and exits 1" \
-  envoy_missing -measure python3 "Client Version: v1.36.0" "v4.2.0"
+  envoy_missing -measure python3 "Client Version: v1.36.0" "v4.3.0"
 check "envoy-gateway measure --reuse is refused, pointing at measure.sh --reuse" measure_reuse_refused
 check "material.sh will not write over an existing directory" material_refuses "exists; the cluster's keys" taken
 check "material.sh will not take an empty directory name, with or without --fresh" material_refuses_empty

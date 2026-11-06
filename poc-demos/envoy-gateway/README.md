@@ -224,8 +224,8 @@ with one line on its runs' pace, and fails with it.
 | Docker | 24 | build the images, and run the kind node |
 | Go | the SDK's `go` line | build `edgecheck`, the checks' client (the processor's image builds in Docker) |
 | kind | 0.33 | the local cluster |
-| kubectl | 1.35 (supported range 1.35 to 1.37) | drive the cluster; Kubernetes supports kubectl within one minor version of the API server, and the node image is 1.36 |
-| Helm | 4.2 | install Envoy Gateway and the processor's chart; the lowest Helm release whose [version-skew table](https://helm.sh/docs/topics/version_skew/) lists Kubernetes 1.36 |
+| kubectl | 1.36 (supported range 1.36 to 1.38) | drive the cluster; Kubernetes supports kubectl within one minor version of the API server, and the node image is 1.37 |
+| Helm | 4.3 | install Envoy Gateway and the processor's chart; the lowest Helm release whose [version-skew table](https://helm.sh/docs/topics/version_skew/) lists Kubernetes 1.37 |
 
 macOS and Linux; on Windows use WSL.
 
@@ -298,7 +298,7 @@ docker build -f poc-demos/envoy-gateway/processor/Dockerfile -t paztport-process
 
 ## The cluster
 
-Each version is pinned: kind 0.33 with the node image `kindest/node:v1.36.4` by digest, Envoy Gateway v1.10.0 from its
+Each version is pinned: kind 0.33 with the node image `kindest/node:v1.37.0` by digest, Envoy Gateway v1.10.0 from its
 Helm chart (its controller's image by digest, and Gateway API v1.6.1, which the chart installs), Envoy
 `distroless-v1.40.2` by digest (in the EnvoyProxy), and the checks' `curlimages/curl:8.23.0` by digest. kind's own
 network plugin enforces NetworkPolicy, so no other is installed.
@@ -584,7 +584,7 @@ What the checks and the measurements found, beyond the numbers.
 | Merged gateways | the NetworkPolicy admits nothing, and the edge refuses everything | `gateway.envoyPodLabels` |
 | Every processor replica gone | refused while down; one request a kept-alive connection unstamped on recovery | backends in `enforce`; `routingType: Service`; the PodDisruptionBudget and two replicas |
 | More than 1024 requests in flight | Envoy's own 500 | capacity; it fails closed |
-| A processor replica slow on its gRPC port | 504s at the `messageTimeout` for its share until Envoy's health check takes it out | the chart's health check (see [The chart](#the-chart)); an operator's alert on 504s and `message_timeouts` for the gap (see [Operating it](#operating-it)) |
+| A processor replica slow on its gRPC port | 504s at the `messageTimeout` for its share until Envoy's health check takes it out | the chart's health check (see [The chart](#the-chart)); an operator's alert on 504s and `message_timeouts` for the gap (see the slow-replica bullet under [Operating it](#operating-it)) |
 | `X-Forwarded-For` | Boot would take the peer's instance from it | `SERVER_FORWARDHEADERSSTRATEGY=NONE` |
 
 ## Operating it
@@ -613,6 +613,9 @@ What the checks and the measurements found, beyond the numbers.
 - **Readiness.** `/readyz`, `paztport_edge_material_seconds_left` and each request's check take the material's one
   `notAfter`, which can overstate how long the edge's stamps will be accepted. It fails closed: past it the processor
   refuses every request, and a stamp a receiver no longer accepts is refused there.
+- **A slow processor replica.** During the gap before Envoy's health check takes it out, its share of requests ends in
+  504s at the `messageTimeout`: watch the 504s and, from Envoy, `message_timeouts` for the processor's cluster, and
+  alert on them.
 - **What to watch.** `paztport_edge_requests_total` by outcome, `paztport_edge_material_seconds_left`, and, from
   Envoy, the processor's cluster: `streams_failed`, `message_timeouts` and `cluster_rq_active_overflow`; and the
   backends' reasons other than `OK`.
