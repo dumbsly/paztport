@@ -101,7 +101,7 @@ messageTimeout: 500ms
 #     intervals, and one late answer (a garbage collection pause, one lost packet) does not put out a healthy one.
 #   healthyThreshold: passed checks in a row before a replica is let back in.
 # Both thresholds are whole numbers from 1 to 4294967295 (Envoy Gateway's fields are 32 bits), as a number or a string of
-# digits.
+# digits without a leading zero.
 # If every replica fails its check, or too few pass it (fewer than about a third healthy, by default), Envoy's panic
 # threshold has it send to all of them, as it would without the check, rather than to none.
 healthCheck:

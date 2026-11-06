@@ -138,6 +138,9 @@ for the NetworkPolicy to admit the Envoy pods of, and a mergeType Envoy Gateway 
 {{- fail (printf "healthCheck.%s is not set: a whole number from 1 to 4294967295" $name) }}
 {{- end }}
 {{- $n := include "edge.whole" $t }}
+{{- if and (kindIs "string" $t) (regexMatch "^0[0-9]" $t) }}
+{{- fail (printf "healthCheck.%s %v has a leading zero: write it as a plain whole number from 1 to 4294967295" $name $t) }}
+{{- end }}
 {{- if or (not $n) (lt ($n | int64) 1) (gt ($n | int64) 4294967295) }}
 {{- fail (printf "healthCheck.%s %v is not a whole number from 1 to 4294967295" $name $t) }}
 {{- end }}

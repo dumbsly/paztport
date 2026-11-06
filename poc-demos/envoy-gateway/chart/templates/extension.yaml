@@ -55,8 +55,8 @@ spec:
             type: GRPC
             timeout: {{ .Values.healthCheck.timeout | default .Values.messageTimeout }}
             interval: {{ .Values.healthCheck.interval }}
-            unhealthyThreshold: {{ .Values.healthCheck.unhealthyThreshold }}
-            healthyThreshold: {{ .Values.healthCheck.healthyThreshold }}
+            unhealthyThreshold: {{ include "edge.whole" .Values.healthCheck.unhealthyThreshold }}
+            healthyThreshold: {{ include "edge.whole" .Values.healthCheck.healthyThreshold }}
       processingMode:
         allowModeOverride: true
         request:
