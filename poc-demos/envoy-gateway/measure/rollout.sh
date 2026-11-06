@@ -7,9 +7,11 @@
 #   rollout  Paztport adopted under load, in the order production takes it, on a route of its own: the HTTPRoute
 #            orders-adopt (host adopt.example) to orders, which the chart's routes do not name, with orders and
 #            payment as they ran before Paztport was installed (the edge suite's baseline, measure/load.sh's
-#            backends_without); then (step 1) the processor attached to it, orders-adopt added to the chart's routes;
-#            then (step 2) orders and payment rolled straight into enforce: orders first, then payment, since a
-#            callee in enforce refuses every call its caller does not stamp yet. No audit step: audit is for before
+#            backends_without); then (step 1) the processor mapped to it, orders-adopt added to the chart's routes with
+#            attach=false, so that the processor's pods roll and map it while no policy targets it; then (step 2) the
+#            processor attached to it, attach=true, which rolls no pod; then (step 3) orders and payment rolled
+#            straight into enforce: orders first, then payment, since a callee in enforce refuses every call its
+#            caller does not stamp yet. No audit step: audit is for before
 #            production, where every path is signed before its release. Then a request straight to orders, past the
 #            Gateway, refused CHAIN_MISSING; and orders-adopt removed, and shown gone.
 #   observe  what the edge and the backends count under load (the processor's outcomes, how long stamping took and
@@ -35,8 +37,10 @@
 ADOPT_HOST=adopt.example
 RETRY_HOST=retry.example
 REWRITE_PATH=/api/orders
-# The length of each rollout step's run on orders: the lead, the change, and the tail. Step 2 rolls orders' two
-# replicas, then payment's one, each a Spring Boot pod that takes some 20 s to start here.
+# The length of each rollout step's run on orders: the lead, the change, and the tail. Step 1 rolls the processor's
+# pods; step 3 rolls orders' two replicas, then payment's one, each a Spring Boot pod that takes some 20 s to start
+# here.
+ROLLOUT_MAP_DURATION=90s
 ROLLOUT_ATTACH_DURATION=90s
 ROLLOUT_ENFORCE_DURATION=150s
 # The requests one at a time that show what orders does with a rewritten path, and what it does with a retry.
@@ -156,13 +160,59 @@ adopt_plain() {
   backends_counters "before the steps"
 }
 
-# attach_balance <Envoy's before> <after> <the new pods' outcomes> <the run's .result>: where the attachment's 403s
-# came from, as a sum the run's own counts make: the streams Envoy started to the processor in the run (none before
-# the attachment, as the route had no filter), against what the processor's new pods decided since they started (all
-# of them, as the run is the only load) and the run's 403s. When the streams are the new pods' and the 403s exactly,
-# every stream the new pods did not decide was answered 403; and a 403 on this route is a refusal of the processor's,
-# as orders without Paztport refuses nothing: so those are the old pods', whose routes do not map orders-adopt, and
-# whose counters went with them.
+# map_balance <Envoy's before> <after> <the run's .result>: that the mapping step touched no request. The route has no
+# filter, so Envoy starts no stream to the processor for it in the run; and the processor's pods rolling is no reason
+# for any response but 200. Fails when Envoy started a stream or the run had a response other than 200.
+map_balance() {
+  python3 -c 'import json, sys
+def words(text):
+    return {k: int(v) for k, v in (w.split("=") for w in text.split())}
+before, after = words(sys.argv[1]), words(sys.argv[2])
+r = json.loads(open(sys.argv[3]).read().strip().partition(" ")[2][len("RESULT "):])
+streams = after["streams_started"] - before["streams_started"]
+others = {k: v for k, v in r["status"].items() if k != "200" and v}
+if streams == 0 and not others:
+    print("  Envoy started no stream to the processor in the run and the run had no response other than 200")
+    sys.exit(0)
+print("  Envoy started %d streams to the processor in the run; the run had %d responses other than 200%s"
+      % (streams, sum(others.values()), " (%s)" % ", ".join("%s: %d" % kv for kv in others.items()) if others else ""))
+sys.exit(1)' "$1" "$2" "$3"
+}
+
+# adopt_map: step 1, the processor's pods rolled to map orders-adopt under load, nothing attached: the route added to
+# the chart's routes with attach=false, so that the processor's routes file names it and neither policy targets it. In
+# the foreground: with nothing attached, no stream of the route's waits on the pods that are not up yet.
+adopt_map() {
+  echo ""
+  echo "-- (rollout, step 1) the processor's pods rolled to map orders-adopt under load: orders-adopt added to the" \
+    "chart's routes with attach=false (receiver orders; helm upgrade: the processor's routes file names it, and" \
+    "neither policy targets it); orders and payment still without Paztport, so neither verifies"
+  STEP_VERIFY=none
+  step_begin rollout-map "$ROLLOUT_MAP_DURATION" || return 1
+  event "the change began: helm upgrade, orders-adopt in the chart's routes, not attached"
+  upgraded measure_chart --set 'routes[2].httpRoute=orders-adopt' --set 'routes[2].receiver=orders' \
+    --set 'routes[2].attach=false' || return 1
+  event "helm upgrade done: the processor's pods rolled"
+  if [ "$(route_filter orders-adopt)" != off ]; then
+    change_fail "Envoy has a filter on orders-adopt after the map step: $(route_filter orders-adopt)"
+    return 1
+  fi
+  event "the change done"
+  step_end || return 1
+  echo "  Envoy still serves orders-adopt without the processor's filter"
+  map_balance "$STEP_ENVOY" "$(envoy_extproc_stats)" "$RUN_DIR/$CASE.result" || {
+    change_fail "the map step touched requests"
+    return 1
+  }
+  backends_counters "after mapping"
+}
+
+# attach_balance <Envoy's before> <after> <the processor's outcomes> <the run's .result>: that the attachment cost no
+# request, as a sum the run's own counts make: the streams Envoy started to the processor in the run (none before the
+# attachment, as the route had no filter), against what the processor's pods decided in it (all of them, as the run
+# is the only load; the pods rolled in the step before, and not in this one) and the run's 403s. A 403 on this route is
+# the processor's refusal, as orders without Paztport refuses nothing; the pods already map the route, so none is
+# expected.
 attach_balance() {
   python3 -c 'import json, sys
 def words(text):
@@ -171,51 +221,62 @@ before, after, new = words(sys.argv[1]), words(sys.argv[2]), words(sys.argv[3])
 r = json.loads(open(sys.argv[4]).read().strip().partition(" ")[2][len("RESULT "):])
 streams = after["streams_started"] - before["streams_started"]
 decided, refused = sum(new.values()), r["status"].get("403", 0)
-print("  Envoy started %d streams to the processor in the run; the new pods decided %d of them (all they decided);"
+print("  Envoy started %d streams to the processor in the run; the processor decided %d of them;"
       " the run had %d 403s: %d + %d = %d" % (streams, decided, refused, decided, refused, decided + refused))
+if not refused and streams == decided:
+    print("  every stream was decided by the processor'"'"'s pods, which already mapped the route, and none refused")
+    sys.exit(0)
 if refused and streams == decided + refused:
-    print("  so every stream the new pods did not decide was answered 403: refused by the old pods, whose routes do"
-          " not map orders-adopt (a 403 on this route is the processor'"'"'s refusal; their counters went with them)."
-          " Envoy enabled the filter on the route as the EnvoyExtensionPolicy changed, before the new pods, whose"
-          " routes map it, took all of its streams: the chart maps a route and attaches the processor to it in one"
-          " release, so attaching to a route that is already served costs this window")
-elif refused:
-    print("  the sum does not balance, so where the 403s came from is not shown")' "$1" "$2" "$3" "$4"
+    print("  so every stream the processor did not decide was answered 403: unexplained by the attach step'"'"'s"
+          " design, as the pods that answer already map orders-adopt (old pods are not expected in it)")
+else:
+    print("  the sum does not balance, so where the difference came from is not shown")
+sys.exit(1)' "$1" "$2" "$3" "$4"
 }
 
-# adopt_attach: step 1, the processor attached to orders-adopt under load: the route added to the chart's routes, in
-# a helm upgrade in the background, while Envoy's routes are read until its filter is enabled on the route.
+# adopt_attach: step 2, the processor attached to the mapped orders-adopt under load: the route's attach set true, in
+# a helm upgrade in the background, while Envoy's routes are read until its filter is enabled on the route. The
+# upgrade changes no pod template, so the processor's pods must be the same before and after.
 adopt_attach() {
-  local served=0 outcomes envoy
+  local served=0 outcomes envoy pods
   echo ""
-  echo "-- (rollout, step 1) the processor attached to orders-adopt under load: orders-adopt added to the chart's" \
-    "routes (receiver orders; helm upgrade: the processor's EnvoyExtensionPolicy then targets it, and its pods roll" \
-    "with the new routes); orders and payment still without Paztport, so neither verifies"
+  echo "-- (rollout, step 2) the processor attached to orders-adopt under load: attach=true on the route (helm" \
+    "upgrade: the processor's EnvoyExtensionPolicy then targets it; its pods do not roll); orders and payment still" \
+    "without Paztport, so neither verifies"
   STEP_VERIFY=none
+  pods=$(processor_pods | LC_ALL=C sort | paste -sd ' ' -)
   step_begin rollout-attach "$ROLLOUT_ATTACH_DURATION" || return 1
-  event "the change began: helm upgrade, orders-adopt in the chart's routes"
-  upgraded measure_chart --set 'routes[2].httpRoute=orders-adopt' --set 'routes[2].receiver=orders' &
+  event "the change began: helm upgrade, orders-adopt attached"
+  upgraded measure_chart --set 'routes[2].httpRoute=orders-adopt' --set 'routes[2].receiver=orders' \
+    --set 'routes[2].attach=true' &
   CHANGE_HELM_PID=$!
-  # Read while helm waits for the processor's new pods: Envoy may enable the filter before they are up.
+  # Read while helm waits: Envoy enables the filter once the EnvoyExtensionPolicy targets the route.
   route_processed orders-adopt || served=1
   wait "$CHANGE_HELM_PID" || { CHANGE_HELM_PID=""; return 1; }
   CHANGE_HELM_PID=""
-  event "helm upgrade done: the processor's pods rolled"
+  event "helm upgrade done"
+  if [ "$(processor_pods | LC_ALL=C sort | paste -sd ' ' -)" != "$pods" ]; then
+    change_fail "the attach rolled the processor's pods"
+    return 1
+  fi
   policy_attached envoyextensionpolicy/paztport-processor || return 1
   event "the change done"
   step_end || return 1
   outcomes=$(processor_outcomes) && envoy=$(envoy_extproc_stats) || return 1
-  echo "  the processor's pods, new with the upgrade, decided since they started: $outcomes"
-  attach_balance "$STEP_ENVOY" "$envoy" "$outcomes" "$RUN_DIR/$CASE.result"
-  backends_counters "after step 1"
+  echo "  the processor's pods, the same before and after, decided since they started: $outcomes"
+  attach_balance "$STEP_ENVOY" "$envoy" "$outcomes" "$RUN_DIR/$CASE.result" || {
+    change_fail "the attach step refused or lost requests"
+    return 1
+  }
+  backends_counters "after attaching"
   [ "$served" -eq 0 ]
 }
 
-# adopt_enforce: step 2, orders and then payment rolled into enforce under load, their environment kind/backends.yaml's
+# adopt_enforce: step 3, orders and then payment rolled into enforce under load, their environment kind/backends.yaml's
 # again; the backends' traces held to k6's 200s from when both ran it.
 adopt_enforce() {
   echo ""
-  echo "-- (rollout, step 2) orders and payment rolled straight into enforce under load, the starter back" \
+  echo "-- (rollout, step 3) orders and payment rolled straight into enforce under load, the starter back" \
     "(kind/backends.yaml's environment, PAZTPORT_MODE=enforce): orders first, then payment, since a callee in" \
     "enforce refuses every call its caller does not stamp yet"
   STEP_VERIFY=""
@@ -229,7 +290,7 @@ adopt_enforce() {
   STEP_VERIFY="from $(event_ms "the change done")"
   step_end || return 1
   STEP_VERIFY=""
-  backends_counters "after step 2"
+  backends_counters "after step 3"
   if backend_reasons 2>/dev/null | grep -q '^orders paztport_response.*reason="CHAIN_MISSING"'; then
     echo "  response checked CHAIN_MISSING: payment's responses while it did not yet run Paztport, unattested. A" \
       "response is content, never refused: an unattested one is recorded as untrusted influence, so this is not a" \
@@ -242,7 +303,7 @@ adopt_enforce() {
 adopt_bypass() {
   local pods before after out code body verdict
   echo ""
-  echo "-- (rollout, after step 2) a request straight to orders, past the Gateway"
+  echo "-- (rollout, after step 3) a request straight to orders, past the Gateway"
   pods=$(backend_pods)
   before=$(backend_reasons) || { change_fail "straight to orders: orders' counters could not be read"; return 1; }
   out=$(kn exec checks -- curl -s -w '\n%{http_code}' --cacert /tls/ca.crt --cert /tls/operator.crt \
@@ -293,15 +354,15 @@ rollout_undo() {
 suite_rollout() {
   local status=0
   echo "== rollout: Paztport adopted under load in the order production takes, on the route orders-adopt: the" \
-    "processor attached to it, then orders and payment rolled straight into enforce (no audit step: audit is for" \
-    "before production)"
+    "processor mapped to it, then attached, then orders and payment rolled straight into enforce (no audit step:" \
+    "audit is for before production)"
   baseline_reset
   CHANGE_FAILS=0
   envoy_admin && change_rate || return 1
   UNDO="rollout_undo"
   STEP_VARS=(HOST="$ADOPT_HOST")
   echo ""
-  if adopt_plain && adopt_attach && adopt_enforce; then
+  if adopt_plain && adopt_map && adopt_attach && adopt_enforce; then
     adopt_bypass || true
   else
     echo "error: the rollout stopped; putting back what it changed" >&2
