@@ -5,7 +5,8 @@
 #
 #   failure  the edge under steady load while the processor fails, each case a k6 run at a constant offered rate
 #            with the fault FAILURE_LEAD seconds into it: on echo, at FAILURE_RATE, one processor container killed;
-#            one processor pod slowed, its gRPC port and then the whole pod; every processor replica gone, then two
+#            one processor pod slowed, its gRPC port (and whether Envoy's health check takes it out) and then
+#            the whole pod; every processor replica gone, then two
 #            again; the same with Envoy routing to the processor's Service instead of its pods (the EnvoyProxy's
 #            routingType Service), after how the load spreads over the replicas under each routing; the processor
 #            rolled; and on the route orders, at FAILURE_ORDERS_RATE (unset: common.sh's orders_rate), one orders
@@ -302,9 +303,11 @@ failure_kill() {
 }
 
 # failure_slow: one processor pod's gRPC port slowed, with its probes still answered, then the whole pod, until
-# readiness takes it out; then the delay removed.
+# readiness takes it out; then the delay removed. While only port 9002 is slowed, Envoy's admin port is read about
+# every second for whether its active health check has failed the pod's host, and when it first has is an event.
 failure_slow() {
-  local pod ip at end code ready probes=0 ok=0 readings=0 ready_seen=0 codes="" unslow_at users restarts now ended
+  local pod ip end code ready probes=0 ok=0 readings=0 ready_seen=0 codes="" unslow_at users restarts now ended
+  local grpc_at whole_at out_at="" out_by="" polls=0 unread=0 verdict tick=0
   pod=$(processor_pods | head -n1)
   ip=$(kn get pod "$pod" -o jsonpath='{.status.podIP}')
   restarts=$(pod_restarts "$pod")
@@ -316,21 +319,40 @@ failure_slow() {
   case_before || return 1
   # shellcheck disable=SC2046
   case_begin failure-slow $(echo_run "$FAILURE_SLOW_DURATION" "$users") || return 1
-  at=$(slow_pod "$pod" "$FAILURE_SLOW_MS" grpc) || return 1
-  event_at "$at" "$pod's packets from port 9002 delayed $FAILURE_SLOW_MS ms"
+  grpc_at=$(slow_pod "$pod" "$FAILURE_SLOW_MS" grpc) || return 1
+  event_at "$grpc_at" "$pod's packets from port 9002 delayed $FAILURE_SLOW_MS ms"
   end=$((SECONDS + FAILURE_SLOW_GRPC))
   while [ "$SECONDS" -lt "$end" ]; do
-    code=$(kn exec checks -- curl -s -o /dev/null -w '%{http_code}' --max-time 2 "http://$ip:9090/readyz" \
-      2>/dev/null)
-    ready=$(pod_ready "$pod")
-    probes=$((probes + 1))
-    readings=$((readings + 1))
-    if [ "$code" = 200 ]; then ok=$((ok + 1)); else codes+=" ${code:-none}"; fi
-    if [ "$ready" = True ]; then ready_seen=$((ready_seen + 1)); else event "$pod's Ready condition $ready"; fi
-    sleep 3
+    # Envoy's health check every pass (about a second), until it first fails the host; the pod's readiness every
+    # third. envoy_admin runs in this shell, so that a forward to a new Envoy pod outlives the reading.
+    if [ -z "$out_at" ]; then
+      envoy_admin >/dev/null 2>&1
+      verdict=$(envoy_host_failed "$ip")
+      polls=$((polls + 1))
+      out_by="$ENVOY_ADMIN_POD"
+      case "$verdict" in
+        yes)
+          out_at=$(node_ms)
+          event_at "$out_at" "Envoy's health check took $pod out"
+          ;;
+        no) ;;
+        *) unread=$((unread + 1)) ;;
+      esac
+    fi
+    if [ $((tick % 3)) -eq 0 ]; then
+      code=$(kn exec checks -- curl -s -o /dev/null -w '%{http_code}' --max-time 2 "http://$ip:9090/readyz" \
+        2>/dev/null)
+      ready=$(pod_ready "$pod")
+      probes=$((probes + 1))
+      readings=$((readings + 1))
+      if [ "$code" = 200 ]; then ok=$((ok + 1)); else codes+=" ${code:-none}"; fi
+      if [ "$ready" = True ]; then ready_seen=$((ready_seen + 1)); else event "$pod's Ready condition $ready"; fi
+    fi
+    tick=$((tick + 1))
+    sleep 1
   done
-  at=$(slow_pod "$pod" "$FAILURE_SLOW_MS" all) || return 1
-  event_at "$at" "the whole pod $pod's packets delayed $FAILURE_SLOW_MS ms"
+  whole_at=$(slow_pod "$pod" "$FAILURE_SLOW_MS" all) || return 1
+  event_at "$whole_at" "the whole pod $pod's packets delayed $FAILURE_SLOW_MS ms"
   until_pod "$pod" False 60 "readiness took $pod out (Ready False)" || event "$pod: still ready 60 s on"
   sleep "$FAILURE_SLOW_HOLD"
   unslow_at=$(unslow_pod "$pod") || return 1
@@ -343,6 +365,7 @@ failure_slow() {
     echo "  WARN the pod was meant to stay ready while only its gRPC port was slowed, and it did not: the delay" \
       "reached its probes, so what follows is not the case it says"
   fi
+  slow_ejection "$grpc_at" "$whole_at" "$out_at" "$out_by" "$polls" "$unread"
   slow_after "$(event_ms "the whole pod")" "$(event_ms "readiness took")" "$unslow_at" "$(event_ms "$pod ready again")"
   now=$(pod_restarts "$pod")
   if [ -z "$now" ]; then
@@ -353,6 +376,41 @@ failure_slow() {
       "last ended $ended)"
   fi
   case_after
+}
+
+# slow_ejection <delayed at> <whole pod at> <out at> <Envoy pod> <polls> <unread>: whether Envoy's health check took
+# the slowed pod out while only port 9002 was slowed, and when (the third time, in epoch ms, empty when it did not;
+# the delay's, the whole pod's); and, from the run's per-second counts (k6's whole seconds), the responses other than
+# 200 from the delay to then (or, when it did not, to the whole-pod delay), and from then to the whole-pod delay.
+# Each Envoy pod checks on its own: the reading is of the Envoy pod named, the last one read (the fourth).
+slow_ejection() {
+  local delayed="$1" whole="$2" out="$3" envoy="$4" polls="$5" unread="$6"
+  if [ -n "$out" ]; then
+    echo "  Envoy's health check (read from Envoy pod $envoy) took the slowed pod out $(since "$delayed" "$out") s" \
+      "after its port 9002 was delayed (read about every second, so to within about a second)"
+    slow_window "from the delay on port 9002 to the ejection" "$delayed" "$out"
+    slow_window "from the ejection to the whole-pod delay" "$out" "$whole"
+  elif [ "$unread" -eq "$polls" ]; then
+    echo "  Envoy's admin port could not be read at any of $polls readings in the $FAILURE_SLOW_GRPC s that only port" \
+      "9002 was slowed: nothing is known of its health check"
+    slow_window "from the delay on port 9002 to the whole-pod delay" "$delayed" "$whole"
+  else
+    echo "  Envoy's health check (read from Envoy pod $envoy) did not take the slowed pod out within the" \
+      "$FAILURE_SLOW_GRPC s that only port 9002 was slowed ($polls readings, $unread of them unread)"
+    slow_window "from the delay on port 9002 to the whole-pod delay" "$delayed" "$whole"
+  fi
+}
+
+# slow_window <what> <from ms> <to ms>: the responses other than 200 in the run's whole seconds between the two times.
+slow_window() {
+  local seconds first last e x r
+  seconds=$(python3 "$here/measure/summary.py" seconds "$RUN_DIR/$CASE.fails" "$2" "$3")
+  if [ "$seconds" = none ]; then
+    echo "  $1: no whole second of the run lies within it"
+    return 0
+  fi
+  read -r first last e x r <<<"$seconds"
+  echo "  $1: $((x + r)) responses other than 200 of $((e + x + r)), in the run's whole seconds +$first to +$last"
 }
 
 # slow_after <slowed at> <out at> <removed at> <ready at>: once the whole pod was slowed (at the first time, in epoch

@@ -998,6 +998,32 @@ processor_hosts() {
     LC_ALL=C sort -u | paste -sd ' ' -
 }
 
+# envoy_host_failed <pod ip>: whether Envoy's active health check has failed the host at that IP, port 9002, of its
+# cluster for the processor, from its admin port's /clusters: "yes" (the host's failed_active_health_check flag is
+# set), "no" (the host is listed without it, or the cluster lists no host at that address), or "unread" (the admin
+# port, or its answer, could not be read). It is the one Envoy pod envoy_admin forwards to that is read: each Envoy
+# pod checks the host on its own.
+envoy_host_failed() {
+  local json
+  envoy_admin 2>/dev/null && json=$(curl -sf "http://$ENVOY_ADMIN/clusters?format=json") || { echo unread; return 0; }
+  python3 -c 'import json, re, sys
+try:
+    clusters = json.load(sys.stdin)["cluster_statuses"]
+    seen, failed = False, False
+    for c in clusters:
+        name = c.get("name", "")
+        if not re.match(r"envoyextensionpolicy/.*paztport-processor", name) or ".internal." in name:
+            continue
+        seen = True
+        for h in c.get("host_statuses", []):
+            a = h.get("address", {}).get("socket_address", {})
+            if a.get("address") == sys.argv[1] and a.get("port_value") == 9002:
+                failed = failed or bool(h.get("health_status", {}).get("failed_active_health_check"))
+except (ValueError, KeyError, TypeError, AttributeError):
+    seen = False
+print(("yes" if failed else "no") if seen else "unread")' "$1" <<<"$json"
+}
+
 # envoy_extproc_stats: Envoy's counters for the processor: its ext_proc filter's streams (started, failed, timed
 # out, and let through for failing open), its cluster's requests refused for a full circuit breaker or timed out,
 # and its cluster's connections: none made for want of a healthy processor, failed, or closed by the processor with
