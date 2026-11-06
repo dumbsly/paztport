@@ -15,7 +15,7 @@
     <description>Quarantine controller: counts rejection events and isolates/replaces offending containers.</description>
 
     <properties>
-        <docker-java.version>3.4.0</docker-java.version>
+        <docker-java.version>3.7.1</docker-java.version>
     </properties>
 
     <dependencies>
