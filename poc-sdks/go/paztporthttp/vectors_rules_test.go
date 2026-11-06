@@ -127,11 +127,7 @@ func runReceiverCase(t *testing.T, c vectors.Node) answer {
 	var a paztporthttp.Accepted
 	var trusted bool
 	for range uses {
-		var err error
-		a, err = r.Accept(t.Context(), req, peer, mode)
-		if err != nil {
-			t.Fatalf("Accept: %v", err)
-		}
+		a = r.Accept(t.Context(), req, peer, mode)
 		var readNow []influence.Entry
 		if a.Refusal == nil {
 			readNow = read

@@ -36,6 +36,10 @@ type Accepted struct {
 	// Audit reports that Result came from verification in audit mode, so an event built from it is an
 	// audit event.
 	Audit bool
+	// CacheErr is the nonce cache's error, when it could not answer, for the embedder's own log; nil
+	// otherwise. The request is then undecided: it is refused with [Unavailable] under enforce, and
+	// otherwise served unverified and unattested, with no Result and nothing carried.
+	CacheErr error
 
 	attest *attester // nil unless the answer is attested
 }
@@ -46,6 +50,25 @@ type Accepted struct {
 type attester struct {
 	stamper *stamp.Stamper
 	chain   stamp.Chain
+}
+
+// Delivery names the delivery of a request that was verified at this hop: the rid its first stamp
+// carries, and the signer and request binding of its last stamp. It is false for a request that
+// was not verified, such as one at an origin, with the hop off, in audit mode or whose nonce cache could
+// not answer. It tells one delivery of a request from another.
+func (a Accepted) Delivery() (Delivery, bool) {
+	if !a.Verified || len(a.Inbound) == 0 {
+		return Delivery{}, false
+	}
+	last := a.Inbound[len(a.Inbound)-1]
+	return Delivery{RID: a.Inbound[0].RID, Svc: last.Svc, Bind: last.Bind}, true
+}
+
+// Delivery is the key of one delivery of a verified request: the request's rid, which its first stamp
+// carries, and the signer (Svc) and request binding (Bind) of its last stamp, which name the hop that
+// sent this call and the call itself.
+type Delivery struct {
+	RID, Svc, Bind string
 }
 
 // Attests reports whether the answer to the request is attested: only when its chain passed the live

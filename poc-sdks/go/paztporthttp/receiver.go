@@ -38,15 +38,20 @@ type Receiver struct {
 //
 // Call it once per request: the live order spends the request's nonce key, so a second call reports
 // REPLAY. Accept never panics on any request, and a request that does not verify is answered, never an
-// error. ctx reaches only the verifier's nonce cache. The error is the cache's, when it could not answer,
-// and comes with the zero Accepted, so the adapter fails the request.
+// error. ctx reaches only the verifier's nonce cache.
+//
+// A nonce cache that cannot answer, such as one whose store is down, leaves the request undecided, so
+// Accepted.CacheErr is its error, for the embedder's own log, and the request is never verified,
+// attested or given a [Accepted.Delivery]. Under [ModeEnforce] it is refused with [Unavailable], 503 and
+// no body, as it cannot be shown to be no replay. Under [ModeAudit], and for a receiver with no mode,
+// which refuses nothing, it is served, unverified and unattested.
 //
 // Accept panics on a receiver with no Verifier that is given ModeEnforce, ModeAudit or a value that is no
 // mode: it is to verify requests with nothing to verify them with, which is a fault in the program, and
 // serving them unverified would fail open. It panics, too, on a receiver whose Origin differs from its
 // Stamper's: one would carry what a request brings while the other starts a new request tree, which is a
 // fault in the program.
-func (r *Receiver) Accept(ctx context.Context, req InboundRequest, peer *verify.Peer, mode Mode) (Accepted, error) {
+func (r *Receiver) Accept(ctx context.Context, req InboundRequest, peer *verify.Peer, mode Mode) Accepted {
 	if r.Stamper != nil && r.Stamper.Origin != r.Origin {
 		panic("paztport http: a receiver's Origin and its Stamper's Origin must agree")
 	}
@@ -58,39 +63,51 @@ func (r *Receiver) Accept(ctx context.Context, req InboundRequest, peer *verify.
 		}
 		res, err := r.Verifier.Verify(ctx, in)
 		if err != nil {
-			return Accepted{}, err
+			return cacheFailed(err, mode == ModeEnforce)
 		}
 		a.Result, a.Audit = &res, mode == ModeAudit
 		if !res.OK() && !a.Audit {
-			return refused(Refusal(403, res.Reason), a), nil
+			return refused(Refusal(403, res.Reason), a)
 		}
 		a.Verified = res.OK() && chain != nil
 	}
 	if r.Origin {
 		// An origin starts the request tree afresh: whatever its verdict, it carries nothing from the
 		// request, vouches for nothing and never attests.
-		return Accepted{Result: a.Result, Audit: a.Audit}, nil
+		return Accepted{Result: a.Result, Audit: a.Audit}
 	}
 	es, ok := readInfluence(req.Influence)
 	if !ok {
-		return refused(Refusal(400, reason.InfluenceMismatch), a), nil
+		return refused(Refusal(400, reason.InfluenceMismatch), a)
 	}
 	a.Influence = es
 	if mode == ModeOff || r.Verifier == nil || r.Stamper == nil || chain == nil {
-		return a, nil
+		return a
 	}
 	if a.Result == nil {
 		// A service with no mode verifies the chain for attestation alone, and refuses nothing.
 		res, err := r.Verifier.Verify(ctx, in)
 		if err != nil {
-			return Accepted{}, err
+			return cacheFailed(err, false)
 		}
 		a.Result, a.Verified = &res, res.OK()
 	}
 	if a.Verified {
 		a.attest = &attester{stamper: r.Stamper, chain: slices.Clone(chain)}
 	}
-	return a, nil
+	return a
+}
+
+// cacheFailed returns what is decided of a request whose nonce cache could not answer with err: the
+// refusal [Unavailable] when refuse, and otherwise the request served with nothing carried from it, which
+// is unverified and unattested. An origin carries nothing in any case.
+func cacheFailed(err error, refuse bool) Accepted {
+	a := Accepted{CacheErr: err}
+	if refuse {
+		answer := Unavailable()
+		a.Refusal = &answer
+	}
+	return a
 }
 
 // refused returns the refusal answer, with the result and mode of a, the request's verdict so far.

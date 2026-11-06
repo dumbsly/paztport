@@ -17,7 +17,8 @@ type NonceCache interface {
 	// already recorded and is still remembered. A hit does not refresh the recorded time. A cache that
 	// can block, such as one backed by a store, honours ctx's cancellation and deadline. The error is for
 	// a cache that could not answer, such as one whose store is down or whose ctx is done; the verifier
-	// then answers with the error, not a verdict.
+	// then answers with the error, not a verdict. At a receiver, enforce refuses the request with 503
+	// and audit or no mode serves it unverified and unattested; neither treats it as a replay.
 	SeenBefore(ctx context.Context, key string, now int64) (bool, error)
 	// TTL returns how long, in milliseconds, the cache remembers a key. A verifier refuses every key when
 	// it is less than twice its call window, since a replay could outlive its record.

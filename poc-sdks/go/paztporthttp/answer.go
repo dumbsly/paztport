@@ -29,6 +29,13 @@ func Refusal(status int, r reason.Code) Answer {
 	return Answer{Status: status, Body: codeBody("reason", string(r))}
 }
 
+// Unavailable returns the answer to a request whose nonce cache could not answer, under enforce: 503
+// and no body, so the caller learns nothing of the cache and may retry. It is not a refusal, as it names
+// no code, and it carries no Content-Type, since it carries no body.
+func Unavailable() Answer {
+	return Answer{Status: 503}
+}
+
 // handshakeError returns the handshake endpoint's error code: 400 and the body {"error":"<code>"}. It
 // answers a handshake, not a call, so it is not a refusal. Like [Refusal], it panics on a code that is
 // not valid UTF-8 or holds a noncharacter.

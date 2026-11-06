@@ -360,9 +360,9 @@ func acceptedByOrders(t *testing.T, m *materialtest.Material, hs []header, body 
 		return values(hs, name)
 	})
 	r := &paztporthttp.Receiver{Name: "orders", Verifier: verifier(t, m)}
-	a, err := r.Accept(t.Context(), req, &verify.Peer{Svc: "edge", Inst: "10.0.0.9"}, paztporthttp.ModeEnforce)
-	if err != nil {
-		t.Fatal(err)
+	a := r.Accept(t.Context(), req, &verify.Peer{Svc: "edge", Inst: "10.0.0.9"}, paztporthttp.ModeEnforce)
+	if a.CacheErr != nil {
+		t.Fatal(a.CacheErr)
 	}
 	if a.Refusal != nil {
 		return false, a.Result.Reason

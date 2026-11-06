@@ -216,10 +216,7 @@ func acceptInbound(t testing.TB, in vectors.Node) paztporthttp.Accepted {
 	}
 	inbound := paztporthttp.NewInboundRequest(req.Get("method").Str(), req.Get("target").Str(),
 		req.Get("body").With(t).Hex(), lookup)
-	a, err := r.Accept(t.Context(), inbound, nil, mode(t, in.Get("mode")))
-	if err != nil {
-		t.Fatalf("Accept: %v", err)
-	}
+	a := r.Accept(t.Context(), inbound, nil, mode(t, in.Get("mode")))
 	if a.Refusal != nil {
 		t.Fatalf("the egress's receiver refused the request: %d %s", a.Refusal.Status, a.Refusal.Body)
 	}

@@ -57,10 +57,7 @@ func accept(
 	t *testing.T, c vectors.Node, req paztporthttp.InboundRequest, mode paztporthttp.Mode,
 ) paztporthttp.Accepted {
 	t.Helper()
-	a, err := caseReceiver(t, c).Accept(t.Context(), req, nil, mode)
-	if err != nil {
-		t.Fatalf("Accept: %v", err)
-	}
+	a := caseReceiver(t, c).Accept(t.Context(), req, nil, mode)
 	return a
 }
 
@@ -430,10 +427,7 @@ func TestAttestUnattested(t *testing.T) {
 		c := verifiedCase(t)
 		r := caseReceiver(t, c)
 		r.Stamper = nil
-		a, err := r.Accept(t.Context(), caseRequest(t, c.Get("request")), nil, paztporthttp.ModeEnforce)
-		if err != nil {
-			t.Fatalf("Accept: %v", err)
-		}
+		a := r.Accept(t.Context(), caseRequest(t, c.Get("request")), nil, paztporthttp.ModeEnforce)
 		wantServed(t, a, true)
 		if a.Attests() {
 			t.Fatal("a service with no stamp key attests")
@@ -446,10 +440,7 @@ func TestAttestUnattested(t *testing.T) {
 		c := verifiedCase(t)
 		r := caseReceiver(t, c)
 		r.Stamper.Key = nil
-		a, err := r.Accept(t.Context(), caseRequest(t, c.Get("request")), nil, paztporthttp.ModeEnforce)
-		if err != nil {
-			t.Fatalf("Accept: %v", err)
-		}
+		a := r.Accept(t.Context(), caseRequest(t, c.Get("request")), nil, paztporthttp.ModeEnforce)
 		if h, ok, err := a.Attest(200, nil, nil); h != "" || ok || err == nil {
 			t.Fatalf("Attest = %q, %v, %v; want an error", h, ok, err)
 		}
@@ -509,11 +500,8 @@ func TestAcceptTargets(t *testing.T) {
 func TestAcceptResults(t *testing.T) {
 	t.Run("a peer that is not the last signer", func(t *testing.T) {
 		c := ruleCase(t, "refusals", "a peer that is not the last signer is named, but not to the caller")
-		a, err := caseReceiver(t, c).Accept(t.Context(), caseRequest(t, c.Get("request")), casePeer(c.Get("peer")),
+		a := caseReceiver(t, c).Accept(t.Context(), caseRequest(t, c.Get("request")), casePeer(c.Get("peer")),
 			paztporthttp.ModeEnforce)
-		if err != nil {
-			t.Fatalf("Accept: %v", err)
-		}
 		wantRefused(t, a, 403, reason.PeerMismatch)
 		want := verify.Result{Reason: reason.PeerMismatch, SuspectSvc: "gateway", SuspectInst: "10.1.0.9"}
 		if a.Result == nil || *a.Result != want || a.Audit {
@@ -555,10 +543,7 @@ func TestAcceptNoModeVerifiesOnce(t *testing.T) {
 	r := caseReceiver(t, c)
 	req := caseRequest(t, c.Get("request"))
 	for i, want := range []reason.Code{reason.OK, reason.Replay} {
-		a, err := r.Accept(t.Context(), req, nil, paztporthttp.ModeNone)
-		if err != nil {
-			t.Fatalf("Accept: %v", err)
-		}
+		a := r.Accept(t.Context(), req, nil, paztporthttp.ModeNone)
 		wantServed(t, a, want == reason.OK)
 		if a.Attests() != (want == reason.OK) || a.Result == nil || a.Result.Reason != want || a.Audit {
 			t.Fatalf("entry %d: Attests %v, Result %+v, Audit %v; want %s", i, a.Attests(), a.Result, a.Audit, want)
@@ -567,10 +552,7 @@ func TestAcceptNoModeVerifiesOnce(t *testing.T) {
 
 	// With no chain there is nothing to attest, so nothing is verified.
 	req.Chain = ""
-	a, err := caseReceiver(t, c).Accept(t.Context(), req, nil, paztporthttp.ModeNone)
-	if err != nil {
-		t.Fatalf("Accept: %v", err)
-	}
+	a := caseReceiver(t, c).Accept(t.Context(), req, nil, paztporthttp.ModeNone)
 	wantServed(t, a, false)
 	if a.Result != nil {
 		t.Fatalf("a request with no chain was verified: %+v", a.Result)
@@ -624,9 +606,7 @@ func TestAcceptLiveOrderOnce(t *testing.T) {
 					CallMaxAgeMs:   verify.CallMaxAgeMs,
 					RunMaxAgeMs:    verify.RunMaxAgeMs,
 				})
-				if _, err := r.Accept(t.Context(), tt.req(t), nil, mode); err != nil {
-					t.Fatalf("Accept: %v", err)
-				}
+				r.Accept(t.Context(), tt.req(t), nil, mode)
 				if cache.calls != tt.calls {
 					t.Fatalf("the cache was offered %d keys, want %d", cache.calls, tt.calls)
 				}
@@ -665,18 +645,27 @@ func failingReceiver(t *testing.T, c vectors.Node, err error) *paztporthttp.Rece
 	return r
 }
 
-// TestAcceptCacheError returns the nonce cache's error, and the zero Accepted, in a mode and when
-// verifying only to attest; ctx reaches the cache.
+// TestAcceptCacheError decides a request whose nonce cache cannot answer: enforce refuses it 503 with
+// no body, and audit and no mode serve it unverified and unattested; either way the cache's error is
+// exposed, and nothing is carried, verified, attested or delivered. ctx reaches the cache.
 func TestAcceptCacheError(t *testing.T) {
 	c := verifiedCase(t)
 	down := errors.New("the store is down")
 	for _, mode := range []paztporthttp.Mode{paztporthttp.ModeEnforce, paztporthttp.ModeAudit, paztporthttp.ModeNone} {
-		a, err := failingReceiver(t, c, down).Accept(t.Context(), caseRequest(t, c.Get("request")), nil, mode)
-		if !errors.Is(err, down) {
-			t.Fatalf("%v: err = %v, want the cache's", mode, err)
+		a := failingReceiver(t, c, down).Accept(t.Context(), caseRequest(t, c.Get("request")), nil, mode)
+		if !errors.Is(a.CacheErr, down) {
+			t.Fatalf("%v: CacheErr = %v, want the cache's", mode, a.CacheErr)
 		}
-		if a.Refusal != nil || a.Verified || a.Attests() || a.Inbound != nil || a.Influence != nil || a.Result != nil {
-			t.Fatalf("%v: Accepted = %+v with the error, want the zero one", mode, a)
+		if mode == paztporthttp.ModeEnforce {
+			if a.Refusal == nil || a.Refusal.Status != 503 || len(a.Refusal.Body) != 0 {
+				t.Fatalf("%v: Refusal = %+v, want 503 and no body", mode, a.Refusal)
+			}
+		} else if a.Refusal != nil {
+			t.Fatalf("%v: Refusal = %+v, want the request served", mode, a.Refusal)
+		}
+		if _, ok := a.Delivery(); ok || a.Verified || a.Attests() || a.Inbound != nil || a.Influence != nil ||
+			a.Result != nil {
+			t.Fatalf("%v: Accepted = %+v with the error, want nothing carried or verified", mode, a)
 		}
 	}
 
@@ -690,10 +679,44 @@ func TestAcceptCacheError(t *testing.T) {
 		CallMaxAgeMs:   verify.CallMaxAgeMs,
 		RunMaxAgeMs:    verify.RunMaxAgeMs,
 	})
-	_, err := r.Accept(ctx, caseRequest(t, c.Get("request")), nil, paztporthttp.ModeEnforce)
-	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("err = %v, want the cancelled context's", err)
+	a := r.Accept(ctx, caseRequest(t, c.Get("request")), nil, paztporthttp.ModeEnforce)
+	if !errors.Is(a.CacheErr, context.Canceled) {
+		t.Fatalf("CacheErr = %v, want the cancelled context's", a.CacheErr)
 	}
+}
+
+// TestUnavailable is 503 and no body.
+func TestUnavailable(t *testing.T) {
+	if a := paztporthttp.Unavailable(); a.Status != 503 || len(a.Body) != 0 {
+		t.Fatalf("Unavailable = %+v", a)
+	}
+}
+
+// TestAcceptDelivery names the delivery of a request verified at this hop, from its first stamp's rid and
+// its last stamp's signer and binding, and of no other.
+func TestAcceptDelivery(t *testing.T) {
+	c := verifiedCase(t)
+	a := accept(t, c, caseRequest(t, c.Get("request")), paztporthttp.ModeEnforce)
+	d, ok := a.Delivery()
+	last := a.Inbound[len(a.Inbound)-1]
+	want := paztporthttp.Delivery{RID: a.Inbound[0].RID, Svc: last.Svc, Bind: last.Bind}
+	if !ok || d != want || d.RID == "" || d.Svc == "" || d.Bind == "" {
+		t.Fatalf("Delivery = %+v, %v; want %+v", d, ok, want)
+	}
+
+	none := func(name string, a paztporthttp.Accepted) {
+		if d, ok := a.Delivery(); ok || d != (paztporthttp.Delivery{}) {
+			t.Errorf("%s: Delivery = %+v, %v; want none", name, d, ok)
+		}
+	}
+	none("off", accept(t, c, caseRequest(t, c.Get("request")), paztporthttp.ModeOff))
+	none("audit, failed", accept(t, ruleCase(t, "trustedRecord", "a chain that failed in audit mode"),
+		caseRequest(t, ruleCase(t, "trustedRecord", "a chain that failed in audit mode").Get("request")),
+		paztporthttp.ModeAudit))
+	o := caseReceiver(t, c)
+	o.Origin, o.Stamper.Origin = true, true
+	none("origin", o.Accept(t.Context(), caseRequest(t, c.Get("request")), nil, paztporthttp.ModeEnforce))
+	none("the zero Accepted", paztporthttp.Accepted{})
 }
 
 // ctxCache answers with its context's error, and otherwise records nothing.
@@ -733,9 +756,9 @@ func TestAcceptModeWithoutVerifier(t *testing.T) {
 					t.Errorf("%v, origin %v: panicked %v, want %v", tt.mode, tt.origin, got, tt.panics)
 				}
 			}()
-			a, err := r.Accept(t.Context(), req, nil, tt.mode)
-			if err != nil || a.Verified || a.Attests() {
-				t.Errorf("%v, origin %v: %+v, %v", tt.mode, tt.origin, a, err)
+			a := r.Accept(t.Context(), req, nil, tt.mode)
+			if a.Verified || a.Attests() {
+				t.Errorf("%v, origin %v: %+v", tt.mode, tt.origin, a)
 			}
 		}()
 	}
@@ -768,9 +791,7 @@ func TestAcceptOriginMismatch(t *testing.T) {
 						t.Errorf("%v, %+v: panicked %v, want %v", mode, tt, got, tt.panics)
 					}
 				}()
-				if _, err := r.Accept(t.Context(), req, nil, mode); err != nil {
-					t.Errorf("%v, %+v: %v", mode, tt, err)
-				}
+				r.Accept(t.Context(), req, nil, mode)
 			}()
 		}
 	}
@@ -797,10 +818,7 @@ func TestAcceptOrigin(t *testing.T) {
 		c := verifiedCase(t)
 		req := caseRequest(t, c.Get("request"))
 		req.Chain = ""
-		a, err := origin(t, c).Accept(t.Context(), req, nil, paztporthttp.ModeEnforce)
-		if err != nil {
-			t.Fatalf("Accept: %v", err)
-		}
+		a := origin(t, c).Accept(t.Context(), req, nil, paztporthttp.ModeEnforce)
 		wantRefused(t, a, 403, reason.ChainMissing)
 		if a.Result == nil || a.Result.Reason != reason.ChainMissing || a.Audit {
 			t.Fatalf("Result %+v, Audit %v", a.Result, a.Audit)
@@ -810,10 +828,7 @@ func TestAcceptOrigin(t *testing.T) {
 		c := verifiedCase(t)
 		req := caseRequest(t, c.Get("request"))
 		req.Chain = ""
-		a, err := origin(t, c).Accept(t.Context(), req, nil, paztporthttp.ModeAudit)
-		if err != nil {
-			t.Fatalf("Accept: %v", err)
-		}
+		a := origin(t, c).Accept(t.Context(), req, nil, paztporthttp.ModeAudit)
 		wantServed(t, a, false)
 		wantNothingCarried(t, a)
 		if a.Result == nil || a.Result.Reason != reason.ChainMissing || !a.Audit {
@@ -822,10 +837,7 @@ func TestAcceptOrigin(t *testing.T) {
 	})
 	t.Run("enforce, a chain that verifies", func(t *testing.T) {
 		c := influenceCase(t)
-		a, err := origin(t, c).Accept(t.Context(), caseRequest(t, c.Get("request")), nil, paztporthttp.ModeEnforce)
-		if err != nil {
-			t.Fatalf("Accept: %v", err)
-		}
+		a := origin(t, c).Accept(t.Context(), caseRequest(t, c.Get("request")), nil, paztporthttp.ModeEnforce)
 		wantServed(t, a, false)
 		wantNothingCarried(t, a)
 		if a.Result == nil || !a.Result.OK() {
@@ -834,10 +846,7 @@ func TestAcceptOrigin(t *testing.T) {
 	})
 	t.Run("audit, unreadable influence", func(t *testing.T) {
 		c := ruleCase(t, "unreadableInfluence", "audit, on a chain that verifies otherwise")
-		a, err := origin(t, c).Accept(t.Context(), caseRequest(t, c.Get("request")), nil, paztporthttp.ModeAudit)
-		if err != nil {
-			t.Fatalf("Accept: %v", err)
-		}
+		a := origin(t, c).Accept(t.Context(), caseRequest(t, c.Get("request")), nil, paztporthttp.ModeAudit)
 		wantServed(t, a, false)
 		wantNothingCarried(t, a)
 		if a.Result == nil || a.Result.Reason != reason.InfluenceMismatch || !a.Audit {
@@ -848,10 +857,7 @@ func TestAcceptOrigin(t *testing.T) {
 		c := ruleCase(t, "unreadableInfluence", "an origin carries none, so has none to drop")
 		for _, mode := range []paztporthttp.Mode{paztporthttp.ModeNone, paztporthttp.ModeOff} {
 			r := failingReceiver(t, c, errors.New("verified at an origin"))
-			a, err := r.Accept(t.Context(), caseRequest(t, c.Get("request")), nil, mode)
-			if err != nil {
-				t.Fatalf("%v: %v", mode, err)
-			}
+			a := r.Accept(t.Context(), caseRequest(t, c.Get("request")), nil, mode)
 			wantServed(t, a, false)
 			wantNothingCarried(t, a)
 			if a.Result != nil || a.Audit {
@@ -911,10 +917,7 @@ func FuzzAccept(f *testing.F) {
 		req := paztporthttp.InboundRequest{
 			Method: method, Target: target, Chain: chain, Proof: proof, Influence: infl, Body: body,
 		}
-		a, err := rc.Accept(t.Context(), req, nil, paztporthttp.Mode(mode))
-		if err != nil {
-			t.Fatalf("Accept: %v", err)
-		}
+		a := rc.Accept(t.Context(), req, nil, paztporthttp.Mode(mode))
 		if a.Refusal != nil {
 			if (a.Refusal.Status != 400 && a.Refusal.Status != 403) || a.Verified || a.Attests() || a.Inbound != nil {
 				t.Fatalf("refusal %+v with Verified %v, Attests %v", a.Refusal, a.Verified, a.Attests())
