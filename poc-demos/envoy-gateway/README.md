@@ -297,9 +297,9 @@ docker build -f poc-demos/envoy-gateway/processor/Dockerfile -t paztport-process
 
 ## The cluster
 
-Each version is pinned: kind 0.33 with the node image `kindest/node:v1.36.4` by digest, Envoy Gateway v1.9.2 from its
+Each version is pinned: kind 0.33 with the node image `kindest/node:v1.36.4` by digest, Envoy Gateway v1.10.0 from its
 Helm chart (its controller's image by digest, and Gateway API v1.6.1, which the chart installs), Envoy
-`distroless-v1.39.1` by digest (in the EnvoyProxy), and the checks' `curlimages/curl:8.22.0` by digest. kind's own
+`distroless-v1.40.2` by digest (in the EnvoyProxy), and the checks' `curlimages/curl:8.22.0` by digest. kind's own
 network plugin enforces NetworkPolicy, so no other is installed.
 
 Envoy Gateway runs in `envoy-gateway-system`; everything else is in the namespace `paztport`. `kind/gateway.yaml` is

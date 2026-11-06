@@ -14,8 +14,8 @@ CTX="kind-$CLUSTER"
 NS=paztport
 EG_NS=envoy-gateway-system
 EG_CHART=oci://docker.io/envoyproxy/gateway-helm
-EG_VERSION=v1.9.2
-EG_IMAGE=docker.io/envoyproxy/gateway:v1.9.2@sha256:9d67017c442a70e6ae9f1a358e6c80eb653c67c2e40823d9a991e0daf37ba926
+EG_VERSION=v1.10.0
+EG_IMAGE=docker.io/envoyproxy/gateway:v1.10.0@sha256:c2243d43518bed91d3ed8c2db849a4b7a14ac9b96eb019f2ab104bb1ca8572b1
 # The most bytes of request body the edge stamps: the processor's limit (the chart's bodyLimit) and the routes'
 # request buffer (requestBuffer.limit in kind/routes.yaml and kind/measure.yaml), from this one number.
 BODY_LIMIT=1048576
