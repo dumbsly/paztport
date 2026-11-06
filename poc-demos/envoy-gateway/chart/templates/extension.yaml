@@ -2,7 +2,9 @@
 Copyright 2026 The Paztport Authors
 SPDX-License-Identifier: Apache-2.0
 
-Attaches the processor to the routes, and has Envoy reach it over mutual TLS.
+Attaches the processor to the routes, and has Envoy reach it over mutual TLS. When every route has attach false
+and extraRoutes is empty, there is nothing to attach to, and the chart makes no EnvoyExtensionPolicy (the
+BackendTLSPolicy stays).
 
 The filter fails closed (failOpen: false): a processor that fails, is unreachable or does not answer within
 messageTimeout is a refusal (500). It sends the request's headers with the matched route's metadata, from which the
@@ -19,6 +21,7 @@ Gateway marks that one Overridden); StrategicMerge or JSONMerge merge this one i
 Envoy checks the processor's certificate against the mesh CA, for the Service's name, and presents the edge's
 client certificate, the EnvoyProxy's backendTLS setting.
 */ -}}
+{{- if include "edge.attached" . }}
 apiVersion: gateway.envoyproxy.io/v1alpha1
 kind: EnvoyExtensionPolicy
 metadata:
@@ -49,6 +52,7 @@ spec:
             - xds.route_metadata
         response: {}
 ---
+{{- end }}
 apiVersion: gateway.networking.k8s.io/v1
 kind: BackendTLSPolicy
 metadata:

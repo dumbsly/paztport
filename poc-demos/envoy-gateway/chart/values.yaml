@@ -37,6 +37,19 @@ gateway:
 #   routes:
 #     - httpRoute: orders
 #       receiver: orders
+#
+# A route is attached to the processor as well as mapped, unless it has `attach: false`, which maps it and leaves
+# it unattached (true or false; absent is true):
+#   routes:
+#     - httpRoute: orders-adopt
+#       receiver: orders
+#       attach: false
+# That is for a route Envoy already serves. Mapping it changes the routes file, which rolls the processor's pods;
+# attaching it in the same release makes the old pods refuse its requests (403) until the new ones take its
+# streams. So adopt it in two releases: add it with `attach: false`; once the new pods have rolled, remove the
+# line, and the second release attaches it and rolls nothing. Do not use it on a route not yet served: Envoy then
+# serves the route without the processor once it is applied. Such a route goes in with attach true, before it is
+# applied.
 routes: []
 
 # Further HTTPRoutes the processor is attached to that `routes` does not map. It refuses every request on them with

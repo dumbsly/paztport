@@ -60,13 +60,17 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end -}}
 
 {{- /*
-The HTTPRoutes the processor is attached to, one name a line: those in routes, then those in extraRoutes. A name in
-both, or twice in extraRoutes, is refused.
+The HTTPRoutes the processor is attached to, one name a line: those in routes whose attach is not false, then those
+in extraRoutes. The output is empty when there are none. A name in both routes (attached or not) and extraRoutes, or
+twice in extraRoutes, is refused.
 */ -}}
 {{- define "edge.attached" -}}
 {{- $mapped := list -}}
-{{- range .Values.routes }}{{ $mapped = append $mapped .httpRoute }}{{ end -}}
-{{- $names := $mapped -}}
+{{- $names := list -}}
+{{- range .Values.routes }}
+{{- $mapped = append $mapped .httpRoute }}
+{{- if or (not (hasKey . "attach")) .attach }}{{ $names = append $names .httpRoute }}{{ end }}
+{{- end }}
 {{- range .Values.extraRoutes }}
 {{- if has . $mapped }}{{ fail (printf "the HTTPRoute %s is in both routes and extraRoutes" .) }}{{ end }}
 {{- if has . $names }}{{ fail (printf "the HTTPRoute %s is listed twice in extraRoutes" .) }}{{ end }}
@@ -86,13 +90,19 @@ both, or twice in extraRoutes, is refused.
 
 {{- /*
 Refuses values the processor would not start with, or that would leave the edge without a limit: no route mapped,
-no keyring or root, and a body limit that is not a whole number of bytes from 1 to 1 GiB (1073741824), the processor's
-own bounds. bodyLimit is a plain number of bytes, such as 1048576, as a number or a string of digits: a quantity such
-as 1Mi, a fraction or anything else is refused. It refuses as well no Gateway for the NetworkPolicy to admit the
-Envoy pods of, and a mergeType Envoy Gateway does not take for a policy on routes (it refuses Replace).
+an attach that is not true or false, no keyring or root, and a body limit that is not a whole number of bytes from 1
+to 1 GiB (1073741824), the processor's own bounds. bodyLimit is a plain number of bytes, such as 1048576, as a number
+or a string of digits: a quantity such as 1Mi, a fraction or anything else is refused. It refuses as well no Gateway
+for the NetworkPolicy to admit the Envoy pods of, and a mergeType Envoy Gateway does not take for a policy on routes
+(it refuses Replace).
 */ -}}
 {{- define "edge.validate" -}}
 {{- if not .Values.routes }}{{ fail "routes must map at least one HTTPRoute" }}{{ end }}
+{{- range $i, $route := .Values.routes }}
+{{- if and (hasKey $route "attach") (not (kindIs "bool" $route.attach)) }}
+{{- fail (printf "routes[%d].attach must be true or false" $i) }}
+{{- end }}
+{{- end }}
 {{- if and (not .Values.gateway.name) (not .Values.gateway.envoyPodLabels) }}
 {{- fail "gateway.name (or gateway.envoyPodLabels) is required" }}
 {{- end }}

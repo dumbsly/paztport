@@ -10,8 +10,11 @@ same limit instead.
 
 With backendTrafficPolicyMergeType set (StrategicMerge by default), the policy merges into one on the routes'
 Gateway or listener, so the routes keep its settings; empty, it replaces that one on these routes.
+
+Like the EnvoyExtensionPolicy, it is made only when some route is attached: with every route at attach false and
+extraRoutes empty, there is no policy.
 */ -}}
-{{- if .Values.backendTrafficPolicy }}
+{{- if and .Values.backendTrafficPolicy (include "edge.attached" .) }}
 apiVersion: gateway.envoyproxy.io/v1alpha1
 kind: BackendTrafficPolicy
 metadata:

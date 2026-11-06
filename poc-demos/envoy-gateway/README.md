@@ -390,6 +390,14 @@ the route itself is applied, so that Envoy never serves it without the processor
 chart, then applies `kind/routes.yaml`. Removal is the other way round: a Paztport route comes off the Gateway before
 it leaves `routes`, and the chart is never uninstalled (`helm uninstall`) while such a route is attached.
 
+A route that Envoy already serves is adopted in two releases, not one. The first adds it to `routes` with
+`attach: false`: the processor's routes file maps it and its pods roll, and the processor is not yet attached to the
+route, so the route's requests are untouched. Once the new pods are ready, the second release removes the
+`attach: false` line; that attaches the processor and rolls nothing. A route not yet served does not take this path:
+with `attach: false` Envoy would serve it without the processor once applied, so it goes in with `attach` true, as
+above. The reason for two releases is that attaching and mapping in one release makes the old pods, which do not map
+the route, refuse its requests (403) until the new pods take its streams.
+
 `values.yaml` describes each value. `routes`, `gateway.name` and `image.tag` have no default, and the chart refuses to
 install without them; `envoy-gateway.sh` passes them with `--set`. Pod placement (`nodeSelector`, `tolerations`,
 `affinity`, `topologySpreadConstraints`, `priorityClassName`), `imagePullSecrets` and `podAnnotations` are set only
@@ -564,9 +572,10 @@ What the checks and the measurements found, beyond the numbers.
 
 ## Operating it
 
-- **Adopting a route.** Material first, so the backends hold a policy that allows the route's paths. Then attach the
-  processor to the route (add it to the chart's `routes`): 3.37 s of 403s at 1000/s in the run, on a route already
-  being served. Then roll the backends straight into `enforce`, caller first, since a callee in `enforce` refuses
+- **Adopting a route.** Material first, so the backends hold a policy that allows the route's paths. Then map the route,
+  then attach the processor to it: add it to the chart's `routes` with `attach: false` (the processor's pods roll),
+  and once they have, remove the `attach: false` line (nothing rolls). Mapping and attaching in one release, on a
+  route already being served: 3.37 s of 403s at 1000/s in the run. Then roll the backends straight into `enforce`, caller first, since a callee in `enforce` refuses
   every call its caller does not stamp yet: 238 errors of 150001, none a request unstamped. `audit` belongs before
   production, to find the paths a system takes and to check a release's policy against them.
 - **A new route.** Into the chart's `routes` (the processor's pods roll), then the route applied; off the Gateway
