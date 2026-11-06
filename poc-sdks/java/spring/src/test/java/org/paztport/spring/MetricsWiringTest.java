@@ -139,7 +139,7 @@ class MetricsWiringTest {
     @SuppressWarnings("unchecked")
     private static InboundFilter filter(ApplicationContext context) {
         return ((FilterRegistrationBean<InboundFilter>)
-                context.getBean("inboundFilterRegistration", FilterRegistrationBean.class)).getFilter();
+                context.getBean("paztportInboundFilterRegistration", FilterRegistrationBean.class)).getFilter();
     }
 
     /** A request through the starter's filter, with nothing in it that would verify. */
@@ -187,7 +187,7 @@ class MetricsWiringTest {
             assertThat(context).hasNotFailed();
             @SuppressWarnings("unchecked")
             PartnerFilter filter = ((FilterRegistrationBean<PartnerFilter>)
-                    context.getBean("partnerFilterRegistration", FilterRegistrationBean.class)).getFilter();
+                    context.getBean("paztportPartnerFilterRegistration", FilterRegistrationBean.class)).getFilter();
             MockHttpServletRequest call = new MockHttpServletRequest("POST", "/charge");
             call.setContent("{\"amount\":100}".getBytes());
             MockHttpServletResponse response = new MockHttpServletResponse();

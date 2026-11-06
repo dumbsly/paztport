@@ -44,7 +44,7 @@ public class TrustConfiguration {
 
     @Bean
     @ConditionalOnProperty("paztport.key-path")
-    Stamper stamper(PaztportProperties props) {
+    Stamper paztportStamper(PaztportProperties props) {
         return new Stamper(
                 props.getServiceName(),
                 instance(props),
@@ -56,7 +56,7 @@ public class TrustConfiguration {
 
     @Bean
     @ConditionalOnProperty("paztport.proofs-path")
-    ProofBundle proofBundle(PaztportProperties props) {
+    ProofBundle paztportProofBundle(PaztportProperties props) {
         return OwnMaterial.loadProofs(Path.of(props.getProofsPath()));
     }
 
@@ -68,14 +68,14 @@ public class TrustConfiguration {
     @Bean
     @ConditionalOnMissingBean(NonceCache.class)
     @ConditionalOnProperty({"paztport.keyring-path", "paztport.root-path", "paztport.policy-key-path"})
-    NonceCache nonceCache(PaztportProperties props) {
+    NonceCache paztportNonceCache(PaztportProperties props) {
         return new InMemoryNonceCache(VerifierConfig.nonceTtlFor(props.getMaxAgeMs()));
     }
 
     /** The requests' verifier: the response verifier's pinned material, over the requests' {@link NonceCache}. */
     @Bean
     @ConditionalOnProperty({"paztport.keyring-path", "paztport.root-path", "paztport.policy-key-path"})
-    Verifier verifier(PaztportProperties props, NonceCache nonces, ResponseVerifier responses) {
+    Verifier paztportVerifier(PaztportProperties props, NonceCache nonces, ResponseVerifier responses) {
         long minTtlMs;
         try {
             minTtlMs = Math.multiplyExact(2L, props.getMaxAgeMs());
@@ -99,7 +99,7 @@ public class TrustConfiguration {
      */
     @Bean
     @ConditionalOnProperty({"paztport.keyring-path", "paztport.root-path", "paztport.policy-key-path"})
-    ResponseVerifier responseVerifier(PaztportProperties props) {
+    ResponseVerifier paztportResponseVerifier(PaztportProperties props) {
         long runMaxAgeMs = props.getRunMaxAgeMs() != null ? props.getRunMaxAgeMs() : props.getMaxAgeMs();
         KeyringFile keyring = OwnMaterial.loadKeyring(Path.of(props.getKeyringPath()));
         SignedRoot root = OwnMaterial.loadRoot(Path.of(props.getRootPath()));
@@ -147,13 +147,13 @@ public class TrustConfiguration {
 
     @Bean
     @ConditionalOnProperty(name = "paztport.verify", havingValue = "true")
-    ModeHolder modeHolder(PaztportProperties props) {
+    ModeHolder paztportModeHolder(PaztportProperties props) {
         return new ModeHolder(VerificationMode.fromProperty(props.getMode()));
     }
 
     @Bean
     @ConditionalOnProperty(name = "paztport.verify", havingValue = "true")
-    AdminModeController adminModeController(ModeHolder modeHolder, PaztportProperties props) {
+    AdminModeController paztportAdminModeController(ModeHolder modeHolder, PaztportProperties props) {
         return new AdminModeController(modeHolder, props.getAdminToken());
     }
 

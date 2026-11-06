@@ -33,7 +33,7 @@ public class EventConfiguration {
      */
     @Bean
     @ConditionalOnProperty(name = "paztport.verify", havingValue = "true")
-    EventPublisher eventPublisher(PaztportProperties props, ObjectProvider<PooledTlsClient> tls) {
+    EventPublisher paztportEventPublisher(PaztportProperties props, ObjectProvider<PooledTlsClient> tls) {
         String responderUrl = props.getResponderUrl();
         if (responderUrl != null && !responderUrl.isBlank()) {
             String eventKeyPath = props.getEventKeyPath();

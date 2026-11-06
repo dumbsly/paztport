@@ -304,6 +304,18 @@ class PaztportAutoConfigurationTest {
     }
 
     @Test
+    void anApplicationBeanNamedLikeAnOldStarterBeanDoesNotStopStartup(@TempDir Path dir) throws Exception {
+        writeWorld(dir);
+        runner.withPropertyValues(VERIFIER_PROPS)
+                .withPropertyValues(trust(dir))
+                .withBean("nonceCache", String.class, () -> "mine")
+                .run(context -> {
+                    assertThat(context).hasNotFailed().hasSingleBean(Verifier.class).hasSingleBean(NonceCache.class);
+                    assertThat(context.getBean("nonceCache")).isEqualTo("mine");
+                });
+    }
+
+    @Test
     void anApplicationCacheThatRemembersTwiceTheWindowStarts(@TempDir Path dir) throws Exception {
         writeWorld(dir);
         runner.withPropertyValues(VERIFIER_PROPS)
@@ -1083,8 +1095,8 @@ class PaztportAutoConfigurationTest {
         writeWorld(dir);
         // None: every service has the inbound filter and the public-writes rule.
         assertStarterBeans(runner,
-                "inboundFilterRegistration",
                 "paztport-org.paztport.spring.PaztportProperties",
+                "paztportInboundFilterRegistration",
                 "paztportPublicWrites");
         // A caller: a key and its proofs.
         assertStarterBeans(runner.withPropertyValues(
@@ -1092,42 +1104,42 @@ class PaztportAutoConfigurationTest {
                         "paztport.origin=true",
                         "paztport.key-path=" + dir.resolve("gateway.key"),
                         "paztport.proofs-path=" + dir.resolve("proofs-gateway.json")),
-                "inboundFilterRegistration",
                 "paztport-org.paztport.spring.PaztportProperties",
+                "paztportInboundFilterRegistration",
+                "paztportProofBundle",
                 "paztportPublicWrites",
                 "paztportRestClientCustomizer",
-                "proofBundle",
-                "stamper");
+                "paztportStamper");
         // Verify on, with a key and the three trust paths.
         assertStarterBeans(runner.withPropertyValues(VERIFIER_PROPS).withPropertyValues(trust(dir))
                         .withPropertyValues("paztport.key-path=" + dir.resolve("gateway.key")),
-                "adminModeController",
-                "eventPublisher",
-                "inboundFilterRegistration",
-                "modeHolder",
-                "nonceCache",
                 "paztport-org.paztport.spring.PaztportProperties",
+                "paztportAdminModeController",
+                "paztportEventPublisher",
+                "paztportInboundFilterRegistration",
+                "paztportModeHolder",
+                "paztportNonceCache",
                 "paztportPublicWrites",
+                "paztportResponseVerifier",
                 "paztportRestClientCustomizer",
-                "responseVerifier",
-                "stamper",
-                "verifier");
+                "paztportStamper",
+                "paztportVerifier");
         // The same with a responder and paztport.tls-bundle, as an application would have its clients.
         assertStarterBeans(withClients.withPropertyValues(stampingVerifier(dir, "http://127.0.0.1:1"))
                         .withPropertyValues(MESH_BUNDLE),
-                "adminModeController",
-                "eventPublisher",
-                "inboundFilterRegistration",
-                "modeHolder",
-                "nonceCache",
                 "paztport-org.paztport.spring.PaztportProperties",
+                "paztportAdminModeController",
+                "paztportEventPublisher",
+                "paztportInboundFilterRegistration",
+                "paztportModeHolder",
+                "paztportNonceCache",
                 "paztportPublicWrites",
+                "paztportResponseVerifier",
                 "paztportRestClientCustomizer",
+                "paztportStamper",
                 "paztportTlsClient",
                 "paztportTlsRestClientCustomizer",
-                "responseVerifier",
-                "stamper",
-                "verifier");
+                "paztportVerifier");
         // paztport.boundary.url: an egress to a partner, with everything its client needs.
         Files.writeString(dir.resolve("partner-policy.pub"), pub(Crypto.generateEd25519KeyPair()) + "\n");
         // Only the blinding key's length is checked at startup.
@@ -1148,45 +1160,45 @@ class PaztportAutoConfigurationTest {
                                 "spring.ssl.bundle.pem.psp.keystore.certificate=classpath:tls/payment.crt",
                                 "spring.ssl.bundle.pem.psp.keystore.private-key=classpath:tls/payment.key",
                                 "spring.ssl.bundle.pem.psp.truststore.certificate=classpath:tls/ca.crt"),
-                "inboundFilterRegistration",
-                "nonceCache",
                 "paztport-org.paztport.spring.PaztportProperties",
                 "paztportBoundaryClient",
+                "paztportInboundFilterRegistration",
+                "paztportNonceCache",
+                "paztportProofBundle",
                 "paztportPublicWrites",
+                "paztportResponseVerifier",
                 "paztportRestClientCustomizer",
-                "proofBundle",
-                "responseVerifier",
-                "stamper",
-                "verifier");
+                "paztportStamper",
+                "paztportVerifier");
         // paztport.partner.enabled=true: a partner's entry.
         Path partnerDir = Files.createDirectory(dir.resolve("partner"));
         writePartner(partnerDir);
         assertStarterBeans(runner.withPropertyValues(partner(partnerDir)),
-                "nonceCache",
-                "partnerFilterRegistration",
                 "paztport-org.paztport.spring.PaztportProperties",
+                "paztportNonceCache",
+                "paztportPartnerFilterRegistration",
                 "paztportPartnerGate",
                 "paztportPartnerSessionController",
                 "paztportPartnerSessions",
                 "paztportPublicWrites",
+                "paztportResponseVerifier",
                 "paztportRestClientCustomizer",
-                "responseVerifier",
-                "stamper",
-                "verifier");
+                "paztportStamper",
+                "paztportVerifier");
     }
 
     /** Whichever filter a service has runs before any other, so nothing sees a request it has not checked. */
     @Test
     void bothFiltersRegisterFirst(@TempDir Path dir) throws Exception {
         runner.run(context -> {
-            FilterRegistrationBean<?> inbound = context.getBean("inboundFilterRegistration",
+            FilterRegistrationBean<?> inbound = context.getBean("paztportInboundFilterRegistration",
                     FilterRegistrationBean.class);
             assertThat(inbound.getOrder()).isEqualTo(Ordered.HIGHEST_PRECEDENCE);
             assertThat(inbound.getUrlPatterns()).containsExactly("/*");
         });
         writePartner(dir);
         runner.withPropertyValues(partner(dir)).run(context -> {
-            FilterRegistrationBean<?> entry = context.getBean("partnerFilterRegistration",
+            FilterRegistrationBean<?> entry = context.getBean("paztportPartnerFilterRegistration",
                     FilterRegistrationBean.class);
             assertThat(entry.getOrder()).isEqualTo(Ordered.HIGHEST_PRECEDENCE);
             assertThat(entry.getUrlPatterns()).containsExactly("/*");
@@ -1344,7 +1356,7 @@ class PaztportAutoConfigurationTest {
                     .run(context -> {
                         @SuppressWarnings("unchecked")
                         InboundFilter filter = ((FilterRegistrationBean<InboundFilter>)
-                                context.getBean("inboundFilterRegistration", FilterRegistrationBean.class))
+                                context.getBean("paztportInboundFilterRegistration", FilterRegistrationBean.class))
                                 .getFilter();
                         MockHttpServletRequest forged = new MockHttpServletRequest("POST", "/pay");
                         forged.setContent("{}".getBytes());

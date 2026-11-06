@@ -79,7 +79,7 @@ public class PaztportAutoConfiguration {
      */
     @Bean
     @ConditionalOnProperty("paztport.partner.enabled")
-    FilterRegistrationBean<PartnerFilter> partnerFilterRegistration(
+    FilterRegistrationBean<PartnerFilter> paztportPartnerFilterRegistration(
             PartnerSessions sessions, PaztportProperties props, ObjectProvider<ObservationRegistry> observations) {
         FilterRegistrationBean<PartnerFilter> registration = new FilterRegistrationBean<>(new PartnerFilter(sessions,
                 props.getServiceName(), observations.getIfAvailable(() -> ObservationRegistry.NOOP)));
@@ -101,7 +101,7 @@ public class PaztportAutoConfiguration {
      */
     @Bean
     @ConditionalOnProperty(name = "paztport.partner.enabled", havingValue = "false", matchIfMissing = true)
-    FilterRegistrationBean<InboundFilter> inboundFilterRegistration(
+    FilterRegistrationBean<InboundFilter> paztportInboundFilterRegistration(
             PaztportProperties props,
             ObjectProvider<Verifier> verifier,
             ObjectProvider<ModeHolder> modeHolder,
