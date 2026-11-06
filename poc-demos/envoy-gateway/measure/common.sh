@@ -993,7 +993,7 @@ envoy_routing_set() {
 # line.
 processor_hosts() {
   envoy_admin || return 1
-  curl -sf "http://$ENVOY_ADMIN/clusters" |
+  curl -sf --max-time 2 "http://$ENVOY_ADMIN/clusters" |
     sed -n 's|^envoyextensionpolicy/[^:]*paztport-processor[^:]*::\([0-9.]*\):9002::health_flags::.*|\1|p' |
     LC_ALL=C sort -u | paste -sd ' ' -
 }
@@ -1001,11 +1001,12 @@ processor_hosts() {
 # envoy_host_failed <pod ip>: whether Envoy's active health check has failed the host at that IP, port 9002, of its
 # cluster for the processor, from its admin port's /clusters: "yes" (the host's failed_active_health_check flag is
 # set), "no" (the host is listed without it, or the cluster lists no host at that address), or "unread" (the admin
-# port, or its answer, could not be read). It is the one Envoy pod envoy_admin forwards to that is read: each Envoy
-# pod checks the host on its own.
+# port, or its answer, could not be read, or it held no cluster for the processor). It is the one Envoy pod
+# envoy_admin forwards to that is read: each Envoy pod checks the host on its own.
 envoy_host_failed() {
   local json
-  envoy_admin 2>/dev/null && json=$(curl -sf "http://$ENVOY_ADMIN/clusters?format=json") || { echo unread; return 0; }
+  envoy_admin 2>/dev/null && json=$(curl -sf --max-time 2 "http://$ENVOY_ADMIN/clusters?format=json") ||
+    { echo unread; return 0; }
   python3 -c 'import json, re, sys
 try:
     clusters = json.load(sys.stdin)["cluster_statuses"]
@@ -1027,7 +1028,8 @@ print(("yes" if failed else "no") if seen else "unread")' "$1" <<<"$json"
 # envoy_extproc_stats: Envoy's counters for the processor: its ext_proc filter's streams (started, failed, timed
 # out, and let through for failing open), its cluster's requests refused for a full circuit breaker or timed out,
 # and its cluster's connections: none made for want of a healthy processor, failed, or closed by the processor with
-# requests on them; as "<name>=<n>" words, the names shortened.
+# requests on them; and its cluster's active health checks: passed, failed, or failed for want of a connection; as
+# "<name>=<n>" words, the names shortened.
 envoy_extproc_stats() {
   envoy_admin || return 1
   curl -sf "http://$ENVOY_ADMIN/stats" | awk -F': ' '
@@ -1039,6 +1041,9 @@ envoy_extproc_stats() {
     $1 ~ /^cluster\.envoyextensionpolicy\/.*paztport-processor/ && $1 !~ /\.internal\./ &&
       $1 ~ /\.upstream_cx_(none_healthy|connect_fail|destroy_remote_with_active_rq)$/ {
       sub(/^.*\.upstream_cx_/, "cluster_cx_", $1); s[$1] += $2 }
+    $1 ~ /^cluster\.envoyextensionpolicy\/.*paztport-processor/ && $1 !~ /\.internal\./ &&
+      $1 ~ /\.health_check\.(success|failure|network_failure)$/ {
+      sub(/^.*\.health_check\./, "hc_", $1); s[$1] += $2 }
     END { for (k in s) printf "%s=%d ", k, s[k] }' | tr ' ' '\n' | LC_ALL=C sort | paste -sd ' ' -
 }
 
