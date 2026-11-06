@@ -41,6 +41,7 @@ public final class RequestContext {
 
     private static final ThreadLocal<List<Stamp>> INBOUND = new ThreadLocal<>();
     private static final ThreadLocal<List<Stamp>> VERIFIED = new ThreadLocal<>();
+    private static final ThreadLocal<Delivery> DELIVERY = new ThreadLocal<>();
     private static final ThreadLocal<List<InfluenceEntry>> INFLUENCE = ThreadLocal.withInitial(ArrayList::new);
     private static final ThreadLocal<List<ContentLabel>> LABELS = ThreadLocal.withInitial(ArrayList::new);
     private static final ThreadLocal<Scope> CURRENT = new ThreadLocal<>();
@@ -72,6 +73,15 @@ public final class RequestContext {
      */
     public static List<Stamp> verifiedChain() {
         return VERIFIED.get();
+    }
+
+    /**
+     * The delivery of the request accepted through {@link #accept(HttpReceiver, InboundRequest, Peer,
+     * VerificationMode)} in this scope: what an application keys its idempotency on. Null when that request's chain
+     * did not verify here, after {@link #accept(PartnerReceiver, InboundRequest, PeerCert)}, and outside any scope.
+     */
+    public static Delivery delivery() {
+        return DELIVERY.get();
     }
 
     /** Everything that has shaped this request so far, in the order it was added; a read-only copy. */
@@ -135,6 +145,7 @@ public final class RequestContext {
             if (accepted.refusal() == null) {
                 if (accepted.verifiedChain() != null) {
                     markVerified(accepted.verifiedChain());
+                    DELIVERY.set(accepted.delivery());
                 }
                 addInfluence(accepted.influence().toArray(InfluenceEntry[]::new));
             }
@@ -255,6 +266,7 @@ public final class RequestContext {
     public static void clear() {
         INBOUND.remove();
         VERIFIED.remove();
+        DELIVERY.remove();
         INFLUENCE.remove();
         LABELS.remove();
     }

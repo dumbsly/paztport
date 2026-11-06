@@ -27,6 +27,14 @@ public record HttpAnswer(int status, byte[] json) {
     }
 
     /**
+     * The answer to a request the receiver could not decide because a dependency it needs cannot answer (its nonce
+     * cache): 503 with an empty body, naming no reason code, since no check failed.
+     */
+    public static HttpAnswer unavailable() {
+        return new HttpAnswer(503, new byte[0]);
+    }
+
+    /**
      * A refusal: {@code {"reason":"<code>"}} and nothing more. A refusal tells the caller what to do next; who is
      * suspected is for the operator and the responder, so it is carried by the event only, where there is one. The
      * suspect is usually the caller itself, and naming it in the answer would tip it off before the responder acts.

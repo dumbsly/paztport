@@ -8,6 +8,7 @@ import org.paztport.core.influence.ContentLabel;
 import org.paztport.core.influence.InfluenceEntry;
 import org.paztport.core.stamp.Stamp;
 import org.paztport.core.stamp.Stamper;
+import org.paztport.core.verify.NonceCacheUnavailableException;
 import org.paztport.core.verify.VerifyResult;
 import org.paztport.http.internal.LogSafe;
 import org.paztport.http.wire.HttpWire;
@@ -27,30 +28,39 @@ public final class Accepted {
     private final List<InfluenceEntry> influence;
     private final Stamper attester;
     private final VerifyResult result;
+    private final NonceCacheUnavailableException cacheFailure;
 
     private Accepted(HttpAnswer refusal, List<Stamp> inbound, boolean verified, List<InfluenceEntry> influence,
-            Stamper attester, VerifyResult result) {
+            Stamper attester, VerifyResult result, NonceCacheUnavailableException cacheFailure) {
         this.refusal = refusal;
         this.inbound = inbound;
         this.verified = verified;
         this.influence = influence;
         this.attester = attester;
         this.result = result;
+        this.cacheFailure = cacheFailure;
     }
 
     /** @param result the result the request was refused for, or null when no verification ran */
     static Accepted refused(HttpAnswer refusal, VerifyResult result) {
-        return new Accepted(refusal, null, false, List.of(), null, result);
+        return new Accepted(refusal, null, false, List.of(), null, result, null);
+    }
+
+    /** The request refused as unavailable because the nonce cache could not answer: no result, and the failure. */
+    static Accepted unavailable(NonceCacheUnavailableException cacheFailure) {
+        return new Accepted(HttpAnswer.unavailable(), null, false, List.of(), null, null, cacheFailure);
     }
 
     /**
      * @param attester the stamper to attest with, only where the chain verified here and this service attests;
      *     otherwise null
-     * @param result the live order's result on the request, or null when it did not run
+     * @param result the live order's result on the request, or null when it did not run or the nonce cache could not
+     *     answer
+     * @param cacheFailure why the nonce cache could not answer, or null
      */
     static Accepted served(List<Stamp> inbound, boolean verified, List<InfluenceEntry> influence,
-            Stamper attester, VerifyResult result) {
-        return new Accepted(null, inbound, verified, List.copyOf(influence), attester, result);
+            Stamper attester, VerifyResult result, NonceCacheUnavailableException cacheFailure) {
+        return new Accepted(null, inbound, verified, List.copyOf(influence), attester, result, cacheFailure);
     }
 
     /** The answer to send in place of the handler's, or null when the request is served. */
@@ -88,6 +98,27 @@ public final class Accepted {
      */
     public VerifyResult result() {
         return result;
+    }
+
+    /**
+     * Why the nonce cache could not answer, or null when it did or was not asked. The request then has no verdict:
+     * under {@code ENFORCE} it is refused ({@link #refusal} is 503, empty), and otherwise it is served with its chain
+     * unverified and its answer unattested.
+     */
+    public NonceCacheUnavailableException cacheFailure() {
+        return cacheFailure;
+    }
+
+    /**
+     * The delivery this request names, when {@link #verifiedChain} is not null: the first stamp's {@code rid} and the
+     * last stamp's {@code svc} and {@code bind}. Otherwise null.
+     */
+    public Delivery delivery() {
+        if (!verified) {
+            return null;
+        }
+        Stamp last = inbound.get(inbound.size() - 1);
+        return new Delivery(inbound.get(0).rid(), last.svc(), last.bind());
     }
 
     /**

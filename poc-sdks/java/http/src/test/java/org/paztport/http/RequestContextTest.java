@@ -5,6 +5,7 @@ package org.paztport.http;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -254,6 +255,17 @@ class RequestContextTest {
         }
         assertFalse(RequestContext.isOpen());
         assertNull(RequestContext.verifiedChain());
+    }
+
+    @Test
+    void theDeliveryIsHeldWithTheRequestAndEndsWithItsScope() {
+        assertNull(RequestContext.delivery(), "outside any scope");
+        try (RequestContext.Entered<Accepted> entered = RequestContext.accept(orders(null), request(List.of(MINE)),
+                null, VerificationMode.ENFORCE)) {
+            assertNotNull(entered.result().delivery());
+            assertEquals(entered.result().delivery(), RequestContext.delivery());
+        }
+        assertNull(RequestContext.delivery());
     }
 
     @Test

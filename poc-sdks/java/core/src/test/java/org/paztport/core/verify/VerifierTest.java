@@ -4,6 +4,8 @@
 package org.paztport.core.verify;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -250,11 +252,12 @@ class VerifierTest {
     }
 
     @Test
-    void aFailingNonceCacheOrClockPropagates() {
+    void cacheThrowingAnyRuntimeExceptionIsUnavailable() {
+        IllegalStateException down = new IllegalStateException("cache down");
         NonceCache broken = new NonceCache() {
             @Override
             public boolean seenBefore(String key, long now) {
-                throw new IllegalStateException("cache down");
+                throw down;
             }
 
             @Override
@@ -262,7 +265,24 @@ class VerifierTest {
                 return 2 * CALL;
             }
         };
-        assertThrows(IllegalStateException.class, () -> run(new Case(), broken));
+        NonceCacheUnavailableException thrown = assertThrows(NonceCacheUnavailableException.class,
+                () -> run(new Case(), broken));
+        assertSame(down, thrown.getCause());
+        assertFalse(String.valueOf(thrown.getMessage()).contains("cache down"), "the message is not the cause's");
+    }
+
+    @Test
+    void clockFaultStillPropagatesUnwrapped() {
+        IllegalStateException broken = new IllegalStateException("clock down");
+        Keyring ring = Keyring.of(Map.of("session", SESSION.getPublic(), "pi", PI.getPublic()));
+        Verifier v = new Verifier(new VerifierConfig(List.of(new PinnedKeyring(ring, NOT_AFTER)),
+                List.of(root(TREE, NOT_AFTER)), NOT_AFTER, Set.of("session"), "s", new InMemoryNonceCache(2 * CALL),
+                () -> {
+                    throw broken;
+                }, CALL, RUN));
+        IllegalStateException thrown = assertThrows(IllegalStateException.class,
+                () -> v.verify(boundaryInput("k", null)));
+        assertSame(broken, thrown);
     }
 
     // The pinned policy's own window: checked before anything about the request, and blaming no one.

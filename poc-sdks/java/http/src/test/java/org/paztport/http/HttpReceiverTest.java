@@ -45,6 +45,8 @@ import org.paztport.core.stamp.Chains;
 import org.paztport.core.stamp.Stamp;
 import org.paztport.core.stamp.Stamper;
 import org.paztport.core.verify.InMemoryNonceCache;
+import org.paztport.core.verify.NonceCache;
+import org.paztport.core.verify.NonceCacheUnavailableException;
 import org.paztport.core.verify.Peer;
 import org.paztport.core.verify.PinnedKeyring;
 import org.paztport.core.verify.PinnedRoot;
@@ -102,14 +104,31 @@ class HttpReceiverTest {
     }
 
     private Verifier paymentVerifier() {
+        return paymentVerifier(new InMemoryNonceCache());
+    }
+
+    private Verifier paymentVerifier(NonceCache nonces) {
         long notAfter = policy.signedRoot().notAfter();
         return new Verifier(new VerifierConfig(
                 List.of(new PinnedKeyring(Keyring.of(Map.of("gateway", gateway.getPublic(), "orders",
                         orders.getPublic())), notAfter)),
                 List.of(new PinnedRoot(policy.signedRoot().rootBytes(), policy.signedRoot().rootId(), notAfter)),
                 notAfter, Set.of("gateway"), "",
-                new InMemoryNonceCache(), () -> NOW, 5000, 5000));
+                nonces, () -> NOW, 5000, 5000));
     }
+
+    /** A cache that cannot answer, as a shared store that is down. */
+    private static final NonceCache DOWN = new NonceCache() {
+        @Override
+        public boolean seenBefore(String key, long now) {
+            throw new IllegalStateException("store at 10.1.2.3 down");
+        }
+
+        @Override
+        public long ttlMs() {
+            return 10_000;
+        }
+    };
 
     /** Payment verifying requests under the mode, with no stamp key, so it never attests. */
     private HttpReceiver verifying(ReceivedRequestListener listener) {
@@ -329,6 +348,109 @@ class HttpReceiverTest {
         assertNull(accepted.refusal());
         assertTrue(events.all.isEmpty(), "off mode publishes nothing");
         assertTrue(traceLines().isEmpty(), "and verifies nothing, so traces nothing");
+    }
+
+    private List<String> receiverWarnings() {
+        return warnings.list.stream().filter(e -> e.getLevel() == Level.WARN)
+                .map(ILoggingEvent::getFormattedMessage).toList();
+    }
+
+    private final ListAppender<ILoggingEvent> warnings = new ListAppender<>();
+    private final Logger receiverLog = (Logger) LoggerFactory.getLogger(HttpReceiver.class);
+
+    private void captureReceiverLog() {
+        warnings.start();
+        receiverLog.addAppender(warnings);
+        receiverLog.setLevel(Level.WARN);
+        receiverLog.setAdditive(false);
+    }
+
+    @AfterEach
+    void releaseReceiverLog() {
+        receiverLog.detachAppender(warnings);
+        receiverLog.setLevel(null);
+        receiverLog.setAdditive(true);
+    }
+
+    @Test
+    void enforceRefuses503WhenTheNonceCacheCannotAnswer() {
+        captureReceiverLog();
+        HttpReceiver receiver = HttpReceiver.builder("payment").verifier(paymentVerifier(DOWN))
+                .verifyRequests(true).publisher(events).stamper(paymentStamper()).build();
+
+        Accepted accepted = receiver.accept(paymentRequest(validHeaders(), TO_PAYMENT), null,
+                VerificationMode.ENFORCE);
+
+        assertEquals(503, accepted.refusal().status());
+        assertEquals(0, accepted.refusal().json().length, "an empty body");
+        assertEquals(IllegalStateException.class, accepted.cacheFailure().getCause().getClass());
+        assertNull(accepted.verifiedChain());
+        assertFalse(accepted.attests());
+        assertNull(accepted.delivery());
+        assertTrue(events.all.isEmpty(), "no verdict, so no event");
+        assertEquals(List.of("nonce cache unavailable: " + IllegalStateException.class.getName()),
+                receiverWarnings(), "the cause's class and nothing else");
+        assertTrue(warnings.list.get(0).getThrowableProxy() == null, "no stack trace");
+    }
+
+    @Test
+    void auditServesUnverifiedWhenTheNonceCacheCannotAnswer() {
+        captureReceiverLog();
+        HttpReceiver receiver = HttpReceiver.builder("payment").verifier(paymentVerifier(DOWN))
+                .verifyRequests(true).publisher(events).stamper(paymentStamper()).build();
+
+        Accepted accepted = receiver.accept(paymentRequest(headers("rid-1", "/pay", List.of(WEB)), TO_PAYMENT),
+                null, VerificationMode.AUDIT);
+
+        assertNull(accepted.refusal());
+        assertNotNull(accepted.cacheFailure());
+        assertNull(accepted.verifiedChain());
+        assertFalse(accepted.attests());
+        assertNull(accepted.delivery());
+        assertEquals(List.of(WEB), accepted.influence(), "what was received still counts towards the rule");
+        assertEquals(1, receiverWarnings().size());
+    }
+
+    @Test
+    void aReceiverWithNoModeServesUnattestedWhenTheNonceCacheCannotAnswer() {
+        captureReceiverLog();
+        HttpReceiver receiver = HttpReceiver.builder("payment").verifier(paymentVerifier(DOWN))
+                .stamper(paymentStamper()).build();
+
+        Accepted accepted = receiver.accept(paymentRequest(validHeaders(), TO_PAYMENT), null,
+                VerificationMode.OFF);
+
+        assertNull(accepted.refusal());
+        assertFalse(accepted.attests());
+        assertNotNull(accepted.cacheFailure());
+        assertNull(accepted.verifiedChain());
+        assertNull(accepted.delivery());
+        assertEquals(1, receiverWarnings().size());
+    }
+
+    @Test
+    void aHealthyCacheLeavesNoFailureAndAVerifiedRequestNamesItsDelivery() {
+        Accepted accepted = verifying(null).accept(paymentRequest(validHeaders(), TO_PAYMENT), null,
+                VerificationMode.ENFORCE);
+
+        assertNull(accepted.cacheFailure());
+        List<Stamp> chain = accepted.verifiedChain();
+        assertEquals(new Delivery(chain.get(0).rid(), "orders", RequestBinding.compute("POST", "/pay", TO_PAYMENT)),
+                accepted.delivery());
+        assertEquals(new Delivery("rid-1", chain.get(chain.size() - 1).svc(), chain.get(chain.size() - 1).bind()),
+                accepted.delivery());
+    }
+
+    @Test
+    void thereIsNoDeliveryForAnOriginAnOffHopOrAnAuditFailure() {
+        HttpReceiver origin = HttpReceiver.builder("payment").verifier(paymentVerifier()).verifyRequests(true)
+                .publisher(events).origin(true).build();
+        assertNull(origin.accept(paymentRequest(validHeaders(), TO_PAYMENT), null, VerificationMode.ENFORCE)
+                .delivery());
+        assertNull(verifying(null).accept(paymentRequest(validHeaders(), TO_PAYMENT), null, VerificationMode.OFF)
+                .delivery());
+        assertNull(verifying(null).accept(paymentRequest(validHeaders(), "{\"amount\":999}".getBytes()), null,
+                VerificationMode.AUDIT).delivery());
     }
 
     @Test

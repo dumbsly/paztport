@@ -14,6 +14,7 @@ import org.paztport.core.stamp.Chains;
 import org.paztport.core.stamp.ParsedChain;
 import org.paztport.core.stamp.Stamp;
 import org.paztport.core.stamp.Stamper;
+import org.paztport.core.verify.NonceCacheUnavailableException;
 import org.paztport.core.verify.Peer;
 import org.paztport.core.verify.ReasonCode;
 import org.paztport.core.verify.Verifier;
@@ -44,6 +45,11 @@ import org.slf4j.LoggerFactory;
  *       refused 400 in every mode, as below.</li>
  *   <li>{@code ENFORCE}: verify, publish an event and refuse {@code 403 {"reason":"<code>"}} on failure.</li>
  * </ul>
+ *
+ * A nonce cache that cannot answer gives no verdict, so there is no event and no reason code. Under {@code ENFORCE}
+ * the request is refused 503 with an empty body ({@link HttpAnswer#unavailable}) and never reaches the handler; under
+ * {@code AUDIT}, and on a receiver with no mode, it is served with its chain unverified and its answer unattested.
+ * One warning names the cause's class and nothing else, and {@link Accepted#cacheFailure} carries the failure.
  *
  * The influence the handler starts from is the verified entries when the request verified, and otherwise the
  * entries as received. Influence that cannot be read is never dropped, because dropping it could hide private data
@@ -233,21 +239,33 @@ public final class HttpReceiver {
         // The live order's result on this request here, once it has run: it decides attestation.
         VerifyResult checked = null;
         boolean verified = false;
+        NonceCacheUnavailableException cacheFailure = null;
         if (mode != VerificationMode.OFF) {
             VerifyInput input = VerifyInputs.request(chain, parsed, proofHeader, influenceHeader, request.method(),
                     request.target(), request.body(), receiver, peer);
-            checked = verifier.verify(input);
+            try {
+                checked = verifier.verify(input);
+            } catch (NonceCacheUnavailableException e) {
+                // No verdict: nothing is verified or published, and only enforce refuses.
+                cacheFailure = cacheUnavailable(e);
+            }
             // On OK these are the entries the last stamp committed to; otherwise what was received.
             influence = parseInfluence(input.influence());
-            trace(traceLine(rid, checked, receiver, peer, influence));
-            if (!checked.ok()) {
-                publisher.publish(new AttestationEvent(checked.reason().name(), checked.suspectSvc(),
-                        checked.suspectInst(), rid, mode == VerificationMode.AUDIT));
+            if (cacheFailure != null) {
                 if (mode == VerificationMode.ENFORCE) {
-                    return Accepted.refused(HttpAnswer.refusal(403, checked.reason()), checked);
+                    return Accepted.unavailable(cacheFailure);
                 }
-            } else if (!origin && inbound != null) {
-                verified = true;
+            } else {
+                trace(traceLine(rid, checked, receiver, peer, influence));
+                if (!checked.ok()) {
+                    publisher.publish(new AttestationEvent(checked.reason().name(), checked.suspectSvc(),
+                            checked.suspectInst(), rid, mode == VerificationMode.AUDIT));
+                    if (mode == VerificationMode.ENFORCE) {
+                        return Accepted.refused(HttpAnswer.refusal(403, checked.reason()), checked);
+                    }
+                } else if (!origin && inbound != null) {
+                    verified = true;
+                }
             }
         } else {
             influence = parseInfluence(HttpWire.decodeInfluence(influenceHeader));
@@ -258,16 +276,26 @@ public final class HttpReceiver {
             return Accepted.refused(UNREADABLE_INFLUENCE, checked);
         }
         boolean attesting = !switchedOff && stamper != null && verifier != null && !origin && inbound != null;
-        if (attesting && checked == null) {
+        if (attesting && checked == null && cacheFailure == null) {
             // A hop that does not verify requests, so verified here for attestation alone: never refused, never
             // published. Run at most once per request, since the live order spends the request's nonce.
-            checked = verifier.verify(VerifyInputs.request(chain, parsed, proofHeader, influenceHeader,
-                    request.method(), request.target(), request.body(), receiver, peer));
-            trace(traceLine(rid, checked, receiver, peer, influence));
-            verified = checked.ok();
+            try {
+                checked = verifier.verify(VerifyInputs.request(chain, parsed, proofHeader, influenceHeader,
+                        request.method(), request.target(), request.body(), receiver, peer));
+                trace(traceLine(rid, checked, receiver, peer, influence));
+                verified = checked.ok();
+            } catch (NonceCacheUnavailableException e) {
+                cacheFailure = cacheUnavailable(e);
+            }
         }
         return Accepted.served(inbound, verified, origin ? List.of() : influence,
-                attesting && checked.ok() ? stamper : null, checked);
+                attesting && checked != null && checked.ok() ? stamper : null, checked, cacheFailure);
+    }
+
+    /** Logs that the nonce cache could not answer: the cause's class only, never its message, a key or a stamp. */
+    private static NonceCacheUnavailableException cacheUnavailable(NonceCacheUnavailableException e) {
+        LOG.warn("nonce cache unavailable: {}", e.getCause().getClass().getName());
+        return e;
     }
 
     private static void trace(String line) {

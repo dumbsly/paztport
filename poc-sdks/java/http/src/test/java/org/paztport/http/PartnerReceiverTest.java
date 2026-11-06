@@ -144,6 +144,18 @@ class PartnerReceiverTest {
     }
 
     @Test
+    void aPartnerCallHasNoDeliveryInTheRequestContext() {
+        String sess = attestedSession();
+
+        try (RequestContext.Entered<PartnerAccepted> entered = RequestContext.accept(receiver,
+                charge(boundary(sess, "rid-1", REFUND), REFUND), cert(SHOP_CA, "orders"))) {
+            assertTrue(entered.result().attested());
+            assertNotNull(RequestContext.verifiedChain());
+            assertNull(RequestContext.delivery(), "a delivery is named for the in-mesh receiver only");
+        }
+    }
+
+    @Test
     void aCallThatVerifiesInItsAttestedSessionIsBelieved() {
         String sess = attestedSession();
 

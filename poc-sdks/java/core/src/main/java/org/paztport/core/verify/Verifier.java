@@ -73,8 +73,11 @@ public final class Verifier {
 
     /**
      * Runs the live order. The checks are total on malformed input, so a rejection is always a typed result;
-     * a fault in what the verifier was given (a nonce cache or clock that throws) is not input and propagates,
-     * rather than being hidden as a rejection.
+     * a fault in what the verifier was given (a clock that throws) is not input and propagates, rather than being
+     * hidden as a rejection.
+     *
+     * @throws NonceCacheUnavailableException when the nonce cache throws at check 10, with its exception as the
+     *     cause: the replay check then has no verdict, which is neither a rejection nor an acceptance
      */
     public VerifyResult verify(VerifyInput in) {
         long now = cfg.clock().getAsLong();
@@ -118,7 +121,7 @@ public final class Verifier {
         // 10. Replay. A cache that forgets sooner than twice the call window fails closed, before spending the nonce.
         long ttl = cfg.nonces().ttlMs();
         if (in.nonceKey() == null || ttl < 0 || Math.floorDiv(ttl, 2) < cfg.callMaxAgeMs()
-                || cfg.nonces().seenBefore(in.nonceKey(), now)) {
+                || seenBefore(in.nonceKey(), now)) {
             return VerifyResult.reject(ReasonCode.REPLAY);
         }
 
@@ -134,6 +137,15 @@ public final class Verifier {
             return VerifyResult.reject(ReasonCode.PEER_MISMATCH);
         }
         return routed;
+    }
+
+    /** The cache's answer; a cache that cannot give one has no verdict, which is not a rejection. */
+    private boolean seenBefore(String key, long now) {
+        try {
+            return cfg.nonces().seenBefore(key, now);
+        } catch (RuntimeException e) {
+            throw new NonceCacheUnavailableException(e);
+        }
     }
 
     /** Check 7's arithmetic, in exact longs so an extreme clock is EXPIRED rather than a wrapped difference. */
