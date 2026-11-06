@@ -780,6 +780,9 @@ so it needs the token `payment` was started with, and it stops with an error if 
 switch is refused. `demo.sh` generates its own token on every run and leaves
 `payment` running with it, so after `demo.sh` recreate `payment` from a shell that
 has your `PAZTPORT_ADMIN_TOKEN` (or re-run `docker compose up -d`) before `measure.sh`.
+The services start listening a few seconds after their containers do, so `measure.sh`
+first waits, up to `READY_WAIT` seconds (90), for a checkout to come back 200, and
+can run straight after either command.
 
 `docker compose run` reuses an existing image and never rebuilds it. If you
 change and rebuild the Java code, run `docker compose build keygen policy-tool

@@ -9,6 +9,9 @@
 #   PAZTPORT_ADMIN_TOKEN=<token> docker compose up -d --build   # stack must be running first
 #   PAZTPORT_ADMIN_TOKEN=<token> ./measure.sh   # same token, for /admin/mode
 #
+# It waits up to READY_WAIT seconds (90) for the stack to answer a checkout, so it
+# can run straight after `docker compose up`.
+#
 # It drives the legitimate path with k6, with payment in `off` mode (Paztport off
 # on that hop) and in `enforce` mode. The difference between the two covers
 # payment's request verification, payment's signing of its response, and orders'
@@ -40,6 +43,7 @@ VUS="${VUS:-10}"
 DURATION="${DURATION:-20s}"
 WARMUP="${WARMUP:-10s}"
 ROUNDS="${ROUNDS:-3}"
+READY_WAIT="${READY_WAIT:-90}"
 # Every hop is mutual TLS, so the curl and k6 containers present the operator's
 # certificate, mounted file by file. The key files are owner-only and both images
 # run as an unprivileged user, so the containers run as root to read them.
@@ -62,6 +66,22 @@ set_mode() { # $1 = off|enforce ; exits unless payment accepts the switch
   fi
 }
 
+wait_ready() { # exits unless one checkout gets a 200 through gateway, orders and payment within READY_WAIT seconds
+  # `docker compose up -d` returns once the containers run, before the JVMs listen, and the services have no
+  # health check of their own: the legitimate path answering 200 is the one sign every hop is up.
+  local code="" end=$(($(date +%s) + READY_WAIT))
+  while [ "$(date +%s)" -lt "$end" ]; do
+    code=$(mc --max-time 5 -o /dev/null -w '%{http_code}' -X POST https://gateway:8080/checkout \
+      -H 'Content-Type: application/json' -d '{}' 2>/dev/null)
+    [ "$code" = "200" ] && return 0
+    sleep 1
+  done
+  # No code at all means docker could not start the probe, as when the stack's network does not exist.
+  echo "measure.sh: the stack did not answer a checkout with 200 within ${READY_WAIT}s (last: ${code:-no answer});" \
+    "is it up (docker compose ps), and does a checkout succeed (docker compose logs gateway orders payment)?" >&2
+  exit 1
+}
+
 run_load() { # $1 = duration; echoes the run's RESULT line
   # k6 gets only the operator's certificate and key: it cannot be given a CA (see load.js).
   docker run --rm --user 0:0 --network "$MESH" "${OPERATOR[@]}" \
@@ -69,6 +89,7 @@ run_load() { # $1 = duration; echoes the run's RESULT line
     -v "$PWD/load.js:/scripts/load.js:ro" "$K6" run /scripts/load.js 2>/dev/null | grep RESULT
 }
 
+wait_ready
 echo "== latency: payment off vs enforce (VUS=$VUS DURATION=$DURATION WARMUP=$WARMUP ROUNDS=$ROUNDS) =="
 for mode in off enforce; do
   set_mode "$mode"
