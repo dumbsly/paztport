@@ -44,10 +44,10 @@ gateway:
 #     - httpRoute: orders-adopt
 #       receiver: orders
 #       attach: false
-# That is only for a route Envoy serves without the processor. Mapping it changes the routes file, which rolls the processor's pods;
-# attaching it in the same release makes the old pods refuse its requests (403) until the new ones take its
-# streams. So adopt it in two releases: add it with `attach: false`; once the new pods have rolled, remove the
-# line, and the second release attaches it and rolls nothing. Do not use it on a route not yet served: Envoy then
+# That is only for a route Envoy serves without the processor. Mapping it changes the routes file, which rolls the
+# processor's pods; attaching it in the same release makes the old pods refuse its requests (403) until the new ones
+# take its streams. So adopt it in two releases: add it with `attach: false`; once the new pods have rolled, remove
+# the line, and the second release attaches it and rolls nothing. Do not use it on a route not yet served: Envoy then
 # serves the route without the processor once it is applied. Such a route goes in with attach true, before it is
 # applied. On a route the processor is attached to, attach: false detaches it in place, and Envoy then serves the
 # route without it: the backends' own checks (a backend in enforce refusing CHAIN_MISSING) are what is left.

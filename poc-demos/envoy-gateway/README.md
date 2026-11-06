@@ -88,8 +88,10 @@ single run. The tables are under [Measurements](#measurements).
    `enforce`; `audit` is a tool for before production, for finding the paths a system takes. So the suite measured
    the production order, at 1000/s on a route of its own, one run a step: the processor attached to the route, then
    `orders` and then `payment` rolled straight into `enforce`.
-   - Attaching cost 2663 403s in 3.37 s, refused by the processor's old pods, whose routes did not yet map the
-     route (see [Findings](#findings)).
+   - Attaching, in that run, was one release: the chart mapped the route and attached the processor at once. It cost
+     2663 403s in 3.37 s, refused by the processor's old pods, whose routes did not yet map the route (see
+     [Findings](#findings)). The chart's `attach: false` now maps a route first, so that the release that attaches
+     the processor rolls no pod.
    - Rolling the backends into `enforce` cost 238 of 150001 requests (10 refused `EXPIRED`; 193 500s, 3 503s and 32
      resets or timeouts, during and after the rollouts), and no request reached a backend without a stamp.
    - Then a request straight to `orders`, past the Gateway, was refused `403 CHAIN_MISSING`.
@@ -333,10 +335,10 @@ processor's Deployment (with a PodDisruptionBudget, a HorizontalPodAutoscaler on
 and otherwise keeps its minimum, resource requests and limits, and a `preStop` pause before the processor drains),
 its Service, and:
 
-- an EnvoyExtensionPolicy on the routes in `routes` not set `attach: false`, and those in `extraRoutes`: `failOpen: false`, a `messageTimeout`
-  (500 ms by default), request bodies `Buffered`, the `xds.route_metadata` attribute, response headers sent and
-  response bodies not, and mode overrides allowed, so that the processor can ask for a request's trailers. It sets no
-  header mutation rules;
+- an EnvoyExtensionPolicy on the routes in `routes` not set `attach: false`, and those in `extraRoutes`:
+  `failOpen: false`, a `messageTimeout` (500 ms by default), request bodies `Buffered`, the `xds.route_metadata`
+  attribute, response headers sent and response bodies not, and mode overrides allowed, so that the processor can ask
+  for a request's trailers. It sets no header mutation rules;
 - a BackendTLSPolicy, so that Envoy checks the processor's certificate against the mesh CA;
 - a NetworkPolicy that admits the Gateway's Envoy pods, by Envoy Gateway's labels, and no other pod to the gRPC port.
   It needs a network plugin that enforces NetworkPolicy (kind's does; on EKS, the VPC CNI with network policy
@@ -453,11 +455,11 @@ Envoy's 413 with its own 500 (11), and the request buffer taken off the routes' 
 - Containment needs every route to a Paztport backend to pass the processor. Envoy presents the edge's certificate
   on every upstream with a BackendTLSPolicy, so on a route without the processor a stamp the client holds is accepted
   as the edge's (seen with the policy detached: a stamp taken from the processor was served). Each such route must be
-  in `routes` with `attach` true, or in `extraRoutes`, before it is attached to the Gateway. The chart's EnvoyExtensionPolicy must be the only
-  one on it: Envoy Gateway attaches the oldest and marks others Conflicted, and a policy on a rule of the route
-  overrides it (see the chart, above, for one on the Gateway). No route may point at the processor's Service.
-  Whoever can attach routes to the Gateway is inside the edge's trust. `envoy-gateway.sh up` waits for the policy to
-  be accepted on every ancestor and overridden on none.
+  in `routes` with `attach` true, or in `extraRoutes`, before it is attached to the Gateway. The chart's
+  EnvoyExtensionPolicy must be the only one on it: Envoy Gateway attaches the oldest and marks others Conflicted, and
+  a policy on a rule of the route overrides it (see the chart, above, for one on the Gateway). No route may point at
+  the processor's Service. Whoever can attach routes to the Gateway is inside the edge's trust. `envoy-gateway.sh up`
+  waits for the policy to be accepted on every ancestor and overridden on none.
 - Of two BackendTrafficPolicies on the same route, the newer is not accepted for it: with the chart's own made after
   `orders-routes`, the chart's reported `Accepted` `False`, reason `Conflicted` ("another BackendTrafficPolicy has
   already attached to it").
@@ -526,12 +528,13 @@ What the checks and the measurements found, beyond the numbers.
   was ready again Envoy's connections to it failed for about a second (456 500s, `cluster_cx_connect_fail` +395 over the
   case), a burst of its own. Outlier detection on the processor's cluster, or a readiness check that goes through the
   gRPC port, is the follow-up for the port-only case.
-- **Attaching the processor to a route already being served costs a window of 403s.** The chart maps a route and
-  attaches its policy in one release. Envoy enables the filter on the route as the policy changes, before the new
-  processor pods, whose routes map it, take all of its streams; until then the old pods refuse the route as
-  unmapped. At 1000/s that was 2663 403s over 3.37 s, and Envoy's 79793 streams to the processor were exactly the
-  new pods' 77130 stamps and those 403s. It fails closed. Mapping first and attaching after needs a chart option
-  that does not exist yet.
+- **Attaching the processor to a route already being served costs a window of 403s.** Attaching in one release, the
+  chart maps a route and attaches its policy together. Envoy enables the filter on the route as the policy changes,
+  before the new processor pods, whose routes map it, take all of its streams; until then the old pods refuse the
+  route as unmapped. At 1000/s that was 2663 403s over 3.37 s, and Envoy's 79793 streams to the processor were exactly
+  the new pods' 77130 stamps and those 403s. It fails closed. The chart now offers the other order: `attach: false`
+  maps the route first, and a second release attaches it (see [The chart](#the-chart)); this run measured the
+  one-release attach only.
 - **Mid-rollout responses go unattested, by design.** While `orders` enforced and `payment` did not yet run
   Paztport, `orders` counted 4035 `response checked CHAIN_MISSING` and still served the requests. A response is
   content, never refused; an unattested one is recorded as untrusted influence, which counts against later calls.
@@ -578,9 +581,9 @@ What the checks and the measurements found, beyond the numbers.
   then attach the processor to it: add it to the chart's `routes` with `attach: false` (the processor's pods roll),
   and once they have, remove the `attach: false` line (nothing rolls). Mapping and attaching in one release, on a
   route already being served: 3.37 s of 403s at 1000/s in the run. Then roll the backends straight into `enforce`,
-  caller first, since a callee in `enforce` refuses every
-  call its caller does not stamp yet: 238 errors of 150001, none a request unstamped. `audit` belongs before
-  production, to find the paths a system takes and to check a release's policy against them.
+  caller first, since a callee in `enforce` refuses every call its caller does not stamp yet: 238 errors of 150001,
+  none a request unstamped. `audit` belongs before production, to find the paths a system takes and to check a
+  release's policy against them.
 - **A new route.** Into the chart's `routes` (the processor's pods roll), then the route applied; off the Gateway
   before it leaves `routes`.
 - **A new service path.** Rebuild and sign the policy, then three steps: the backends pin the old root and the new
@@ -614,7 +617,8 @@ What the checks and the measurements found, beyond the numbers.
 - **Replay protection is per replica,** above: a retry to another replica is served twice.
 - **Envoy Gateway's default routing leaks on recovery,** above, until Envoy Gateway changes or `routingType: Service`
   is set.
-- **Attaching to a served route costs 403s,** above: a map-then-attach order needs a chart option.
+- **Attaching to a served route in one release costs 403s,** above: the chart's `attach: false` maps a route
+  first, and the run behind these numbers attached in one release.
 - **One upstream client certificate for each Gateway,** in Envoy Gateway v1.9.2 (see [The chart](#the-chart)).
 - **One machine, one node.** The ceilings are this node's, with Envoy, the processor, the backends and k6 sharing
   it; one run is not a spread across machines.
@@ -627,7 +631,7 @@ What the checks and the measurements found, beyond the numbers.
 - **A verifying front** and **partner entry** at the edge, and **client stamps**, a client signing its own requests
   (the DPoP and passkey shape).
 - **Chains that start only at an ingress or an approved trigger,** with `audit` stamping (above).
-- **A map-then-attach option** in the chart, and `routingType: Service` or a fix in Envoy Gateway for the leak.
+- **`routingType: Service`, or a fix in Envoy Gateway,** for the leak on recovery.
 - **Ejecting a slow processor replica:** outlier detection on the processor's cluster, or a readiness check that
   goes through the gRPC port.
 
