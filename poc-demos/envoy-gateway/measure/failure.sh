@@ -394,9 +394,13 @@ slow_ejection() {
     echo "  Envoy's admin port could not be read at any of $polls readings in the $FAILURE_SLOW_GRPC s that only port" \
       "9002 was slowed: nothing is known of its health check"
     slow_window "from the delay on port 9002 to the whole-pod delay" "$delayed" "$whole"
+  elif [ "$unread" -gt 0 ]; then
+    echo "  Envoy's health check (read from Envoy pod $envoy) was not seen to take the slowed pod out within the" \
+      "$FAILURE_SLOW_GRPC s that only port 9002 was slowed ($polls readings, $unread of them unread)"
+    slow_window "from the delay on port 9002 to the whole-pod delay" "$delayed" "$whole"
   else
     echo "  Envoy's health check (read from Envoy pod $envoy) did not take the slowed pod out within the" \
-      "$FAILURE_SLOW_GRPC s that only port 9002 was slowed ($polls readings, $unread of them unread)"
+      "$FAILURE_SLOW_GRPC s that only port 9002 was slowed ($polls readings, none unread)"
     slow_window "from the delay on port 9002 to the whole-pod delay" "$delayed" "$whole"
   fi
 }
