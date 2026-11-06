@@ -23,12 +23,16 @@ public final class Refusals {
      * between systems is UTF-8 already. An application may have asked for one anyway, with a
      * forcing {@code CharacterEncodingFilter}, as an application may register, which sets the encoding before
      * Paztport's filters run and which the container would then append to the type; so any encoding already set is
-     * cleared first.
+     * cleared first. An answer with no body, such as the 503 for a cache that cannot answer, names no content type,
+     * since a JSON type over nothing would be false.
      */
     public static void write(HttpServletResponse response, HttpAnswer refusal) throws IOException {
         response.setStatus(refusal.status());
         response.setCharacterEncoding((String) null);
-        response.setContentType("application/json");
-        response.getOutputStream().write(refusal.json());
+        byte[] json = refusal.json();
+        if (json.length > 0) {
+            response.setContentType("application/json");
+            response.getOutputStream().write(json);
+        }
     }
 }

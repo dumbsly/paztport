@@ -16,6 +16,7 @@ import org.paztport.core.policy.ProofBundle;
 import org.paztport.core.policy.SignedRoot;
 import org.paztport.core.stamp.Stamper;
 import org.paztport.core.verify.InMemoryNonceCache;
+import org.paztport.core.verify.NonceCache;
 import org.paztport.core.verify.VerifierConfig;
 import org.paztport.core.verify.Verifier;
 import org.paztport.http.ModeHolder;
@@ -26,6 +27,7 @@ import org.paztport.spring.internal.Durations;
 import org.paztport.spring.internal.OwnMaterial;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -58,9 +60,27 @@ public class TrustConfiguration {
         return OwnMaterial.loadProofs(Path.of(props.getProofsPath()));
     }
 
+    /**
+     * The replay cache, in memory, unless the application defines its own {@link NonceCache}, as a service run as
+     * several replicas may, to share one expiring store. The default remembers a key for
+     * {@link VerifierConfig#nonceTtlFor(long)} of the call window.
+     */
+    @Bean
+    @ConditionalOnMissingBean(NonceCache.class)
+    @ConditionalOnProperty({"paztport.keyring-path", "paztport.root-path", "paztport.policy-key-path"})
+    NonceCache nonceCache(PaztportProperties props) {
+        return new InMemoryNonceCache(VerifierConfig.nonceTtlFor(props.getMaxAgeMs()));
+    }
+
     @Bean
     @ConditionalOnProperty({"paztport.keyring-path", "paztport.root-path", "paztport.policy-key-path"})
-    Verifier verifier(PaztportProperties props) {
+    Verifier verifier(PaztportProperties props, NonceCache nonces) {
+        long minTtlMs = 2 * props.getMaxAgeMs();
+        if (nonces.ttlMs() < minTtlMs) {
+            throw new IllegalStateException("the nonce cache remembers a key for " + nonces.ttlMs()
+                    + " ms, under the " + minTtlMs + " ms that paztport.max-age-ms (" + props.getMaxAgeMs()
+                    + ") needs: at least twice the call window, or a replay could outlive its record");
+        }
         long runMaxAgeMs = props.getRunMaxAgeMs() != null ? props.getRunMaxAgeMs() : props.getMaxAgeMs();
         KeyringFile keyring = OwnMaterial.loadKeyring(Path.of(props.getKeyringPath()));
         SignedRoot root = OwnMaterial.loadRoot(Path.of(props.getRootPath()));
@@ -96,7 +116,7 @@ public class TrustConfiguration {
                 startup,
                 Set.copyOf(props.getOrigins()),
                 "",
-                new InMemoryNonceCache(VerifierConfig.nonceTtlFor(props.getMaxAgeMs())),
+                nonces,
                 System::currentTimeMillis,
                 props.getMaxAgeMs(),
                 runMaxAgeMs));

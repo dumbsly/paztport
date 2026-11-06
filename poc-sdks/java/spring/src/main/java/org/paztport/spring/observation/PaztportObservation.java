@@ -18,7 +18,9 @@ public enum PaztportObservation implements ObservationDocumentation {
     /**
      * A request to a service of this organisation, in {@code InboundFilter}. It spans the decision and ends before
      * the handler runs. A decision that throws is recorded with a reason of {@code none} and an outcome of
-     * {@code refused}.
+     * {@code refused}. A nonce cache that cannot answer is recorded with that error, a reason of {@code none} and
+     * an outcome of {@code refused} under {@code enforce}, which answers 503, or {@code served} under {@code audit},
+     * which serves the request unverified.
      */
     REQUEST("paztport.request", Keys.MODE, Keys.REASON, Keys.OUTCOME),
 

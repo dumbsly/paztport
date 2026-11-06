@@ -209,6 +209,10 @@ public final class InboundFilter extends OncePerRequestFilter {
             try (Observation.Scope open = observation.openScope()) {
                 entered = RequestContext.accept(receiver, inbound, peer, mode);
                 Accepted accepted = entered.result();
+                if (accepted.cacheFailure() != null) {
+                    // The receiver has logged it; the observation carries it so the error is counted.
+                    observation.error(accepted.cacheFailure());
+                }
                 reason = ObservedValues.reason(accepted.result());
                 outcome = accepted.refusal() == null ? ObservedValues.SERVED : ObservedValues.REFUSED;
             } catch (Throwable t) {

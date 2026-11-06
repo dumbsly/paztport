@@ -323,6 +323,12 @@ hands a session request's body to `HttpSessions.serve`.
   `http:<target>`, `h` the result hash). The verifier's replay cache forgets a key
   after `max(15 s, 2 × paztport.max-age-ms)`: never sooner than twice the call
   window, which the verifier requires, and never so late that it grows without end.
+  An application that defines its own `NonceCache` bean, to share one store across
+  replicas, replaces it; startup fails if that cache's `ttlMs()` is under
+  `2 × paztport.max-age-ms`. A cache that throws gives no verdict: under `enforce`
+  the filter answers 503 with an empty body and no content type, under `audit` it
+  serves the request unverified, and either way the `paztport.request` observation
+  records the error with reason `none`.
 - **The context scope.** Influence is recorded only inside a `RequestContext`
   scope. The filter opens one per request; background work, such as a scheduled
   job, can open its own around one unit of work. Outside one, calls are still

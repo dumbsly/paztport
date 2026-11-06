@@ -63,6 +63,8 @@ import org.paztport.core.session.ReplyCert;
 import org.paztport.core.stamp.Chains;
 import org.paztport.core.stamp.Stamp;
 import org.paztport.core.stamp.Stamper;
+import org.paztport.core.verify.InMemoryNonceCache;
+import org.paztport.core.verify.NonceCache;
 import org.paztport.core.verify.ReasonCode;
 import org.paztport.core.verify.VerifierConfig;
 import org.paztport.core.verify.Verifier;
@@ -167,6 +169,79 @@ class PaztportAutoConfigurationTest {
                     assertThat(context).hasSingleBean(FilterRegistrationBean.class);
                     assertThat(context).doesNotHaveBean(Stamper.class);
                 });
+    }
+
+    /** A cache that counts the keys it is asked about and remembers each for {@code ttlMs}. */
+    private static final class CountingCache implements NonceCache {
+        private final long ttlMs;
+        final List<String> keys = new ArrayList<>();
+
+        CountingCache(long ttlMs) {
+            this.ttlMs = ttlMs;
+        }
+
+        @Override
+        public boolean seenBefore(String key, long now) {
+            keys.add(key);
+            return false;
+        }
+
+        @Override
+        public long ttlMs() {
+            return ttlMs;
+        }
+    }
+
+    @Test
+    void theApplicationsNonceCacheIsTheOneTheVerifierUses(@TempDir Path dir) throws Exception {
+        writeWorld(dir);
+        CountingCache mine = new CountingCache(15_000);
+        runner.withPropertyValues(VERIFIER_PROPS)
+                .withPropertyValues(trust(dir))
+                .withBean(NonceCache.class, () -> mine)
+                .run(context -> {
+                    assertThat(context).hasSingleBean(NonceCache.class);
+                    assertThat(context.getBean(NonceCache.class)).isSameAs(mine);
+                    assertThat(context.getBean(Verifier.class).nonceTtlMs()).isEqualTo(15_000);
+                });
+    }
+
+    @Test
+    void withoutOneTheStarterKeepsItsOwnNonceCacheAtTheUsualTtl(@TempDir Path dir) throws Exception {
+        writeWorld(dir);
+        runner.withPropertyValues(VERIFIER_PROPS)
+                .withPropertyValues(trust(dir))
+                .withPropertyValues("paztport.max-age-ms=20000")
+                .run(context -> {
+                    assertThat(context.getBean(NonceCache.class)).isInstanceOf(InMemoryNonceCache.class);
+                    assertThat(context.getBean(NonceCache.class).ttlMs()).isEqualTo(VerifierConfig.nonceTtlFor(20_000));
+                });
+    }
+
+    @Test
+    void anApplicationCacheThatForgetsSoonerThanTwiceTheWindowFailsAtStartup(@TempDir Path dir) throws Exception {
+        writeWorld(dir);
+        runner.withPropertyValues(VERIFIER_PROPS)
+                .withPropertyValues(trust(dir))
+                .withPropertyValues("paztport.max-age-ms=5000")
+                .withBean(NonceCache.class, () -> new CountingCache(9_999))
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure()).rootCause().isInstanceOf(IllegalStateException.class)
+                            .hasMessageContaining("paztport.max-age-ms")
+                            .hasMessageContaining("9999")
+                            .hasMessageContaining("10000");
+                });
+    }
+
+    @Test
+    void anApplicationCacheThatRemembersTwiceTheWindowStarts(@TempDir Path dir) throws Exception {
+        writeWorld(dir);
+        runner.withPropertyValues(VERIFIER_PROPS)
+                .withPropertyValues(trust(dir))
+                .withPropertyValues("paztport.max-age-ms=5000")
+                .withBean(NonceCache.class, () -> new CountingCache(10_000))
+                .run(context -> assertThat(context).hasNotFailed().hasSingleBean(Verifier.class));
     }
 
     @Test
@@ -961,6 +1036,7 @@ class PaztportAutoConfigurationTest {
                 "eventPublisher",
                 "inboundFilterRegistration",
                 "modeHolder",
+                "nonceCache",
                 "paztport-org.paztport.spring.PaztportProperties",
                 "paztportPublicWrites",
                 "paztportRestClientCustomizer",
@@ -973,6 +1049,7 @@ class PaztportAutoConfigurationTest {
                 "eventPublisher",
                 "inboundFilterRegistration",
                 "modeHolder",
+                "nonceCache",
                 "paztport-org.paztport.spring.PaztportProperties",
                 "paztportPublicWrites",
                 "paztportRestClientCustomizer",
@@ -1001,6 +1078,7 @@ class PaztportAutoConfigurationTest {
                                 "spring.ssl.bundle.pem.psp.keystore.private-key=classpath:tls/payment.key",
                                 "spring.ssl.bundle.pem.psp.truststore.certificate=classpath:tls/ca.crt"),
                 "inboundFilterRegistration",
+                "nonceCache",
                 "paztport-org.paztport.spring.PaztportProperties",
                 "paztportBoundaryClient",
                 "paztportPublicWrites",
@@ -1012,6 +1090,7 @@ class PaztportAutoConfigurationTest {
         Path partnerDir = Files.createDirectory(dir.resolve("partner"));
         writePartner(partnerDir);
         assertStarterBeans(runner.withPropertyValues(partner(partnerDir)),
+                "nonceCache",
                 "partnerFilterRegistration",
                 "paztport-org.paztport.spring.PaztportProperties",
                 "paztportPartnerGate",

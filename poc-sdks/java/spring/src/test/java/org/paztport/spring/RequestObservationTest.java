@@ -50,6 +50,7 @@ import org.paztport.core.stamp.Stamp;
 import org.paztport.core.stamp.Stamper;
 import org.paztport.core.verify.InMemoryNonceCache;
 import org.paztport.core.verify.NonceCache;
+import org.paztport.core.verify.NonceCacheUnavailableException;
 import org.paztport.core.verify.PinnedKeyring;
 import org.paztport.core.verify.PinnedRoot;
 import org.paztport.core.verify.ReasonCode;
@@ -158,13 +159,32 @@ class RequestObservationTest {
     // The shop's side -----------------------------------------------------------------------------------------
 
     private Verifier paymentVerifier() {
+        return paymentVerifier(new InMemoryNonceCache());
+    }
+
+    private Verifier paymentVerifier(NonceCache nonces) {
         long notAfter = policy.signedRoot().notAfter();
         return new Verifier(new VerifierConfig(
                 List.of(new PinnedKeyring(Keyring.of(Map.of("gateway", gateway.getPublic(), "orders",
                         orders.getPublic())), notAfter)),
                 List.of(new PinnedRoot(policy.signedRoot().rootBytes(), policy.signedRoot().rootId(), notAfter)),
                 notAfter, Set.of("gateway"), "",
-                new InMemoryNonceCache(), () -> NOW, 5000, 5000));
+                nonces, () -> NOW, 5000, 5000));
+    }
+
+    /** A cache that cannot answer, as a shared store that is down would not. */
+    private static NonceCache unreachableCache(RuntimeException failure) {
+        return new NonceCache() {
+            @Override
+            public boolean seenBefore(String key, long now) {
+                throw failure;
+            }
+
+            @Override
+            public long ttlMs() {
+                return VerifierConfig.nonceTtlFor(5000);
+            }
+        };
     }
 
     private InboundFilter filter(VerificationMode mode, ReceivedRequestListener listener) {
@@ -364,6 +384,53 @@ class RequestObservationTest {
                 .hasLowCardinalityKeyValue("reason", "INFLUENCE_MISMATCH")
                 .hasLowCardinalityKeyValue("outcome", "refused")
                 .hasBeenStopped();
+    }
+
+    // No check failed, so no reason; the error is recorded so the meter tags it, and the 503 names no content type.
+    @Test
+    void enforceRecordsACacheThatCannotAnswerAsRefusedWithTheError() throws Exception {
+        IllegalStateException down = new IllegalStateException("store down");
+        AtomicReference<Boolean> handled = new AtomicReference<>(false);
+        InboundFilter filter = new InboundFilter(paymentVerifier(unreachableCache(down)), true, false, "payment",
+                new ModeHolder(VerificationMode.ENFORCE), event -> { }, null, null, registry);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        filter.doFilter(paymentRequest(validHeaders()), response, (req, res) -> handled.set(true));
+
+        assertEquals(503, response.getStatus());
+        assertEquals(0, response.getContentAsByteArray().length);
+        assertNull(response.getContentType());
+        assertFalse(handled.get());
+        assertThat(registry).hasSingleObservationThat()
+                .hasLowCardinalityKeyValue("mode", "enforce")
+                .hasLowCardinalityKeyValue("reason", "none")
+                .hasLowCardinalityKeyValue("outcome", "refused")
+                .hasError()
+                .hasBeenStopped();
+        assertFalse(RequestContext.isOpen());
+        assertNull(RequestContext.verifiedChain());
+    }
+
+    @Test
+    void auditRecordsACacheThatCannotAnswerAsServedWithTheError() throws Exception {
+        IllegalStateException down = new IllegalStateException("store down");
+        AtomicReference<Boolean> handled = new AtomicReference<>(false);
+        InboundFilter filter = new InboundFilter(paymentVerifier(unreachableCache(down)), true, false, "payment",
+                new ModeHolder(VerificationMode.AUDIT), event -> { }, null, null, registry);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        filter.doFilter(paymentRequest(validHeaders()), response, (req, res) -> handled.set(true));
+
+        assertEquals(200, response.getStatus());
+        assertTrue(handled.get());
+        assertThat(registry).hasSingleObservationThat()
+                .hasLowCardinalityKeyValue("mode", "audit")
+                .hasLowCardinalityKeyValue("reason", "none")
+                .hasLowCardinalityKeyValue("outcome", "served")
+                .hasError()
+                .hasBeenStopped();
+        assertFalse(RequestContext.isOpen());
+        assertNull(RequestContext.verifiedChain());
     }
 
     @Test
@@ -664,10 +731,11 @@ class RequestObservationTest {
         MockHttpServletRequest call = charge(handshake(true), CHARGE);
         nonceFailure.set(failure);
 
-        IllegalStateException thrown = assertThrows(IllegalStateException.class,
+        // The verifier wraps the cache's exception; the partner's entry has no verdict to give, so it goes on.
+        NonceCacheUnavailableException thrown = assertThrows(NonceCacheUnavailableException.class,
                 () -> filter.doFilter(call, new MockHttpServletResponse(), new MockFilterChain()));
 
-        assertSame(failure, thrown);
+        assertSame(failure, thrown.getCause());
         assertArrayEquals(new Throwable[] {erroring}, thrown.getSuppressed());
         assertThat(throwing).hasSingleObservationThat().hasBeenStopped();
         assertFalse(RequestContext.isOpen());
