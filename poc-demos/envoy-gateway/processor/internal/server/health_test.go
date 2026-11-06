@@ -51,9 +51,9 @@ func TestHealthServesWhileReady(t *testing.T) {
 	}
 }
 
-// TestHealthFollowsReadiness answers NOT_SERVING once the material has expired and while the server is
-// draining, for both names it knows, as /readyz answers 503.
-func TestHealthFollowsReadiness(t *testing.T) {
+// TestHealthFollowsExpiry answers NOT_SERVING once the material has expired, for both names it knows,
+// as /readyz answers 503.
+func TestHealthFollowsExpiry(t *testing.T) {
 	h := start(t, nil)
 	h.clock.Store(materialtest.Now + materialtest.Lifetime + 1)
 	for _, service := range []string{"", extprocv3.ExternalProcessor_ServiceDesc.ServiceName} {
@@ -65,8 +65,11 @@ func TestHealthFollowsReadiness(t *testing.T) {
 	if _, err := h.check(t, "other"); status.Code(err) != codes.NotFound {
 		t.Fatalf("Check(other) with expired material = %v, want NotFound", err)
 	}
+}
 
-	h = start(t, nil)
+// TestHealthFollowsDraining answers NOT_SERVING while the server is draining, for both names it knows.
+func TestHealthFollowsDraining(t *testing.T) {
+	h := start(t, nil)
 	h.srv.SetDraining()
 	for _, service := range []string{"", extprocv3.ExternalProcessor_ServiceDesc.ServiceName} {
 		got, err := h.check(t, service)

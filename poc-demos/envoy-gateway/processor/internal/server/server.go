@@ -34,7 +34,8 @@ const headroom = 1 << 20
 const shutdownGrace = 10 * time.Second
 
 // Server is the edge's processor, served: the ext_proc service and the gRPC health service on the gRPC
-// port, over mutual TLS that admits only the edge, and /metrics, /readyz and /livez on the admin port, over plain HTTP.
+// port, over mutual TLS that admits only the edge, and /metrics, /readyz and /livez on the admin port,
+// over plain HTTP.
 type Server struct {
 	log      *slog.Logger
 	now      func() time.Time

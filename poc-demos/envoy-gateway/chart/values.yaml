@@ -99,8 +99,8 @@ messageTimeout: 500ms
 #   unhealthyThreshold: failed checks in a row before a replica is left out. Two puts a dead one out in about two
 #     intervals, and one late answer (a garbage collection pause, one lost packet) does not put out a healthy one.
 #   healthyThreshold: passed checks in a row before a replica is let back in.
-# If every replica fails its check, Envoy's panic threshold (50% of endpoints healthy, by default) has it send to all
-# of them, as it would without the check, rather than to none.
+# If every replica fails its check, or too few pass it (fewer than about a third healthy, by default), Envoy's panic
+# threshold has it send to all of them, as it would without the check, rather than to none.
 healthCheck:
   timeout: ""
   interval: 1s
