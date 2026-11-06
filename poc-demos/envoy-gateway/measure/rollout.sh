@@ -236,13 +236,17 @@ sys.exit(1 if refused else 0)' "$1" "$2" "$3" "$4"
 # a helm upgrade in the background, while Envoy's routes are read until its filter is enabled on the route. The
 # upgrade changes no pod template, so the processor's pods must be the same before and after.
 adopt_attach() {
-  local served=0 outcomes envoy pods
+  local served=0 outcomes envoy pods after
   echo ""
   echo "-- (rollout, step 2) the processor attached to orders-adopt under load: attach=true on the route (helm" \
     "upgrade: the processor's EnvoyExtensionPolicy then targets it; its pods do not roll); orders and payment still" \
     "without Paztport, so neither verifies"
   STEP_VERIFY=none
   pods=$(processor_pods | LC_ALL=C sort | paste -sd ' ' -)
+  [ -n "$pods" ] || {
+    echo "error: the processor's pods could not be read before the attach" >&2
+    return 1
+  }
   step_begin rollout-attach "$ROLLOUT_ATTACH_DURATION" || return 1
   event "the change began: helm upgrade, orders-adopt attached"
   upgraded measure_chart --set 'routes[2].httpRoute=orders-adopt' --set 'routes[2].receiver=orders' \
@@ -253,7 +257,12 @@ adopt_attach() {
   wait "$CHANGE_HELM_PID" || { CHANGE_HELM_PID=""; return 1; }
   CHANGE_HELM_PID=""
   event "helm upgrade done"
-  if [ "$(processor_pods | LC_ALL=C sort | paste -sd ' ' -)" != "$pods" ]; then
+  after=$(processor_pods | LC_ALL=C sort | paste -sd ' ' -)
+  [ -n "$after" ] || {
+    echo "error: the processor's pods could not be read after the attach" >&2
+    return 1
+  }
+  if [ "$after" != "$pods" ]; then
     change_fail "the attach rolled the processor's pods"
     return 1
   fi
