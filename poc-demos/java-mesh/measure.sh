@@ -9,8 +9,9 @@
 #   PAZTPORT_ADMIN_TOKEN=<token> docker compose up -d --build   # stack must be running first
 #   PAZTPORT_ADMIN_TOKEN=<token> ./measure.sh   # same token, for /admin/mode
 #
-# It waits up to READY_WAIT seconds (90) for the stack to answer a checkout, so it
-# can run straight after `docker compose up`.
+# It waits up to READY_WAIT seconds (90, a whole number) for the stack to answer a
+# checkout, so it can run straight after `docker compose up`. The curl and k6 images
+# are pulled first if they are not here yet, so a first pull does not use up the wait.
 #
 # It drives the legitimate path with k6, with payment in `off` mode (Paztport off
 # on that hop) and in `enforce` mode. The difference between the two covers
@@ -44,6 +45,14 @@ DURATION="${DURATION:-20s}"
 WARMUP="${WARMUP:-10s}"
 ROUNDS="${ROUNDS:-3}"
 READY_WAIT="${READY_WAIT:-90}"
+# The wait's deadline is shell arithmetic: text that is not a number ends the script with a bare shell error
+# (unbound variable, invalid operator, value too great for base), and an empty or negative value gives up at once.
+case "$READY_WAIT" in
+  '' | *[!0-9]*)
+    echo "measure.sh: READY_WAIT must be a whole number of seconds (got '$READY_WAIT')" >&2
+    exit 2
+    ;;
+esac
 # Every hop is mutual TLS, so the curl and k6 containers present the operator's
 # certificate, mounted file by file. The key files are owner-only and both images
 # run as an unprivileged user, so the containers run as root to read them.
@@ -69,7 +78,8 @@ set_mode() { # $1 = off|enforce ; exits unless payment accepts the switch
 wait_ready() { # exits unless one checkout gets a 200 through gateway, orders and payment within READY_WAIT seconds
   # `docker compose up -d` returns once the containers run, before the JVMs listen, and the services have no
   # health check of their own: the legitimate path answering 200 is the one sign every hop is up.
-  local code="" end=$(($(date +%s) + READY_WAIT))
+  # 10# reads READY_WAIT as base 10, so 08 is not taken as octal
+  local code="" end=$(($(date +%s) + 10#$READY_WAIT))
   while [ "$(date +%s)" -lt "$end" ]; do
     code=$(mc --max-time 5 -o /dev/null -w '%{http_code}' -X POST https://gateway:8080/checkout \
       -H 'Content-Type: application/json' -d '{}' 2>/dev/null)
@@ -88,6 +98,14 @@ run_load() { # $1 = duration; echoes the run's RESULT line
     -e TARGET=https://gateway:8080/checkout -e VUS="$VUS" -e DURATION="$1" \
     -v "$PWD/load.js:/scripts/load.js:ro" "$K6" run /scripts/load.js 2>/dev/null | grep RESULT
 }
+
+# Present before the wait's timer starts, so a first pull is not counted in READY_WAIT.
+for image in "$CURL" "$K6"; do
+  docker image inspect "$image" >/dev/null 2>&1 || docker pull -q "$image" >/dev/null || {
+    echo "measure.sh: could not pull $image; is the registry reachable?" >&2
+    exit 1
+  }
+done
 
 wait_ready
 echo "== latency: payment off vs enforce (VUS=$VUS DURATION=$DURATION WARMUP=$WARMUP ROUNDS=$ROUNDS) =="
