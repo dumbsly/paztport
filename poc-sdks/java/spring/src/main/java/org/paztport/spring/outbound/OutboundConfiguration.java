@@ -23,7 +23,8 @@ import org.springframework.context.annotation.Configuration;
  * The beans for this service's own calls: the stamping customizer on the shared {@code RestClient.Builder}, which
  * names each receiver by {@code paztport.receiver-names} or else by its host and checks each response with the
  * {@link ResponseVerifier}, and the pooled client that presents {@code paztport.tls-bundle} with its customizer. The
- * two customizers are defined here in the order the builder applies them. {@link PaztportAutoConfiguration} imports it; it is not for an application to use directly.
+ * two customizers are defined here in the order the builder applies them. {@link PaztportAutoConfiguration} imports
+ * it; it is not for an application to use directly.
  */
 @Configuration(proxyBeanMethods = false)
 public class OutboundConfiguration {

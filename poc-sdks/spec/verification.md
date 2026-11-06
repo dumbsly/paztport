@@ -113,11 +113,11 @@ it refuses the last signer's second sending of a request within the window, but 
 A service run as several replicas, each with its own cache, or whose cache is lost when it restarts, can serve a
 second sending. That is duplicate delivery, as a proxy's retry is, and the receiving application handles it as it
 handles any retried request, by idempotency keyed on the delivery: the verified chain's `rid` and its last signer
-name it, the last stamp's `bind` says which request it was, and no one but that signer can send it. A service that
-must also hold a compromised caller to one call per request tree, whatever its replica count, shares one expiring
-cache across its replicas. A session's cache is not shared: a session lives on one replica. A cache that cannot
-answer gives no verdict: a receiver in `enforce` refuses the request as unavailable (HTTP 503), and one in `audit`
-serves it and records the failure.
+name it, the last stamp's `bind` says which request it was, and, with a peer, no one but that signer can send it. A
+service that must also hold a compromised caller to one call per request tree, whatever its replica count, shares
+one expiring cache across its replicas. A session's cache is not shared: a session lives on one replica. A cache
+that cannot answer gives no verdict: a receiver in `enforce` refuses the request as unavailable (HTTP 503), and one
+in `audit` serves it and records the failure.
 
 ## Receivers, the peer and attribution
 

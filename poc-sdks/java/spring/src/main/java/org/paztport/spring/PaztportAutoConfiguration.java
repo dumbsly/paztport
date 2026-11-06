@@ -33,10 +33,10 @@ import org.springframework.core.Ordered;
  * a keyring, a root and the policy pin gets a Verifier, and every service gets
  * the inbound filter, which verifies requests only where {@code paztport.verify=true}.
  * Wherever there is a Verifier, the interceptor also checks every response it
- * gets, with a {@code ResponseVerifier} over the same material. A non-origin service with both a stamper and a Verifier attests the
- * responses it sends, but only to requests whose chain verified there, and not
- * while a service that verifies requests is in {@code off} mode; an origin never
- * attests.
+ * gets, with a {@code ResponseVerifier} over the same material. A non-origin
+ * service with both a stamper and a Verifier attests the responses it sends,
+ * but only to requests whose chain verified there, and not while a service that
+ * verifies requests is in {@code off} mode; an origin never attests.
  *
  * <p>The verifier is pinned: the keyring and the root must both verify under
  * {@code policy.pub}, or the context fails to start. Inside one mesh a request
