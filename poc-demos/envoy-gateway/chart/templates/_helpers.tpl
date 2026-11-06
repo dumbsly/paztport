@@ -89,6 +89,19 @@ twice in extraRoutes, is refused.
 {{- end -}}
 
 {{- /*
+A whole number, as a number or a string of digits (as --set-string or a quoted YAML value gives): prints it, or
+nothing for anything else (a fraction, a bool, a string that is not digits, nothing). Its range is the caller's.
+*/ -}}
+{{- define "edge.whole" -}}
+{{- $v := . -}}
+{{- $n := $v | int64 -}}
+{{- if kindIs "string" $v }}{{ if regexMatch "^[0-9]+$" $v }}{{ $n }}{{ end }}
+{{- else if kindIs "float64" $v }}{{ if eq $v (float64 $n) }}{{ $n }}{{ end }}
+{{- else if or (kindIs "int" $v) (kindIs "int64" $v) }}{{ $n }}
+{{- end }}
+{{- end -}}
+
+{{- /*
 Refuses values the processor would not start with, or that would leave the edge without a limit: no route mapped,
 an attach that is not true or false, no keyring or root, and a body limit that is not a whole number of bytes from 1
 to 1 GiB (1073741824), the processor's own bounds. bodyLimit is a plain number of bytes, such as 1048576, as a number
@@ -116,25 +129,23 @@ for the NetworkPolicy to admit the Envoy pods of, and a mergeType Envoy Gateway 
 {{- fail (printf "backendTrafficPolicyMergeType %v is not StrategicMerge, JSONMerge or empty" .) }}
 {{- end }}
 {{- end }}
+{{- if or (kindIs "invalid" .Values.healthCheck.interval) (eq (toString .Values.healthCheck.interval) "") }}
+{{- fail "healthCheck.interval is empty: Envoy Gateway would use 3s unasked; give a duration such as 1s" }}
+{{- end }}
 {{- range $name := list "unhealthyThreshold" "healthyThreshold" }}
 {{- $t := index $.Values.healthCheck $name }}
-{{- $ok := false }}
-{{- if kindIs "float64" $t }}{{ $ok = and (eq $t (floor $t)) (ge $t 1.0) }}
-{{- else if or (kindIs "int" $t) (kindIs "int64" $t) }}{{ $ok = ge ($t | int64) 1 }}
+{{- if kindIs "invalid" $t }}
+{{- fail (printf "healthCheck.%s is not set: a whole number from 1 to 4294967295" $name) }}
 {{- end }}
-{{- if not $ok }}
-{{- fail (printf "healthCheck.%s %v is not a whole number from 1" $name $t) }}
+{{- $n := include "edge.whole" $t }}
+{{- if or (not $n) (lt ($n | int64) 1) (gt ($n | int64) 4294967295) }}
+{{- fail (printf "healthCheck.%s %v is not a whole number from 1 to 4294967295" $name $t) }}
 {{- end }}
 {{- end }}
 {{- if not .Values.material.keyrings }}{{ fail "material.keyrings needs at least one keyring" }}{{ end }}
 {{- if not .Values.material.roots }}{{ fail "material.roots needs at least one root" }}{{ end }}
-{{- $v := .Values.bodyLimit }}
-{{- $limit := $v | int64 }}
-{{- $whole := false }}
-{{- if kindIs "string" $v }}{{ $whole = regexMatch "^[0-9]+$" $v }}
-{{- else if kindIs "float64" $v }}{{ $whole = eq $v (float64 $limit) }}
-{{- else if or (kindIs "int" $v) (kindIs "int64" $v) }}{{ $whole = true }}
-{{- end }}
+{{- $whole := include "edge.whole" .Values.bodyLimit }}
+{{- $limit := $whole | int64 }}
 {{- if or (not $whole) (le $limit 0) (gt $limit 1073741824) }}
 {{- fail (printf "bodyLimit %v is not a whole number of bytes from 1 to 1073741824, such as 1048576"
   .Values.bodyLimit) }}

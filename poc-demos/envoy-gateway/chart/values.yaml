@@ -95,10 +95,13 @@ messageTimeout: 500ms
 #   timeout: how long a check may take. Empty follows messageTimeout, so a check fails exactly when a request's
 #     answer would; a stricter one would eject replicas that are slow but still answering, and under a load spike,
 #     healthy ones.
-#   interval: the time between checks. Their traffic is small: one a second from each Envoy pod to each replica.
+#   interval: the time between checks, never empty (Envoy Gateway would use 3s unasked). Their traffic is small: one a
+#     second from each Envoy pod to each replica.
 #   unhealthyThreshold: failed checks in a row before a replica is left out. Two puts a dead one out in about two
 #     intervals, and one late answer (a garbage collection pause, one lost packet) does not put out a healthy one.
 #   healthyThreshold: passed checks in a row before a replica is let back in.
+# Both thresholds are whole numbers from 1 to 4294967295 (Envoy Gateway's fields are 32 bits), as a number or a string of
+# digits.
 # If every replica fails its check, or too few pass it (fewer than about a third healthy, by default), Envoy's panic
 # threshold has it send to all of them, as it would without the check, rather than to none.
 healthCheck:
