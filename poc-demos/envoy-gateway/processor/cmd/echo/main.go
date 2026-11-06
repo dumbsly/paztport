@@ -9,8 +9,8 @@
 //
 //	<host> stamped=<n> unstamped=<n>
 //
-// where a stamped request is one that carries an X-Path-Chain header; every other request is read whole and
-// answered 200 with an empty body. The counts are this process's own, from its start; GET /counts is not counted.
+// where a stamped request is one that carries an X-Path-Chain header. Every request but GET /counts is counted, then
+// read whole and answered 200 with an empty body. The counts are this process's own, from its start.
 package main
 
 import (

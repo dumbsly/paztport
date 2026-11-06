@@ -660,7 +660,11 @@ such as the BSD-3-Clause licence of the package `client_golang` copies in, which
 image carries at its path. `./run test` checks the list against `go list -deps`, and
 the image build against the built binary, failing for a module with no licence file
 and for a licence file the list does not name. The base is
-distroless, whose own packages carry their copyright files.
+distroless, whose own packages carry their copyright files. The measurements'
+upstream, `echo` (the same Dockerfile's target `echo`), is built from Go's standard
+library alone, and its build fails if the binary holds any module; so its image
+carries the repository's LICENSE and NOTICE and, under `third-party/std@<version>/`,
+Go's licence and patent grant.
 
 Bouncy Castle appears in the build for two reasons: the SDK's `keygen` uses it to
 build the mesh's X.509 certificates, and `docker-java` uses it for Docker TLS in the

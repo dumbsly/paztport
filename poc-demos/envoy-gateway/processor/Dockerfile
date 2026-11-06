@@ -8,8 +8,9 @@
 #
 #   docker build -f poc-demos/envoy-gateway/processor/Dockerfile -t paztport-processor:dev .
 #
-# The target echo is the measurements' upstream (cmd/echo, the standard library alone), on the same base and
-# carrying the same licence files:
+# The target echo is the measurements' upstream (cmd/echo), on the same base. It is built from Go's standard library
+# alone, and the build fails if the binary holds any module, so it carries the repository's LICENSE and NOTICE and,
+# under third-party/std@<go version>/, Go's licence and patent grant, as the processor's image carries std's:
 #
 #   docker build -f poc-demos/envoy-gateway/processor/Dockerfile --target echo -t paztport-echo:dev .
 #
@@ -27,11 +28,19 @@ RUN go build -trimpath -ldflags='-s -w' -o /out/processor ./cmd/processor \
  && bash third-party.sh gather /out/processor /out/licenses
 
 FROM build AS echo-build
-RUN go build -trimpath -ldflags='-s -w' -o /out/echo ./cmd/echo
+RUN go build -trimpath -ldflags='-s -w' -o /out/echo ./cmd/echo \
+ && if go version -m /out/echo | grep -q '^[[:space:]]*dep[[:space:]]'; then \
+      echo "echo is built from modules besides the standard library, whose licences its image does not carry" >&2; \
+      exit 1; \
+    fi \
+ && std="/out/echo-licenses/third-party/std@$(go env GOVERSION)" \
+ && mkdir -p "$std" \
+ && cp /src/LICENSE /src/NOTICE /out/echo-licenses/ \
+ && cp "$(go env GOROOT)/LICENSE" "$(go env GOROOT)/PATENTS" "$std/"
 
 FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab AS echo
 COPY --from=echo-build /out/echo /echo
-COPY --from=build /out/licenses/ /licenses/
+COPY --from=echo-build /out/echo-licenses/ /licenses/
 USER 65532:65532
 EXPOSE 8080
 ENTRYPOINT ["/echo"]
