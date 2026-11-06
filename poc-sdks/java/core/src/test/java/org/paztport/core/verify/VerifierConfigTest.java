@@ -183,5 +183,13 @@ class VerifierConfigTest {
         assertEquals(VerifierConfig.NONCE_TTL_MS, VerifierConfig.nonceTtlFor(VerifierConfig.CALL_MAX_AGE_MS));
         assertEquals(VerifierConfig.NONCE_TTL_MS, VerifierConfig.nonceTtlFor(0));
         assertEquals(60_000, VerifierConfig.nonceTtlFor(30_000));
+        assertEquals(VerifierConfig.NONCE_TTL_MS, VerifierConfig.nonceTtlFor(Long.MIN_VALUE));
+        assertEquals(VerifierConfig.NONCE_TTL_MS, VerifierConfig.nonceTtlFor(-1));
+        assertEquals(VerifierConfig.NONCE_TTL_MS, VerifierConfig.nonceTtlFor(7_500));
+        assertEquals(15_002, VerifierConfig.nonceTtlFor(7_501));
+        assertEquals(20_000, VerifierConfig.nonceTtlFor(10_000));
+        assertEquals(Long.MAX_VALUE - 1, VerifierConfig.nonceTtlFor(Long.MAX_VALUE / 2));
+        assertEquals(Long.MAX_VALUE, VerifierConfig.nonceTtlFor(Long.MAX_VALUE / 2 + 1));
+        assertEquals(Long.MAX_VALUE, VerifierConfig.nonceTtlFor(Long.MAX_VALUE));
     }
 }

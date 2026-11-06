@@ -54,10 +54,14 @@ public record VerifierConfig(
 
     /**
      * How long a nonce cache must remember for a call window of {@code callMaxAgeMs}: {@link #NONCE_TTL_MS}, or
-     * twice the window if that is longer. The verifier refuses a cache that forgets sooner, so a service that
-     * widens its window sizes its cache with this.
+     * twice the window if that is longer, and {@code Long.MAX_VALUE} when twice the window does not fit a
+     * long. The verifier refuses a cache that forgets sooner, so a service that widens its window sizes its cache
+     * with this.
      */
     public static long nonceTtlFor(long callMaxAgeMs) {
+        if (callMaxAgeMs > Long.MAX_VALUE / 2) {
+            return Long.MAX_VALUE;
+        }
         return Math.max(NONCE_TTL_MS, 2 * callMaxAgeMs);
     }
 
