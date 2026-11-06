@@ -440,6 +440,10 @@ slow_ejection() {
 slow_window() {
   local seconds first last e x r
   seconds=$(python3 "$here/measure/summary.py" seconds "$RUN_DIR/$CASE.fails" "$2" "$3")
+  if [ -z "$seconds" ]; then
+    echo "  $1: the run's per-second counts could not be read for this window"
+    return 0
+  fi
   if [ "$seconds" = none ]; then
     echo "  $1: no whole second of the run lies within it"
     return 0
@@ -459,7 +463,10 @@ slow_after() {
     echo "  readiness did not take the whole slowed pod out within 60 s"
   else
     last=$(python3 "$here/measure/summary.py" last "$RUN_DIR/$CASE.fails" "$out" "$removed")
-    if [ "$last" = none ]; then
+    if [ -z "$last" ]; then
+      echo "  readiness took the whole slowed pod out $(since "$slowed" "$out") s after the delay; the run's" \
+        "per-second counts could not be read for the window from then until the delay was removed"
+    elif [ "$last" = none ]; then
       echo "  readiness took the whole slowed pod out $(since "$slowed" "$out") s after the delay; from then until" \
         "the delay was removed, no response other than 200"
     elif [ "${last#* }" -ge "$removed" ]; then
@@ -475,7 +482,9 @@ slow_after() {
   fi
   [ -n "$ready" ] || return 0
   after=$(python3 "$here/measure/summary.py" after "$RUN_DIR/$CASE.fails" "$ready")
-  if [ "$after" = none ]; then
+  if [ -z "$after" ]; then
+    echo "  after the pod was ready again: the run's per-second counts could not be read for that window"
+  elif [ "$after" = none ]; then
     echo "  after the pod was ready again: no response other than 200"
   else
     echo "  after the pod was ready again, a burst of its own: $(head -n1 <<<"$after" |
@@ -563,13 +572,16 @@ failure_down() {
   fi
   first=$(python3 "$here/measure/summary.py" first "$RUN_DIR/$CASE.fails" "$back_at")
   case "$first" in
+    "") echo "  the run's per-second counts could not be read for the window from the upgrade to two replicas on" ;;
     none) echo "  k6's run had no 200 after the upgrade to two replicas began" ;;
     *) echo "  k6's first 200 from the upgrade to two replicas on was in the run's second +${first% *} (the" \
       "upgrade began at +${first#* } s; k6 counts by whole seconds)" ;;
   esac
   # The behavioural line: k6's whole seconds while no processor pod existed.
   seconds=$(python3 "$here/measure/summary.py" seconds "$RUN_DIR/$CASE.fails" "$gone_at" "$back_at")
-  if [ "$seconds" = none ]; then
+  if [ -z "$seconds" ]; then
+    echo "  the run's per-second counts could not be read for the window while no processor pod existed"
+  elif [ "$seconds" = none ]; then
     echo "  FAIL every response refused with a 5xx while no processor pod existed: no whole second of the run fell" \
       "between the last pod going and the upgrade to two"
     FAILURE_FAILS=$((FAILURE_FAILS + 1))
