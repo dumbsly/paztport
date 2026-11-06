@@ -39,10 +39,10 @@
 
     <dependencyManagement>
         <dependencies>
-            <!-- docker-java 3.7.1 (responder only) still pulls in older releases of these than the ones
-                 pinned here (Guava 33.4.8-jre, Commons IO 2.21.0, Bouncy Castle 1.82), and Spring Boot
-                 manages none of them, so the later releases are pinned. It brings Commons Compress 1.28.0, so
-                 that one needs no pin. -->
+            <!-- docker-java 3.7.1 (responder only) brings Guava 33.4.8-jre, Commons IO 2.21.0 and Bouncy
+                 Castle 1.82 (through bcpkix). The demo ships the current release of each library it bundles,
+                 and Spring Boot manages none of these, so they are pinned here. docker-java brings Commons
+                 Compress 1.28.0, which needs no pin. -->
             <dependency>
                 <groupId>com.google.guava</groupId>
                 <artifactId>guava</artifactId>

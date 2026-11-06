@@ -10,6 +10,6 @@ source, it is the -sources.jar beside the jar at those coordinates, available un
 META-INF/LICENSE holds the Apache-2.0 text, and META-INF/licenses/ the text of every other licence named here.
 
 <#list dependencyMap as e>
-<#if (e.getValue()?size != 1)><#stop "${e.getKey().groupId}:${e.getKey().artifactId}:${e.getKey().version} is listed under ${e.getValue()?size} licences; licenses/overrides.properties names the one it is used under"></#if>
+<#if (e.getValue()?size != 1)><#stop "${e.getKey().groupId}:${e.getKey().artifactId}:${e.getKey().version} is listed under ${e.getValue()?size} licences; licenses/overrides.properties and licenses/download-licenses.xml name the one it is used under"></#if>
      (${e.getValue()?first}) ${e.getKey().name!e.getKey().artifactId} (${e.getKey().groupId}:${e.getKey().artifactId}:${e.getKey().version} - ${e.getKey().url!"no project URL"})
 </#list>

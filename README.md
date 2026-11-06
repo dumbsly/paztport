@@ -616,7 +616,9 @@ no third-party code. [THIRD-PARTY.txt](THIRD-PARTY.txt) lists the runtime
 dependencies of both Java trees, each with the licence it is used under. All of
 them are permissive (Apache-2.0, MIT, BSD-2-Clause, the MIT-style Bouncy Castle
 licence) or weak copyleft that is fine to redistribute unmodified (EPL-2.0), except
-JMH (below). Four components offer a choice of licence, recorded in
+JMH (below). Guava (classes generated from it) and docker-java-transport-zerodep (the file
+itself, unmodified, with its notice) carry Mozilla's Public Suffix List, which is under MPL-2.0, also fine to
+redistribute unmodified. Four components offer a choice of licence, recorded in
 [licenses/overrides.properties](licenses/overrides.properties): Logback (EPL-2.0 or
 LGPL-2.1) and Jakarta Annotations (EPL-2.0 or GPL-2.0 with the Classpath Exception)
 are used under EPL-2.0, JNA (Apache-2.0 or LGPL-2.1) under Apache-2.0, and
