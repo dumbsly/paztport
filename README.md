@@ -621,11 +621,11 @@ Mozilla's Public Suffix List, which is under MPL-2.0: docker-java-transport-zero
 holds the list as a file, unmodified, whose own notice says it is under MPL-2.0 and
 where that licence is published, and Guava holds classes generated from the same
 list. The MPL-2.0 text is not in licenses/. Four components offer a choice of
-licence, recorded in
-[licenses/overrides.properties](licenses/overrides.properties): Logback (EPL-2.0 or
-LGPL-2.1) and Jakarta Annotations (EPL-2.0 or GPL-2.0 with the Classpath Exception)
-are used under EPL-2.0, JNA (Apache-2.0 or LGPL-2.1) under Apache-2.0, and
-HdrHistogram (public domain under CC0, or BSD-2-Clause) under BSD-2-Clause.
+licence, recorded in [licenses/overrides.properties](licenses/overrides.properties):
+Logback (EPL-2.0 or LGPL-2.1) and Jakarta Annotations (EPL-2.0 or GPL-2.0 with the
+Classpath Exception) are used under EPL-2.0, JNA (Apache-2.0 or LGPL-2.1) under
+Apache-2.0, and HdrHistogram (public domain under CC0, or BSD-2-Clause) under
+BSD-2-Clause.
 Regenerate the list after changing dependencies:
 
 ```bash
