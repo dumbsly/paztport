@@ -116,6 +116,16 @@ for the NetworkPolicy to admit the Envoy pods of, and a mergeType Envoy Gateway 
 {{- fail (printf "backendTrafficPolicyMergeType %v is not StrategicMerge, JSONMerge or empty" .) }}
 {{- end }}
 {{- end }}
+{{- range $name := list "unhealthyThreshold" "healthyThreshold" }}
+{{- $t := index $.Values.healthCheck $name }}
+{{- $ok := false }}
+{{- if kindIs "float64" $t }}{{ $ok = and (eq $t (floor $t)) (ge $t 1.0) }}
+{{- else if or (kindIs "int" $t) (kindIs "int64" $t) }}{{ $ok = ge ($t | int64) 1 }}
+{{- end }}
+{{- if not $ok }}
+{{- fail (printf "healthCheck.%s %v is not a whole number from 1" $name $t) }}
+{{- end }}
+{{- end }}
 {{- if not .Values.material.keyrings }}{{ fail "material.keyrings needs at least one keyring" }}{{ end }}
 {{- if not .Values.material.roots }}{{ fail "material.roots needs at least one root" }}{{ end }}
 {{- $v := .Values.bodyLimit }}

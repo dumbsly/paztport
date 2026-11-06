@@ -338,7 +338,12 @@ its Service, and:
 - an EnvoyExtensionPolicy on the routes in `routes` not set `attach: false`, and those in `extraRoutes`:
   `failOpen: false`, a `messageTimeout` (500 ms by default), request bodies `Buffered`, the `xds.route_metadata`
   attribute, response headers sent and response bodies not, and mode overrides allowed, so that the processor can ask
-  for a request's trailers. It sets no header mutation rules;
+  for a request's trailers. It sets no header mutation rules. It also has Envoy check each processor replica
+  actively, with the standard gRPC health check on the gRPC port (the whole server, answering as `/readyz` does),
+  over the same mutual TLS as the requests: Kubernetes readiness cannot see a replica that is slow only on Envoy's
+  path to it, since the kubelet cannot present Envoy's certificate. The check's timeout follows `messageTimeout`, it
+  runs every second, and two failures in a row leave the replica out of Envoy's endpoints (`healthCheck` in the
+  values). If every replica fails, Envoy's panic threshold has it send to all of them again;
 - a BackendTLSPolicy, so that Envoy checks the processor's certificate against the mesh CA;
 - a NetworkPolicy that admits the Gateway's Envoy pods, by Envoy Gateway's labels, and no other pod to the gRPC port.
   It needs a network plugin that enforces NetworkPolicy (kind's does; on EKS, the VPC CNI with network policy

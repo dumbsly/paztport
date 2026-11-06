@@ -18,6 +18,11 @@ every Paztport header.
 With mergeType empty, this policy on the routes replaces one on their Gateway or listener for those routes (Envoy
 Gateway marks that one Overridden); StrategicMerge or JSONMerge merge this one into it instead.
 
+Envoy also checks each processor replica itself, with the standard gRPC health check on the same port (the whole
+server, no service named), over the same mutual TLS as the requests. Kubernetes readiness cannot see a replica whose
+answers are slow only on Envoy's path to it, and outlier detection probably does not count an ext_proc answer that
+misses messageTimeout; a replica that fails its check is left out of Envoy's endpoints.
+
 Envoy checks the processor's certificate against the mesh CA, for the Service's name, and presents the edge's
 client certificate, the EnvoyProxy's backendTLS setting.
 */ -}}
@@ -44,6 +49,14 @@ spec:
           port: 9002
       failOpen: false
       messageTimeout: {{ .Values.messageTimeout }}
+      backendSettings:
+        healthCheck:
+          active:
+            type: GRPC
+            timeout: {{ .Values.healthCheck.timeout | default .Values.messageTimeout }}
+            interval: {{ .Values.healthCheck.interval }}
+            unhealthyThreshold: {{ .Values.healthCheck.unhealthyThreshold }}
+            healthyThreshold: {{ .Values.healthCheck.healthyThreshold }}
       processingMode:
         allowModeOverride: true
         request:

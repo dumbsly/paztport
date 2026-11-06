@@ -88,6 +88,25 @@ mergeType: ""
 # bounds the stamping, not the upload; a processor that does not answer in time is a refusal (500).
 messageTimeout: 500ms
 
+# Envoy's own health check of each processor replica, the standard gRPC health service on the processor's gRPC port
+# (the whole server), sent over the same mutual TLS as the requests. Kubernetes readiness cannot see a replica that
+# is slow only on Envoy's path to it: the kubelet cannot present Envoy's certificate, and a check from inside the pod
+# does not cross that path. A replica that fails its check is left out of Envoy's endpoints until it passes.
+#   timeout: how long a check may take. Empty follows messageTimeout, so a check fails exactly when a request's
+#     answer would; a stricter one would eject replicas that are slow but still answering, and under a load spike,
+#     healthy ones.
+#   interval: the time between checks. Their traffic is small: one a second from each Envoy pod to each replica.
+#   unhealthyThreshold: failed checks in a row before a replica is left out. Two puts a dead one out in about two
+#     intervals, and one late answer (a garbage collection pause, one lost packet) does not put out a healthy one.
+#   healthyThreshold: passed checks in a row before a replica is let back in.
+# If every replica fails its check, Envoy's panic threshold (50% of endpoints healthy, by default) has it send to all
+# of them, as it would without the check, rather than to none.
+healthCheck:
+  timeout: ""
+  interval: 1s
+  unhealthyThreshold: 2
+  healthyThreshold: 1
+
 # The edge's Paztport material. The edge's private key is a Secret: the chart makes one from `key`, or uses the
 # Secret `existingKeySecret` names, which must hold it as edge.key. The rest is public and goes in a ConfigMap:
 # the pinned policy key, the keyrings and roots (lists, so that an old and a new one can overlap during a rollover)
