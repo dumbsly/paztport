@@ -83,6 +83,17 @@ The packages decide; the code that embeds them carries out what they decide:
   mutual TLS. Before it sets each header it is given, replacing and never appending,
   it removes every header of the request that `wire.IsPaztport` names, all values
   (a gateway's processor also removes them from the response it passes back).
+- **Handles a nonce cache that cannot answer.** `Receiver.Accept` returns an
+  `Accepted` only. When the `verify.NonceCache` returns an error, the request is
+  undecided and `Accepted.CacheErr` holds the error, for the adapter's own log.
+  Under `enforce` the adapter sends `paztporthttp.Unavailable()` (503, no body);
+  under `audit` it serves the request, unverified and unattested.
+- **Offers the delivery key.** `Accepted.Delivery()` gives the `Delivery` (`RID`,
+  `Svc`, `Bind`) of a request whose chain was verified at this hop, and false
+  otherwise. A duplicate delivery, such as a proxy's retry to another replica,
+  is the application's to handle by idempotency keyed on it: the same key and
+  `Bind` is the same request sent again by that signer, and the same key with
+  another `Bind` is a different request under a reused key, to refuse.
 - **Attests and checks answers.** It sends the `X-Path-Response` header that
   `Accepted.Attest` gives for the handler's complete answer. As a caller, it reads
   each response whole and passes it to `Caller.Check` before anything reads it.

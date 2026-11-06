@@ -173,8 +173,8 @@ Why it's built this way:
   A chain copied from a real request and spliced onto a malicious body no longer
   matches.
 - **`rid` + `ts` + a nonce cache** stop replays. The `(rid, last svc)` pair can be
-  accepted once, and the 5 s freshness window bounds how long anything needs to be
-  remembered.
+  accepted once per nonce cache, and the 5 s freshness window bounds how long
+  anything needs to be remembered.
 
 The Java mesh signs these stamps over HTTP, and the TypeScript SDK and the agents demo sign them over MCP.
 Binding the receiver changes who a rejection names. A chain forwarded unchanged to another service fails
@@ -377,18 +377,25 @@ What Paztport needs from a deployment, and what it deliberately doesn't cover ye
   the proxy. A certificate is per service, not per container, so blaming one
   container needs per-instance certificates; until then the responder still checks
   that the container runs the named service.
-- **Replay protection is per nonce cache.** The SDKs' caches are in memory, so a
-  service run as several replicas refuses a replay only at the replica that saw the
-  original. Where the transport supplies a peer, as the Java mesh does with mutual
-  TLS, the peer check still confines a replay to the last signer's own connections:
-  a captured request can't be sent again from anywhere else. What is left is that
-  signer sending a request twice, as a proxy that retries does, which another
-  replica would serve. A deployment that must refuse every replay shares one
-  expiring store across replicas behind the nonce-cache interface that the Java and
-  Go SDKs expose
+- **Replay protection is per nonce cache.** A stamp is good only for its receiver
+  and its request, and where the transport supplies a peer, as the Java mesh does
+  with mutual TLS, only on the last signer's own connections: a captured request
+  can't be sent again from anywhere else, whatever cache a receiver keeps. The
+  SDKs' caches are in memory, so a service run as several replicas, or restarted,
+  can serve a request its signer sends twice, as a proxy that retries does. That
+  is duplicate delivery, and the receiving application handles it as it handles
+  any retried request, by idempotency keyed on the delivery: the verified chain's
+  `rid` and last signer name it, and the last stamp's `bind` says which request it
+  was. The Java and Go in-mesh receivers hand the application that key
+  (`RequestContext.delivery()` and `Accepted.delivery()` in Java, `Accepted.Delivery()`
+  in Go). A service that must also hold a compromised caller to one call per
+  request tree, whatever its replica count, can pass its own expiring shared cache
+  to the nonce-cache interface that the Java and Go SDKs expose; neither SDK ships
+  one. A cache that cannot answer gives no verdict: `enforce` refuses the request
+  503 and `audit` serves it and records the failure
   ([verification.md](poc-sdks/spec/verification.md#freshness-and-replay)). The
-  TypeScript SDK's cache is a concrete class with a synchronous check, so it can't
-  take a shared store.
+  TypeScript SDK takes no shared cache because it has none to share: its caches
+  are per session, and a session lives on one replica.
 - **Revocation takes up to a lifetime.** A keyring or root presented when a
   session opens with a partner (the handshake) stays usable by someone replaying it
   until its `notAfter`, so a leaked service key, or a route removed from a policy,
@@ -471,8 +478,10 @@ Engineering shortcuts of this repository, not of the design.
   or checking its `notAfter`, both of which the mesh services do. Anyone who could
   replace that file could name their own event signer.
 - **The nonce cache is in-memory and unbounded** in this POC. The freshness window
-  means it only *needs* to remember twice the 5 s window, and a real deployment
-  would use a shared, expiring store.
+  means it only *needs* to remember twice the 5 s window, so a deployment would
+  bound it. A shared, expiring store is optional hardening against a compromised
+  caller; duplicate delivery is the receiving application's to handle (see
+  "Replay protection is per nonce cache" above).
 - **The admin endpoint is a demo control channel.** `/admin/mode` switches a
   verifier between `off`, `audit` and `enforce`. It is protected only by a shared
   token (`X-Admin-Token`, set with `PAZTPORT_ADMIN_TOKEN`), and refuses everything

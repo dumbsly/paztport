@@ -124,7 +124,15 @@ whole. `PartnerReceiver.accept(InboundRequest, PeerCert)` does the same for a
 partner, in the session the caller names. `Accepted.result()` is the
 verification result the decision rests on, or null where none ran, for an
 adapter to report; `PartnerAccepted.result()` is the same for a partner's call.
-The caller is never told it. `PeerCert.of(certificate, address)` reads the peer
+The caller is never told it. `Accepted.delivery()` is the request's `Delivery` (`rid`, the last
+signer's `svc` and the last stamp's `bind`), or null unless its chain passed the live order at this in-mesh hop; it is
+the key for the application's own idempotency handling, which a duplicate delivery needs (a proxy's retry reaches
+another replica with its own cache). The same key and `bind` is the same request sent again by that signer; the same
+key with another `bind` is a different request under a reused key, to refuse; a user's second click is a new `rid`.
+A `NonceCache` that cannot answer, because its `seenBefore` throws, gives no verdict: the verifier wraps what it
+throws in `NonceCacheUnavailableException`, and the receiver refuses the request as unavailable
+(`HttpAnswer.unavailable()`, 503) in `ENFORCE`, with `Accepted.cacheFailure()` set, or serves it unverified in
+`AUDIT`. The cache owns its own timeouts. `PeerCert.of(certificate, address)` reads the peer
 and its issuer from a client certificate. `PartnerSessions` keeps a partner's
 sessions; its `builder()` refuses own material no client could accept, naming
 each `Fault`. `HttpSessions.serve` answers one handshake, and `UnsafeOperations`
@@ -379,7 +387,9 @@ hands a session request's body to `HttpSessions.serve`.
   mode, after an audit-mode failure, at an origin, at a hop with no verifier, and
   outside a request scope. Only `RequestContext.accept` sets it, from the result of
   the receiver it ran: the one that decides attestation. Nothing is signed at the
-  boundary over anything else.
+  boundary over anything else. `RequestContext.delivery()` is the delivery key of
+  that same request, set and cleared under the same conditions, and is null at a
+  partner.
 - **`PublicWrites`.** A bean with two methods. `decide(destinationOwner)` runs the
   owner-aware rule over the request's influence and returns `OK` or
   `INFLUENCE_DENIED`. The service supplies the destination owner from its own

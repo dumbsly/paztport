@@ -484,8 +484,11 @@ What the checks and the measurements found, beyond the numbers.
   been called twice for one order. Hence the rule: a Paztport route retries only what never reached the backend
   (`connect-failure`, `refused-stream`), as `orders-routes` does. On it, 50 such requests were each served once, Envoy
   retrying none, and with an `orders` container killed under load, Envoy made 161 retries after 165 failed connections,
-  and every stamp was served once. A shared, expiring nonce store across replicas is the production step, for backends
-  that must refuse every replay.
+  and every stamp was served once. A request the edge sends twice is duplicate delivery, which the backend's application
+  handles by idempotency keyed on the delivery (the verified chain's `rid` and last signer, with the last stamp's `bind`
+  to tell a different request under a reused key). A shared, expiring nonce store across replicas is optional hardening:
+  it holds a compromised caller to one call per request tree whatever the replica count, but it does not make a retry
+  safe, as the retry is then refused `REPLAY`.
 - **No central server is needed:** see the fourth answer above.
 - **Spring Boot trusts `X-Forwarded-For` on Kubernetes.** Boot turns on Tomcat's `RemoteIpValve` when it detects
   Kubernetes, so the peer's instance a refusal's event names would come from a header the client sent. The backends
@@ -627,7 +630,7 @@ What the checks and the measurements found, beyond the numbers.
 
 - **Origin claims**: identity committed in the origin stamp.
 - **Origin-minted retries**: the origin signs a retry (same `rid`, a new attempt), which a replayer cannot forge.
-- **A shared, expiring nonce store** across a backend's replicas.
+- **A shared, expiring nonce store** across a backend's replicas, as optional hardening against a compromised caller.
 - **A verifying front** and **partner entry** at the edge, and **client stamps**, a client signing its own requests
   (the DPoP and passkey shape).
 - **Chains that start only at an ingress or an approved trigger,** with `audit` stamping (above).
