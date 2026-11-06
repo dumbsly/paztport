@@ -55,8 +55,9 @@ single run. The tables are under [Measurements](#measurements).
    - one processor container killed: 3020 requests refused with 500, all within 0.72 s, both replicas ready again
      1.96 s after the kill, nothing unstamped;
    - a `kubectl rollout restart` of the processor: no error in 540045 requests;
-   - one replica slowed by 600 ms on its gRPC port alone: it stayed ready, and Envoy answered 96750 504s for its share;
-     nothing here ejects it (see [Findings](#findings));
+   - one replica slowed by 600 ms on its gRPC port alone: it stayed ready, and Envoy answered 96750 504s for its share
+     (run 20261105T192122Z, which had no health check; the chart now has Envoy health-check each replica over its gRPC
+     port, so such a replica is taken out; see [Findings](#findings));
    - the same replica slowed as a whole pod: readiness took it out 2.77 s later and the errors stopped within a second,
      with a burst of 456 500s of its own after it was ready again (see [Findings](#findings));
    - every replica gone for 30 s: every response a 5xx while none existed (173991), the first 200 to a probe 0.89 s
@@ -527,15 +528,18 @@ What the checks and the measurements found, beyond the numbers.
   response's headers, since the filter is sent them, so a slow backend holds the processor's streams as well, and enough
   of them in flight fill the 1024 while the processor itself is idle. The run does not give the number in flight: at the
   accepted rate, the p50 of 357 ms gives about 850 and the p90 of 623 ms about 1500.
-- **A replica slow on its gRPC port stays in service.** Slowed by 600 ms on port 9002 alone, a processor replica kept
-  answering `/readyz` (20 of 20 probes) and stayed ready, and Envoy answered 504 at the `messageTimeout` for its share
-  of the requests, about 1500 a second: 96750 504s in the case, nearly all of them in that minute. Nothing in this
-  set-up ejects it: the chart sets no outlier detection on the processor's cluster, and the readiness check does not go
-  through the gRPC port. Slowed as a whole pod, it was taken out by readiness 2.77 s later and the errors stopped within
-  a second. Its container was also restarted once during the case (restarts 2 after it, 1 before), and 3 to 4 s after it
-  was ready again Envoy's connections to it failed for about a second (456 500s, `cluster_cx_connect_fail` +395 over the
-  case), a burst of its own. Outlier detection on the processor's cluster, or a readiness check that goes through the
-  gRPC port, is the follow-up for the port-only case.
+- **A replica slow on its gRPC port is invisible to readiness.** In run 20261105T192122Z, before the chart
+  health-checked the processor, a replica slowed by 600 ms on port 9002 alone kept answering `/readyz` (20 of 20
+  probes) and stayed ready, and Envoy answered 504 at the `messageTimeout` for its share of the requests, about 1500 a
+  second: 96750 504s in the case, nearly all of them in that minute. Readiness cannot see such a replica: the gRPC
+  port takes only mutual TLS with Envoy's certificate, which the kubelet cannot present, so its probe never goes
+  through that port. Passive outlier detection would not either: Envoy feeds it from the router, TCP proxy, Redis and
+  Thrift filters, and ext_proc is none of them. The chart now has Envoy health-check each replica over the gRPC port,
+  which takes a slow one out of its endpoints; that needs Envoy Gateway v1.10, since v1.9's health checks offered no
+  ALPN and grpc-go refuses a TLS client that offers no `h2`. Slowed as a whole pod, it was taken out by readiness
+  2.77 s later and the errors stopped within a second. Its container was also restarted once during the case (restarts
+  2 after it, 1 before), and 3 to 4 s after it was ready again Envoy's connections to it failed for about a second (456
+  500s, `cluster_cx_connect_fail` +395 over the case), a burst of its own.
 - **Attaching the processor to a route already being served costs a window of 403s.** Attaching in one release, the
   chart maps a route and attaches its policy together. Envoy enables the filter on the route as the policy changes,
   before the new processor pods, whose routes map it, take all of its streams; until then the old pods refuse the
@@ -580,7 +584,7 @@ What the checks and the measurements found, beyond the numbers.
 | Merged gateways | the NetworkPolicy admits nothing, and the edge refuses everything | `gateway.envoyPodLabels` |
 | Every processor replica gone | refused while down; one request a kept-alive connection unstamped on recovery | backends in `enforce`; `routingType: Service`; the PodDisruptionBudget and two replicas |
 | More than 1024 requests in flight | Envoy's own 500 | capacity; it fails closed |
-| A processor replica slow on its gRPC port | 504s at the `messageTimeout` for its share while it stays ready | nothing in this set-up: an operator's alert on 504s and `message_timeouts` (see [The path](#the-path)) |
+| A processor replica slow on its gRPC port | 504s at the `messageTimeout` for its share until Envoy's health check takes it out | the chart's health check (see [The chart](#the-chart)); an operator's alert on 504s and `message_timeouts` for the gap (see [Operating it](#operating-it)) |
 | `X-Forwarded-For` | Boot would take the peer's instance from it | `SERVER_FORWARDHEADERSSTRATEGY=NONE` |
 
 ## Operating it
@@ -640,8 +644,6 @@ What the checks and the measurements found, beyond the numbers.
   (the DPoP and passkey shape).
 - **Chains that start only at an ingress or an approved trigger,** with `audit` stamping (above).
 - **`routingType: Service`, or a fix in Envoy Gateway,** for the leak on recovery.
-- **Ejecting a slow processor replica:** outlier detection on the processor's cluster, or a readiness check that
-  goes through the gRPC port.
 
 ## Why ext_proc now, and a dynamic module later
 
