@@ -15,10 +15,12 @@ This is the proof of concept, its behavioural checks, the harness for its measur
 The answers to the nine questions this proof of concept was built to ask, for someone deciding whether to put Paztport
 at their edge. The numbers are from one full run of `./run envoy-gateway measure` on 2026-11-05 (its results directory
 `20261105T192122Z`), on an Apple M5 Pro Mac (the model is the host's; the run prints only its Docker Desktop VM's 18
-CPUs and 19.5 GiB of memory), and every one of them is indicative. One kind node runs Envoy, the processor, the
-backends and k6 together, so a ceiling here is the node's as much as any one part's. Where a measurement was
-repeated, its median comes first and the lowest and highest after it, in brackets; every other number is from a
-single run. The tables are under [Measurements](#measurements).
+CPUs and 19.5 GiB of memory), and every one of them is indicative. The run used Envoy Gateway v1.9.2, Envoy v1.39.1,
+Kubernetes 1.36.4 on the kind node, k6 2.2.0 and a Temurin 25.0.4.1_1 JRE for the services; the pins have moved since,
+and the numbers are re-measured on them later. One kind node runs Envoy, the processor, the backends and k6 together, so
+a ceiling here is the node's as much as any one part's. Where a measurement was repeated, its median comes first and the
+lowest and highest after it, in brackets; every other number is from a single run. The tables are under
+[Measurements](#measurements).
 
 1. **Load: does the edge become the bottleneck?** At 1000 requests a second the processor adds 0.36 ms at p50 and
    0.53 ms at p99. One replica on this node saturates between 8000 and 10000/s, its tail latency growing from 6000/s,
@@ -376,10 +378,20 @@ its Service, and:
   `podAnnotations` a reloader's annotation (Stakater Reloader's `reloader.stakater.com/auto: "true"`, for one).
 
 Envoy's own client certificate is not the chart's: it is the EnvoyProxy's `backendTLS.clientCertificateRef`, a
-setting of the Gateway's, as `kind/gateway.yaml` shows. Envoy Gateway v1.9.2 has that one upstream client
-certificate for each Gateway, presented on every upstream connection with a BackendTLSPolicy: a Gateway that already
-presents another one to its backends cannot present the edge's as well, and a backend that trusts the edge's
-certificate trusts every route on that Gateway.
+setting of the Gateway's, as `kind/gateway.yaml` shows. For the shape this proof of concept uses, a Service
+backendRef with a BackendTLSPolicy, Envoy Gateway v1.10.0 has that one upstream client certificate for each Gateway,
+presented on every upstream connection: a Gateway that already presents another one to its backends cannot present
+the edge's as well, and a backend that trusts the edge's certificate trusts every route on that Gateway.
+
+A production consideration, which this proof of concept neither uses nor tests: Envoy Gateway v1.10.0's `Backend`
+resource carries its own TLS client certificate (`spec.tls.clientCertificateRef`), and its new `type:
+KubernetesService` routes to an in-cluster Service. A deployment could so present the edge's certificate only on the
+routes the processor stamps, with the chart rather than the Gateway's EnvoyProxy owning it, and take the certificates
+of every Envoy replica and every service from one issuer (cert-manager or SPIFFE/SPIRE), each workload with its own
+identity. It needs Envoy Gateway's `extensionApis.enableBackend`, a setting of the controller that the platform owns.
+Envoy Gateway's [Backend task](https://gateway.envoyproxy.io/v1.10/tasks/traffic/backend/) warns that the Backend
+API can be misused to reach destinations that are otherwise restricted, which is why it is off by default, and
+advises restricting access to it with Kubernetes RBAC: read it before enabling the setting.
 
 The chart's EnvoyExtensionPolicy targets the routes, and Envoy Gateway lets a policy on a route replace, for that
 route, an EnvoyExtensionPolicy on its Gateway or listener: an operator's Gateway-wide Wasm, Lua, dynamic module or
@@ -634,7 +646,8 @@ What the checks and the measurements found, beyond the numbers.
   is set.
 - **Attaching to a served route in one release costs 403s,** above: the chart's `attach: false` maps a route
   first, and the run behind these numbers attached in one release.
-- **One upstream client certificate for each Gateway,** in Envoy Gateway v1.9.2 (see [The chart](#the-chart)).
+- **One upstream client certificate for each Gateway,** with a Service backendRef and a BackendTLSPolicy, in Envoy
+  Gateway v1.10.0 (see [The chart](#the-chart), which also names the `Backend` resource as a production alternative).
 - **One machine, one node.** The ceilings are this node's, with Envoy, the processor, the backends and k6 sharing
   it; one run is not a spread across machines.
 
@@ -759,15 +772,17 @@ retries a request that reached a backend.
 
 ## Measurements
 
-One full run, `./run envoy-gateway measure`, on 2026-11-05 from 19:21Z (results directory `20261105T192122Z`): an
-Apple M5 Pro Mac (the model is the host's; the run prints only its Docker Desktop VM's 18 CPUs and 19.5 GiB of
-memory), one kind node. Every number is indicative. A median is followed by the lowest and highest of its runs, in
-brackets; a single run says so. In the status counts, `other` is a reset or a timeout, which k6 does not separate.
-macOS's idle sleep was held off for the run (`caffeinate -i`). Every change, failure and observe run met its offered
-rate within its planned time (21 pace lines), and every `load` and `edge` round its offered rate; the harness that run
-used held only those 21 to their time, where it now holds every k6 run to its time (see [Measuring it](#measuring-it)).
-The run exits 1 for one known line, `failure`'s "nothing reached echo unstamped" in the case with every processor
-replica gone, and its suite-end total: the recovery leak in [Findings](#findings). Every other line passed.
+One full run, `./run envoy-gateway measure`, on 2026-11-05 from 19:21Z (results directory `20261105T192122Z`): an Apple
+M5 Pro Mac (the model is the host's; the run prints only its Docker Desktop VM's 18 CPUs and 19.5 GiB of memory), one
+kind node, on Envoy Gateway v1.9.2, Envoy v1.39.1, Kubernetes 1.36.4, k6 2.2.0 and a Temurin 25.0.4.1_1 JRE (the pins
+have since moved; the numbers are re-measured on them later). Every number is indicative. A median is followed by the
+lowest and highest of its runs, in brackets; a single run says so. In the status counts, `other` is a reset or a
+timeout, which k6 does not separate. macOS's idle sleep was held off for the run (`caffeinate -i`). Every change,
+failure and observe run met its offered rate within its planned time (21 pace lines), and every `load` and `edge` round
+its offered rate; the harness that run used held only those 21 to their time, where it now holds every k6 run to its
+time (see [Measuring it](#measuring-it)). The run exits 1 for one known line, `failure`'s "nothing reached echo
+unstamped" in the case with every processor replica gone, and its suite-end total: the recovery leak in
+[Findings](#findings). Every other line passed.
 
 ### `load`
 
