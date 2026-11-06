@@ -253,7 +253,7 @@ be the boundary stamp's signer. The chain is one stamp, `prev` is `""`, and `exp
 the request and the entries received. The session is the one `X-Path-Session` names, and only when the peer it was
 opened by, the certificate's issuer and name, is this call's
 ([sessions-and-influence.md](sessions-and-influence.md#over-http)). In an unsafe session there is no verifier and
-nothing is verified. All sessions share one nonce cache, keyed as above.
+nothing is verified. A replica's sessions share its one in-memory nonce cache, keyed as above.
 
 **The peer under mTLS.** When the request came with a client certificate the TLS layer verified, the receiver
 passes it as `peer`: `peer.svc` is the certificate subject's common name when it has exactly one, and `""`

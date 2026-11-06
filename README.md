@@ -387,15 +387,15 @@ What Paztport needs from a deployment, and what it deliberately doesn't cover ye
   any retried request, by idempotency keyed on the delivery: the verified chain's
   `rid` and last signer name it, and the last stamp's `bind` says which request it
   was. The Java and Go in-mesh receivers hand the application that key
-  (`RequestContext.delivery()` and `Accepted.delivery()` in Java, `Accepted.Delivery()`
-  in Go). A service that must also hold a compromised caller to one call per
-  request tree, whatever its replica count, can pass its own expiring shared cache
-  to the nonce-cache interface that the Java and Go SDKs expose; neither SDK ships
-  one. A cache that cannot answer gives no verdict: `enforce` refuses the request
-  503 and `audit` serves it and records the failure
+  (`RequestContext.delivery()` and `Accepted.delivery()` in Java,
+  `Accepted.Delivery()` in Go). A service that must also hold a compromised caller
+  to one call per request tree, whatever its replica count, can pass its own
+  expiring shared cache to the nonce-cache interface that the Java and Go SDKs
+  expose; neither SDK ships one. A cache that cannot answer gives no verdict:
+  `enforce` refuses the request 503 and `audit` serves it and records the failure
   ([verification.md](poc-sdks/spec/verification.md#freshness-and-replay)). The
-  TypeScript SDK takes no shared cache because it has none to share: its caches
-  are per session, and a session lives on one replica.
+  TypeScript SDK takes no shared cache because it has none to share: its caches are
+  per session, and a session lives on one replica.
 - **Revocation takes up to a lifetime.** A keyring or root presented when a
   session opens with a partner (the handshake) stays usable by someone replaying it
   until its `notAfter`, so a leaked service key, or a route removed from a policy,
