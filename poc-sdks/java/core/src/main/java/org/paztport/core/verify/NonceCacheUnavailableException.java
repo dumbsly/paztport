@@ -3,6 +3,8 @@
 
 package org.paztport.core.verify;
 
+import java.util.Objects;
+
 /**
  * The nonce cache could not answer, so the replay check has no verdict: not "seen" and not "unseen". It carries the
  * cache's own exception as its cause and says nothing else, so no key reaches a log through it. {@link Verifier#verify}
@@ -12,7 +14,7 @@ public final class NonceCacheUnavailableException extends RuntimeException {
 
     private static final long serialVersionUID = 1L;
 
-    public NonceCacheUnavailableException(Throwable cause) {
-        super("the nonce cache could not answer", cause);
+    NonceCacheUnavailableException(Throwable cause) {
+        super("the nonce cache could not answer", Objects.requireNonNull(cause, "cause"));
     }
 }

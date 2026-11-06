@@ -87,6 +87,8 @@ class HttpReceiverTest {
     private final CollectingPublisher events = new CollectingPublisher();
     private final ListAppender<ILoggingEvent> traces = new ListAppender<>();
     private final Logger traceLog = (Logger) LoggerFactory.getLogger("PAZTPORT_TRACE");
+    private final ListAppender<ILoggingEvent> warnings = new ListAppender<>();
+    private final Logger receiverLog = (Logger) LoggerFactory.getLogger(HttpReceiver.class);
 
     @BeforeEach
     void captureTraces() {
@@ -101,6 +103,13 @@ class HttpReceiverTest {
         traceLog.detachAppender(traces);
         traceLog.setLevel(null);
         traceLog.setAdditive(true);
+    }
+
+    @AfterEach
+    void releaseReceiverLog() {
+        receiverLog.detachAppender(warnings);
+        receiverLog.setLevel(null);
+        receiverLog.setAdditive(true);
     }
 
     private Verifier paymentVerifier() {
@@ -355,21 +364,11 @@ class HttpReceiverTest {
                 .map(ILoggingEvent::getFormattedMessage).toList();
     }
 
-    private final ListAppender<ILoggingEvent> warnings = new ListAppender<>();
-    private final Logger receiverLog = (Logger) LoggerFactory.getLogger(HttpReceiver.class);
-
     private void captureReceiverLog() {
         warnings.start();
         receiverLog.addAppender(warnings);
         receiverLog.setLevel(Level.WARN);
         receiverLog.setAdditive(false);
-    }
-
-    @AfterEach
-    void releaseReceiverLog() {
-        receiverLog.detachAppender(warnings);
-        receiverLog.setLevel(null);
-        receiverLog.setAdditive(true);
     }
 
     @Test
@@ -409,6 +408,56 @@ class HttpReceiverTest {
         assertNull(accepted.delivery());
         assertEquals(List.of(WEB), accepted.influence(), "what was received still counts towards the rule");
         assertEquals(1, receiverWarnings().size());
+    }
+
+    /** A cache that cannot answer and counts how often it is asked. */
+    private static final class CountingDown implements NonceCache {
+        int asked;
+
+        @Override
+        public boolean seenBefore(String key, long now) {
+            asked++;
+            throw new IllegalStateException("store down");
+        }
+
+        @Override
+        public long ttlMs() {
+            return 10_000;
+        }
+    }
+
+    @Test
+    void aCacheThatIsDownNeverMasksInfluenceThatCannotBeReadUnderEnforce() {
+        CountingDown cache = new CountingDown();
+        Headers h = validHeaders();
+        HttpReceiver receiver = HttpReceiver.builder("payment").verifier(paymentVerifier(cache))
+                .verifyRequests(true).publisher(events).build();
+
+        Accepted accepted = receiver.accept(paymentRequest(new Headers(h.chain(), h.proof(), "%%%"), TO_PAYMENT),
+                null, VerificationMode.ENFORCE);
+
+        assertEquals(403, accepted.refusal().status());
+        assertEquals("{\"reason\":\"INFLUENCE_MISMATCH\"}", text(accepted.refusal()));
+        assertNull(accepted.cacheFailure());
+        assertEquals(0, cache.asked, "verification refuses before the nonce cache is asked");
+    }
+
+    @Test
+    void aCacheThatIsDownNeverMasksInfluenceThatCannotBeReadUnderAudit() {
+        CountingDown cache = new CountingDown();
+        Headers h = validHeaders();
+        HttpReceiver receiver = HttpReceiver.builder("payment").verifier(paymentVerifier(cache))
+                .verifyRequests(true).publisher(events).build();
+
+        Accepted accepted = receiver.accept(paymentRequest(new Headers(h.chain(), h.proof(), "%%%"), TO_PAYMENT),
+                null, VerificationMode.AUDIT);
+
+        assertEquals(400, accepted.refusal().status());
+        assertEquals("{\"reason\":\"INFLUENCE_MISMATCH\"}", text(accepted.refusal()));
+        assertNull(accepted.cacheFailure());
+        assertEquals(1, events.all.size());
+        assertEquals("INFLUENCE_MISMATCH", events.all.get(0).reason());
+        assertEquals(0, cache.asked, "verification fails before the nonce cache is asked");
     }
 
     @Test
