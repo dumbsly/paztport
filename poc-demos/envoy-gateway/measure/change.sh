@@ -386,6 +386,9 @@ logs_begin() {
     while [ ! -e "$d/.stop" ]; do
       [ "$(date +%s)" -lt "$end" ] || exit 1
       for f in /var/log/pods/"$2"_orders-*/orders/* /var/log/pods/"$2"_payment-*/payment/*; do
+        # A .tmp is the kubelet compressing a rotated file, which it renames to .gz when done: its lines are in the
+        # rotated file, linked already, and the .gz is linked once it appears; the .tmp may be gone by the ln.
+        case "$f" in *.tmp) continue ;; esac
         [ -f "$f" ] || continue
         p=${f#/var/log/pods/*_}
         p=${p%%_*}
