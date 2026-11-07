@@ -431,15 +431,15 @@ What any design of this kind meets, and what this one has not yet tackled.
 - **Position, not trust.** A compromised hop on a valid route can still misuse
   that route (see the Java demo's
   [threat model](poc-demos/java-mesh/README.md#threat-model)).
-- **A service is whoever holds its keys.** Its stamping key, and the TLS key the
-  peer check reads: a pod that can read or mount them is that service, and its
-  stamps verify. Paztport attests the path, not that each hop is a legitimate
+- **A service is whoever holds its keys.** Those are its stamping key and the TLS
+  key the peer check reads, and a pod that can read or mount them is that service:
+  its stamps verify. Paztport attests the path, not that each hop is a legitimate
   deployment. That proof belongs to the workload-identity layer: attestation that
   issues short-lived identities only to approved workloads (SPIFFE/SPIRE, for one),
-  signed images checked at admission, and admission rules on who may run a
-  service's pods. Because the peer check binds each stamp to its TLS peer, once TLS
-  identity is attested a copy holding a stolen stamping key is refused at the next
-  hop with a peer; offline verification has no peer to check.
+  signed images checked at admission, and admission rules on who may run a service's
+  pods. Because the peer check binds each stamp to its TLS peer, once TLS identity
+  is attested a copy holding a stolen stamping key is refused at the next hop with a
+  peer; offline verification has no peer to check.
 - **Influence is only as complete as the instrumented path.** Content that reaches a
   component outside an attested hop (a cache, a side channel, training data, a
   person pasting text) is invisible to the rule. This is the general limit of

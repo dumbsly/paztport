@@ -107,8 +107,8 @@ under [Measurements](#measurements).
    The processor's gRPC port takes mutual TLS from a client certificate named `edge` and nothing else, and the
    NetworkPolicy admits only the Gateway's Envoy pods to it (check 6): the processor signs for whoever reaches it.
    Even so, a stamp taken from it is refused `PEER_MISMATCH` from any connection but Envoy's (check 7). Anyone who can
-   read the Secret or mount it in a pod is the edge, as for any service
-   ([limits of the concept](../../README.md#52-limits-of-the-concept)).
+   read the Secret or mount it in a pod is the edge, as for any service ([limits of the
+   concept](../../README.md#52-limits-of-the-concept)).
 
    The edge's key was rotated at 1000/s in three overlap steps, one run each, and no request was refused for the
    key. The processor's step cost no error. The first backends' step cost 477 non-200s. The last, `orders` and
