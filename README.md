@@ -365,9 +365,15 @@ What Paztport needs from a deployment, and what it deliberately doesn't cover ye
   transport's authenticated sender (`PEER_MISMATCH`) only when it is given one. The
   Java mesh gives it one: every hop is mutual TLS, and `payment` takes the service
   named in the client certificate as the sender
-  ([check 12](poc-demos/java-mesh/README.md#the-verification-pipeline)). The agents
-  demo runs over stdio, which has no TLS, so there the check is skipped and the last
-  signer is known only by its signature. This also decides who can blame a replica.
+  ([check 12](poc-demos/java-mesh/README.md#the-verification-pipeline)). The SDKs
+  terminate TLS themselves, so the peer check sees the peer's certificate
+  first-hand. Behind a sidecar mesh (Istio's or Linkerd's per-pod proxy), mutual
+  TLS ends at the sidecar and the application sees only a local connection, so the
+  peer would be a header the sidecar asserts. That is a different trust model, in
+  which the application must be reachable only through its sidecar, and the SDKs
+  don't support it today. The agents demo runs over stdio, which has no TLS, so
+  there the check is skipped and the last signer is known only by its signature.
+  This also decides who can blame a replica.
   Without a peer, the instance in a stamp is reported by the service that signed it.
   The responder refuses a container that doesn't run the named service, but a
   compromised service can still name any replica of itself. With a peer, a rejection
@@ -377,6 +383,15 @@ What Paztport needs from a deployment, and what it deliberately doesn't cover ye
   the proxy. A certificate is per service, not per container, so blaming one
   container needs per-instance certificates; until then the responder still checks
   that the container runs the named service.
+- **Key custody is the cluster's.** A Paztport key kept in a Kubernetes Secret is
+  as safe as any credential there: anyone who can read that namespace's Secrets,
+  or create pods in it, holds it, as they would a database password. The Envoy
+  Gateway demo keeps its keys in Secrets; the Java demo mounts them as files, and
+  whoever can read those files or start a container that mounts them holds them
+  alike. Give keys the cluster's usual hardening: least-privilege RBAC on reading
+  Secrets and on creating pods, no service-account token in pods that don't call
+  the API, encryption at rest, and admission control over what may run. What a
+  stolen key can and cannot do is in "A service is whoever holds its keys" below.
 - **Replay protection is per nonce cache.** A stamp is good only for its receiver
   and its request, and where the transport supplies a peer, as the Java mesh does
   with mutual TLS, only on the last signer's own connections: a captured request
