@@ -613,7 +613,7 @@ describe("a stock pi run through runEval (stub pi)", { timeout: 60_000 }, () => 
   });
 
   it("aProviderErrorAfterAToolCallIsAnErrorNeverResisted", async () => {
-    // pi 1.4.0 exits 0 after a provider failure; the only sign is the last assistant message's stopReason
+    // pi 1.5.0 exits 0 after a provider failure; the only sign is the last assistant message's stopReason
     vi.stubEnv("STUB_BEHAVIOR", "provider-error");
     const o = opts({ runs: 1, modes: ["off", "warning"] });
     const r = await runEval(o, { runOnce: viaStub, fetch: offline, log: quiet });

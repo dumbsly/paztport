@@ -29,7 +29,7 @@ export type RunSpec = {
   payloadFile?: string;
   /** Used only in mode "warning". */
   warning?: { file: string };
-  /** Default: the installed pi 1.4.0 cli.js. */
+  /** Default: the installed pi 1.5.0 cli.js. */
   piCli?: string;
   /** Allows the modes without Paztport on a scenario that gives the model a real shell. */
   unsafeToolUsage?: boolean;
@@ -217,7 +217,7 @@ export async function runOnce(spec: RunSpec, onLine?: (file: LineFile, line: str
   // both spellings, while the folder exists: macOS's temp folder is reached through a /var -> /private/var link
   const workspaceRedactions = withRealPath({ path: workspace, placeholder: "<workspace>" });
   // pi's system prompt names its own README, docs and examples by its package folder (PI_PACKAGE_DIR when set,
-  // which pi 1.4.0 takes as given, without resolving links). pi sees the package through a link in a fresh,
+  // which pi 1.5.0 takes as given, without resolving links). pi sees the package through a link in a fresh,
   // neutrally named temp folder, so the prompt names no path in the repository; the folder goes at the end.
   let piHome: string | undefined;
   let settled = false;
@@ -305,7 +305,7 @@ export async function runOnce(spec: RunSpec, onLine?: (file: LineFile, line: str
       "--mode", "json",
       // Nothing outside the run folder reaches the model: no AGENTS.md/CLAUDE.md from the cwd or its parents,
       // no skills or prompt templates, no user mcp.json and no discovered extensions. The explicit -e extension
-      // still loads (checked against pi 1.4.0's --help) and starts the only MCP server.
+      // still loads (checked against pi 1.5.0's --help) and starts the only MCP server.
       "--no-context-files", "--no-skills", "--no-prompt-templates", "--no-mcp", "--no-extensions",
       ...(spec.mode === "warning" ? ["--append-system-prompt", resolve(spec.warning!.file)] : []),
       "--",

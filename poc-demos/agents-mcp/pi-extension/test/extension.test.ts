@@ -28,7 +28,7 @@ type Result = AgentToolResult<CallOutcome["details"]>;
 
 /**
  * Records what the extension registers. It keeps the first registration of a tool name, as pi does
- * across extensions; within one extension real pi 1.4.0 replaces it, and the extension must work
+ * across extensions; within one extension real pi 1.5.0 replaces it, and the extension must work
  * either way. Names in `throwOn` make registerTool throw.
  */
 class FakePi {
@@ -159,7 +159,7 @@ async function until(cond: () => boolean, ms = 5_000): Promise<void> {
 }
 
 let entrySeq = 0;
-/** A tool result message, shaped as pi 1.4.0 stores it. */
+/** A tool result message, shaped as pi 1.5.0 stores it. */
 function toolResultMessage(toolName: string, content: unknown, details?: unknown, isError = false): ToolResultMessage {
   return { role: "toolResult", toolCallId: `call_${entrySeq++}`, toolName, content, details, isError, timestamp: 0 } as ToolResultMessage;
 }

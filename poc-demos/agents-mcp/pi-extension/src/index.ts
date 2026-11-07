@@ -184,7 +184,7 @@ export default function paztport(pi: ExtensionAPI): void {
   const ownCalls = new Set<string>();
   /**
    * Bumped by session_start and session_shutdown, so a superseded start drops its connections.
-   * pi 1.4.0 builds a fresh runtime and extension instance per session switch or reload (after
+   * pi 1.5.0 builds a fresh runtime and extension instance per session switch or reload (after
    * session_shutdown), so the reconnect path here is defensive (R13).
    */
   let generation = 0;
