@@ -214,6 +214,10 @@ class ChainsTest {
         assertFalse(Chains.addressedTo("paymentx", "payment"));
         assertFalse(Chains.addressedTo("search#find", "payment"));
         assertFalse(Chains.addressedTo("payment", "payment#charge"));
+        assertFalse(Chains.addressedTo("orders#a/b", "orders"));
+        assertFalse(Chains.addressedTo("orders#a#b", "orders"));
+        assertFalse(Chains.addressedTo("orders#a\\b", "orders"));
+        assertFalse(Chains.addressedTo("orders#..", "orders"));
     }
 
     @Test

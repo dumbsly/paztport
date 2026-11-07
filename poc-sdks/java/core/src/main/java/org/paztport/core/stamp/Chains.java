@@ -60,11 +60,13 @@ public final class Chains {
     }
 
     /**
-     * Whether a stamp's {@code rcv} addresses the service {@code svc}: the name itself, or the name, {@code #} and a
-     * non-empty operation. An empty operation, or a longer service name, is not addressed to it.
+     * Whether a stamp's {@code rcv} addresses the service {@code svc}: the name itself, or the name, {@code #} and an
+     * operation name ({@link Routes#isValidOperation}). An empty or invalid operation, or a longer service name, is
+     * not addressed to it.
      */
     public static boolean addressedTo(String rcv, String svc) {
-        return rcv.equals(svc) || (rcv.startsWith(svc + "#") && rcv.length() > svc.length() + 1);
+        return rcv.equals(svc)
+                || (rcv.startsWith(svc + "#") && Routes.isValidOperation(rcv.substring(svc.length() + 1)));
     }
 
     /**

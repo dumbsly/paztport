@@ -21,30 +21,40 @@ public final class Routes {
      * {@code |} or a lone surrogate. Node names become route segments and file names ({@code proofs-<svc>.json}),
      * so one that could climb a directory, or run two nodes into one route, must never reach a signed policy.
      * A well-formed surrogate pair is an ordinary character and is allowed. The policy owner checks this where it
-     * builds a policy; a verifier rebuilds routes only from signed stamps and does not use it.
+     * builds a policy; a verifier rebuilds routes only from signed stamps, and checks only that an {@code rcv}
+     * names a valid operation ({@link #isValidOperation}).
      *
      * @throws IllegalArgumentException naming the rule the node broke, and the node itself where it can be shown:
      *     not an empty one, nor one with a lone surrogate, which UTF-8 could not carry intact
      */
     public static void requireValidNode(String node) {
+        String problem = nodeProblem(node);
+        if (problem != null) {
+            throw new IllegalArgumentException(problem);
+        }
+    }
+
+    /** The rule a route node breaks, as {@link #requireValidNode} words it, or null for a valid node. */
+    private static String nodeProblem(String node) {
         if (node == null || node.isEmpty()) {
-            throw new IllegalArgumentException("route node must not be empty");
+            return "route node must not be empty";
         }
         if (node.equals(".") || node.equals("..")) {
-            throw new IllegalArgumentException("route node must not be \"" + node + "\"");
+            return "route node must not be \"" + node + "\"";
         }
         for (int i = 0; i < node.length(); i++) {
             char c = node.charAt(i);
             if (c == '/' || c == '\\' || c == '|') {
-                throw new IllegalArgumentException("route node \"" + node + "\" must not contain '" + c + "'");
+                return "route node \"" + node + "\" must not contain '" + c + "'";
             }
             if (Character.isHighSurrogate(c) && i + 1 < node.length()
                     && Character.isLowSurrogate(node.charAt(i + 1))) {
                 i++;
             } else if (Character.isSurrogate(c)) {
-                throw new IllegalArgumentException("route node must not contain a lone surrogate");
+                return "route node must not contain a lone surrogate";
             }
         }
+        return null;
     }
 
     /**
@@ -75,6 +85,14 @@ public final class Routes {
     public static void requireValidOperation(String name) {
         requireValidNode(name);
         requireNoHash(name, "operation name");
+    }
+
+    /**
+     * Whether {@code name} is an operation name, by the rule {@link #requireValidOperation} enforces; a verifier
+     * asks this of the text after {@code #} in an {@code rcv}.
+     */
+    public static boolean isValidOperation(String name) {
+        return nodeProblem(name) == null && name.indexOf('#') < 0;
     }
 
     private static void requireNoHash(String name, String role) {

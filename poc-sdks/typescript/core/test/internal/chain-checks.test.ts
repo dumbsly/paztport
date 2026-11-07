@@ -23,6 +23,10 @@ describe("operations in rcv", () => {
     expect(addressedTo("paymentx", "payment")).toBe(false);
     expect(addressedTo("search#find", "payment")).toBe(false);
     expect(addressedTo("payment", "payment#charge")).toBe(false);
+    expect(addressedTo("orders#a/b", "orders")).toBe(false);
+    expect(addressedTo("orders#a#b", "orders")).toBe(false);
+    expect(addressedTo("orders#a\\b", "orders")).toBe(false);
+    expect(addressedTo("orders#..", "orders")).toBe(false);
   });
 
   it("routeFromRcvNamesTheOperationsAndLeavesTheLastOffWhenTheReceiverIsNotOnTheRoute", () => {

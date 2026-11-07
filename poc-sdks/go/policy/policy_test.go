@@ -781,7 +781,7 @@ func TestService(t *testing.T) {
 	}
 }
 
-// TestAddressedTo accepts an rcv that is the service, or the service, '#' and a non-empty operation.
+// TestAddressedTo accepts an rcv that is the service, or the service, '#' and an operation name.
 func TestAddressedTo(t *testing.T) {
 	for _, tt := range []struct {
 		rcv, svc string
@@ -789,12 +789,16 @@ func TestAddressedTo(t *testing.T) {
 	}{
 		{"payment", "payment", true},
 		{"payment#charge", "payment", true},
-		{"payment#a#b", "payment", true},
+		{"payment#a#b", "payment", false},
 		{"payment#", "payment", false},
 		{"paymentx", "payment", false},
 		{"paymentx#charge", "payment", false},
 		{"search#find", "payment", false},
 		{"payment", "payment#charge", false},
+		{"orders#a/b", "orders", false},
+		{"orders#a#b", "orders", false},
+		{`orders#a\b`, "orders", false},
+		{"orders#..", "orders", false},
 	} {
 		if got := policy.AddressedTo(tt.rcv, tt.svc); got != tt.want {
 			t.Errorf("AddressedTo(%q, %q) = %v, want %v", tt.rcv, tt.svc, got, tt.want)

@@ -49,14 +49,15 @@ func Service(node string) string {
 	return service
 }
 
-// AddressedTo reports whether a stamp's rcv addresses the service svc: the name itself, or the name, '#' and a
-// non-empty operation. An empty operation, or a longer service name, is not addressed to it.
+// AddressedTo reports whether a stamp's rcv addresses the service svc: the name itself, or the name, '#' and an
+// operation name, which is a valid route node ([ValidNode]) holding no '#'. An empty or invalid operation, or a
+// longer service name, is not addressed to it.
 func AddressedTo(rcv, svc string) bool {
 	if rcv == svc {
 		return true
 	}
 	op, found := strings.CutPrefix(rcv, svc+"#")
-	return found && op != ""
+	return found && ValidNode(op) == nil && !strings.Contains(op, "#")
 }
 
 // isRoute reports whether route is a route: at least two valid route nodes joined with "/".
