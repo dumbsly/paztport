@@ -42,8 +42,9 @@ type ResponseCheck struct {
 //     and body, the rid of sent's origin as the call id, and the labels can be computed;
 //  3. the live order, run by v on the chain sent then the response stamp, as received by caller, with no
 //     influence, the proof sent, no peer, that binding as the one expected and the nonce key
-//     <rid>|<target>|resp, where target is the service sent's last rcv names, without any operation. The route is the request's
-//     own, so the proof the caller sent proves it, and the response stamp must be the target's, signed for the caller.
+//     <rid>|<target>|resp, where target is the service sent's last rcv names, without any operation. The
+//     route is the request's own, so the proof the caller sent proves it, and the response stamp must be
+//     the target's, signed for the caller.
 //
 // The response stamp is read only by the verifier, so its live order answers for it, from its policy
 // check on. A sent chain that has no wire form, so that no request carried it, reaches the verifier as
