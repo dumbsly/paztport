@@ -64,7 +64,8 @@ A new implementation MUST pass `v3.json` and `json.json`, less their sections th
 [the MCP profile](#the-mcp-profile) if it does not implement it: `recordedLocalStep`, `responseAttestation`,
 `sessionParams`, `sessionResult`, `bindMcpCall` and `bindResult` in `v3.json`, and `jcs` and the `toolsCall`,
 `result` and `localTool` cases of `bindings` in `json.json`. It MUST pass `http-v3.json`, and the `http` cases of
-`bindings` in `json.json`, if it speaks v3 over HTTP, less `operations` if it does not name operations, and `events.json` if it sends or receives responder events.
+`bindings` in `json.json`, if it speaks v3 over HTTP, less `operations` if it does not name operations, and
+`events.json` if it sends or receives responder events.
 
 `v3.json` is self-contained: every case carries its inputs, and keys and policies are named and defined in the
 file. Its `about` field says how its keys, salts and padding are derived, so the file can be rebuilt byte for byte;

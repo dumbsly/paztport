@@ -88,13 +88,13 @@ class VectorsHttpV3Export {
             + " file; Go replays every section but `operations`; the TypeScript SDK does not speak v3 over HTTP, so it"
             + " does not replay it. The last responses case runs on the `ops` policy: the chain names the"
             + " operation each hop invokes (`orders#createOrder`, then `payment#charge`) and the proof is for that"
-            + " route. `operations`"
-            + " holds `table`, an operation table as a `file` (its text) and `value`, with its `opsHash` and the"
-            + " `route` a root covers it as; `refused`, table files a reader refuses; `match`, a method and a raw"
-            + " path against a table `file` and the operation name it gives, null for none; and `receive`, a"
-            + " request entered at `orders` through the HTTP receiver under enforce, whose chain's first stamp names"
-            + " `orders` or an operation of it, with the `operation` the framework dispatches to (null for none)"
-            + " and the `refusal` it expects (null when the request is served).";
+            + " route. `operations` holds `table`, an operation table as a `file` (its text) and `value`, with its"
+            + " `opsHash` and the `route` a root covers it as; `refused`, table files a reader refuses; `match`, a"
+            + " method and a raw path against a table `file` and the operation name it gives, null for none; and"
+            + " `receive`, a request entered at `orders` through the HTTP receiver under enforce, whose chain's"
+            + " first stamp names `orders` or an operation of it, with the `operation` the framework dispatches to"
+            + " (null for none) and the `refusal` it expects (null when the request is served). Every `receive`"
+            + " case carries the proof of `gateway/orders#createOrder`, whatever its chain names.";
 
     private static final long GATEWAY_TS = 1_767_225_598_500L;
     private static final long ORDERS_TS = 1_767_225_599_500L;
