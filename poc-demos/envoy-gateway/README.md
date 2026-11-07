@@ -559,8 +559,8 @@ What the checks and the measurements found, beyond the numbers.
   2.45 s after the delay, and the errors stopped 2.83 s after it, consistent with requests already sent to the replica
   waiting out the `messageTimeout`: 4081 504s, all Envoy's `message_timeouts`, and 8 500s from its circuit breaker.
   The slowed pod stamped 299 of those 4081 too late (see [`failure`](#failure)). Slowed then as a whole pod, it was
-  taken out by readiness 1.69 s later; no request failed from the health check's reading on, nor after the pod was
-  ready again, and its container was not restarted.
+  taken out by readiness 1.69 s later; no request failed after those 2.83 s, through the whole-pod delay or after the
+  pod was ready again, and its container was not restarted.
 - **A whole pod slowed for 20 s or more can be restarted, and the restart is not drained.** The liveness probe
   (`/livez`, every 10 s, with Kubernetes' defaults of a 1 s timeout and three failures) fails every probe while the
   whole pod is slowed, and three failures need at least 20 s of delay. In a shorter run of `failure` on the same
@@ -623,7 +623,7 @@ What the checks and the measurements found, beyond the numbers.
 | Merged gateways | the NetworkPolicy admits nothing, and the edge refuses everything | `gateway.envoyPodLabels` |
 | Every processor replica gone | refused while down; 4200 unstamped on recovery in the run, one a kept-alive connection by the count | backends in `enforce`; `routingType: Service`; the PodDisruptionBudget and two replicas |
 | More than 1024 requests in flight | Envoy's own 500 | capacity; it fails closed |
-| A processor replica slow on its gRPC port | 504s at the `messageTimeout` for its share until Envoy's health check takes it out (4081 in the run, stopping 2.83 s after the delay) | the chart's health check (see [The chart](#the-chart)); an operator's alert on 504s and `message_timeouts` for the gap (see **A slow processor replica** under [Operating it](#operating-it)) |
+| A processor replica slow on its gRPC port | 504s at the `messageTimeout` for its share until shortly after Envoy's health check takes it out (4081 in the run, stopping 2.83 s after the delay) | the chart's health check (see [The chart](#the-chart)); an operator's alert on 504s and `message_timeouts` for the gap (see **A slow processor replica** under [Operating it](#operating-it)) |
 | `X-Forwarded-For` | Boot would take the peer's instance from it | `SERVER_FORWARDHEADERSSTRATEGY=NONE` |
 
 ## Operating it
