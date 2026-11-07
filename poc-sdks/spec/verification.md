@@ -52,14 +52,14 @@ disagree.
 | 1 | The chain reads from its bytes ([wire.md](wire.md#chains)): the JCS bytes of a non-empty array of v3 stamps, each with exactly a stamp's members ([field rules](wire.md#stamp-field-rules)). A stamp whose `v` is not 3, or that has any other member, does not read. | `CHAIN_MISSING` |
 | 2 | No signed field of any stamp holds `\|`, `rcv` included. | `BAD_SIGNATURE` |
 | 3 | The origin's `svc` is in `allowedOrigins`. | `BAD_ORIGIN` |
-| 4 | For each stamp in order: its `svc` has a key in a current keyring, and its signature verifies under one of the keys the current keyrings give it (`BAD_SIGNATURE`), and its `prev` is `""` for the origin and the previous stamp's `sig` otherwise (`BROKEN_LINK`). Only after the whole chain passes that loop: each stamp's `rcv` is the next stamp's `svc`, and the last stamp's `rcv` is `receiver`. | `BAD_SIGNATURE`, `BROKEN_LINK`, then `BINDING_MISMATCH` |
+| 4 | For each stamp in order: its `svc` has a key in a current keyring, and its signature verifies under one of the keys the current keyrings give it (`BAD_SIGNATURE`), and its `prev` is `""` for the origin and the previous stamp's `sig` otherwise (`BROKEN_LINK`). Only after the whole chain passes that loop: each stamp's `rcv` is the next stamp's `svc`, or that `svc` then `#` and an operation ([wire.md](wire.md#chains)), and the last stamp's `rcv` is `receiver`. | `BAD_SIGNATURE`, `BROKEN_LINK`, then `BINDING_MISMATCH` |
 | 5 | Every stamp carries the origin's `rid`. | `RID_MISMATCH` |
 | 6 | Every stamp carries `sess`. | `SESSION_UNKNOWN` |
 | 7 | Freshness: the last stamp's `ts` is within `CALL_MAX_AGE_MS` of `now`, either way; the origin's `ts` is at most `RUN_MAX_AGE_MS` before `now` and at most `CALL_MAX_AGE_MS` after it. A non-finite `now` or limit fails. | `EXPIRED` |
 | 8 | The last stamp's `bind` equals `expectedBind`. | `BINDING_MISMATCH` |
 | 9 | The influence reads from its bytes ([sessions-and-influence.md](sessions-and-influence.md#entries)), and the last stamp's `infl` equals its commitment. | `INFLUENCE_MISMATCH` |
 | 10 | The nonce cache remembers keys for at least 2 × `CALL_MAX_AGE_MS`, and `nonceKey` is new to it. A new key is recorded. | `REPLAY` |
-| 11 | The route, the stamps' `svc` values then `receiver` when `receiverInRoute`, is proven against a current pinned root, the one the proof's `rootId` names ([proof checks](wire.md#proof-object)). | `PATH_NOT_ALLOWED` |
+| 11 | The route, the origin's `svc` then each stamp's `rcv`, the last left off unless `receiverInRoute` ([wire.md](wire.md#routes)), is proven against a current pinned root, the one the proof's `rootId` names ([proof checks](wire.md#proof-object)). | `PATH_NOT_ALLOWED` |
 | 12 | With a `peer`, `peer.svc` equals the last stamp's `svc`. | `PEER_MISMATCH` |
 
 Otherwise the result is `OK`.
@@ -124,17 +124,19 @@ in `audit` serves it and records the failure.
 **The receiver checks.** In a v3 chain every stamp names the hop it was handed to (check 4). So a chain
 forwarded unchanged to a service it was not signed for fails `BINDING_MISMATCH`, wherever it is sent, before
 the route is looked at. A receiver MUST supply its own name as `receiver` from its configuration, never from the
-request. For a call that name is also the end of the route. For a response, `receiver` is the caller's own
-`svc` and `receiverInRoute` is false, so the route ends at the last signer. Over MCP that route is the server's
-own hops, and the client is not on it. Over HTTP it is the request's own route, the caller included, because
-the response stamp extends the chain the caller sent.
+request (over HTTP, with the operation it will dispatch the request to:
+[below](#http-requests-and-responses)). For a call that name is also the end of the route. For a response,
+`receiver` is the caller's own `svc` and `receiverInRoute` is false, so the route ends at the last signer. Over MCP
+that route is the server's own hops, and the client is not on it. Over HTTP it is the request's own route, the
+caller included, because the response stamp extends the chain the caller sent.
 
 **Naming the receiver.** The caller MUST stamp the receiver's policy name as the last stamp's `rcv`: the name the
-receiver supplies as `receiver`, under which the policy owner's keyring and routes know it. A stamp that names the
+receiver supplies as `receiver`, under which the policy owner's keyring and routes know it. Over HTTP it also
+names the receiver's [operation](wire.md#operations) when it holds the receiver's table. A stamp that names the
 destination any other way, by an address, an alias or a port, fails check 4 at an honest receiver
 (`BINDING_MISMATCH`). How a caller maps a destination to that name is its deployment's configuration, never
-something the request or the destination says. Over HTTP the same name is the caller's `<target>`: in the response's
-nonce key, as the service the response stamp must be by, and in the `src` (`http:<target>`) of what the response
+something the request or the destination says. Over HTTP that name, without any operation, is the caller's
+`<target>`: in the response's nonce key, as the service the response stamp must be by, and in the `src` (`http:<target>`) of what the response
 adds to its influence. An egress names its partner's entry service by configuration
 ([sessions-and-influence.md](sessions-and-influence.md#between-organisations)). (The Java and Go SDKs take the name
 from the URL's host by default, its ASCII letters in lower case; a host that is not ASCII gets no name:
@@ -232,6 +234,8 @@ organisations there is one ([sessions-and-influence.md](sessions-and-influence.m
 verifies as below with these inputs.
 
 **A request, at the receiver.** The receiver runs the live order, 0 to 12, with `receiver` = its own name,
+then, when the last stamp's `rcv` names an operation, `#` and the operation the receiver will dispatch the request to
+(its own name alone when that is none in its [table](wire.md#operations)),
 `receiverInRoute = true`, `expectedBind` = the HTTP binding of the request received, over the raw path and query,
 `influence` = `X-Path-Influence` (`[]` when absent), `proof` = `X-Path-Proof` and
 `nonceKey = <rid>|<last svc>|req`. A header that is present but does not decode is left to the check that reads
@@ -241,6 +245,12 @@ verify: dropping it could hide `private` content from the rule. It is answered
 `400 {"reason":"INFLUENCE_MISMATCH"}` wherever verification has not refused the request first, in audit mode too
 ([Modes and refusals](#modes-and-refusals)). An origin starts a new request tree, so it carries neither the chain
 nor the influence a request brings, and has nothing to drop.
+
+**The receiver's operation.** The receiver works the operation out from its own routing, the handler its framework
+will run, before it verifies and before the handler runs; it never takes it from the request. So a chain that
+names another operation than the one the request will reach fails check 4, `BINDING_MISMATCH`, as a chain signed
+for another receiver does, and spends no nonce key. A receiver whose chain names no operation supplies its own
+name alone, and the policy says whether a route that names no operation is allowed.
 
 **At a partner, in an attested session.** The verifier is the session's own: its config is the keyring and root
 the client presented in the handshake, pinned under the client policy key the partner pinned, with `sess` = the
@@ -327,7 +337,8 @@ connects to (TLS hostname verification, RFC 9110 §4.3.4). That is why a respons
 
 **Who attests.** In either [mode](#modes-and-refusals), a service attests a response only when the request's chain
 passed the live order, 0 to 12, at that service, as for a request at the receiver above: its own pinned material,
-`receiver` = its own name, the request's proof and influence, and the peer when there is one. This holds whether or
+`receiver` as a request at the receiver supplies it, the request's proof and influence, and the peer when there
+is one. This holds whether or
 not the service refuses requests that fail: one that does not enforce MUST still run the live order before it
 attests, and a failure there only withholds the attestation. A response stamp is shaped like a request stamp, so
 attesting a chain nobody checked would let anyone mint stamps under the service's key: on a forged one-stamp chain

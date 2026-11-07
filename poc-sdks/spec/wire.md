@@ -256,7 +256,7 @@ order, whatever order they are shown in here.
 | `rid` | string | The request id, minted at the origin and carried unchanged by every stamp. An origin MUST NOT reuse a `rid`: the [HTTP nonce key](verification.md#freshness-and-replay) names a request tree by it, so two trees with one `rid` would spend each other's keys. It SHOULD carry at least 122 random bits from a cryptographic random source, as a random UUID (RFC 9562, version 4) does, so that an origin's replicas need no coordination. |
 | `ts` | integer | When this stamp was signed, in ms since the Unix epoch: a protocol integer. |
 | `sess` | string | The session id ([sessions-and-influence.md](sessions-and-influence.md#the-session-id)), or `""` for a chain with no session: one that never leaves one process, such as a local step, or one inside a single HTTP mesh. |
-| `rcv` | string | The receiver this stamp was signed for: the next stamp's `svc`, or for the last stamp, the receiver of the chain. See [Receivers](#receivers). |
+| `rcv` | string | The receiver this stamp was signed for: the next stamp's `svc`, or for the last stamp, the receiver of the chain. Over HTTP it may also name the [operation](#operations) the stamp invokes there. See [Receivers](#receivers). |
 | `bind` | string | The binding of what this hop sent. See [Bindings](#bindings). |
 | `infl` | string | The influence commitment: `""` for no influence, otherwise `b64url(H(utf8(JCS(normalise(entries)))))`, with `normalise` as defined in [sessions-and-influence.md](sessions-and-influence.md#normalisation-and-commitment). |
 | `prev` | string | The previous stamp's `sig`, exactly as written, or `""` at the origin. |
@@ -303,9 +303,9 @@ A chain is an array of stamps, **origin first**. It travels as its JCS bytes and
 - **Links.** Stamp *i* (for *i* ≥ 1) has `prev` equal to stamp *i − 1*'s `sig`. Because each signature covers
   `prev`, removing, reordering or inserting a stamp breaks a signature or a link.
 - **Shared values.** Every stamp carries the origin's `rid`. Every stamp carries the session's `sess`.
-- **Receivers.** Stamp *i*'s `rcv` MUST equal stamp *i + 1*'s `svc`, and the last stamp's `rcv` MUST equal
-  the chain's receiver. So each stamp names the hop it was handed to, and a chain forwarded unchanged to anyone
-  else fails.
+- **Receivers.** Stamp *i*'s `rcv` MUST be stamp *i + 1*'s `svc`, or that `svc`, then `#`, then a non-empty
+  [operation](#operations) name, and the last stamp's `rcv` MUST equal the chain's receiver exactly. So each stamp
+  names the hop it was handed to, and a chain forwarded unchanged to anyone else fails.
 - **The last stamp** is the one whose `bind` and `infl` the receiver checks: it describes what was actually
   sent.
 
@@ -314,7 +314,8 @@ A chain is an array of stamps, **origin first**. It travels as its JCS bytes and
 | Chain | Stamps, origin first | Each `rcv` |
 |---|---|---|
 | HTTP hops (mesh) | `gateway`, `orders` | `orders`, then `payment`: each hop names the next service, and the last names the receiving service. |
-| HTTP response | `gateway`, `orders`, then `payment`'s response stamp | The request's, then `orders`: the response stamp names the caller, the request's last `svc`. |
+| HTTP hops naming operations | `gateway`, `orders` | `orders#createOrder`, then `payment#charge`: each hop names the next service and the [operation](#operations) it invokes there, and the last names the receiving service and its operation. |
+| HTTP response | `gateway`, `orders`, then `payment`'s response stamp | The request's, then `orders`: the response stamp names the caller, the request's last `svc`, with no operation. |
 | Run origin (agents) | `session` | `pi`: the client hop the run's origin hands to. The origin is minted once per run and server session, and reused for every call in it. |
 | MCP tool call ([MCP profile](README.md#the-mcp-profile)) | `session`, `pi` | `pi`, then `mcp:<server>.<tool>`, where `<server>` is the server id and `<tool>` the tool name. |
 | MCP response ([MCP profile](README.md#the-mcp-profile)) | `mcp-entry`, `github-tools` | `github-tools`, then the calling client's `svc` (`pi`): the response chain ends at whoever made the call. |
@@ -326,6 +327,9 @@ The names in the second column are the agents demo's and the vectors'; the shape
 An MCP server id MUST NOT contain `/`, `|` or `.`, and a tool name MUST NOT contain `/` or `|`. `/` would add a
 route segment, `|` is the stamp delimiter, and a `.` in the server id would make `mcp:a.b.c` ambiguous. A
 verifier MUST reject a call that breaks this (`CHAIN_MISSING`).
+
+A service name MUST NOT contain `#`, so that an `rcv` that names an operation reads one way: the service before its
+first `#`, the operation after it. A policy owner MUST NOT sign a keyring that names such a service.
 
 ## Bindings
 
@@ -513,19 +517,23 @@ for the client policy in `policies.client`; a real build does not produce them.
 
 ## Routes
 
-A route is the list of services a request passed through, then its receiver, joined with `/`:
+A route is the chain's origin, then the receiver each stamp names, joined with `/`:
 
 ```
-route = svc₁ "/" svc₂ "/" … "/" receiver
+route = svc₁ "/" rcv₁ "/" … "/" rcvₙ
 ```
 
-The verifier always rebuilds the route from the stamps' authenticated `svc` fields, never from a claimed field.
+Each `rcv` but the last is the next stamp's `svc`, or names an operation of it, so a route is the services a
+request passed through, then its receiver, each with the operation it was asked for where one was named. The
+verifier rebuilds the route from the stamps' signed `svc` and `rcv` fields, never from a claimed field. Where the
+receiver is not on the route (a response, below), the last stamp's `rcv` is left off.
 
-- A route has at least two nodes, because its proof is held by its caller (the node before the last).
+- A route has at least two nodes, because its proof is held by its caller (the service the node before the last
+  names: [Proof bundles](#proof-bundles-and-who-holds-what)).
 - A route node MUST be non-empty, MUST NOT be `.` or `..`, and MUST NOT contain `/`, `\`, `|` or a lone
   surrogate. Node names become route segments and file names (`proofs-<svc>.json`).
-- A call's route ends at its receiver: `gateway/orders/payment`, or
-  (the MCP profile) `session/pi/mcp:github.create_pull_request`.
+- A call's route ends at its receiver: `gateway/orders/payment`, `gateway/orders#createOrder/payment#charge`
+  when the hops name [operations](#operations), or (the MCP profile) `session/pi/mcp:github.create_pull_request`.
 - An MCP response's route (the MCP profile) is the server's own hops, `mcp-entry/github-tools`. Its receiver, the
   calling client, is not on it: the server's policy can't list every client.
 - An HTTP response's route is the request's own, `gateway/orders/payment`, proven by the proof the caller sent.
@@ -537,6 +545,68 @@ The verifier always rebuilds the route from the stamps' authenticated `svc` fiel
   the rule set `{ "folders": [...], "programs": [...], "v": 1 }` as read from the [file](#files) `rules.json` (its
   format is in the [pi-extension README](../../poc-demos/agents-mcp/pi-extension/README.md#local-tool-gating)). A
   client MUST NOT apply rules that the signed root does not cover.
+- An [operation table](#operations) is pinned as one more route, `<svc>/ops:<opsHash>`.
+
+## Operations
+
+Over HTTP a service may name its operations, so that a policy can allow a route through one operation of a
+service and not through another. A service that does publishes an operation table, its callers name the
+operation each call invokes, and it confirms that operation itself. The MCP profile has no operations: its
+receivers already name one tool.
+
+**The table** is `ops-<svc>.json`, read as a [file](#files):
+
+```json
+{
+  "operations": [
+    {
+      "method": "POST",
+      "name": "createOrder",
+      "template": "/orders"
+    },
+    {
+      "method": "GET",
+      "name": "getOrder",
+      "template": "/orders/{}"
+    }
+  ],
+  "service": "orders",
+  "v": 1
+}
+```
+
+- `service` is the service's name, and `v` is `1`.
+- `operations` is a non-empty array of objects with exactly the members `method`, `name` and `template`, each a
+  string.
+- `name` is a [route node](#routes) that holds no `#`, and no two operations share one.
+- `method` is an HTTP method: one or more of the characters `A` to `Z`.
+- `template` is `/`, or `/` and then segments joined with `/`, each one non-empty: either `{}`, which matches any
+  one non-empty segment, or literal text holding none of `/`, `{`, `}`, `?` and `#`, which matches itself exactly.
+- No two operations share both their `method` and their `template`.
+
+A reader refuses a table that breaks any of these.
+
+**Matching.** A call's operation is the one whose `method` is the call's method, exactly, and whose `template`
+matches the call's raw path: the path as sent, without the query and not percent-decoded, with as many segments
+as the template and each matching. When more than one matches, the first segment, from the left, at which their
+templates differ decides: the template with a literal segment there is the call's operation. No tie is left,
+since two templates that match one path and agree on which segments are literal are the same template. A call no
+operation matches has none.
+
+**The hash and its route.** `opsHash = b64url(H(utf8("operations\n" ‖ JCS(table))))`, where `table` is the table
+as read. The signed root covers a table as the route `<svc>/ops:<opsHash>`. A service and its callers MUST NOT
+use a table the signed root does not cover.
+
+**Naming an operation.** A caller that holds the receiver's table names, in its stamp's `rcv`, the receiver's
+name, then `#`, then the call's operation: `orders#createOrder`. It MUST NOT send a call to that receiver that
+matches no operation. A caller that holds no table for the receiver names the receiver alone. Either way the
+route names what was asked for, so the policy says whether it is allowed.
+
+**Confirming it.** The receiver does not take its operation from the request. It works it out from its own
+routing and supplies it as part of `receiver` ([verification.md](verification.md#http-requests-and-responses)),
+so a chain that names another operation fails check 4. A service's own operation is therefore named under the
+previous hop's signature and confirmed by the service, never claimed by it: code running in a service can name
+only the operation it invokes on the next hop, which that hop confirms in turn.
 
 ## The signed root
 
@@ -757,8 +827,10 @@ or `rootId` is not a string.
 `proofs` is a map: each name in it is a [route](#routes), at least two route nodes joined by `/`, and each value a
 [proof object](#proof-object), held to those of its checks that need no root.
 
-A route's proof is held by its caller, the node before the last, since that is the hop that sends the request
-the proof travels with.
+A route's proof is held by its caller, the service the node before the last names (the node itself, or its text
+before `#`), since that is the hop that sends the request the proof travels with. A table's route
+`<svc>/ops:<opsHash>` is held by `<svc>` and by every service that holds a route ending at `<svc>`, so each of its
+callers can check the table it names operations from.
 
 | Party | Holds | Never holds |
 |---|---|---|
