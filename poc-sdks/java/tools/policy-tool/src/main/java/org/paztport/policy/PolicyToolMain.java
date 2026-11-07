@@ -18,9 +18,11 @@ import java.security.PrivateKey;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Stream;
 import org.paztport.core.crypto.Crypto;
 import org.paztport.core.crypto.KeyFiles;
 import org.paztport.core.policy.KeyringFile;
+import org.paztport.core.policy.OperationTable;
 import org.paztport.core.policy.PolicyBuilder;
 import org.paztport.core.policy.PolicyOwner;
 import org.paztport.core.policy.ProofBundle;
@@ -38,14 +40,20 @@ import org.paztport.core.session.ReplyCert;
  * root and the keyring are signed to vouch for {@code PAZTPORT_POLICY_DAYS} days from the run (default 7). Two modes:
  *
  * <ul>
- *   <li>Rebuild, the default: a new salted tree from {@code paths.yaml} (depth from {@code PAZTPORT_PROOF_DEPTH},
- *       default 8), so a new {@code rootId}, new {@code root.json} and new bundles, which every holder must reload
- *       together; and the keyring re-signed.</li>
+ *   <li>Rebuild, the default: a new salted tree from {@code paths.yaml} and its operation tables (depth from
+ *       {@code PAZTPORT_PROOF_DEPTH}, default 8), so a new {@code rootId}, new {@code root.json} and new
+ *       bundles, which every holder must reload together; and the keyring re-signed.</li>
  *   <li>Renew, with {@code --renew} or {@code PAZTPORT_RENEW=true}: {@code outDir/root.json} and the keyring signed
  *       again with a new {@code notAfter}, the same {@code root} and {@code rootId}, so the bundles stay valid and
  *       are not touched, and holders can pick up the renewed files one at a time. {@code paths.yaml} is not
  *       read.</li>
  * </ul>
+ *
+ * <p>Rebuilding also reads every {@code ops-<svc>.json} beside {@code paths.yaml}, an operation table in the
+ * spec's file format whose {@code service} is the {@code <svc>} in its name. Each table's route
+ * {@code <svc>/ops:<hash>} is added to the policy, and the table is copied to {@code outDir/ops-<svc>.json}, after
+ * the bundles. A route node {@code <svc>#<op>} must name an operation in {@code svc}'s table, or the run is refused;
+ * a service with a table may still be named alone. Renewing and rotating ignore tables.
  *
  * <p>A third mode, {@code --rotate svc} or {@code PAZTPORT_ROTATE=svc}, exclusive with the other two, replaces one
  * service's key: it writes {@code keysDir/svc.next.key}, a new key, and {@code keysDir/keyring.next.json}, the
@@ -108,7 +116,12 @@ public final class PolicyToolMain {
      */
     public static void run(Path pathsYaml, Path keysDir, Path outDir, int depth, long policyNotAfter,
             String replyCertSvc, long replyCertNotAfter) throws IOException {
-        List<List<String>> routes = PathsReader.parse(Files.readAllBytes(pathsYaml));
+        List<List<String>> routes = new ArrayList<>(PathsReader.parse(Files.readAllBytes(pathsYaml)));
+        List<OperationTable> tables = loadTables(pathsYaml.toAbsolutePath().getParent());
+        checkOperations(routes, tables);
+        for (OperationTable table : tables) {
+            routes.add(table.route());
+        }
         PrivateKey policyKey = KeyFiles.loadPrivateKey(keysDir.resolve("policy.key"));
         Path keyringFile = keysDir.resolve("keyring.json");
         KeyringFile ring = renewedKeyring(keyringFile, policyNotAfter, policyKey);
@@ -125,8 +138,64 @@ public final class PolicyToolMain {
         for (ProofBundle bundle : result.bundles().values()) {
             Files.writeString(outDir.resolve("proofs-" + bundle.service() + ".json"), bundle.toFile());
         }
+        for (OperationTable table : tables) {
+            Files.writeString(outDir.resolve("ops-" + table.service() + ".json"), table.toFile());
+        }
         if (cert != null) {
             Files.writeString(outDir.resolve("reply-cert.json"), cert.toFile());
+        }
+    }
+
+    /**
+     * Every {@code ops-<svc>.json} beside {@code paths.yaml}, in file-name order. A file that cannot be read or is not
+     * a table, or whose {@code service} is not the {@code <svc>} in its name, is refused, naming the file.
+     */
+    private static List<OperationTable> loadTables(Path dir) throws IOException {
+        List<Path> files;
+        try (Stream<Path> listing = Files.list(dir)) {
+            files = listing.filter(f -> {
+                String name = f.getFileName().toString();
+                return name.startsWith("ops-") && name.endsWith(".json") && Files.isRegularFile(f);
+            }).sorted().toList();
+        }
+        List<OperationTable> tables = new ArrayList<>();
+        for (Path file : files) {
+            String name = file.getFileName().toString();
+            String svc = name.substring("ops-".length(), name.length() - ".json".length());
+            OperationTable table;
+            try {
+                table = OperationTable.load(file);
+            } catch (UncheckedIOException e) {
+                throw new IllegalArgumentException(file + " cannot be read", e);
+            } catch (IllegalArgumentException e) {
+                throw new IllegalArgumentException(file + " is not an operation table: " + e.getMessage(), e);
+            }
+            if (!table.service().equals(svc)) {
+                throw new IllegalArgumentException(name + " holds the table of " + table.service()
+                        + ", not " + svc);
+            }
+            tables.add(table);
+        }
+        return tables;
+    }
+
+    /** Refuses a {@code <svc>#<op>} node whose service has no table or whose table does not name the operation. */
+    private static void checkOperations(List<List<String>> routes, List<OperationTable> tables) {
+        for (List<String> route : routes) {
+            for (String node : route) {
+                int hash = node.indexOf('#');
+                if (hash < 0) {
+                    continue;
+                }
+                String svc = node.substring(0, hash);
+                String op = node.substring(hash + 1);
+                boolean named = tables.stream().anyMatch(t -> t.service().equals(svc)
+                        && t.operations().stream().anyMatch(o -> o.name().equals(op)));
+                if (!named) {
+                    throw new IllegalArgumentException(node + " is not an operation of any ops-" + svc + ".json"
+                            + " beside the paths file");
+                }
+            }
         }
     }
 

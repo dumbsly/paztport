@@ -655,13 +655,18 @@ constructor: one mapping whose only key is `paths`, no duplicate keys, no type t
 - **Rebuild**, the default: `paths.yaml` → salted tree → signed `outDir/root.json` plus one proof bundle per
   service (depth `PAZTPORT_PROOF_DEPTH`, default 8), and `keyring.json` re-signed beside it. The tree is new, so
   the `rootId` and every bundle change, and every service holding a root or proofs must reload them together.
-  Rebuild when the routes change.
+  Rebuild when the routes change. It also reads every `ops-<svc>.json` beside `paths.yaml`: an operation table in
+  the [spec](../spec/wire.md#operations)'s file format, whose `service` must be the `<svc>` in its name. Each
+  table's route `<svc>/ops:<hash>` joins the tree, its proof goes in the bundles of `<svc>` and of every service
+  that names one of its operations, and the table is copied to `outDir/ops-<svc>.json` after the bundles. A route
+  node `<svc>#<op>` must name an operation of that table, or the run is refused (exit 2, nothing written); a
+  service with a table may still be named alone in a route.
 - **Renew**, with `--renew` or `PAZTPORT_RENEW=true` (so the same command line serves both): `outDir/root.json`
   and `keyring.json` signed again with a new `notAfter`, keeping the root's `root` and `rootId`, so the proof
   bundles stay valid and are not touched, and holders can pick up the renewed files one at a time. The new
   `notAfter` is the run's time plus `PAZTPORT_POLICY_DAYS`, so a renewal can shorten a longer existing window.
   `paths.yaml` is not read. Renewal is the routine operation, run well before `notAfter`; expired files are
-  renewed all the same.
+  renewed all the same. Tables are not read.
 
 Either mode first checks that the keyring has a `notAfter` and verifies under the policy key it names, expired or
 not, and that that key is the one in `policy.key`; renewing also checks the root verifies under it. Rebuilding also

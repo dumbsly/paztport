@@ -22,6 +22,7 @@ import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.security.KeyPair;
 import java.security.PrivateKey;
+import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.stream.Stream;
@@ -33,6 +34,7 @@ import org.paztport.core.encoding.Base64Url;
 import org.paztport.core.internal.JsonReader;
 import org.paztport.core.internal.JsonWriter;
 import org.paztport.core.policy.KeyringFile;
+import org.paztport.core.policy.OperationTable;
 import org.paztport.core.policy.ProofBundle;
 import org.paztport.core.policy.SignedRoot;
 import org.paztport.core.session.ReplyCert;
@@ -74,6 +76,89 @@ class PolicyToolMainTest {
         for (String svc : new String[] {"gateway", "orders", "payment", "search"}) {
             assertTrue(Files.exists(out.resolve("proofs-" + svc + ".json")), "missing bundle for " + svc);
         }
+    }
+
+    private static OperationTable ordersTable(String service) {
+        return new OperationTable(service, List.of(new OperationTable.Operation("getOrder", "GET", "/orders/{}")));
+    }
+
+    /** Writes paths.yaml with one route, and orders' table beside it when {@code table} is not null. */
+    private void writeOpsWorld(Path keys, Path pathsYaml, String route, String tableFile, OperationTable table)
+            throws Exception {
+        writeWorld(keys, pathsYaml);
+        Files.writeString(pathsYaml, "paths:\n  - " + route + "\n");
+        if (table != null) {
+            Files.writeString(pathsYaml.resolveSibling(tableFile), table.toFile());
+        }
+    }
+
+    @Test
+    void rebuildAddsEachTablesRouteAndCopiesTheTable(@TempDir Path dir) throws Exception {
+        Path keys = dir.resolve("keys");
+        Path pathsYaml = dir.resolve("paths.yaml");
+        Path out = dir.resolve("out");
+        OperationTable table = ordersTable("orders");
+        writeOpsWorld(keys, pathsYaml, "[gateway, orders#getOrder]", "ops-orders.json", table);
+
+        PolicyToolMain.run(pathsYaml, keys, out, 8);
+
+        assertEquals(table, OperationTable.load(out.resolve("ops-orders.json")));
+        String opsRoute = "orders/ops:" + table.hash();
+        ProofBundle orders = ProofBundle.load(out.resolve("proofs-orders.json"));
+        ProofBundle gateway = ProofBundle.load(out.resolve("proofs-gateway.json"));
+        assertTrue(orders.proofs().containsKey(opsRoute));
+        assertTrue(gateway.proofs().containsKey(opsRoute));
+        assertTrue(gateway.proofs().containsKey("gateway/orders#getOrder"));
+    }
+
+    @Test
+    void refusesAnOperationNoTableNames(@TempDir Path dir) throws Exception {
+        Path keys = dir.resolve("keys");
+        Path pathsYaml = dir.resolve("paths.yaml");
+        Path out = dir.resolve("out");
+        writeOpsWorld(keys, pathsYaml, "[gateway, orders#nope]", "ops-orders.json", ordersTable("orders"));
+        IllegalArgumentException named = assertThrows(IllegalArgumentException.class,
+                () -> PolicyToolMain.run(pathsYaml, keys, out, 8));
+        assertTrue(named.getMessage().contains("orders#nope"), named.getMessage());
+        assertFalse(named.getMessage().contains("\n"));
+        assertFalse(Files.exists(out));
+
+        Files.delete(dir.resolve("ops-orders.json"));
+        Files.writeString(pathsYaml, "paths:\n  - [gateway, orders#getOrder]\n");
+        Map<Path, String> before = snapshot(keys);
+        IllegalArgumentException missing = assertThrows(IllegalArgumentException.class,
+                () -> PolicyToolMain.run(pathsYaml, keys, out, 8));
+        assertTrue(missing.getMessage().contains("orders#getOrder"), missing.getMessage());
+        assertFalse(missing.getMessage().contains("\n"));
+        assertFalse(Files.exists(out));
+        assertEquals(before, snapshot(keys));
+    }
+
+    @Test
+    void refusesATableWhoseFileNameIsNotItsService(@TempDir Path dir) throws Exception {
+        Path keys = dir.resolve("keys");
+        Path pathsYaml = dir.resolve("paths.yaml");
+        Path out = dir.resolve("out");
+        writeOpsWorld(keys, pathsYaml, "[gateway, orders]", "ops-payment.json", ordersTable("orders"));
+
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
+                () -> PolicyToolMain.run(pathsYaml, keys, out, 8));
+        assertTrue(e.getMessage().contains("ops-payment.json"), e.getMessage());
+        assertFalse(Files.exists(out));
+    }
+
+    @Test
+    void aServiceWithATableMayStillBeNamedAlone(@TempDir Path dir) throws Exception {
+        Path keys = dir.resolve("keys");
+        Path pathsYaml = dir.resolve("paths.yaml");
+        Path out = dir.resolve("out");
+        writeOpsWorld(keys, pathsYaml, "[gateway, orders]", "ops-orders.json", ordersTable("orders"));
+
+        PolicyToolMain.run(pathsYaml, keys, out, 8);
+
+        ProofBundle gateway = ProofBundle.load(out.resolve("proofs-gateway.json"));
+        assertTrue(gateway.proofs().containsKey("gateway/orders"));
+        assertTrue(Files.exists(out.resolve("ops-orders.json")));
     }
 
     @Test
