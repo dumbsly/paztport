@@ -5,7 +5,7 @@ A small mesh of Spring Boot services that uses the Java SDK
 quarantines offending containers. The idea and the concepts are in the
 [root README](../../README.md).
 
-Contents: [The system at a glance](#the-system-at-a-glance) · [A request, end to end](#a-request-end-to-end) · [The support-assistant storyline](#the-support-assistant-storyline) · [Least knowledge](#least-knowledge-who-holds-what) · [The verification pipeline](#the-verification-pipeline) · [Response attestation](#response-attestation) · [Threat model](#threat-model) · [Response](#response-quarantine-not-deletion) · [Modes and rollout](#modes-and-rollout) · [Design choices](#design-choices-and-the-failures-they-avoid) · [Measurements](#measurements) · [Running it](#running-it) · [Configuration](#configuration)
+Contents: [The system at a glance](#the-system-at-a-glance) · [A request, end to end](#a-request-end-to-end) · [The support-assistant storyline](#the-support-assistant-storyline) · [Least knowledge](#least-knowledge-who-holds-what) · [The verification pipeline](#the-verification-pipeline) · [Response attestation](#response-attestation) · [Threat model](#threat-model) · [Operations](#operations) · [Response](#response-quarantine-not-deletion) · [Modes and rollout](#modes-and-rollout) · [Design choices](#design-choices-and-the-failures-they-avoid) · [Measurements](#measurements) · [Running it](#running-it) · [Configuration](#configuration)
 
 ## The system at a glance
 
@@ -63,16 +63,24 @@ Allowed routes live in [`policy/paths.yaml`](policy/paths.yaml):
 
 ```yaml
 paths:
-  - [gateway, orders, payment]
-  - [gateway, orders]
+  - [gateway, orders#createOrder, payment#pay]
+  - [gateway, orders#createOrder]
+  - [gateway, orders#purchase, payment#charge]
+  - [gateway, orders#purchase]
+  - [gateway, orders#getOrder]
   - [gateway, search]
   - [payment, psp]
   - [gateway, tickets]
   - [gateway, tickets, assistant]
-  - [gateway, tickets, assistant, orders]
-  - [gateway, tickets, assistant, payment]
+  - [gateway, tickets, assistant, orders#getOrder]
+  - [gateway, tickets, assistant, orders#findOrders]
+  - [gateway, tickets, assistant, payment#refund]
   - [gateway, tickets, assistant, mailer]
 ```
+
+`orders` and `payment` name their operations, so their routes say which operation
+each hop invokes: `orders#getOrder` is the operation `getOrder` of `orders`
+([Operations](#operations)).
 
 The PSP has a root and routes of its own ([`psp-policy/paths.yaml`](psp-policy/paths.yaml)).
 The shop never sees them, and the PSP never sees the shop's.
@@ -98,12 +106,12 @@ sequenceDiagram
     participant P as payment (verifier)
 
     C->>G: POST /checkout (mTLS)
-    Note over G: mint rid<br/>s0 = Sign(k_gateway, …, rcv = orders, prev = empty)
-    G->>O: POST /orders (mTLS)<br/>X-Path-Chain = [s0]<br/>X-Path-Proof = proof(gateway/orders)
-    Note over O: check [s0] as receiver orders, with the proof gateway sent:<br/>orders doesn't refuse, but attests only a chain that verified
-    Note over O: s1 = Sign(k_orders, …, rcv = payment, prev = sig of s0)<br/>bind = hash of the /pay request it is about to send<br/>attach proof(gateway/orders/payment)
-    O->>P: POST /pay (mTLS, orders' certificate)<br/>X-Path-Chain = [s0, s1]<br/>X-Path-Proof = proof(gateway/orders/payment)
-    Note over P: check 0: its own keyring and root are within their notAfter,<br/>then the twelve checks: signatures, links and receivers,<br/>rid, freshness, binding, influence, nonce,<br/>the route gateway/orders/payment against the root,<br/>and the peer: the last signer is orders
+    Note over G: mint rid<br/>s0 = Sign(k_gateway, …, rcv = orders#createOrder, prev = empty)
+    G->>O: POST /orders (mTLS)<br/>X-Path-Chain = [s0]<br/>X-Path-Proof = proof(gateway/orders#createOrder)
+    Note over O: check [s0] as receiver orders#createOrder, with the proof gateway sent:<br/>orders doesn't refuse, but attests only a chain that verified
+    Note over O: s1 = Sign(k_orders, …, rcv = payment#pay, prev = sig of s0)<br/>bind = hash of the /pay request it is about to send<br/>attach proof(gateway/orders#createOrder/payment#pay)
+    O->>P: POST /pay (mTLS, orders' certificate)<br/>X-Path-Chain = [s0, s1]<br/>X-Path-Proof = proof(gateway/orders#createOrder/payment#pay)
+    Note over P: check 0: its own keyring and root are within their notAfter,<br/>then the twelve checks, as receiver payment#pay: signatures, links and receivers,<br/>rid, freshness, binding, influence, nonce,<br/>the route gateway/orders#createOrder/payment#pay against the root,<br/>and the peer: the last signer is orders
     Note over P: r1 = Sign(k_payment, …, rcv = orders, prev = sig of s1)<br/>bind = the 200 and its body
     P-->>O: 200 PAID<br/>X-Path-Response = r1
     Note over O: check [s0, s1, r1] as receiver orders,<br/>with the proof it sent
@@ -312,8 +320,8 @@ flowchart LR
     kg --> cakey[("ca/ca.key<br/>mounted into no service")]
 
     pt --> root[("root.json<br/>signed root")]
-    pt --> bg[("proofs-gateway.json<br/>gateway/orders<br/>gateway/search")]
-    pt --> bo[("proofs-orders.json<br/>gateway/orders/payment")]
+    pt --> bg[("proofs-gateway.json<br/>gateway/orders#createOrder<br/>gateway/search")]
+    pt --> bo[("proofs-orders.json<br/>gateway/orders#createOrder/payment#pay")]
     pt --> bs[("proofs-search.json<br/>(empty)")]
 
     root --> payment["payment"]
@@ -495,7 +503,62 @@ to `payment`. It would sign the altered request itself, so the misuse is
 attributable to it, but it isn't prevented. Attestation constrains **position**,
 not **trustworthiness**. The practical result is that lateral movement becomes
 *positional*: a compromised node can do only what its legitimate place in the
-graph allows.
+graph allows. Where services name their operations, that place is the operation
+a request came in through ([Operations](#operations)).
+
+## Operations
+
+`orders` and `payment` name their operations, so a route can allow one operation of
+a service and not another. Each publishes an operation table beside
+`policy/paths.yaml`, in the format the [spec](../../poc-sdks/spec/wire.md#operations)
+gives:
+
+| Table | Operations |
+|---|---|
+| [`policy/ops-orders.json`](policy/ops-orders.json) | `createOrder` `POST /orders`, `findOrders` `GET /orders`, `getOrder` `GET /orders/{}`, `purchase` `POST /purchase` |
+| [`policy/ops-payment.json`](policy/ops-payment.json) | `pay` `POST /pay`, `charge` `POST /charge`, `refund` `POST /refund` |
+
+The routes say which operation each hop invokes: a checkout is
+`gateway/orders#createOrder/payment#pay`, a purchase
+`gateway/orders#purchase/payment#charge`, and reading an order through the gateway
+(`GET /orders/{id}`) is `gateway/orders#getOrder`, an operation that never calls
+`payment`. `payment`'s debug endpoints are in no table, so no route that names an
+operation reaches them.
+
+The policy tool reads the tables, covers each in the signed root and copies it to
+`out/policy`. Each service mounts its own table, and each caller the tables of those
+it calls: `gateway` mounts orders', the `assistant` both, `orders` payment's.
+A caller names the operation from the receiver's table, and the receiver confirms
+it: `orders` and `payment` take the operation from the handler Spring will
+dispatch the request to, never from the request, and a stamp that names another
+fails there (`payment` refuses it; `orders`, which refuses nothing, leaves its
+answer unattested). A caller uses a table only when its bundle holds the
+table's proof, which goes to the service and to every caller with a route ending at
+it. `search` mounts payment's table too, but holds its proof only once row 10
+widens the policy, so in row 4 its call names no operation and meets a route that
+names none.
+
+Two rows show what a policy that names services alone would miss. In both, code
+running in `orders`, with its stamp key and its proofs, steers a call to `payment`
+from `orders`' `/attack/*` endpoints (enabled only when `ATTACK_ENABLED=true`):
+
+- **15a**: in through `getOrder`, it signs a call to `payment`'s `pay` and attaches
+  the proof for `gateway/orders#createOrder/payment#pay`, the best it holds. The
+  chain's route is `gateway/orders#getOrder/payment#pay`, which is not a leaf:
+  `403 PATH_NOT_ALLOWED`. With services alone, the route would be
+  `gateway/orders/payment` and the call allowed.
+- **15b**: in through `createOrder`, it names `payment#pay`, which that route
+  allows, but sends the call to `/charge`, with that route's proof and the
+  binding of the `/charge` request it sends. `payment` dispatches `charge`, not the `pay` the stamp names:
+  `403 BINDING_MISMATCH`. With services alone, the binding and the route would
+  pass. This is `orders`' second call to `payment` in the request tree, so the
+  replay check would still stop it there, but the same redirect made on its one
+  honest call would have passed every check.
+
+The operations are configured in `docker-compose.yml` alone. The Envoy Gateway
+demo runs the same jars on their `application.yml`, so there they stay
+service-level. The [measurements](#measurements) were taken with every service
+named alone; an operation name lengthens a stamp's `rcv` by a few bytes.
 
 ## Response: quarantine, not deletion
 
@@ -687,8 +750,8 @@ The costs of the primitives come from the JMH micro-benchmarks in
 `JAVA_HOME=<a JDK 25> ./run bench` builds and runs on JDK 25, the services'
 runtime; without `JAVA_HOME`, `./run bench` uses whichever JDK Maven finds, and
 JMH's output names it. Their inputs are built as the mesh builds them at
-`payment`: a signed keyring, a root over
-[policy/paths.yaml](policy/paths.yaml) at depth 8, and the two-stamp chain
+`payment`: a signed keyring, a root at depth 8 over the routes of
+[policy/paths.yaml](policy/paths.yaml) with every service named alone, and the two-stamp chain
 `gateway` and `orders` sign, with its proof. The figures are the average time per
 operation on the same host, run natively rather than in Docker, on JDK 25.0.5
 with JMH 1.37: one fork, three 5 s warm-up iterations and five 5 s measured ones,
@@ -860,10 +923,13 @@ printing `payment`'s trace line for scenario 1:
 | 8 | scenarios 2–4 in `audit` mode | 200, events logged, no quarantine |
 | 9 | three illicit calls from search in `enforce` | search isolated; a fresh search serves `gateway→search` |
 | 9b | another round past the per-service limit | responder logs `ESCALATE` |
-| 10 | add `[gateway, search, payment]`, rebuild root | scenario 4 now returns 200: policy drives behaviour |
+| 10 | add `[gateway, search, payment#pay]`, rebuild root | scenario 4 now returns 200: policy drives behaviour |
+| 15a | code in orders, in through `getOrder`, steers a call to payment's `pay` | 403 `PATH_NOT_ALLOWED` |
+| 15b | code in orders names payment's `pay` but calls `/charge` | 403 `BINDING_MISMATCH` |
 
+Rows 15a and 15b are the [operations](#operations) checks; they run after row 10.
 Rows 11 to 14 are the [support-assistant storyline](#the-support-assistant-storyline).
-They run after row 10 and before row 9, which needs the quarantine and ends the run:
+They run after those and before row 9, which needs the quarantine and ends the run:
 
 | # | Scenario | Expected |
 |---|---|---|
@@ -875,12 +941,13 @@ They run after row 10 and before row 9, which needs the quarantine and ends the 
 | 14a | an unsafe session at the PSP: a refund | 403 `UNSAFE_SESSION` |
 | 14b | the same session: a charge | 200 `CHARGED` |
 
-`demo.sh` ends with `21 passed, 0 failed`. Row 12 depends on row 11, because the
+`demo.sh` ends with `23 passed, 0 failed`. Row 12 depends on row 11, because the
 charge is what registers alice's card to her.
 
 The attacks run inside the mesh, from `search`'s `/attack/*` endpoints (enabled
 only when `ATTACK_MODE=true`), so every one reaches `payment` over `search`'s own
-TLS connection, presenting `search`'s certificate. Only the gateway port is
+TLS connection, presenting `search`'s certificate. Rows 15a and 15b run from
+`orders`' (enabled only when `ATTACK_ENABLED=true`), presenting `orders`'. Only the gateway port is
 exposed to the host.
 
 ## Configuration
@@ -895,6 +962,9 @@ exposed to the host.
 | `PAZTPORT_RENEW` | unset, so a rebuild; Compose does not pass it through, so set it with `docker compose run -e` | `policy-tool`, `policy-tool-psp`: `true` renews the root and the keyring, keeping the tree and the bundles |
 | `PAZTPORT_REPLY_CERT_DAYS` | `7`; Compose does not pass it through, so set it with `docker compose run -e` | `policy-tool-psp`: the lifetime, in days from the run, of the reply certificate it writes |
 | `ATTACK_MODE` | `false` | search |
+| `ATTACK_ENABLED` | unset, so off; Compose sets `true` | `orders`: its `/attack/*` endpoints, for rows 15a and 15b |
+| `PAZTPORT_OPERATIONS_TABLEPATH` | unset; Compose sets `/config/policy/ops-<svc>.json` | `orders`, `payment`: the service's own [operation table](#operations), whose operation each request it gets must name, if it names one |
+| `PAZTPORT_OPERATIONS_RECEIVERTABLES` | unset; Compose sets the tables of the receivers each calls | `gateway` (orders'), `assistant` (orders', payment's), `orders` (payment's), `search` (payment's, used only once the policy is widened) |
 | `PAZTPORT_ADMIN_TOKEN` | empty, so `/admin/mode` refuses every request | `payment`, `tickets`, `assistant`, `mailer` (the demo generates one per run) |
 | `PAZTPORT_CAPTURE` | `false`; `true` for `payment` in Compose | `payment` (the replay harness) |
 | `PAZTPORT_OPENINGS` | `false`; `true` for `payment` and `psp` in Compose | `payment` (keeps the originals of what it sends the PSP, `/debug/boundary-opening`) and `psp` (records what each call carried, `/debug/check-opening`), for row 13c |

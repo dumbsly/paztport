@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Map;
 import org.paztport.core.influence.InfluenceClass;
 import org.paztport.http.RequestContext;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -36,16 +37,21 @@ public class OrdersController {
     private final RestClient http;
     private final OrderBook book;
     private final String paymentUrl;
+    private final ObjectProvider<StolenChainStore> stolenChains;
 
-    public OrdersController(RestClient http, OrderBook book, @Value("${downstream.payment-url}") String paymentUrl) {
+    /** {@code stolenChains} has a store only with the attack demo on; each order read or placed gives it its chain. */
+    public OrdersController(RestClient http, OrderBook book, @Value("${downstream.payment-url}") String paymentUrl,
+            ObjectProvider<StolenChainStore> stolenChains) {
         this.http = http;
         this.book = book;
         this.paymentUrl = paymentUrl;
+        this.stolenChains = stolenChains;
     }
 
     /** One order, labelled with its customer; {@code 404} when there is none. */
     @GetMapping("/orders/{id}")
     public ResponseEntity<?> byId(@PathVariable String id) {
+        stolenChains.ifAvailable(store -> store.recordGetOrder(RequestContext.inboundChain()));
         OrderBook.Order order = book.byId(id);
         if (order == null) {
             return ResponseEntity.status(404).body(Map.of("reason", "NO_ORDER"));
@@ -65,6 +71,7 @@ public class OrdersController {
 
     @PostMapping("/orders")
     public Map<String, Object> order(@RequestBody(required = false) String ignored) {
+        stolenChains.ifAvailable(store -> store.recordCreateOrder(RequestContext.inboundChain()));
         String payment = http.post()
                 .uri(paymentUrl + "/pay")
                 .contentType(MediaType.APPLICATION_JSON)

@@ -52,6 +52,14 @@
 # gateway's stamp (PAZTPORT_RUN_MAX_AGE_MS): five hops started cold can take
 # longer than 5 s. Each stamp is still refused once it is 5 s old.
 #
+# Orders and payment name their operations, so a route can name one
+# (orders#getOrder). Each mounts its own operation table, which the policy tool
+# copies to out/policy, and each caller mounts the tables of those it calls:
+# gateway orders', the assistant both, orders payment's, and search payment's,
+# which it uses only once the widened policy gives it that table's proof. The
+# tables are set here only: the same jars run on their application.yml, as the
+# Envoy Gateway demo runs them, stay service-level.
+#
 # The build context is the repository root, because the keygen and policy-tool
 # jars are built under poc-sdks/java. The project name is pinned so container
 # labels (and so the responder's service lookups) don't depend on this folder's name.
@@ -141,6 +149,7 @@ services:
       PAZTPORT_BOUNDARY_TLS_BUNDLE: psp
       PAZTPORT_BOUNDARY_PARTNER_POLICY_KEY_PATH: /config/partner/psp-policy.pub
       PAZTPORT_BOUNDARY_BLINDING_KEY_PATH: /config/keys/boundary.key   # salts the influence sent to the PSP
+      PAZTPORT_OPERATIONS_TABLEPATH: /config/policy/ops-payment.json   # confirms the operation each request reaches
     volumes:
       - ./out/keys/keyring.json:/config/keys/keyring.json:ro
       - ./out/keys/policy.pub:/config/keys/policy.pub:ro
@@ -148,6 +157,7 @@ services:
       - ./out/keys/boundary.key:/config/keys/boundary.key:ro   # payment's alone: no other service mounts it
       - ./out/policy/root.json:/config/policy/root.json:ro
       - ./out/policy/proofs-payment.json:/config/policy/proofs-payment.json:ro
+      - ./out/policy/ops-payment.json:/config/policy/ops-payment.json:ro
       - ./out/keys/tls/payment.crt:/config/tls/payment.crt:ro
       - ./out/keys/tls/payment.key:/config/tls/payment.key:ro
       - ./out/keys/tls/ca.crt:/config/tls/ca.crt:ro
@@ -163,9 +173,14 @@ services:
     networks: [mesh]
     environment:
       PAZTPORT_RUN_MAX_AGE_MS: "30000"
+      PAZTPORT_OPERATIONS_TABLEPATH: /config/policy/ops-orders.json
+      PAZTPORT_OPERATIONS_RECEIVERTABLES: /config/policy/ops-payment.json
+      ATTACK_ENABLED: "true"   # demo harness: code in orders that steers its calls to payment (scenario 15)
     volumes:
       - ./out/keys/orders.key:/config/keys/orders.key:ro
       - ./out/policy/proofs-orders.json:/config/policy/proofs-orders.json:ro
+      - ./out/policy/ops-orders.json:/config/policy/ops-orders.json:ro
+      - ./out/policy/ops-payment.json:/config/policy/ops-payment.json:ro
       - ./out/keys/keyring.json:/config/keys/keyring.json:ro
       - ./out/keys/policy.pub:/config/keys/policy.pub:ro
       - ./out/policy/root.json:/config/policy/root.json:ro
@@ -188,9 +203,12 @@ services:
       PAZTPORT_KEYRING_PATH: /config/keys/keyring.json
       PAZTPORT_ROOT_PATH: /config/policy/root.json
       PAZTPORT_POLICY_KEY_PATH: /config/keys/policy.pub
+      # Covered only when search holds payment's table proof, which it does only with the route that widens the policy.
+      PAZTPORT_OPERATIONS_RECEIVERTABLES: /config/policy/ops-payment.json
     volumes:
       - ./out/keys/search.key:/config/keys/search.key:ro
       - ./out/policy/proofs-search.json:/config/policy/proofs-search.json:ro
+      - ./out/policy/ops-payment.json:/config/policy/ops-payment.json:ro
       - ./out/keys/keyring.json:/config/keys/keyring.json:ro
       - ./out/keys/policy.pub:/config/keys/policy.pub:ro
       - ./out/policy/root.json:/config/policy/root.json:ro
@@ -229,9 +247,12 @@ services:
     environment:
       PAZTPORT_ADMIN_TOKEN: ${PAZTPORT_ADMIN_TOKEN:-}
       PAZTPORT_RUN_MAX_AGE_MS: "30000"
+      PAZTPORT_OPERATIONS_RECEIVERTABLES: /config/policy/ops-orders.json,/config/policy/ops-payment.json
     volumes:
       - ./out/keys/assistant.key:/config/keys/assistant.key:ro
       - ./out/policy/proofs-assistant.json:/config/policy/proofs-assistant.json:ro
+      - ./out/policy/ops-orders.json:/config/policy/ops-orders.json:ro
+      - ./out/policy/ops-payment.json:/config/policy/ops-payment.json:ro
       - ./out/keys/keyring.json:/config/keys/keyring.json:ro
       - ./out/keys/policy.pub:/config/keys/policy.pub:ro
       - ./out/policy/root.json:/config/policy/root.json:ro
@@ -272,9 +293,11 @@ services:
       - "8080:8080"
     environment:
       PAZTPORT_RUN_MAX_AGE_MS: "30000"
+      PAZTPORT_OPERATIONS_RECEIVERTABLES: /config/policy/ops-orders.json
     volumes:
       - ./out/keys/gateway.key:/config/keys/gateway.key:ro
       - ./out/policy/proofs-gateway.json:/config/policy/proofs-gateway.json:ro
+      - ./out/policy/ops-orders.json:/config/policy/ops-orders.json:ro
       - ./out/keys/keyring.json:/config/keys/keyring.json:ro
       - ./out/keys/policy.pub:/config/keys/policy.pub:ro
       - ./out/policy/root.json:/config/policy/root.json:ro

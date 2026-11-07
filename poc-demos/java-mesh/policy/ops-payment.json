@@ -1,0 +1,21 @@
+{
+  "operations": [
+    {
+      "method": "POST",
+      "name": "pay",
+      "template": "/pay"
+    },
+    {
+      "method": "POST",
+      "name": "charge",
+      "template": "/charge"
+    },
+    {
+      "method": "POST",
+      "name": "refund",
+      "template": "/refund"
+    }
+  ],
+  "service": "payment",
+  "v": 1
+}

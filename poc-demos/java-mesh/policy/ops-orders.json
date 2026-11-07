@@ -1,0 +1,26 @@
+{
+  "operations": [
+    {
+      "method": "POST",
+      "name": "createOrder",
+      "template": "/orders"
+    },
+    {
+      "method": "GET",
+      "name": "findOrders",
+      "template": "/orders"
+    },
+    {
+      "method": "GET",
+      "name": "getOrder",
+      "template": "/orders/{}"
+    },
+    {
+      "method": "POST",
+      "name": "purchase",
+      "template": "/purchase"
+    }
+  ],
+  "service": "orders",
+  "v": 1
+}

@@ -96,16 +96,20 @@ check_reason() { # name expected_code expected_reason
 write_paths() { # writes policy/paths.yaml with the given extra route flag
   {
     echo "paths:"
-    echo "  - [gateway, orders, payment]"
-    echo "  - [gateway, orders]"
+    echo "  - [gateway, orders#createOrder, payment#pay]"
+    echo "  - [gateway, orders#createOrder]"
+    echo "  - [gateway, orders#purchase, payment#charge]"
+    echo "  - [gateway, orders#purchase]"
+    echo "  - [gateway, orders#getOrder]"
     echo "  - [gateway, search]"
     echo "  - [payment, psp]"
     echo "  - [gateway, tickets]"
     echo "  - [gateway, tickets, assistant]"
-    echo "  - [gateway, tickets, assistant, orders]"
-    echo "  - [gateway, tickets, assistant, payment]"
+    echo "  - [gateway, tickets, assistant, orders#getOrder]"
+    echo "  - [gateway, tickets, assistant, orders#findOrders]"
+    echo "  - [gateway, tickets, assistant, payment#refund]"
     echo "  - [gateway, tickets, assistant, mailer]"
-    [ "${1:-}" = "widen" ] && echo "  - [gateway, search, payment]"
+    [ "${1:-}" = "widen" ] && echo "  - [gateway, search, payment#pay]"
   } > policy/paths.yaml
 }
 
@@ -240,6 +244,21 @@ check_reason "10 policy widened -> forward allowed" 200 PAID
 # restore original policy before the responder scenarios
 write_paths
 rebuild_policy
+
+# 15 — operations: code running in orders, in through getOrder, steers a call to payment
+# A service-level policy would have allowed this call: gateway/orders/payment is a route, whichever operation of
+# orders the request came in through.
+mreq GET "https://gateway:8080/orders/123"
+mreq POST "https://orders:8080/attack/steer-pay"
+check_reason "15a operation: getOrder steered to pay" 403 PATH_NOT_ALLOWED
+# 15b — the same code names an allowed operation but sends the call to another one
+# A service-level stamp would name payment alone, and the call would pass the binding, the /charge request's own,
+# and the route. Only the replay check would stop it, because orders has already called payment in this request
+# tree; redirecting that one call would have passed every check. Here payment refuses the call before replay is
+# checked, since it dispatches charge and the stamp names pay.
+mreq POST "https://gateway:8080/checkout" -H 'Content-Type: application/json' -d '{}'
+mreq POST "https://orders:8080/attack/misname"
+check_reason "15b operation: pay named, charge called" 403 BINDING_MISMATCH
 
 # 11 — alice pays for order 123: gateway->orders->payment, then payment, the shop's egress, charges the
 # PSP across the boundary in an attested session, which registers her card to her.

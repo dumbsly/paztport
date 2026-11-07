@@ -4,17 +4,22 @@
 package org.paztport.orders;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
+import java.security.KeyPairGenerator;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.paztport.core.influence.ContentLabel;
 import org.paztport.core.influence.InfluenceClass;
+import org.paztport.core.stamp.Stamp;
 import org.paztport.http.RequestContext;
+import org.springframework.beans.factory.support.StaticListableBeanFactory;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -30,7 +35,8 @@ class OrdersControllerTest {
     void start() {
         RestClient.Builder http = RestClient.builder();
         payment = MockRestServiceServer.bindTo(http).build();
-        controller = new OrdersController(http.build(), new OrderBook(), "https://payment:8080");
+        controller = new OrdersController(http.build(), new OrderBook(), "https://payment:8080",
+                new StaticListableBeanFactory().getBeanProvider(StolenChainStore.class));
     }
 
     // The PSP registers a card to whoever pays for an order, so only the order's own customer may pay for it.
@@ -68,5 +74,24 @@ class OrdersControllerTest {
         assertEquals(1, labels.size());
         assertEquals(InfluenceClass.PRIVATE, labels.get(0).cls());
         assertEquals("alice", labels.get(0).owner());
+    }
+
+    // With the attack demo enabled, the chain a getOrder was served on is kept for the attack endpoints to steer.
+    @Test
+    void anOrderReadIsRecordedWhenTheAttackDemoIsEnabled() throws Exception {
+        StolenChainStore store = new StolenChainStore();
+        OrdersController recording = new OrdersController(RestClient.builder().build(), new OrderBook(),
+                "https://payment:8080", new StaticListableBeanFactory(Map.of("store", store))
+                        .getBeanProvider(StolenChainStore.class));
+        List<Stamp> chain = List.of(Stamp.sign("gateway", "gw-1", "rid-1", 1, "", "orders#getOrder", "bind", "", "",
+                KeyPairGenerator.getInstance("Ed25519").generateKeyPair().getPrivate()));
+
+        try (RequestContext.Scope scope = RequestContext.open()) {
+            RequestContext.setInboundChain(chain);
+            recording.byId("123");
+        }
+
+        assertSame(chain, store.getOrder());
+        assertNull(store.createOrder());
     }
 }
