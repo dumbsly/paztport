@@ -45,7 +45,7 @@ import org.slf4j.LoggerFactory;
  * an entry with {@code src} {@code http:<target>} and {@code h} the result hash. Any other, unattested, failing, a
  * refusal, or one received where no verifier is configured, contributes exactly one {@code local-untrusted} entry
  * with the same {@code src} and {@code h}, so content nobody vouched for still counts against later calls; it is
- * never dropped. The target is the receiver's policy name, as stamped. Every response checked logs one
+ * never dropped. The target is the receiver's service name, without any operation. Every response checked logs one
  * {@code PAZTPORT_TRACE response} line.
  *
  * <p>Where the caller holds a receiver's operation table ({@link Builder#operations}), the stamp names the operation
@@ -255,7 +255,7 @@ public final class HttpCaller {
             return sent;
         }
 
-        /** The receiver's policy name, as stamped: the response's target. */
+        /** The receiver's service name, without any operation: the response's target. */
         public String receiver() {
             return receiver;
         }
@@ -328,8 +328,8 @@ public final class HttpCaller {
         if (table != null) {
             String operation = table.match(method, rawPath);
             if (operation == null) {
-                throw new IllegalArgumentException("no operation of " + receiver + " matches a " + method
-                        + " call; nothing is sent");
+                throw new IllegalArgumentException("no operation of " + receiver + " matches a "
+                        + LogSafe.of(method) + " call; nothing is sent");
             }
             named = receiver + "#" + operation;
         }
