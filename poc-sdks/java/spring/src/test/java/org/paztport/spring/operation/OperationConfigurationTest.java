@@ -98,6 +98,19 @@ class OperationConfigurationTest {
     }
 
     @Test
+    void startFailsBesideTheMethodOverrideFilter(@TempDir Path dir) throws Exception {
+        OperationWorld world = new OperationWorld(dir);
+        world.write(OperationWorld.routes());
+        // The filter rewrites the method after the inbound filter confirmed the operation for the one sent.
+        runner.withPropertyValues(world.service("orders",
+                        "paztport.operations.table-path=" + world.file("ops-orders.json"),
+                        "spring.mvc.hiddenmethod.filter.enabled=true"))
+                .run(context -> assertThat(context).getFailure()
+                        .hasMessageContaining("paztport.operations.table-path")
+                        .hasMessageContaining("HiddenHttpMethodFilter"));
+    }
+
+    @Test
     void aTableNeedsTheProofsAndThePinnedTrust(@TempDir Path dir) throws Exception {
         OperationWorld world = new OperationWorld(dir);
         world.write(OperationWorld.routes());

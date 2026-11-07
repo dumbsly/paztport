@@ -21,6 +21,7 @@ import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.beans.factory.SmartInitializingSingleton;
 import org.springframework.core.annotation.AnnotationAwareOrderComparator;
 import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.web.filter.HiddenHttpMethodFilter;
 import org.springframework.web.servlet.DispatcherServlet;
 import org.springframework.web.servlet.HandlerMapping;
 import org.springframework.web.servlet.mvc.method.RequestMappingInfo;
@@ -50,7 +51,8 @@ import org.springframework.web.util.ServletRequestPathUtils;
  * <p>Once every singleton is created, so every handler mapping is known, it checks the table: each of its operations
  * must be an annotated handler mapping, a method (or none, which takes every method) and a pattern that normalises
  * to the operation's template, or the context does not start. A mapping that is in no table is allowed: it is
- * reachable only by routes that name no operation.
+ * reachable only by routes that name no operation. Nor does the context start beside a {@link HiddenHttpMethodFilter},
+ * which changes the request's method after the inbound filter has confirmed the operation for the method sent.
  */
 public final class OperationResolver implements SmartInitializingSingleton {
 
@@ -69,10 +71,11 @@ public final class OperationResolver implements SmartInitializingSingleton {
 
     /**
      * Finds the handler mappings as the DispatcherServlet finds them, every one in the context and its ancestors,
-     * in their order, and refuses a table operation that none of them maps.
+     * in their order, and refuses a table operation that none of them maps, or a method-override filter.
      */
     @Override
     public void afterSingletonsInstantiated() {
+        requireNoMethodOverride(beans);
         List<HandlerMapping> found = new ArrayList<>(
                 BeanFactoryUtils.beansOfTypeIncludingAncestors(beans, HandlerMapping.class, true, false).values());
         AnnotationAwareOrderComparator.sort(found);
@@ -159,6 +162,22 @@ public final class OperationResolver implements SmartInitializingSingleton {
             }
         }
         return false;
+    }
+
+    /**
+     * Refuses a {@link HiddenHttpMethodFilter} bean, Boot's included ({@code spring.mvc.hiddenmethod.filter.enabled}):
+     * it runs after the inbound filter and takes the request's method from its {@code _method} parameter, so a chain
+     * confirmed for {@code POST /x}'s operation could run the handler of {@code DELETE /x}.
+     */
+    static void requireNoMethodOverride(ListableBeanFactory beans) {
+        String[] names = BeanFactoryUtils.beanNamesForTypeIncludingAncestors(beans, HiddenHttpMethodFilter.class,
+                true, false);
+        if (names.length > 0) {
+            throw new IllegalStateException("paztport.operations.table-path: the bean " + names[0] + " is a "
+                    + "HiddenHttpMethodFilter, which changes the request's method after Paztport's filter has "
+                    + "confirmed the operation for the method sent; turn it off "
+                    + "(spring.mvc.hiddenmethod.filter.enabled=false) or remove it");
+        }
     }
 
     /** Refuses the first operation of {@code table} that no annotated handler maps. */

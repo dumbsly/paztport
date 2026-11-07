@@ -378,6 +378,12 @@ hands a session request's body to `HttpSessions.serve`.
   or as nothing, and a chain naming the caller's choice is refused
   `403 {"reason":"BINDING_MISMATCH"}` before any handler runs. Static resources and
   other URL-mapped handlers have no operation. A partner's entry names none.
+
+  A filter that changes the request's method or path after Paztport's filter has
+  run defeats this confirmation, as the handler that then runs is not the one
+  confirmed. For this reason a service with its own table does not start beside
+  Spring's method-override filter, `HiddenHttpMethodFilter`
+  (`spring.mvc.hiddenmethod.filter.enabled`).
 - **Response checks.** Wherever there is a keyring, a root and the policy pin, the
   interceptor checks the response's attestation: verified labels become influence
   entries, and any other response becomes one `local-untrusted` entry (`src`
