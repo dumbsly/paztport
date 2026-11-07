@@ -56,7 +56,7 @@ func KeysFor(keyrings []policy.Keyring, svc string) []ed25519.PublicKey {
 //     key under its svc and its sig verifies under one of the keys they give it, then BROKEN_LINK unless
 //     its prev is "" at the origin and the previous stamp's sig otherwise; only once every stamp has passed
 //     that, BINDING_MISMATCH unless each stamp's rcv addresses the next stamp's svc, which is the svc itself or
-//     the svc, '#' and a non-empty operation, and the last stamp's rcv is receiver exactly;
+//     the svc, '#' and an operation name, and the last stamp's rcv is receiver exactly;
 //  5. RID_MISMATCH unless every stamp carries rid, or the origin's rid when rid is nil;
 //  6. SESSION_UNKNOWN unless every stamp carries sess.
 //

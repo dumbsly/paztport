@@ -32,7 +32,7 @@ import org.paztport.core.stamp.Stamp;
  * <li>the origin's service is allowed (BAD_ORIGIN);
  * <li>each stamp is signed under one of the keys the current keyrings give its service, by its own name, and links
  *     to the one before, then each {@code rcv} but the last addresses the next stamp's service (bare, or {@code #}
- *     and a non-empty operation) and the last names the receiver exactly (BAD_SIGNATURE, BROKEN_LINK,
+ *     and an operation name) and the last names the receiver exactly (BAD_SIGNATURE, BROKEN_LINK,
  *     BINDING_MISMATCH);
  * <li>every stamp carries the origin's rid (RID_MISMATCH);
  * <li>every stamp is in the session (SESSION_UNKNOWN);

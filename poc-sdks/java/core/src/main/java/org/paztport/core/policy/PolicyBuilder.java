@@ -12,22 +12,18 @@ import java.util.Map;
 import org.paztport.core.crypto.Crypto;
 
 /**
- * Turns a list of allowed routes into a signed Merkle root and per-service proof
- * bundles. Pure logic; reading paths.yaml and writing files live in
- * the policy tool.
+ * Turns a list of allowed routes into a signed Merkle root and per-service proof bundles. Pure logic; reading
+ * paths.yaml and writing files live in the policy tool.
  *
- * <p>Each route's proof is handed only to its second-to-last hop (the caller
- * that attaches it, held by its service when the hop is {@code <service>#<operation>}),
- * so a service with no legitimate route to a destination is never given a proof for one.
- * Salts are freshly random each run. Routes go in random distinct slots, so a proof's
- * {@code dirs} does not reveal the route's
- * position in the policy (a lower bound on the route count). The {@code rootId}
- * is a random label per build, not derived from the routes, so it cannot be used
- * to confirm a guess at the policy's content.
+ * <p>Each route's proof is handed only to its second-to-last hop (the caller that attaches it, held by its service when
+ * the hop is {@code <service>#<operation>}), so a service with no legitimate route to a destination is never given a
+ * proof for one. Salts are freshly random each run. Routes go in random distinct slots, so a proof's {@code dirs} does
+ * not reveal the route's position in the policy (a lower bound on the route count). The {@code rootId} is a random
+ * label per build, not derived from the routes, so it cannot be used to confirm a guess at the policy's content.
  *
- * <p>A route of two nodes whose last is {@code ops:<hash>} covers a service's operation table. Its proof goes to
- * the service and to every holder of a route that ends at the service, since those callers must check the table
- * they use. It has no bundle of its own for the {@code ops:} node.
+ * <p>A route of two nodes whose last is {@code ops:<hash>} covers a service's operation table. Its proof goes to the
+ * service and to every holder of a route that ends at the service, since those callers must check the table they use.
+ * It has no bundle of its own for the {@code ops:} node.
  */
 public final class PolicyBuilder {
 
@@ -44,7 +40,8 @@ public final class PolicyBuilder {
      * Builds the tree and signs its root, vouched for until {@code notAfter} (milliseconds since the epoch,
      * inclusive). The caller must currently allow every route in {@code routes}: the signature says so until
      * {@code notAfter}, and nothing can take it back sooner. Throws {@link IllegalArgumentException}, signing
-     * nothing, for a node {@link Routes#requireValidNode} refuses.
+     * nothing, for a node {@link Routes#requireValidNode} refuses, and for a node before the last whose service part
+     * ({@link Routes#requireValidService}) or operation part ({@link Routes#requireValidOperation}) is invalid.
      */
     public static Result build(List<List<String>> routes, int depth, long notAfter, PrivateKey policyKey) {
         for (List<String> route : routes) {

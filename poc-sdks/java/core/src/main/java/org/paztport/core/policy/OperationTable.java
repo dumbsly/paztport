@@ -26,7 +26,8 @@ import org.paztport.core.internal.JsonWriter;
  *
  * <p>The signed root covers a table as the route {@code <service>/ops:<hash>}, see {@link #route()}, and a service
  * and its callers must not use a table the root does not cover, see {@link #coveredBy}. The service's own bundle
- * holds that proof, and so does the bundle of each caller that names one of its operations.
+ * holds that proof, and so does the bundle of each service holding a route that ends at the service, whether or not
+ * that route names an operation.
  *
  * <p>A template is {@code /}, or {@code /} and non-empty segments joined with {@code /}, each {@code {}}, which
  * matches any one non-empty segment, or literal text, which matches itself.

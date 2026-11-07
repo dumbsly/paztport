@@ -384,6 +384,12 @@ hands a session request's body to `HttpSessions.serve`.
   confirmed. For this reason a service with its own table does not start beside
   Spring's method-override filter, `HiddenHttpMethodFilter`
   (`spring.mvc.hiddenmethod.filter.enabled`).
+
+  Under `server.servlet.context-path` no operation matches: callers match the
+  full raw path, context path included, so such calls are refused at the source.
+  A `GET` mapping does not make `HEAD` an operation. The start check reads
+  annotated handler mappings only, so a table operation served by a router
+  function fails the start.
 - **Response checks.** Wherever there is a keyring, a root and the policy pin, the
   interceptor checks the response's attestation: verified labels become influence
   entries, and any other response becomes one `local-untrusted` entry (`src`
@@ -700,9 +706,9 @@ constructor: one mapping whose only key is `paths`, no duplicate keys, no type t
   Rebuild when the routes change. It also reads every `ops-<svc>.json` beside `paths.yaml`: an operation table in
   the [spec](../spec/wire.md#operations)'s file format, whose `service` must be the `<svc>` in its name. Each
   table's route `<svc>/ops:<hash>` joins the tree, its proof goes in the bundles of `<svc>` and of every service
-  that names one of its operations, and the table is copied to `outDir/ops-<svc>.json` after the bundles. A route
-  node `<svc>#<op>` must name an operation of that table, or the run is refused (exit 2, nothing written); a
-  service with a table may still be named alone in a route.
+  holding a route that ends at `<svc>`, whether or not that route names an operation, and the table is copied to
+  `outDir/ops-<svc>.json` after the bundles. A route node `<svc>#<op>` must name an operation of that table, or
+  the run is refused (exit 2, nothing written); a service with a table may still be named alone in a route.
 - **Renew**, with `--renew` or `PAZTPORT_RENEW=true` (so the same command line serves both): `outDir/root.json`
   and `keyring.json` signed again with a new `notAfter`, keeping the root's `root` and `rootId`, so the proof
   bundles stay valid and are not touched, and holders can pick up the renewed files one at a time. The new

@@ -52,7 +52,7 @@ import org.paztport.http.wire.RequestBinding;
 @Measurement(iterations = 5, time = 5)
 public class PrimitivesBenchmark {
 
-    /** The routes of the mesh demo's {@code policy/paths.yaml}. */
+    /** Service-level routes: those of the mesh demo's {@code policy/paths.yaml} with every service named alone. */
     private static final List<List<String>> ROUTES = List.of(
             List.of("gateway", "orders", "payment"),
             List.of("gateway", "orders"),

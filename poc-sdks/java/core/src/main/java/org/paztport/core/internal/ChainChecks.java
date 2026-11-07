@@ -98,14 +98,14 @@ public final class ChainChecks {
     }
 
     /**
-     * Checks 1 to 6: the chain parses (CHAIN_MISSING) with no delimiter in a field (BAD_SIGNATURE), the origin
-     * is allowed (BAD_ORIGIN), each stamp is signed under one of the keys {@code keyrings}, the current ones, give
-     * its service ({@link #keysFor}) and links to the one before (BAD_SIGNATURE, BROKEN_LINK), then each stamp's
-     * {@code rcv} addresses the next stamp's service, bare or with {@code #} and a non-empty operation, and the last's
+     * Checks 1 to 6: the chain parses (CHAIN_MISSING) with no delimiter in a field (BAD_SIGNATURE), the origin is
+     * allowed (BAD_ORIGIN), each stamp is signed under one of the keys {@code keyrings}, the current ones, give its
+     * service ({@link #keysFor}) and links to the one before (BAD_SIGNATURE, BROKEN_LINK), then each stamp's
+     * {@code rcv} addresses the next stamp's service, bare or with {@code #} and an operation name, and the last's
      * names the receiver exactly (BINDING_MISMATCH), every stamp carries the rid (RID_MISMATCH) and the session
-     * (SESSION_UNKNOWN). With {@code signers}, a stamp from another
-     * service or instance than expected is not one the expected key signed: BAD_ORIGIN for the origin's instance,
-     * BAD_SIGNATURE for any other. The result carries the stamps, or the first failure.
+     * (SESSION_UNKNOWN). With {@code signers}, a stamp from another service or instance than expected is not one the
+     * expected key signed: BAD_ORIGIN for the origin's instance, BAD_SIGNATURE for any other. The result carries the
+     * stamps, or the first failure.
      */
     public static ParsedChain checkStamps(String value, List<Keyring> keyrings, Set<String> allowedOrigins,
             String sess, Shape shape) {

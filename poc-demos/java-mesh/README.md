@@ -270,8 +270,11 @@ exist only when `PAZTPORT_OPENINGS=true`, as Compose sets for `payment` and `psp
 ### The trace
 
 After row 13, `demo.sh` prints every trace line that carries the malicious
-ticket's `rid`, from every service it reached, in time order. This is the Docker
-run, with the `rid` shortened to `93b58365` for reading:
+ticket's `rid`, from every service it reached, in time order. This is a Docker
+run from before `orders` and `payment` named their operations, with the `rid`
+shortened to `93b58365` for reading. The trace now names those two receivers with
+the operation each request was confirmed as, `receiver=orders#getOrder` for
+example, where this sample shows `receiver=orders` and `receiver=payment`:
 
 ```
 tickets: PAZTPORT_TRACE request rid=93b58365 reason=OK receiver=tickets ✓ peer=gateway (mTLS) classes=-
@@ -442,8 +445,9 @@ Notes on the ordering:
   caller is never told. A certificate is issued per service, not per container, so
   the responder still checks that the container at that address runs that service
   (see [Response](#response-quarantine-not-deletion)).
-- One trace line per verification shows the verdict, for example after scenario 1:
-  `PAZTPORT_TRACE request rid=… reason=OK receiver=payment ✓ peer=orders (mTLS) classes=-`.
+- One trace line per verification shows the verdict, for example after scenario 1,
+  whose request `payment` confirmed as its operation `pay`:
+  `PAZTPORT_TRACE request rid=… reason=OK receiver=payment#pay ✓ peer=orders (mTLS) classes=-`.
 
 ## Response attestation
 
@@ -549,11 +553,11 @@ from `orders`' `/attack/*` endpoints (enabled only when `ATTACK_ENABLED=true`):
   `gateway/orders/payment` and the call allowed.
 - **15b**: in through `createOrder`, it names `payment#pay`, which that route
   allows, but sends the call to `/charge`, with that route's proof and the
-  binding of the `/charge` request it sends. `payment` dispatches `charge`, not the `pay` the stamp names:
-  `403 BINDING_MISMATCH`. With services alone, the binding and the route would
-  pass. This is `orders`' second call to `payment` in the request tree, so the
-  replay check would still stop it there, but the same redirect made on its one
-  honest call would have passed every check.
+  binding of the `/charge` request it sends. `payment` dispatches `charge`, not
+  the `pay` the stamp names: `403 BINDING_MISMATCH`. With services alone, the
+  binding and the route would pass. This is `orders`' second call to `payment` in
+  the request tree, so the replay check would still stop it there, but the same
+  redirect made on its one honest call would have passed every check.
 
 The operations are configured in `docker-compose.yml` alone. The Envoy Gateway
 demo runs the same jars on their `application.yml`, so there they stay
@@ -751,12 +755,12 @@ The costs of the primitives come from the JMH micro-benchmarks in
 runtime; without `JAVA_HOME`, `./run bench` uses whichever JDK Maven finds, and
 JMH's output names it. Their inputs are built as the mesh builds them at
 `payment`: a signed keyring, a root at depth 8 over the routes of
-[policy/paths.yaml](policy/paths.yaml) with every service named alone, and the two-stamp chain
-`gateway` and `orders` sign, with its proof. The figures are the average time per
-operation on the same host, run natively rather than in Docker, on JDK 25.0.5
-with JMH 1.37: one fork, three 5 s warm-up iterations and five 5 s measured ones,
-the benchmark's defaults. The last row is not a benchmark: it is the size of the
-headers on the mesh's request to `payment`, measured in the mesh.
+[policy/paths.yaml](policy/paths.yaml) with every service named alone, and the
+two-stamp chain `gateway` and `orders` sign, with its proof. The figures are the
+average time per operation on the same host, run natively rather than in Docker,
+on JDK 25.0.5 with JMH 1.37: one fork, three 5 s warm-up iterations and five 5 s
+measured ones, the benchmark's defaults. The last row is not a benchmark: it is
+the size of the headers on the mesh's request to `payment`, measured in the mesh.
 
 | Operation | Cost |
 |---|---|
@@ -947,8 +951,8 @@ charge is what registers alice's card to her.
 The attacks run inside the mesh, from `search`'s `/attack/*` endpoints (enabled
 only when `ATTACK_MODE=true`), so every one reaches `payment` over `search`'s own
 TLS connection, presenting `search`'s certificate. Rows 15a and 15b run from
-`orders`' (enabled only when `ATTACK_ENABLED=true`), presenting `orders`'. Only the gateway port is
-exposed to the host.
+`orders`' (enabled only when `ATTACK_ENABLED=true`), presenting `orders`'. Only
+the gateway port is exposed to the host.
 
 ## Configuration
 
