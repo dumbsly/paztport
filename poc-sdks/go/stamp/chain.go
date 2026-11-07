@@ -9,11 +9,30 @@ import (
 
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/b64"
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/json"
+	"github.com/dumbsly/paztport/poc-sdks/go/policy"
 	"github.com/dumbsly/paztport/poc-sdks/go/reason"
 )
 
 // Chain is the stamps of one request, origin first. On the wire it is a JSON array of the stamps.
 type Chain []Stamp
+
+// RouteOf returns the route a chain takes: the first stamp's svc, then each stamp's rcv, so an operation a hop
+// names is part of the route. With inRoute false the last rcv is left off. It is the route that a policy's
+// leaf, a verifier and a caller's proof lookup all build, joined by [policy.JoinRoute].
+func RouteOf(c Chain, inRoute bool) string {
+	if len(c) == 0 {
+		return ""
+	}
+	nodes := make([]string, 0, len(c)+1)
+	nodes = append(nodes, c[0].Svc)
+	for _, s := range c {
+		nodes = append(nodes, s.Rcv)
+	}
+	if !inRoute {
+		nodes = nodes[:len(nodes)-1]
+	}
+	return policy.JoinRoute(nodes...)
+}
 
 // stampMembers are a stamp's member names: every one is required, and no other is allowed.
 var stampMembers = []string{"bind", "infl", "inst", "prev", "rcv", "rid", "sess", "sig", "svc", "ts", "v"}

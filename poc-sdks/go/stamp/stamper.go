@@ -40,8 +40,9 @@ type Stamper struct {
 }
 
 // Next stamps an outbound call to receiver, committing the influence infl that shaped it, and returns the
-// chain to send and the bundle's proof for the route it completes: the chain's services, then receiver.
-// The proof is nil when the bundle holds none.
+// chain to send and the bundle's proof for the route it completes: the chain's route from its rcv values ([RouteOf]), so
+// that a receiver of the form svc#operation selects the proof for that operation's route. The proof is nil
+// when the bundle holds none.
 //
 // An origin starts a chain of one stamp, with a new rid, sess "" and prev "", and ignores inbound. Any
 // other service appends a stamp to inbound with inbound's rid, its last stamp's sess and that stamp's sig
@@ -72,11 +73,7 @@ func (s *Stamper) Next(
 	}
 	chain := slices.Concat(before, Chain{st})
 
-	route := make([]string, 0, len(chain)+1)
-	for _, hop := range chain {
-		route = append(route, hop.Svc)
-	}
-	return chain, proof(bundle, append(route, receiver)...), nil
+	return chain, proof(bundle, RouteOf(chain, true)), nil
 }
 
 // Boundary stamps the call that leaves this organisation for partnerEntry, the partner's entry service,

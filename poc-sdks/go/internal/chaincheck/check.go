@@ -55,8 +55,8 @@ func KeysFor(keyrings []policy.Keyring, svc string) []ed25519.PublicKey {
 //  4. for each stamp in order, BAD_SIGNATURE unless some keyring of keyrings, the current ones, holds a
 //     key under its svc and its sig verifies under one of the keys they give it, then BROKEN_LINK unless
 //     its prev is "" at the origin and the previous stamp's sig otherwise; only once every stamp has passed
-//     that, BINDING_MISMATCH unless each stamp's rcv is the next stamp's svc and the last stamp's rcv is
-//     receiver;
+//     that, BINDING_MISMATCH unless each stamp's rcv addresses the next stamp's svc, which is the svc itself or
+//     the svc, '#' and a non-empty operation, and the last stamp's rcv is receiver exactly;
 //  5. RID_MISMATCH unless every stamp carries rid, or the origin's rid when rid is nil;
 //  6. SESSION_UNKNOWN unless every stamp carries sess.
 //
@@ -89,11 +89,11 @@ func Stamps(
 		}
 	}
 	for i, s := range c {
-		next := receiver
-		if i+1 < len(c) {
-			next = c[i+1].Svc
-		}
-		if s.Rcv != next {
+		if i+1 == len(c) {
+			if s.Rcv != receiver {
+				return reason.BindingMismatch
+			}
+		} else if !policy.AddressedTo(s.Rcv, c[i+1].Svc) {
 			return reason.BindingMismatch
 		}
 	}
@@ -168,10 +168,11 @@ func Commitments(last stamp.Stamp, expectedBind, influenceTok *string) reason.Co
 // Route runs check 11: PATH_NOT_ALLOWED unless the proof read from proofTok, its token, proves the route
 // against one of roots, the current ones, whose RootID is the proof's rootId. Only those are tried: the
 // proof's rootId selects the tree, a root and its renewals sharing one, and a proof relabelled with
-// another tree's rootId is checked against that tree. The route is c's svc values in order, then receiver
-// when inRoute: a call's route ends at its receiver, while a response's ends at its last signer. A nil
+// another tree's rootId is checked against that tree. The route is the chain's own ([stamp.RouteOf]): its first
+// svc, then each rcv, with an operation a hop names part of the route. A call's route ends at its receiver,
+// which is the last rcv, while with inRoute false a response's ends at its last signer. A nil
 // proofTok, or any fault in the proof, is not proven. It answers OK when the route is proven.
-func Route(c stamp.Chain, receiver string, inRoute bool, proofTok *string, roots []Root) reason.Code {
+func Route(c stamp.Chain, inRoute bool, proofTok *string, roots []Root) reason.Code {
 	if proofTok == nil {
 		return reason.PathNotAllowed
 	}
@@ -179,14 +180,7 @@ func Route(c stamp.Chain, receiver string, inRoute bool, proofTok *string, roots
 	if err != nil {
 		return reason.PathNotAllowed
 	}
-	nodes := make([]string, 0, len(c)+1)
-	for _, s := range c {
-		nodes = append(nodes, s.Svc)
-	}
-	if inRoute {
-		nodes = append(nodes, receiver)
-	}
-	route := policy.JoinRoute(nodes...)
+	route := stamp.RouteOf(c, inRoute)
 	for _, root := range roots {
 		if root.RootID == p.RootID && p.Verify(route, root.Bytes) {
 			return reason.OK

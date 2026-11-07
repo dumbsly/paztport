@@ -48,8 +48,9 @@ type Input struct {
 	Influence *string
 	// Proof is the route proof's token. A nil one proves nothing.
 	Proof *string
-	// Receiver is what the last stamp's rcv must name: the receiver's own policy name, from its
-	// configuration and never from the request, or for a response, the calling client's svc.
+	// Receiver is what the last stamp's rcv must equal: the receiver's own policy name, with the operation the
+	// call invokes when the route names one, from its configuration and never from the request, or for a
+	// response, the calling client's svc.
 	Receiver string
 	// ReceiverInRoute reports whether the route ends at Receiver: true for a call, false for a response.
 	ReceiverInRoute bool
@@ -119,7 +120,8 @@ func (v *Verifier) current(now int64) ([]policy.Keyring, []chaincheck.Root) {
 //  3. BAD_ORIGIN, unless the origin is an allowed origin;
 //  4. BAD_SIGNATURE, BROKEN_LINK, then BINDING_MISMATCH, unless each stamp in turn is signed under one
 //     of the keys the current keyrings give its service and links to the one before, and then each
-//     stamp's rcv names the next stamp's svc and the last's names the receiver;
+//     stamp's rcv addresses the next stamp's svc, by name or as svc#operation, and the last's is the
+//     receiver exactly;
 //  5. RID_MISMATCH, unless every stamp carries the origin's rid;
 //  6. SESSION_UNKNOWN, unless every stamp carries the Config's session;
 //  7. EXPIRED, unless the last stamp's ts is within the call window of now, either way, and the origin's
@@ -206,7 +208,7 @@ func (v *Verifier) check(ctx context.Context, in Input, now int64) (reason.Code,
 	}
 
 	// 11. The route, against the roots current now.
-	if code := chaincheck.Route(c, in.Receiver, in.ReceiverInRoute, in.Proof, roots); code != reason.OK {
+	if code := chaincheck.Route(c, in.ReceiverInRoute, in.Proof, roots); code != reason.OK {
 		return code, last, nil
 	}
 

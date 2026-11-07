@@ -73,7 +73,7 @@ func TestStampsEmptyChain(t *testing.T) {
 	if got := chaincheck.Stamps(nil, nil, nil, "", "payment", nil); got != reason.ChainMissing {
 		t.Fatalf("Stamps = %s, want CHAIN_MISSING", got)
 	}
-	if got := chaincheck.Route(nil, "payment", true, nil, nil); got != reason.PathNotAllowed {
+	if got := chaincheck.Route(nil, true, nil, nil); got != reason.PathNotAllowed {
 		t.Fatalf("Route = %s, want PATH_NOT_ALLOWED", got)
 	}
 }

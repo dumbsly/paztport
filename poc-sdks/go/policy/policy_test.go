@@ -765,3 +765,39 @@ func TestLoad(t *testing.T) {
 		t.Errorf("LoadRootFile of a file past the limit = %v, want a refusal at the size step", err)
 	}
 }
+
+// TestService names the service of a route node: the text before the first '#', or the node when it has none.
+func TestService(t *testing.T) {
+	for node, want := range map[string]string{
+		"payment":        "payment",
+		"payment#charge": "payment",
+		"payment#":       "payment",
+		"a#b#c":          "a",
+		"#charge":        "",
+	} {
+		if got := policy.Service(node); got != want {
+			t.Errorf("Service(%q) = %q, want %q", node, got, want)
+		}
+	}
+}
+
+// TestAddressedTo accepts an rcv that is the service, or the service, '#' and a non-empty operation.
+func TestAddressedTo(t *testing.T) {
+	for _, tt := range []struct {
+		rcv, svc string
+		want     bool
+	}{
+		{"payment", "payment", true},
+		{"payment#charge", "payment", true},
+		{"payment#a#b", "payment", true},
+		{"payment#", "payment", false},
+		{"paymentx", "payment", false},
+		{"paymentx#charge", "payment", false},
+		{"search#find", "payment", false},
+		{"payment", "payment#charge", false},
+	} {
+		if got := policy.AddressedTo(tt.rcv, tt.svc); got != tt.want {
+			t.Errorf("AddressedTo(%q, %q) = %v, want %v", tt.rcv, tt.svc, got, tt.want)
+		}
+	}
+}

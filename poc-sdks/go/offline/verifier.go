@@ -40,7 +40,7 @@ type Input struct {
 	Influence *string
 	// Proof is the route proof's token, as recorded. A nil one proves nothing.
 	Proof *string
-	// Receiver is what the last stamp's rcv must name.
+	// Receiver is what the last stamp's rcv must equal, an operation included.
 	Receiver string
 	// ReceiverInRoute reports whether the route ends at Receiver: true for a call, false for a response.
 	ReceiverInRoute bool
@@ -115,7 +115,8 @@ func NewRecordSet(spent ...string) *RecordSet {
 //  3. BAD_ORIGIN, unless the origin is an allowed origin;
 //  4. BAD_SIGNATURE, BROKEN_LINK, then BINDING_MISMATCH, unless each stamp in turn is signed under one
 //     of the keys the keyrings that count give its service and links to the one before, and then each
-//     stamp's rcv names the next stamp's svc and the last's names the receiver;
+//     stamp's rcv addresses the next stamp's svc, by name or as svc#operation, and the last's is the
+//     receiver exactly;
 //  5. RID_MISMATCH, unless every stamp carries the record's rid, the origin's when it gives none;
 //  6. SESSION_UNKNOWN, unless every stamp carries the Config's session;
 //  7. TIME_MISMATCH, unless the record gives a time and the last stamp's ts is it and, when the run's
@@ -218,7 +219,7 @@ func (rs *RecordSet) check(in Input, cfg Config) (reason.Code, stamp.Stamp) {
 	rs.spent[*in.NonceKey] = true
 
 	// 11. The route, against the roots that count for the record.
-	return chaincheck.Route(c, in.Receiver, in.ReceiverInRoute, in.Proof, roots), last
+	return chaincheck.Route(c, in.ReceiverInRoute, in.Proof, roots), last
 }
 
 // counting returns the keys of cfg's keyrings and the roots that count for a record with the recorded

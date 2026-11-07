@@ -42,6 +42,23 @@ func JoinRoute(nodes ...string) string {
 	return strings.Join(nodes, "/")
 }
 
+// Service returns the service a route node names: the text before the first '#', or the whole node when it
+// has none. A node is <service> or <service>#<operation>; policy bundles and keyrings are keyed by service.
+func Service(node string) string {
+	service, _, _ := strings.Cut(node, "#")
+	return service
+}
+
+// AddressedTo reports whether a stamp's rcv addresses the service svc: the name itself, or the name, '#' and a
+// non-empty operation. An empty operation, or a longer service name, is not addressed to it.
+func AddressedTo(rcv, svc string) bool {
+	if rcv == svc {
+		return true
+	}
+	op, found := strings.CutPrefix(rcv, svc+"#")
+	return found && op != ""
+}
+
 // isRoute reports whether route is a route: at least two valid route nodes joined with "/".
 func isRoute(route string) bool {
 	nodes := strings.Split(route, "/")

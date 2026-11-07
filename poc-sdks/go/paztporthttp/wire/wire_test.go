@@ -5,6 +5,7 @@ package wire_test
 
 import (
 	"context"
+	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/base64"
 	"errors"
@@ -686,3 +687,56 @@ func (c *recordingCache) SeenBefore(ctx context.Context, key string, _ int64) (b
 }
 
 func (c *recordingCache) TTL() int64 { return verify.NonceTTLMs }
+
+// TestCheckResponseNonceKeyUsesTheBareTarget spends <rid>|<service>|resp when the sent chain's last rcv names an
+// operation, so a second check of the same response is a replay and the key holds no '#'.
+func TestCheckResponseNonceKeyUsesTheBareTarget(t *testing.T) {
+	rc := okCase(t)
+	now := rc.cfg.Now()
+	gwKey, _ := vectors.V3Key(t, "gateway")
+	ordKey, _ := vectors.V3Key(t, "orders")
+	sign := func(s stamp.Stamp, k ed25519.PrivateKey) stamp.Stamp {
+		signed, err := stamp.Sign(s, k)
+		if err != nil {
+			t.Fatalf("Sign: %v", err)
+		}
+		return signed
+	}
+	sent := stamp.Chain{sign(stamp.Stamp{Svc: "gateway", Inst: "gw-1", RID: "rid-op", TS: now, Rcv: "orders#createOrder",
+		Bind: "b"}, gwKey)}
+	hash := wire.ResultHash(200, []byte("ok"))
+	bind, err := stamp.ResponseBinding(hash, "rid-op", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp := sign(stamp.Stamp{Svc: "orders", Inst: "ord-1", RID: "rid-op", TS: now, Rcv: "gateway", Bind: bind,
+		Prev: sent[0].Sig}, ordKey)
+	header, err := wire.EncodeResponse(resp, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	salt := []byte("0123456789abcdef")
+	root, err := policy.LeafHash(salt, "gateway/orders#createOrder")
+	if err != nil {
+		t.Fatal(err)
+	}
+	proof := policy.Proof{LeafSalt: salt, RootID: "ops"}
+	rc.cfg.Roots = []verify.PinnedRoot{{Root: root, RootID: "ops", NotAfter: rc.cfg.PolicyNotAfter}}
+	rc.cfg.AllowedOrigins = []string{"gateway"}
+	cache := verify.NewMemoryNonceCache(verify.NonceTTLMs)
+	rc.cfg.Nonces = cache
+	v := rc.verifier()
+
+	got, err := wire.CheckResponse(t.Context(), v, sent, &proof, header, 200, []byte("ok"), "gateway")
+	if err != nil || got.Result.Reason != reason.OK {
+		t.Fatalf("CheckResponse = %+v, %v, want OK", got.Result, err)
+	}
+	got, err = wire.CheckResponse(t.Context(), v, sent, &proof, header, 200, []byte("ok"), "gateway")
+	if err != nil || got.Result.Reason != reason.Replay {
+		t.Fatalf("a second CheckResponse = %+v, %v, want REPLAY", got.Result, err)
+	}
+	if seen, err := cache.SeenBefore(t.Context(), "rid-op|orders|resp", now); err != nil || !seen {
+		t.Fatalf("SeenBefore(rid-op|orders|resp) = %v, %v, want true", seen, err)
+	}
+}

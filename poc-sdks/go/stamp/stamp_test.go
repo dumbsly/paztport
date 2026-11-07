@@ -825,3 +825,50 @@ func TestStamperRefusesWhatIsNotARouteNode(t *testing.T) {
 		}
 	}
 }
+
+// TestRouteOf builds a route from the first stamp's svc and each stamp's rcv, so an operation a hop names is
+// part of it, and leaves off the last rcv when the receiver is not in the route.
+func TestRouteOf(t *testing.T) {
+	c := stamp.Chain{
+		{Svc: "gateway", Rcv: "orders#createOrder"},
+		{Svc: "orders", Rcv: "payment#charge"},
+	}
+	for _, tt := range []struct {
+		name    string
+		chain   stamp.Chain
+		inRoute bool
+		want    string
+	}{
+		{"with the receiver", c, true, "gateway/orders#createOrder/payment#charge"},
+		{"without the receiver", c, false, "gateway/orders#createOrder"},
+		{"a bare rcv", stamp.Chain{{Svc: "gateway", Rcv: "orders"}}, true, "gateway/orders"},
+		{"one stamp, no receiver", stamp.Chain{{Svc: "gateway", Rcv: "orders"}}, false, "gateway"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := stamp.RouteOf(tt.chain, tt.inRoute); got != tt.want {
+				t.Fatalf("RouteOf = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestNextLooksUpTheRouteFromRcv finds the proof by the route the chain's rcv values name, so an operation a
+// hop names selects the proof for that operation's route.
+func TestNextLooksUpTheRouteFromRcv(t *testing.T) {
+	origin, _, err := stamper("gateway", gatewayKey, true).Next(nil, "orders#createOrder", "b1", nil, bundle())
+	if err != nil {
+		t.Fatalf("Next: %v", err)
+	}
+	b := bundle("gateway/orders#createOrder/payment#charge", "gateway/orders/payment")
+	_, p, err := stamper("orders", ordersKey, false).Next(origin, "payment#charge", "b2", nil, b)
+	if err != nil {
+		t.Fatalf("Next: %v", err)
+	}
+	proofFor(t, p, "gateway/orders#createOrder/payment#charge")
+
+	_, p, err = stamper("orders", ordersKey, false).Next(origin, "payment#refund", "b2", nil, b)
+	if err != nil {
+		t.Fatalf("Next: %v", err)
+	}
+	proofFor(t, p, "")
+}
