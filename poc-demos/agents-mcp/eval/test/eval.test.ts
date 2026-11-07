@@ -141,7 +141,7 @@ describe("runEval", { timeout: 60_000 }, () => {
     expect(onDisk.model).toEqual({ provider: "lab", id: "model-x" });
     expect(onDisk.scenario).toEqual({ id: "github-issue-replay", title: "Open issues on a public repository" });
     expect(onDisk.payload).toEqual({ kind: "reference", sha256: createHash("sha256").update(readFileSync(PAYLOAD)).digest("hex") });
-    expect(onDisk.versions.pi).toBe("1.4.0");
+    expect(onDisk.versions.pi).toBe("1.5.0");
     for (const k of ["extension", "mockServer", "node"] as const) expect(onDisk.versions[k]).toMatch(/\S/);
     expect(onDisk.versions.node).toBe(process.version);
     expect(onDisk.tools).toBe("mcp__github__*");
@@ -267,7 +267,7 @@ describe("runEval", { timeout: 60_000 }, () => {
     expect(md).toBe(renderSummary(r));
     // header
     expect(md).toContain("lab/model-x");
-    expect(md).toContain("pi 1.4.0");
+    expect(md).toContain("pi 1.5.0");
     expect(md).toContain(process.version);
     expect(md).toContain(r.payload.sha256);
     expect(md).toMatch(/reference/);
