@@ -109,6 +109,48 @@ public class PaztportProperties implements InitializingBean {
     /** Path to this service's proofs-&lt;svc&gt;.json (calling services). */
     private String proofsPath;
 
+    /**
+     * {@code paztport.operations.*}: the operation tables, {@code ops-<service>.json}, of a service that names its
+     * operations and of the receivers it names them on. A table is used only where the signed root covers it, which
+     * this service's proofs ({@code proofs-path}) show against the pinned roots, the overlap's included, so either
+     * property needs {@code proofs-path}, {@code keyring-path}, {@code root-path} and {@code policy-key-path}.
+     */
+    public static class Operations {
+
+        /**
+         * Path to this service's own table. It must be covered, or the service does not start, and each of its
+         * operations must be a handler mapping: a method, and a pattern that normalises to the operation's template.
+         * The inbound filter then confirms the operation each request is dispatched to.
+         */
+        private String tablePath;
+
+        /**
+         * Paths to the tables of the receivers this service calls, at most one per receiver. A call to a receiver
+         * with a table names the operation it matches. A table this service's proofs hold no proof for is set
+         * aside, with one line naming its service, and calls to that receiver name no operation; one whose proof
+         * does not verify stops the start.
+         */
+        private List<String> receiverTables = List.of();
+
+        public String getTablePath() {
+            return tablePath;
+        }
+
+        public void setTablePath(String tablePath) {
+            this.tablePath = tablePath;
+        }
+
+        public List<String> getReceiverTables() {
+            return receiverTables;
+        }
+
+        public void setReceiverTables(List<String> receiverTables) {
+            this.receiverTables = receiverTables;
+        }
+    }
+
+    private final Operations operations = new Operations();
+
     /** How old the last stamp may be, in milliseconds. */
     private long maxAgeMs = 5000;
 
@@ -404,7 +446,8 @@ public class PaztportProperties implements InitializingBean {
     /**
      * Overlap files are pinned by the verifier, which exists only where all three of its own paths are set; asked for
      * without it they would be ignored without a word, on a partner's entry as on any other service, so the context
-     * refuses to start instead.
+     * refuses to start instead. An operation table is likewise refused without the proofs and the pinned trust it is
+     * checked against.
      */
     @Override
     public void afterPropertiesSet() {
@@ -413,10 +456,21 @@ public class PaztportProperties implements InitializingBean {
             throw new IllegalStateException("paztport.overlap.keyring-paths or paztport.overlap.root-paths is set "
                     + "but paztport.keyring-path, paztport.root-path and paztport.policy-key-path are not all set");
         }
+        boolean tables = operations.getTablePath() != null || !operations.getReceiverTables().isEmpty();
+        if (tables && (proofsPath == null || keyringPath == null || rootPath == null || policyKeyPath == null)) {
+            throw new IllegalStateException("paztport.operations.table-path or paztport.operations.receiver-tables "
+                    + "is set but paztport.proofs-path, paztport.keyring-path, paztport.root-path and "
+                    + "paztport.policy-key-path are not all set: a table is used only where the signed root covers "
+                    + "it, which the proofs show against the pinned roots");
+        }
     }
 
     public Overlap getOverlap() {
         return overlap;
+    }
+
+    public Operations getOperations() {
+        return operations;
     }
 
     public String getKeyPath() {

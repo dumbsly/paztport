@@ -33,6 +33,7 @@ import org.paztport.spring.internal.ObservedValues;
 import org.paztport.spring.internal.PeerIdentity;
 import org.paztport.spring.internal.Refusals;
 import org.paztport.spring.observation.PaztportObservation;
+import org.paztport.spring.operation.OperationResolver;
 import org.springframework.web.filter.OncePerRequestFilter;
 import org.springframework.web.util.ContentCachingResponseWrapper;
 
@@ -62,6 +63,10 @@ import org.springframework.web.util.ContentCachingResponseWrapper;
  * handler runs, with its error if the decision throws. Nothing from the request is tagged, only fixed words and
  * reason codes' names.
  *
+ * <p>On a service that names its operations, the filter hands the receiver the operation the request will be
+ * dispatched to, which {@link OperationResolver} works out from Spring's handler mappings before the receiver
+ * verifies and before the handler runs. A chain naming another operation is then refused {@code BINDING_MISMATCH}.
+ *
  * <p>The control plane ({@link #controlPlane}) is not filtered, so it is not observed.
  */
 public final class InboundFilter extends OncePerRequestFilter {
@@ -76,6 +81,7 @@ public final class InboundFilter extends OncePerRequestFilter {
     private final HttpReceiver receiver;
     private final boolean verifyRequests;
     private final ModeHolder modeHolder;
+    private final OperationResolver operations;
     private final ObservationRegistry observations;
 
     /**
@@ -88,13 +94,15 @@ public final class InboundFilter extends OncePerRequestFilter {
      *     influence and never attests
      * @param receiver this service's name
      * @param stamper this service's stamper, or null where it has no stamp key and so cannot attest
+     * @param operations what tells each request's operation, or null where this service names none; a chain that
+     *     names an operation is then verified under the bare name, and so refused
      * @param observations where each request's verification result is recorded; {@link ObservationRegistry#NOOP}
      *     where the application has no {@code ObservationRegistry} bean
      */
     public InboundFilter(
             Verifier verifier, boolean verifyRequests, boolean origin, String receiver, ModeHolder modeHolder,
             EventPublisher publisher, ReceivedRequestListener listener, Stamper stamper,
-            ObservationRegistry observations) {
+            OperationResolver operations, ObservationRegistry observations) {
         if (verifyRequests && (verifier == null || modeHolder == null || publisher == null)) {
             throw new IllegalArgumentException("verifying requests needs a verifier, a mode holder and a publisher");
         }
@@ -102,6 +110,7 @@ public final class InboundFilter extends OncePerRequestFilter {
                 .origin(origin).publisher(publisher).listener(listener).stamper(stamper).build();
         this.verifyRequests = verifyRequests;
         this.modeHolder = modeHolder;
+        this.operations = operations;
         this.observations = Objects.requireNonNull(observations, "observations");
     }
 
@@ -156,8 +165,10 @@ public final class InboundFilter extends OncePerRequestFilter {
         byte[] body = CachedBodyHttpServletRequest.readAll(request);
         CachedBodyHttpServletRequest wrapped = new CachedBodyHttpServletRequest(request, body);
         VerificationMode mode = verifyRequests ? modeHolder.get() : VerificationMode.OFF;
-        try (RequestContext.Entered<Accepted> entered = observed(inbound(request, body), PeerIdentity.from(request),
-                mode)) {
+        // The handler the request will reach decides its operation, before the receiver verifies the chain.
+        String operation = operations == null ? null : operations.operationFor(wrapped);
+        try (RequestContext.Entered<Accepted> entered = observed(inbound(request, body, operation),
+                PeerIdentity.from(request), mode)) {
             Accepted accepted = entered.result();
             if (accepted.refusal() != null) {
                 Refusals.write(response, accepted.refusal());
@@ -268,8 +279,11 @@ public final class InboundFilter extends OncePerRequestFilter {
         }
     }
 
-    /** The request as a receiver reads it: the method, the raw target, the Paztport headers and the cached body. */
-    static InboundRequest inbound(HttpServletRequest request, byte[] body) {
+    /**
+     * The request as a receiver reads it: the method, the raw target, the Paztport headers, the cached body and the
+     * operation it will be dispatched to, or null for none.
+     */
+    static InboundRequest inbound(HttpServletRequest request, byte[] body, String operation) {
         Map<String, String> headers = new HashMap<>();
         for (String name : RECEIVED) {
             String value = request.getHeader(name);
@@ -277,7 +291,7 @@ public final class InboundFilter extends OncePerRequestFilter {
                 headers.put(name, value);
             }
         }
-        return new InboundRequest(request.getMethod(), target(request), headers, body);
+        return new InboundRequest(request.getMethod(), target(request), headers, body, operation);
     }
 
     /** The raw path, plus {@code ?} and the raw query when there is one: what the caller's binding covers. */

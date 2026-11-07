@@ -189,13 +189,14 @@ class RequestObservationTest {
 
     private InboundFilter filter(VerificationMode mode, ReceivedRequestListener listener) {
         return new InboundFilter(paymentVerifier(), true, false, "payment", new ModeHolder(mode), event -> { },
-                listener, null, registry);
+                listener, null, null, registry);
     }
 
     private InboundFilter attestingFilter(boolean verifyRequests) {
         return new InboundFilter(paymentVerifier(), verifyRequests, false, "payment",
                 verifyRequests ? new ModeHolder(VerificationMode.ENFORCE) : null, verifyRequests ? event -> { } : null,
-                null, new Stamper("payment", "pay-1", payment.getPrivate(), false, () -> "x", () -> NOW), registry);
+                null, new Stamper("payment", "pay-1", payment.getPrivate(), false, () -> "x", () -> NOW), null,
+                registry);
     }
 
     private record Headers(String chain, String proof, String influence) {
@@ -392,7 +393,7 @@ class RequestObservationTest {
         IllegalStateException down = new IllegalStateException("store down");
         AtomicReference<Boolean> handled = new AtomicReference<>(false);
         InboundFilter filter = new InboundFilter(paymentVerifier(unreachableCache(down)), true, false, "payment",
-                new ModeHolder(VerificationMode.ENFORCE), event -> { }, null, null, registry);
+                new ModeHolder(VerificationMode.ENFORCE), event -> { }, null, null, null, registry);
         MockHttpServletResponse response = new MockHttpServletResponse();
 
         filter.doFilter(paymentRequest(validHeaders()), response, (req, res) -> handled.set(true));
@@ -416,7 +417,7 @@ class RequestObservationTest {
         IllegalStateException down = new IllegalStateException("store down");
         AtomicReference<Boolean> handled = new AtomicReference<>(false);
         InboundFilter filter = new InboundFilter(paymentVerifier(unreachableCache(down)), true, false, "payment",
-                new ModeHolder(VerificationMode.AUDIT), event -> { }, null, null, registry);
+                new ModeHolder(VerificationMode.AUDIT), event -> { }, null, null, null, registry);
         MockHttpServletResponse response = new MockHttpServletResponse();
 
         filter.doFilter(paymentRequest(validHeaders()), response, (req, res) -> handled.set(true));
@@ -545,7 +546,7 @@ class RequestObservationTest {
     void aHandlerThatThrowsOnStopLeavesNoScopeOpen() {
         IllegalStateException failure = new IllegalStateException("handler failed");
         InboundFilter filter = new InboundFilter(paymentVerifier(), true, false, "payment",
-                new ModeHolder(VerificationMode.ENFORCE), event -> { }, null, null, throwingOnStop(failure));
+                new ModeHolder(VerificationMode.ENFORCE), event -> { }, null, null, null, throwingOnStop(failure));
 
         IllegalStateException thrown = assertThrows(IllegalStateException.class,
                 () -> run(filter, paymentRequest(validHeaders())));
@@ -564,7 +565,7 @@ class RequestObservationTest {
             throw failure;
         };
         InboundFilter filter = new InboundFilter(paymentVerifier(), true, false, "payment",
-                new ModeHolder(VerificationMode.ENFORCE), event -> { }, listener, null, throwingOnStop(stopping));
+                new ModeHolder(VerificationMode.ENFORCE), event -> { }, listener, null, null, throwingOnStop(stopping));
 
         IllegalStateException thrown = assertThrows(IllegalStateException.class,
                 () -> run(filter, paymentRequest(validHeaders())));
@@ -585,7 +586,7 @@ class RequestObservationTest {
         };
         TestObservationRegistry throwing = throwingOnError(erroring);
         InboundFilter filter = new InboundFilter(paymentVerifier(), true, false, "payment",
-                new ModeHolder(VerificationMode.ENFORCE), event -> { }, listener, null, throwing);
+                new ModeHolder(VerificationMode.ENFORCE), event -> { }, listener, null, null, throwing);
 
         IllegalStateException thrown = assertThrows(IllegalStateException.class,
                 () -> run(filter, paymentRequest(validHeaders())));
@@ -618,7 +619,7 @@ class RequestObservationTest {
             }
         });
         InboundFilter filter = new InboundFilter(paymentVerifier(), true, false, "payment",
-                new ModeHolder(VerificationMode.ENFORCE), event -> { }, listener, null, rethrowing);
+                new ModeHolder(VerificationMode.ENFORCE), event -> { }, listener, null, null, rethrowing);
 
         IllegalStateException thrown = assertThrows(IllegalStateException.class,
                 () -> run(filter, paymentRequest(validHeaders())));

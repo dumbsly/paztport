@@ -138,7 +138,7 @@ public class TrustConfiguration {
                 new InMemoryNonceCache(VerifierConfig.nonceTtlFor(props.getMaxAgeMs())),
                 System::currentTimeMillis,
                 props.getMaxAgeMs(),
-                runMaxAgeMs));
+                runMaxAgeMs), roots);
     }
 
     private static List<Path> paths(List<String> names) {

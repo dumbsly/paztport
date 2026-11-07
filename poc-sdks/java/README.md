@@ -342,6 +342,42 @@ hands a session request's body to `HttpSessions.serve`.
     host. A shell cannot name a variable with a hyphen, a bracket or a colon,
     though, so a key with one, `orders-internal` for instance, goes in
     `SPRING_APPLICATION_JSON` or a config file.
+- **Operations.** A service may name its [operations](../spec/wire.md#operations)
+  in an operation table, `ops-<svc>.json`, which the policy tool covers in the
+  signed root:
+
+  | Property | Meaning |
+  |---|---|
+  | `paztport.operations.table-path` | This service's own table (env `PAZTPORT_OPERATIONS_TABLEPATH`). The inbound filter then confirms each request's operation. Default none. |
+  | `paztport.operations.receiver-tables` | The tables of the receivers this service calls, at most one per receiver, comma-separated (env `PAZTPORT_OPERATIONS_RECEIVERTABLES`). Each call to one of them names the operation it invokes. Default none. |
+
+  A table is used only where the signed root covers it: the service's proof bundle
+  holds a proof of the route `<svc>/ops:<opsHash>` that proves it against a pinned
+  root, the overlap's included. So either property needs `paztport.proofs-path`
+  and the keyring, root and policy pin, or the service does not start. At startup:
+  - the service's own table must be its own and covered, and each of its operations
+    must be a handler mapping: a method and a pattern that normalises to the
+    operation's template (each whole-segment variable, `{id}` or `{id:\d+}`,
+    becomes `{}`). A mapping that is in no table is allowed; it is reachable only
+    by routes that name no operation;
+  - a receiver's table the bundle holds no proof for is set aside, with one line
+    naming the receiver, and calls to it name no operation, so the receiver then
+    needs a route that names none;
+  - a proof that is in the bundle but does not verify against any pinned root stops
+    the start.
+
+  The receiver never takes its operation from the request. Before it verifies, and
+  before the handler runs, the filter asks Spring's handler mappings, in the
+  `DispatcherServlet`'s order, which handler the request will reach, and takes that
+  handler's pattern (the one `HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE`
+  holds) to the table. A request that will reach no handler, a handler that is in
+  no table, or a pattern with a wildcard, a rest-of-path variable or a segment that
+  mixes text and a variable, has no operation. So a path the caller's table and
+  Spring match differently, `/orders/` with a trailing slash, `/items/abc` against
+  `{id:\d+}`, or a percent-encoded segment, is confirmed as what Spring will run,
+  or as nothing, and a chain naming the caller's choice is refused
+  `403 {"reason":"BINDING_MISMATCH"}` before any handler runs. Static resources and
+  other URL-mapped handlers have no operation. A partner's entry names none.
 - **Response checks.** Wherever there is a keyring, a root and the policy pin, the
   interceptor checks the response's attestation: verified labels become influence
   entries, and any other response becomes one `local-untrusted` entry (`src`

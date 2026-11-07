@@ -81,7 +81,8 @@ public final class PartnerFilter extends OncePerRequestFilter {
         CachedBodyHttpServletRequest wrapped = new CachedBodyHttpServletRequest(request, body);
         // Marked unsafe until the request has verified, so a refusal is never taken for attested.
         request.setAttribute(SESSION_STATUS, SessionStatus.UNSAFE);
-        try (RequestContext.Entered<PartnerAccepted> entered = observed(InboundFilter.inbound(request, body),
+        // A boundary call names the partner's entry service alone, never an operation of it.
+        try (RequestContext.Entered<PartnerAccepted> entered = observed(InboundFilter.inbound(request, body, null),
                 PeerIdentity.cert(request))) {
             PartnerAccepted accepted = entered.result();
             if (accepted.refusal() != null) {

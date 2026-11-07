@@ -3,6 +3,8 @@
 
 package org.paztport.spring.trust;
 
+import java.util.List;
+import org.paztport.core.policy.SignedRoot;
 import org.paztport.core.verify.NonceCache;
 import org.paztport.core.verify.Verifier;
 import org.paztport.core.verify.VerifierConfig;
@@ -18,16 +20,26 @@ import org.paztport.core.verify.VerifierConfig;
 public final class ResponseVerifier {
 
     private final VerifierConfig material;
+    private final List<SignedRoot> roots;
     private final Verifier verifier;
 
-    ResponseVerifier(VerifierConfig material) {
+    ResponseVerifier(VerifierConfig material, List<SignedRoot> roots) {
         this.material = material;
+        this.roots = List.copyOf(roots);
         this.verifier = new Verifier(material);
     }
 
     /** The verifier for responses. */
     public Verifier verifier() {
         return verifier;
+    }
+
+    /**
+     * The signed roots pinned, this service's own first and then the overlap's, each verified under the policy pin
+     * and current at startup: what else a root covers, such as an operation table, is checked against these.
+     */
+    public List<SignedRoot> roots() {
+        return roots;
     }
 
     /** The pinned material, for the requests' verifier to take over another cache. */

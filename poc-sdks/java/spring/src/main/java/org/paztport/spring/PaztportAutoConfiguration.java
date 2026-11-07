@@ -13,6 +13,8 @@ import org.paztport.http.ReceivedRequestListener;
 import org.paztport.http.boundary.BoundaryClient;
 import org.paztport.http.event.EventPublisher;
 import org.paztport.spring.event.EventConfiguration;
+import org.paztport.spring.operation.OperationConfiguration;
+import org.paztport.spring.operation.OperationResolver;
 import org.paztport.spring.outbound.OutboundConfiguration;
 import org.paztport.spring.outbound.PooledTlsClient;
 import org.paztport.spring.partner.PartnerConfiguration;
@@ -65,12 +67,18 @@ import org.springframework.core.Ordered;
  * partner's entry, which answers other organisations' session handshakes and verifies their calls with
  * {@link PartnerFilter} in place of the inbound filter, behind {@link org.paztport.spring.partner.PartnerGate}.
  *
+ * <p>{@code paztport.operations.table-path} makes this service name its operations: the inbound filter then hands
+ * the receiver the operation each request is dispatched to, from {@link OperationResolver}.
+ * {@code paztport.operations.receiver-tables} makes its calls name their receivers' operations.
+ * {@link OperationConfiguration} says what is checked at startup.
+ *
  * <p>Each feature's beans are built by a configuration class of its own, which this imports. The request path's
  * own beans are defined here: the two filters, which adapt the receivers, and the public-writes rule.
  */
 @AutoConfiguration
 @EnableConfigurationProperties(PaztportProperties.class)
-@Import({TrustConfiguration.class, OutboundConfiguration.class, PartnerConfiguration.class, EventConfiguration.class})
+@Import({TrustConfiguration.class, OutboundConfiguration.class, PartnerConfiguration.class, EventConfiguration.class,
+        OperationConfiguration.class})
 public class PaztportAutoConfiguration {
 
     /**
@@ -108,6 +116,7 @@ public class PaztportAutoConfiguration {
             ObjectProvider<EventPublisher> publisher,
             ObjectProvider<ReceivedRequestListener> listener,
             ObjectProvider<Stamper> stamper,
+            ObjectProvider<OperationResolver> operations,
             ObjectProvider<ObservationRegistry> observations) {
         Verifier shared = verifier.getIfAvailable();
         if (props.isVerify() && shared == null) {
@@ -118,7 +127,7 @@ public class PaztportAutoConfiguration {
         InboundFilter filter = new InboundFilter(
                 shared, props.isVerify(), props.isOrigin(), props.getServiceName(), modeHolder.getIfAvailable(),
                 publisher.getIfAvailable(), listener.getIfAvailable(), stamper.getIfAvailable(),
-                observations.getIfAvailable(() -> ObservationRegistry.NOOP));
+                operations.getIfAvailable(), observations.getIfAvailable(() -> ObservationRegistry.NOOP));
         FilterRegistrationBean<InboundFilter> registration = new FilterRegistrationBean<>(filter);
         registration.setOrder(Ordered.HIGHEST_PRECEDENCE);
         registration.addUrlPatterns("/*");

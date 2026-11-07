@@ -125,13 +125,13 @@ class InboundFilterTest {
 
     private InboundFilter filter(VerificationMode mode, ReceivedRequestListener listener) {
         return new InboundFilter(paymentVerifier(), true, false, "payment", new ModeHolder(mode), events, listener,
-                null, ObservationRegistry.NOOP);
+                null, null, ObservationRegistry.NOOP);
     }
 
     /** A hop that neither verifies requests nor holds a verifier or a stamp key. */
     private static InboundFilter plainFilter() {
         return new InboundFilter(null, false, false, "payment", null, null, null, null,
-                ObservationRegistry.NOOP);
+                null, ObservationRegistry.NOOP);
     }
 
     private Stamper paymentStamper() {
@@ -141,7 +141,7 @@ class InboundFilterTest {
     /** Payment verifying requests and holding a stamp key, so it attests what it answers to a verified chain. */
     private InboundFilter attestingFilter(Verifier verifier, VerificationMode mode) {
         return new InboundFilter(verifier, true, false, "payment", new ModeHolder(mode), events, null,
-                paymentStamper(), ObservationRegistry.NOOP);
+                paymentStamper(), null, ObservationRegistry.NOOP);
     }
 
     private record Headers(String chain, String proof, String influence) {
@@ -473,7 +473,7 @@ class InboundFilterTest {
     void verifyingRequestsNeedsAVerifierAModeAndAPublisher() {
         assertThrows(IllegalArgumentException.class,
                 () -> new InboundFilter(null, true, false, "payment", new ModeHolder(VerificationMode.ENFORCE),
-                        events, null, null, ObservationRegistry.NOOP));
+                        events, null, null, null, ObservationRegistry.NOOP));
     }
 
     @Test

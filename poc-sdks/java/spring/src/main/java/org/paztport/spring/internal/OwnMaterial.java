@@ -6,6 +6,7 @@ package org.paztport.spring.internal;
 import java.nio.file.Path;
 import java.util.List;
 import org.paztport.core.policy.KeyringFile;
+import org.paztport.core.policy.OperationTable;
 import org.paztport.core.policy.OwnMaterial.Kind;
 import org.paztport.core.policy.OwnMaterial.Problem;
 import org.paztport.core.policy.OwnMaterial.Subject;
@@ -31,9 +32,9 @@ import org.slf4j.LoggerFactory;
  * <p>Material that is still current but close to its end is warned about, once, at startup, since a service is
  * restarted far more rarely than a week goes by and this is the last moment the operator is certain to be looking.
  *
- * <p>It also reads the service's other files, its proof bundle and a partner's reply certificate, so that a file
- * that does not read fails the startup in one way whichever it is: one line naming the property, the reader's reason
- * and the file.
+ * <p>It also reads the service's other files, its proof bundle, its operation tables and a partner's reply
+ * certificate, so that a file that does not read fails the startup in one way whichever it is: one line naming the
+ * property, the reader's reason and the file.
  */
 public final class OwnMaterial {
 
@@ -97,6 +98,19 @@ public final class OwnMaterial {
             return ReplyCert.load(file);
         } catch (IllegalArgumentException e) {
             throw malformed(REPLY_CERT, e, file);
+        }
+    }
+
+    /**
+     * Reads an operation table, {@code paztport.operations.table-path} or one of
+     * {@code paztport.operations.receiver-tables}, named by {@code property}, refusing a file that does not read as a
+     * table as {@link #loadKeyring} does.
+     */
+    public static OperationTable loadTable(Path file, String property) {
+        try {
+            return OperationTable.load(file);
+        } catch (IllegalArgumentException e) {
+            throw malformed(property, e, file);
         }
     }
 

@@ -11,6 +11,7 @@ import org.paztport.http.HttpCaller;
 import org.paztport.spring.PaztportAutoConfiguration;
 import org.paztport.spring.PaztportProperties;
 import org.paztport.spring.internal.Durations;
+import org.paztport.spring.operation.OperationConfiguration;
 import org.paztport.spring.trust.ResponseVerifier;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -21,7 +22,8 @@ import org.springframework.context.annotation.Configuration;
 
 /**
  * The beans for this service's own calls: the stamping customizer on the shared {@code RestClient.Builder}, which
- * names each receiver by {@code paztport.receiver-names} or else by its host and checks each response with the
+ * names each receiver by {@code paztport.receiver-names} or else by its host, names the operation a call invokes on a
+ * receiver whose table it holds ({@link OperationConfiguration#receiverTables}) and checks each response with the
  * {@link ResponseVerifier}, and the pooled client that presents {@code paztport.tls-bundle} with its customizer. The
  * two customizers are defined here in the order the builder applies them. {@link PaztportAutoConfiguration} imports
  * it; it is not for an application to use directly.
@@ -36,9 +38,10 @@ public class OutboundConfiguration {
             PaztportProperties props, ObjectProvider<ObservationRegistry> observations) {
         ResponseVerifier checks = responses.getIfAvailable();
         Verifier verifier = checks != null ? checks.verifier() : null;
+        ProofBundle proofs = bundle.getIfAvailable();
         OutboundInterceptor interceptor = new OutboundInterceptor(HttpCaller.builder(props.getServiceName(), stamper)
-                .bundle(bundle.getIfAvailable()).verifier(verifier)
-                .receivers(props.getReceiverNames()).build(),
+                .bundle(proofs).verifier(verifier).receivers(props.getReceiverNames())
+                .operations(OperationConfiguration.receiverTables(props, proofs, checks)).build(),
                 observations.getIfAvailable(() -> ObservationRegistry.NOOP));
         return builder -> builder.requestInterceptor(interceptor);
     }
