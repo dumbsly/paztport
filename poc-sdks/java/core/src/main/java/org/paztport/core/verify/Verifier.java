@@ -31,15 +31,17 @@ import org.paztport.core.stamp.Stamp;
  * <li>no signed field holds {@code |}, {@code rcv} included (BAD_SIGNATURE);
  * <li>the origin's service is allowed (BAD_ORIGIN);
  * <li>each stamp is signed under one of the keys the current keyrings give its service, by its own name, and links
- *     to the one before, then each {@code rcv} names the next stamp's service and the last names the receiver
- *     (BAD_SIGNATURE, BROKEN_LINK, BINDING_MISMATCH);
+ *     to the one before, then each {@code rcv} but the last addresses the next stamp's service (bare, or {@code #}
+ *     and a non-empty operation) and the last names the receiver exactly (BAD_SIGNATURE, BROKEN_LINK,
+ *     BINDING_MISMATCH);
  * <li>every stamp carries the origin's rid (RID_MISMATCH);
  * <li>every stamp is in the session (SESSION_UNKNOWN);
  * <li>the last stamp is within the call window of now and the origin within the run's lifetime (EXPIRED);
  * <li>the last stamp binds {@code expectedBind} (BINDING_MISMATCH);
  * <li>and commits to the influence (INFLUENCE_MISMATCH);
  * <li>its nonce key is new to the cache (REPLAY);
- * <li>the route is proven against a current root with the proof's {@code rootId} (PATH_NOT_ALLOWED);
+ * <li>the route, each {@code rcv} after the origin's service, is proven against a current root with the proof's
+ *     {@code rootId} (PATH_NOT_ALLOWED);
  * <li>with a peer, the peer's service is the last signer (PEER_MISMATCH).
  * </ol>
  *
@@ -125,9 +127,10 @@ public final class Verifier {
             return VerifyResult.reject(ReasonCode.REPLAY);
         }
 
-        // 11. Route proven against a current root, ending at the receiver only when it is on the route.
-        VerifyResult routed = ChainChecks.checkRoute(stamps, in.receiverInRoute() ? in.receiver() : null,
-                in.proof(), roots);
+        // 11. Route built from the stamps' rcv and proven against a current root; the receiver ends it only when it
+        // is on the route.
+        VerifyResult routed = ChainChecks.checkRoute(stamps, in.receiverInRoute(), in.proof(),
+                roots);
         if (!routed.ok()) {
             return routed;
         }

@@ -290,4 +290,11 @@ class KeyringFileTest {
         assertFalse(new KeyringFile(SERVICES, pub(POLICY), "!!", NOT_AFTER).verifies(pub(POLICY)));
         assertFalse(new KeyringFile(SERVICES, pub(POLICY), signedRing().sig(), -1L).verifies(pub(POLICY)));
     }
+
+    @Test
+    void signRefusesAServiceNameWithHash() {
+        KeyPair key = Crypto.generateEd25519KeyPair();
+        assertThrows(IllegalArgumentException.class,
+                () -> KeyringFile.sign(Map.of("a#b", pub(key)), pub(POLICY), NOT_AFTER, POLICY.getPrivate()));
+    }
 }

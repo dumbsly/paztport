@@ -333,4 +333,37 @@ class StamperTest {
                 gatewayKey.getPrivate());
         assertEquals("", s.rcv());
     }
+
+    /** The proof of {@code route}, from whichever bundle of a policy over it holds it, in a bundle of its own. */
+    private ProofBundle bundleFor(String... route) {
+        PolicyBuilder.Result built = PolicyBuilder.build(List.of(List.of(route)), 4, NOT_AFTER,
+                policyKey.getPrivate());
+        String key = String.join("/", route);
+        MerkleProof proof = built.bundles().values().stream().map(b -> b.proofFor(key))
+                .filter(p -> p != null).findFirst().orElseThrow();
+        return new ProofBundle("orders", built.signedRoot().rootId(), Map.of(key, proof));
+    }
+
+    @Test
+    void nextLooksUpTheRouteFromRcv() {
+        ProofBundle bundle = bundleFor("gateway", "orders#createOrder", "payment#charge");
+        Stamper.Stamped fromGateway = stamper("gateway", gatewayKey, true).next(List.of(), "orders#createOrder", "b",
+                List.of(), null);
+        Stamper.Stamped toPayment = stamper("orders", ordersKey, false).next(fromGateway.chain(), "payment#charge",
+                "b2", List.of(), bundle);
+        assertEquals(bundle.proofFor("gateway/orders#createOrder/payment#charge"), toPayment.proof());
+    }
+
+    @Test
+    void refusesAServiceNameWithHash() {
+        Stamper bad = stamper("a#b", ordersKey, true);
+        assertThrows(IllegalArgumentException.class, () -> bad.next(List.of(), "payment", "b", List.of(), null));
+    }
+
+    @Test
+    void refusesAnEmptyOperation() {
+        Stamper gateway = stamper("gateway", gatewayKey, true);
+        assertThrows(IllegalArgumentException.class,
+                () -> gateway.next(List.of(), "payment#", "b", List.of(), null));
+    }
 }

@@ -80,9 +80,7 @@ public final class Stamper {
 
         MerkleProof proof = null;
         if (bundle != null) {
-            List<String> hops = new ArrayList<>(chain.stream().map(Stamp::svc).toList());
-            hops.add(receiver);
-            proof = bundle.proofFor(Routes.join(hops));
+            proof = bundle.proofFor(Chains.route(chain, true));
         }
         return new Stamped(List.copyOf(chain), proof);
     }
@@ -140,8 +138,13 @@ public final class Stamper {
      * rebuild signing bytes with it and must refuse such a stamp by their own checks, not by an exception.
      */
     private Stamp sign(String rid, String sess, String receiver, String bind, String infl, String prev) {
-        requireNode(svc, "the signing service");
+        requireService(svc, "the signing service");
         requireNode(receiver, "the receiver");
+        int hash = receiver.indexOf('#');
+        if (hash >= 0) {
+            requireService(Routes.service(receiver), "the receiver's service");
+            requireOperation(receiver.substring(hash + 1), "the receiver's operation");
+        }
         return Stamp.sign(svc, inst, rid, clock.getAsLong(), sess, receiver, bind, infl, prev, key);
     }
 
@@ -153,6 +156,24 @@ public final class Stamper {
             throw new IllegalArgumentException(role
                     + " must be a route node: non-empty, not \".\" or \"..\", and none of '/', '\\', '|' or a lone"
                     + " surrogate; nothing is signed");
+        }
+    }
+
+    private static void requireService(String name, String role) {
+        try {
+            Routes.requireValidService(name);
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException(role + " must be a service name: a route node without '#'; nothing is"
+                    + " signed");
+        }
+    }
+
+    private static void requireOperation(String name, String role) {
+        try {
+            Routes.requireValidOperation(name);
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException(role + " must be an operation name: a route node without '#';"
+                    + " nothing is signed");
         }
     }
 

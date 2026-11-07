@@ -11,6 +11,7 @@ import org.paztport.core.internal.JsonFields;
 import org.paztport.core.internal.JsonReader;
 import org.paztport.core.internal.JsonValue;
 import org.paztport.core.internal.JsonWriter;
+import org.paztport.core.policy.Routes;
 import org.paztport.core.verify.ReasonCode;
 
 /**
@@ -56,6 +57,29 @@ public final class Chains {
             }
         }
         return new ParsedChain(out, null);
+    }
+
+    /**
+     * Whether a stamp's {@code rcv} addresses the service {@code svc}: the name itself, or the name, {@code #} and a
+     * non-empty operation. An empty operation, or a longer service name, is not addressed to it.
+     */
+    public static boolean addressedTo(String rcv, String svc) {
+        return rcv.equals(svc) || (rcv.startsWith(svc + "#") && rcv.length() > svc.length() + 1);
+    }
+
+    /**
+     * The route a chain takes: the first stamp's service, then each stamp's {@code rcv}, so an operation a hop names
+     * is part of the route. With {@code receiverInRoute} false the last {@code rcv} is left off.
+     */
+    public static String route(List<Stamp> stamps, boolean receiverInRoute) {
+        List<String> nodes = new ArrayList<>();
+        nodes.add(stamps.get(0).svc());
+        for (int i = 0; i < stamps.size(); i++) {
+            if (receiverInRoute || i + 1 < stamps.size()) {
+                nodes.add(stamps.get(i).rcv());
+            }
+        }
+        return Routes.join(nodes);
     }
 
     /** The wire form of a chain: a JSON array of the stamps, origin first, each as {@link Stamp#toJson()}. */

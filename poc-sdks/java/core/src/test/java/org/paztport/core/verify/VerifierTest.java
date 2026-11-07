@@ -23,11 +23,13 @@ import org.paztport.core.Vectors;
 import org.paztport.core.crypto.Crypto;
 import org.paztport.core.encoding.Base64Url;
 import org.paztport.core.internal.JsonIntegers;
+import org.paztport.core.influence.Influence;
 import org.paztport.core.policy.Keyring;
 import org.paztport.core.policy.KeyringFile;
 import org.paztport.core.policy.MerkleLeaf;
 import org.paztport.core.policy.MerkleProof;
 import org.paztport.core.policy.MerkleTree;
+import org.paztport.core.policy.PolicyBuilder;
 import org.paztport.core.policy.SignedRoot;
 import org.paztport.core.stamp.Chains;
 import org.paztport.core.stamp.Stamp;
@@ -553,5 +555,78 @@ class VerifierTest {
             assertEquals(UNSIGNED, keyedBy(session, ring(Map.of("pi", PI.getPublic()), window)), at);
             assertEquals(DENIED, provenBy(PROOF, root(TREE, window)), at);
         }
+    }
+
+    private static final KeyPair GW = Crypto.generateEd25519KeyPair();
+    private static final KeyPair ORD = Crypto.generateEd25519KeyPair();
+    private static final KeyPair POL = Crypto.generateEd25519KeyPair();
+    private static final long OP_NOW = 1_000_000L;
+    private static final String OP_ROUTE = "gateway/orders#createOrder/payment#charge";
+
+    private static final PolicyBuilder.Result OP_POLICY =
+            PolicyBuilder.build(
+                    List.of(List.of("gateway", "orders#createOrder", "payment#charge"),
+                            List.of("gateway", "orders#getOrder", "payment#charge")),
+                    4, NOT_AFTER, POL.getPrivate());
+
+    private static Verifier opVerifier() {
+        return new Verifier(new VerifierConfig(
+                List.of(new PinnedKeyring(Keyring.of(Map.of("gateway", GW.getPublic(), "orders", ORD.getPublic())),
+                        NOT_AFTER)),
+                List.of(new PinnedRoot(OP_POLICY.signedRoot().rootBytes(), OP_POLICY.signedRoot().rootId(),
+                        NOT_AFTER)),
+                NOT_AFTER, Set.of("gateway"), "", new InMemoryNonceCache(60_000), () -> OP_NOW, 30_000, 300_000));
+    }
+
+    /** The proof of {@code route}, from whichever bundle of the policy holds it. */
+    private static String opProof(String route) {
+        return OP_POLICY.bundles().values().stream().map(b -> b.proofFor(route)).filter(p -> p != null)
+                .findFirst().orElseThrow().toJson();
+    }
+
+    /** A gateway to orders chain: the gateway's rcv is {@code gatewayRcv}, orders' is {@code payment#charge}. */
+    private static String opChain(String gatewayRcv) {
+        String none = Influence.commit(List.of());
+        Stamp g = Stamp.sign("gateway", "g-1", "rid-1", OP_NOW, "", gatewayRcv, "b", none, "", GW.getPrivate());
+        Stamp o = Stamp.sign("orders", "o-1", "rid-1", OP_NOW, "", "payment#charge", "b2", none, g.sig(),
+                ORD.getPrivate());
+        return Chains.toJson(List.of(g, o));
+    }
+
+    private static VerifyInput opInput(String chain, String proof, String receiver) {
+        return new VerifyInput(chain, "b2", "[]", proof, receiver, true, "rid-1|payment|req", null);
+    }
+
+    @Test
+    void operationNamedInRcvVerifies() {
+        assertEquals(ReasonCode.OK, opVerifier()
+                .verify(opInput(opChain("orders#createOrder"), opProof(OP_ROUTE), "payment#charge")).reason());
+    }
+
+    @Test
+    void anotherOperationIsBindingMismatch() {
+        Verifier v = opVerifier();
+        String chain = opChain("orders#createOrder");
+        assertEquals(ReasonCode.BINDING_MISMATCH,
+                v.verify(opInput(chain, opProof(OP_ROUTE), "payment#refund")).reason());
+        assertEquals(ReasonCode.OK, v.verify(opInput(chain, opProof(OP_ROUTE), "payment#charge")).reason());
+    }
+
+    @Test
+    void innerRcvNamingAnotherServiceFails() {
+        assertEquals(ReasonCode.BINDING_MISMATCH, opVerifier()
+                .verify(opInput(opChain("search#find"), opProof(OP_ROUTE), "payment#charge")).reason());
+    }
+
+    @Test
+    void emptyOperationFails() {
+        assertEquals(ReasonCode.BINDING_MISMATCH, opVerifier()
+                .verify(opInput(opChain("orders#"), opProof(OP_ROUTE), "payment#charge")).reason());
+    }
+
+    @Test
+    void proofForAnotherOperationsRouteFails() {
+        assertEquals(ReasonCode.PATH_NOT_ALLOWED, opVerifier()
+                .verify(opInput(opChain("orders#getOrder"), opProof(OP_ROUTE), "payment#charge")).reason());
     }
 }

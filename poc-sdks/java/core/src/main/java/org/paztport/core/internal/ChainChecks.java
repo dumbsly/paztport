@@ -15,7 +15,6 @@ import org.paztport.core.influence.Influence;
 import org.paztport.core.offline.Signers;
 import org.paztport.core.policy.Keyring;
 import org.paztport.core.policy.MerkleProof;
-import org.paztport.core.policy.Routes;
 import org.paztport.core.stamp.Chains;
 import org.paztport.core.stamp.ParsedChain;
 import org.paztport.core.stamp.Stamp;
@@ -102,7 +101,8 @@ public final class ChainChecks {
      * Checks 1 to 6: the chain parses (CHAIN_MISSING) with no delimiter in a field (BAD_SIGNATURE), the origin
      * is allowed (BAD_ORIGIN), each stamp is signed under one of the keys {@code keyrings}, the current ones, give
      * its service ({@link #keysFor}) and links to the one before (BAD_SIGNATURE, BROKEN_LINK), then each stamp's
-     * {@code rcv} names the next stamp's service and the last's names the receiver (BINDING_MISMATCH), every stamp
+     * {@code rcv} addresses the next stamp's service, bare or with {@code #} and a non-empty operation, and the last's
+     * names the receiver exactly (BINDING_MISMATCH), every stamp
      * carries the rid (RID_MISMATCH) and the session (SESSION_UNKNOWN). With {@code signers}, a stamp from another
      * service or instance than expected is not one the expected key signed: BAD_ORIGIN for the origin's instance,
      * BAD_SIGNATURE for any other. The result carries the stamps, or the first failure.
@@ -135,10 +135,13 @@ public final class ChainChecks {
                 return fail(ReasonCode.BROKEN_LINK);
             }
         }
-        // Then the receivers: each stamp names the next hop, and the last the chain's receiver.
+        // Then the receivers: each stamp addresses the next stamp's service, with an operation if it names one, and
+        // the last names the chain's receiver exactly.
         for (int i = 0; i < stamps.size(); i++) {
-            String want = i + 1 < stamps.size() ? stamps.get(i + 1).svc() : shape.receiver();
-            if (!stamps.get(i).rcv().equals(want)) {
+            String rcv = stamps.get(i).rcv();
+            boolean addressed = i + 1 < stamps.size() ? Chains.addressedTo(rcv, stamps.get(i + 1).svc())
+                    : rcv.equals(shape.receiver());
+            if (!addressed) {
                 return fail(ReasonCode.BINDING_MISMATCH);
             }
         }
@@ -193,17 +196,15 @@ public final class ChainChecks {
     }
 
     /**
-     * Check 11 and the result: the chain's services, then the receiver when given, proven against one of
-     * {@code roots}, the current ones, that has the proof's {@code rootId} (PATH_NOT_ALLOWED). Both outcomes name the
-     * last stamp; the caller decides whether that name is kept.
+     * Check 11 and the result: the route {@link Chains#route} gives, the first service then each {@code rcv}, the
+     * last left off unless {@code receiverInRoute}, proven against one of {@code roots}, the current ones, that has the
+     * proof's {@code rootId} (PATH_NOT_ALLOWED). Both outcomes name the last stamp; the caller decides whether that
+     * name is kept.
      */
-    public static VerifyResult checkRoute(List<Stamp> stamps, String receiver, String proof, List<PinnedRoot> roots) {
+    public static VerifyResult checkRoute(List<Stamp> stamps, boolean receiverInRoute, String proof,
+            List<PinnedRoot> roots) {
         Stamp last = stamps.get(stamps.size() - 1);
-        List<String> hops = new ArrayList<>(stamps.stream().map(Stamp::svc).toList());
-        if (receiver != null) {
-            hops.add(receiver);
-        }
-        if (!provesPath(proof, Routes.join(hops), roots)) {
+        if (!provesPath(proof, Chains.route(stamps, receiverInRoute), roots)) {
             return new VerifyResult(ReasonCode.PATH_NOT_ALLOWED, last.svc(), last.inst());
         }
         return new VerifyResult(ReasonCode.OK, last.svc(), last.inst());

@@ -47,6 +47,42 @@ public final class Routes {
         }
     }
 
+    /**
+     * The service a route node names: the text before the first {@code #}, or the whole node when it has none. A
+     * node is {@code <service>} or {@code <service>#<operation>}; policy, keyrings and bundles are keyed by service.
+     */
+    public static String service(String node) {
+        int hash = node.indexOf('#');
+        return hash < 0 ? node : node.substring(0, hash);
+    }
+
+    /**
+     * A service name: a valid route node that holds no {@code #}, as that separates it from an operation.
+     *
+     * @throws IllegalArgumentException as {@link #requireValidNode} does, or when the name holds {@code #}
+     */
+    public static void requireValidService(String name) {
+        requireValidNode(name);
+        requireNoHash(name, "service name");
+    }
+
+    /**
+     * An operation name: a valid route node that holds no {@code #}, so a node splits at its first {@code #}
+     * unambiguously.
+     *
+     * @throws IllegalArgumentException as {@link #requireValidNode} does, or when the name holds {@code #}
+     */
+    public static void requireValidOperation(String name) {
+        requireValidNode(name);
+        requireNoHash(name, "operation name");
+    }
+
+    private static void requireNoHash(String name, String role) {
+        if (name.indexOf('#') >= 0) {
+            throw new IllegalArgumentException(role + " \"" + name + "\" must not contain '#'");
+        }
+    }
+
     public static String join(List<String> services) {
         return String.join("/", services);
     }

@@ -61,4 +61,19 @@ class RoutesTest {
             assertDoesNotThrow(() -> Routes.requireValidNode(ok), ok);
         }
     }
+
+    @Test
+    void serviceIsTheTextBeforeTheFirstHash() {
+        assertEquals("payment", Routes.service("payment#charge"));
+        assertEquals("payment", Routes.service("payment"));
+        assertEquals("a", Routes.service("a#b#c"));
+    }
+
+    @Test
+    void serviceAndOperationNamesRefuseHash() {
+        assertThrows(IllegalArgumentException.class, () -> Routes.requireValidService("a#b"));
+        assertThrows(IllegalArgumentException.class, () -> Routes.requireValidOperation("x#y"));
+        assertDoesNotThrow(() -> Routes.requireValidService("orders"));
+        assertDoesNotThrow(() -> Routes.requireValidOperation("getOrder"));
+    }
 }

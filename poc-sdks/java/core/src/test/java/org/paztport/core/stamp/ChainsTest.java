@@ -205,4 +205,23 @@ class ChainsTest {
         rejects(ReasonCode.CHAIN_MISSING, "[ " + SIGNED.toJson() + " ]");
         assertEquals(List.of(SIGNED), Chains.parse("[" + SIGNED.toJson() + "]").stamps());
     }
+
+    @Test
+    void addressedTo() {
+        assertTrue(Chains.addressedTo("payment", "payment"));
+        assertTrue(Chains.addressedTo("payment#charge", "payment"));
+        assertFalse(Chains.addressedTo("payment#", "payment"));
+        assertFalse(Chains.addressedTo("paymentx", "payment"));
+        assertFalse(Chains.addressedTo("search#find", "payment"));
+        assertFalse(Chains.addressedTo("payment", "payment#charge"));
+    }
+
+    @Test
+    void routeFromRcv() {
+        List<Stamp> stamps = List.of(
+                Stamp.sign("gateway", "g-1", "rid-1", 1000, "", "orders#createOrder", "b", "", "", KEY.getPrivate()),
+                Stamp.sign("orders", "o-1", "rid-1", 1000, "", "payment#charge", "b", "", "x", KEY.getPrivate()));
+        assertEquals("gateway/orders#createOrder/payment#charge", Chains.route(stamps, true));
+        assertEquals("gateway/orders#createOrder", Chains.route(stamps, false));
+    }
 }

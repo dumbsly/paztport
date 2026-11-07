@@ -70,12 +70,12 @@ public record KeyringFile(Map<String, String> services, String policy, String si
     /**
      * Signs the keyring, vouching for {@code services} until {@code notAfter}. The caller must already have
      * checked that each key is that service's current key. Throws {@link IllegalArgumentException} for a service
-     * name that {@link Routes#requireValidNode} refuses, which every reader refuses, or a {@code notAfter} out of
+     * name that {@link Routes#requireValidService} refuses, which every reader refuses, or a {@code notAfter} out of
      * range, before signing.
      */
     public static KeyringFile sign(Map<String, String> services, String policyPublicKey, long notAfter,
             PrivateKey policyKey) {
-        services.keySet().forEach(Routes::requireValidNode);
+        services.keySet().forEach(Routes::requireValidService);
         byte[] sig = Crypto.sign(policyKey, signingBytes(policyPublicKey, services, notAfter));
         return new KeyringFile(services, policyPublicKey, Base64Url.encode(sig), notAfter);
     }
