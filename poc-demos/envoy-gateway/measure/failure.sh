@@ -25,7 +25,8 @@ FAILURE_SLOW_MS=600
 FAILURE_SLOW_GRPC=60
 # The hold is short on purpose. The chart's liveness probe (every 10 s, a 1 s timeout, three failures) fails every
 # probe while the whole pod is slowed, and three failures need at least 20 s of delay. Readiness takes the pod out
-# within a few seconds, so those seconds plus this hold stay under 20 s, and the kubelet never restarts the container.
+# within a few seconds, so those seconds plus this hold stay under 20 s, and the delay alone never has the kubelet
+# restart the container.
 FAILURE_SLOW_HOLD=10
 FAILURE_DOWN_HOLD=30
 # The k6 pool of a case is sized for the longest the case can hold a request, not for the healthy path, since a
