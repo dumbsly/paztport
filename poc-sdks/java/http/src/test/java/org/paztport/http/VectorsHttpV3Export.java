@@ -4,6 +4,7 @@
 package org.paztport.http;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -42,6 +43,7 @@ import org.paztport.core.influence.InfluenceClass;
 import org.paztport.core.influence.InfluenceEntry;
 import org.paztport.core.policy.Keyring;
 import org.paztport.core.policy.MerkleProof;
+import org.paztport.core.policy.OperationTable;
 import org.paztport.core.stamp.Stamp;
 import org.paztport.core.stamp.Stamper;
 import org.paztport.core.verify.InMemoryNonceCache;
@@ -83,7 +85,16 @@ class VectorsHttpV3Export {
             + " (cls, owner) group in `salts`; each `openings` case is a `sent` entry and an `opening`, with its"
             + " JCS bytes in `body` (hex), which the replay reads, and `opens` says whether it opens. Ed25519 is"
             + " deterministic, so the file is reproduced byte for byte. Java writes and replays this"
-            + " file and Go replays it; the TypeScript SDK does not speak v3 over HTTP, so it does not replay it.";
+            + " file; Go replays every section but `operations`; the TypeScript SDK does not speak v3 over HTTP, so it"
+            + " does not replay it. The last responses case runs on the `ops` policy: the chain names the"
+            + " operation each hop invokes (`orders#createOrder`, then `payment#charge`) and the proof is for that"
+            + " route. `operations`"
+            + " holds `table`, an operation table as a `file` (its text) and `value`, with its `opsHash` and the"
+            + " `route` a root covers it as; `refused`, table files a reader refuses; `match`, a method and a raw"
+            + " path against a table `file` and the operation name it gives, null for none; and `receive`, a"
+            + " request entered at `orders` through the HTTP receiver under enforce, whose chain's first stamp names"
+            + " `orders` or an operation of it, with the `operation` the framework dispatches to (null for none)"
+            + " and the `refusal` it expects (null when the request is served).";
 
     private static final long GATEWAY_TS = 1_767_225_598_500L;
     private static final long ORDERS_TS = 1_767_225_599_500L;
@@ -233,9 +244,11 @@ class VectorsHttpV3Export {
         responses.add(responseCase("policy expired", sent, okHeader, 200, RESPONSE_BODY, 1,
                 NOW - 1, ReasonCode.POLICY_EXPIRED, "", "", List.of(), okHash));
         responses.forEach(c -> ((ObjectNode) c).put("proofRoute", ROUTE));
+        responses.add(operationsResponse(gatewayKey, ordersKey, payment, labels, okHash));
         out.set("rules", VectorsHttpRules.build(out, core));
 
         out.set("boundaryInfluence", boundaryInfluence());
+        out.set("operations", operations(core, gatewayKey));
 
         // Replay what was just built, read back from the text it is written as, so an export can never record a
         // wrong answer.
@@ -320,6 +333,210 @@ class VectorsHttpV3Export {
         }
     }
 
+    private static final String OPS_ROUTE = "gateway/orders#createOrder/payment#charge";
+
+    /** A response on the route through operations: payment's response stamp names {@code orders}, the caller. */
+    private static ObjectNode operationsResponse(PrivateKey gatewayKey, PrivateKey ordersKey, KeyPair payment,
+            List<ContentLabel> labels, String okHash) {
+        Stamper.Stamped toOrders = new Stamper("gateway", "gw-1", gatewayKey, true, () -> RID, () -> GATEWAY_TS)
+                .next(List.of(), "orders#createOrder", "bind-gateway-to-orders", List.of(), null);
+        Stamper.Stamped toPayment = new Stamper("orders", "ord-1", ordersKey, false, () -> RID, () -> ORDERS_TS)
+                .next(toOrders.chain(), "payment#charge", RequestBinding.compute("POST", "/pay", REQUEST_BODY),
+                        List.of(), null);
+        List<Stamp> sent = toPayment.chain();
+        Stamp ok = new Stamper("payment", "pay-1", payment.getPrivate(), false, () -> RID, () -> RESPONSE_TS)
+                .respond(sent, okHash, RID, labels);
+        ObjectNode c = responseCase("a response on a route through operations", sent,
+                HttpWire.encodeResponse(ok, labels), 200, RESPONSE_BODY, 1, MESH_NOT_AFTER, ReasonCode.OK, "payment",
+                "pay-1", labels, okHash);
+        c.put("policy", "ops");
+        c.put("proofRoute", OPS_ROUTE);
+        return c;
+    }
+
+    private static OperationTable ordersTable() {
+        return new OperationTable("orders", List.of(
+                new OperationTable.Operation("createOrder", "POST", "/orders"),
+                new OperationTable.Operation("findOrders", "GET", "/orders"),
+                new OperationTable.Operation("getOrder", "GET", "/orders/{}"),
+                new OperationTable.Operation("search", "GET", "/orders/search")));
+    }
+
+    private static String tableFile(String service, String v, String... operations) {
+        return "{\"operations\":[" + String.join(",", operations) + "],\"service\":\"" + service
+                + "\",\"v\":" + v + "}";
+    }
+
+    private static String tableOp(String method, String name, String template) {
+        return "{\"method\":\"" + method + "\",\"name\":\"" + name + "\",\"template\":\"" + template + "\"}";
+    }
+
+    private static ObjectNode operations(JsonNode core, PrivateKey gatewayKey) {
+        ObjectNode o = JsonNodeFactory.instance.objectNode();
+        OperationTable orders = ordersTable();
+        ObjectNode table = o.putObject("table");
+        table.put("file", orders.toFile());
+        table.set("value", tree(orders.toFile()));
+        table.put("opsHash", orders.hash());
+        ArrayNode route = table.putArray("route");
+        orders.route().forEach(route::add);
+
+        String create = tableOp("POST", "createOrder", "/orders");
+        ArrayNode refused = o.putArray("refused");
+        String[][] refusals = {
+            {"an operation name holding #", tableFile("orders", "1", tableOp("POST", "create#Order", "/orders"))},
+            {"two operations with one name",
+                tableFile("orders", "1", create, tableOp("GET", "createOrder", "/orders/{}"))},
+            {"two operations with one method and template",
+                tableFile("orders", "1", create, tableOp("POST", "other", "/orders"))},
+            {"a template without a leading slash", tableFile("orders", "1", tableOp("POST", "x", "orders"))},
+            {"a template with an empty segment", tableFile("orders", "1", tableOp("POST", "x", "/orders//x"))},
+            {"a named path parameter", tableFile("orders", "1", tableOp("POST", "x", "/orders/{id}"))},
+            {"a parameter inside a segment", tableFile("orders", "1", tableOp("POST", "x", "/a{}"))},
+            {"a literal holding ?", tableFile("orders", "1", tableOp("POST", "x", "/a?b"))},
+            {"a lowercase method", tableFile("orders", "1", tableOp("get", "x", "/orders"))},
+            {"no operations", tableFile("orders", "1")},
+            {"version 2", tableFile("orders", "2", create)},
+            {"a service name holding #", tableFile("a#b", "1", create)},
+            {"an extra member on the table",
+                "{\"extra\":1,\"operations\":[" + create + "],\"service\":\"orders\",\"v\":1}"},
+            {"an extra member on an operation", tableFile("orders", "1",
+                "{\"extra\":1,\"method\":\"POST\",\"name\":\"x\",\"template\":\"/\"}")}};
+        for (String[] r : refusals) {
+            ObjectNode c = refused.addObject();
+            c.put("name", r[0]);
+            c.put("file", r[1]);
+            c.put("expected", "refused");
+        }
+
+        String two = new OperationTable("orders", List.of(
+                new OperationTable.Operation("x", "GET", "/a/{}/c"),
+                new OperationTable.Operation("y", "GET", "/a/b/{}"))).toFile();
+        ArrayNode match = o.putArray("match");
+        String[][] matches = {
+            {orders.toFile(), "GET", "/orders/search", "search"},
+            {orders.toFile(), "GET", "/orders/123", "getOrder"},
+            {orders.toFile(), "GET", "/orders", "findOrders"},
+            {orders.toFile(), "POST", "/orders", "createOrder"},
+            {orders.toFile(), "GET", "/orders/a%2Fb", "getOrder"},
+            {orders.toFile(), "GET", "/orders/", null},
+            {orders.toFile(), "GET", "/orders/123/items", null},
+            {orders.toFile(), "get", "/orders", null},
+            {orders.toFile(), "DELETE", "/orders", null},
+            {two, "GET", "/a/b/c", "y"}};
+        for (String[] m : matches) {
+            ObjectNode c = match.addObject();
+            c.put("table", m[0]);
+            c.put("method", m[1]);
+            c.put("path", m[2]);
+            if (m[3] == null) {
+                c.putNull("expected");
+            } else {
+                c.put("expected", m[3]);
+            }
+        }
+
+        ArrayNode receive = o.putArray("receive");
+        receive.add(receiveCase("the operation the chain names", core, gatewayKey, "orders#createOrder",
+                "createOrder", null));
+        receive.add(receiveCase("another operation", core, gatewayKey, "orders#createOrder", "getOrder",
+                ReasonCode.BINDING_MISMATCH));
+        receive.add(receiveCase("no operation", core, gatewayKey, "orders#createOrder", null,
+                ReasonCode.BINDING_MISMATCH));
+        // The receiver supplies the bare service, so the chain's check passes and only the policy refuses: its
+        // proof is for the route that names the operation.
+        receive.add(receiveCase("a chain naming no operation, where the policy names them", core, gatewayKey,
+                "orders", "createOrder", ReasonCode.PATH_NOT_ALLOWED));
+        return o;
+    }
+
+    /**
+     * A request from gateway to orders whose first stamp names {@code rcv}, entered at orders under enforce with the
+     * operation the framework dispatches to; the proof carried is always for {@code gateway/orders#createOrder}.
+     */
+    private static ObjectNode receiveCase(String name, JsonNode core, PrivateKey gatewayKey, String rcv,
+            String operation, ReasonCode refusal) {
+        byte[] body = REQUEST_BODY;
+        List<Stamp> chain = new Stamper("gateway", "gw-1", gatewayKey, true, () -> RID, () -> GATEWAY_TS)
+                .next(List.of(), rcv, RequestBinding.compute("POST", "/orders", body), List.of(), null).chain();
+        MerkleProof proof = MerkleProof.parse(
+                Vectors.text(core.get("policies").get("ops").get("proofs").get("gateway/orders#createOrder")));
+        ObjectNode c = JsonNodeFactory.instance.objectNode();
+        c.put("name", name);
+        c.put("policy", "ops");
+        c.put("service", "orders");
+        c.put("mode", "enforce");
+        ObjectNode request = c.putObject("request");
+        request.put("method", "POST");
+        request.put("target", "/orders");
+        ObjectNode headers = request.putObject("headers");
+        headers.put(PaztportHeaders.CHAIN, HttpWire.encodeChain(chain));
+        headers.put(PaztportHeaders.PROOF, HttpWire.encodeProof(proof));
+        request.put("body", hex(body));
+        if (operation == null) {
+            c.putNull("operation");
+        } else {
+            c.put("operation", operation);
+        }
+        ObjectNode ring = c.putObject("keyring");
+        ring.put("gateway", "gateway");
+        c.putArray("allowedOrigins").add("gateway");
+        c.put("sess", "");
+        c.put("now", NOW);
+        c.put("policyNotAfter", MESH_NOT_AFTER);
+        c.put("callMaxAgeMs", VerifierConfig.CALL_MAX_AGE_MS);
+        c.put("runMaxAgeMs", VerifierConfig.RUN_MAX_AGE_MS);
+        c.put("nonceTtlMs", VerifierConfig.NONCE_TTL_MS);
+        ObjectNode e = c.putObject("expected");
+        if (refusal == null) {
+            e.putNull("refusal");
+        } else {
+            e.set("refusal", VectorsHttpRules.refusal(403, refusal));
+        }
+        return c;
+    }
+
+    private static void assertOperations(JsonNode o) {
+        JsonNode table = o.get("table");
+        OperationTable t = OperationTable.read(table.get("file").asText());
+        assertEquals(table.get("opsHash").asText(), t.hash(), "table hash");
+        assertEquals(table.get("route"), JsonNodeFactory.instance.arrayNode().addAll(
+                t.route().stream().map(JsonNodeFactory.instance::textNode).toList()), "table route");
+        assertEquals(table.get("value"), tree(t.toFile()), "table value");
+        assertEquals(table.get("file").asText(), t.toFile(), "table file");
+        for (JsonNode c : o.get("refused")) {
+            assertEquals("refused", c.get("expected").asText());
+            assertThrows(IllegalArgumentException.class, () -> OperationTable.read(c.get("file").asText()),
+                    c.get("name").asText());
+        }
+        for (JsonNode c : o.get("match")) {
+            String got = OperationTable.read(c.get("table").asText()).match(c.get("method").asText(),
+                    c.get("path").asText());
+            assertEquals(c.get("expected").isNull() ? null : c.get("expected").asText(), got,
+                    c.get("method").asText() + " " + c.get("path").asText());
+        }
+    }
+
+    private static void assertReceive(JsonNode c, JsonNode http, JsonNode core) {
+        String name = c.get("name").asText();
+        HttpReceiver receiver = HttpReceiver.builder(c.get("service").asText()).verifyRequests(true)
+                .publisher(event -> { }).verifier(verifier(c, http, core)).build();
+        JsonNode r = c.get("request");
+        Map<String, String> headers = new LinkedHashMap<>();
+        r.get("headers").properties().forEach(e -> headers.put(e.getKey(), e.getValue().asText()));
+        InboundRequest in = new InboundRequest(r.get("method").asText(), r.get("target").asText(), headers,
+                VectorsHttpRules.unhex(r.get("body")),
+                c.get("operation").isNull() ? null : c.get("operation").asText());
+        Accepted got = receiver.accept(in, null, VerificationMode.valueOf(c.get("mode").asText().toUpperCase()));
+        JsonNode want = c.get("expected").get("refusal");
+        if (want.isNull()) {
+            assertEquals(null, got.refusal(), name);
+        } else {
+            assertEquals(want.get("status").asInt(), got.refusal().status(), name);
+            assertEquals(want.get("body").asText(), hex(got.refusal().json()), name);
+        }
+    }
+
     private static String responseBinding(String resultHash, List<ContentLabel> labels) {
         return org.paztport.core.stamp.Bindings.response(resultHash, RID, labels);
     }
@@ -383,6 +600,10 @@ class VectorsHttpV3Export {
             assertResponse(c, http, core);
         }
         assertBoundaryInfluence(http.get("boundaryInfluence"));
+        assertOperations(http.get("operations"));
+        for (JsonNode c : http.get("operations").get("receive")) {
+            assertReceive(c, http, core);
+        }
         VectorsHttpRules.assertAll(http.get("rules"), http, core);
     }
 
@@ -391,8 +612,8 @@ class VectorsHttpV3Export {
         return Crypto.decodePublicKey(Base64Url.decode(k.get("pub").asText()));
     }
 
-    private static void assertResponse(JsonNode c, JsonNode http, JsonNode core) {
-        String name = c.get("name").asText();
+    /** The verifier a case describes: one keyring and one root, each with the case's window. */
+    private static Verifier verifier(JsonNode c, JsonNode http, JsonNode core) {
         JsonNode policy = core.get("policies").get(c.get("policy").asText());
         Map<String, PublicKey> ring = new LinkedHashMap<>();
         c.get("keyring").properties().forEach(e -> ring.put(e.getKey(), publicKey(e.getValue().asText(), http, core)));
@@ -400,13 +621,18 @@ class VectorsHttpV3Export {
         c.get("allowedOrigins").forEach(o -> origins.add(o.asText()));
         long now = c.get("now").asLong();
         long policyNotAfter = c.get("policyNotAfter").asLong();
-        // One keyring and one root, each with the case's window.
-        Verifier verifier = new Verifier(new VerifierConfig(
+        return new Verifier(new VerifierConfig(
                 List.of(new PinnedKeyring(Keyring.of(ring), policyNotAfter)),
                 List.of(new PinnedRoot(Base64Url.decode(policy.get("root").asText()), policy.get("rootId").asText(),
                         policyNotAfter)), policyNotAfter, origins, c.get("sess").asText(),
                 new InMemoryNonceCache(c.get("nonceTtlMs").asLong()), () -> now,
                 c.get("callMaxAgeMs").asLong(), c.get("runMaxAgeMs").asLong()));
+    }
+
+    private static void assertResponse(JsonNode c, JsonNode http, JsonNode core) {
+        String name = c.get("name").asText();
+        JsonNode policy = core.get("policies").get(c.get("policy").asText());
+        Verifier verifier = verifier(c, http, core);
         List<Stamp> sent = new ArrayList<>();
         c.get("sent").forEach(s -> sent.add(stamp(s)));
         MerkleProof proof = MerkleProof.parse(Vectors.text(policy.get("proofs").get(c.get("proofRoute").asText())));

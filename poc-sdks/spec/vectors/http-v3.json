@@ -1,5 +1,5 @@
 {
-  "about" : "Paztport v3-over-HTTP conformance vectors. The keys, the `mesh` policy and its proofs are the ones in v3.json, by name; only the `payment` key is new, derived by v3.json's rule (seed = SHA-256(utf8(\"paztport-v3-vector-key:payment\")), the same PKCS#8 and SPKI encodings, both base64url). resultHash maps a status and body (hex) to the result hash. requestBinding maps a method, a target (the raw path plus `?` and the raw query when there is one) and a body (hex) to the request binding. headerNames maps a header name to whether it is Paztport's: it begins with `X-Path-`, compared case-insensitively over ASCII. A responses case is a request chain `sent` from gateway to orders to payment and the `responseHeader` payment returned; the caller `orders` checks it against `status` and `body` (hex) with the proof the mesh policy holds for `proofRoute`, as a verifier whose policy window ends at `policyNotAfter` and whose clock reads `now`, running the check `uses` times against one nonce cache of nonceTtlMs, and expects the last result, with `labels` empty unless the reason is OK. boundaryInfluence is the influence an egress sends to another organisation: under the boundary `key` (SHA-256(utf8(\"paztport-http-v3-vector-boundary-key\")), base64url), for `rid`, the partner entry `rcv` and the `egress`, the `input` entries reduce to `reduced`, with one salt (base64url) per (cls, owner) group in `salts`; each `openings` case is a `sent` entry and an `opening`, with its JCS bytes in `body` (hex), which the replay reads, and `opens` says whether it opens. Ed25519 is deterministic, so the file is reproduced byte for byte. Java writes and replays this file and Go replays it; the TypeScript SDK does not speak v3 over HTTP, so it does not replay it.",
+  "about" : "Paztport v3-over-HTTP conformance vectors. The keys, the `mesh` policy and its proofs are the ones in v3.json, by name; only the `payment` key is new, derived by v3.json's rule (seed = SHA-256(utf8(\"paztport-v3-vector-key:payment\")), the same PKCS#8 and SPKI encodings, both base64url). resultHash maps a status and body (hex) to the result hash. requestBinding maps a method, a target (the raw path plus `?` and the raw query when there is one) and a body (hex) to the request binding. headerNames maps a header name to whether it is Paztport's: it begins with `X-Path-`, compared case-insensitively over ASCII. A responses case is a request chain `sent` from gateway to orders to payment and the `responseHeader` payment returned; the caller `orders` checks it against `status` and `body` (hex) with the proof the mesh policy holds for `proofRoute`, as a verifier whose policy window ends at `policyNotAfter` and whose clock reads `now`, running the check `uses` times against one nonce cache of nonceTtlMs, and expects the last result, with `labels` empty unless the reason is OK. boundaryInfluence is the influence an egress sends to another organisation: under the boundary `key` (SHA-256(utf8(\"paztport-http-v3-vector-boundary-key\")), base64url), for `rid`, the partner entry `rcv` and the `egress`, the `input` entries reduce to `reduced`, with one salt (base64url) per (cls, owner) group in `salts`; each `openings` case is a `sent` entry and an `opening`, with its JCS bytes in `body` (hex), which the replay reads, and `opens` says whether it opens. Ed25519 is deterministic, so the file is reproduced byte for byte. Java writes and replays this file; Go replays every section but `operations`; the TypeScript SDK does not speak v3 over HTTP, so it does not replay it. The last responses case runs on the `ops` policy: the chain names the operation each hop invokes (`orders#createOrder`, then `payment#charge`) and the proof is for that route. `operations` holds `table`, an operation table as a `file` (its text) and `value`, with its `opsHash` and the `route` a root covers it as; `refused`, table files a reader refuses; `match`, a method and a raw path against a table `file` and the operation name it gives, null for none; and `receive`, a request entered at `orders` through the HTTP receiver under enforce, whose chain's first stamp names `orders` or an operation of it, with the `operation` the framework dispatches to (null for none) and the `refusal` it expects (null when the request is served).",
   "keys" : {
     "payment" : {
       "pub" : "MCowBQYDK2VwAyEA-9XrNUMkH7TjAfIFt7KwMmnpapG3g1u6a6E0Q5swRO0",
@@ -422,6 +422,63 @@
       "resultHash" : "UU4OiqfyEERcK0QPyXKb9wRTpEagtkBgmP0vzFxX770"
     },
     "proofRoute" : "gateway/orders/payment"
+  }, {
+    "name" : "a response on a route through operations",
+    "policy" : "ops",
+    "sent" : [ {
+      "v" : 3,
+      "svc" : "gateway",
+      "inst" : "gw-1",
+      "rid" : "rid-http-1",
+      "ts" : 1767225598500,
+      "sess" : "",
+      "rcv" : "orders#createOrder",
+      "bind" : "bind-gateway-to-orders",
+      "infl" : "",
+      "prev" : "",
+      "sig" : "6aOO5iyNbrkQRNJU77Eshyo6R6HMRsWbhsjUwEKBIOcsw-2-Xy4v2UnqlYgmz8Hlbbv5Wy_8hFBGypz-9hbUBQ"
+    }, {
+      "v" : 3,
+      "svc" : "orders",
+      "inst" : "ord-1",
+      "rid" : "rid-http-1",
+      "ts" : 1767225599500,
+      "sess" : "",
+      "rcv" : "payment#charge",
+      "bind" : "NWeIvDv4wI6iFaSevElXkiBnUMnM0qODvzaHJCrcq6g",
+      "infl" : "",
+      "prev" : "6aOO5iyNbrkQRNJU77Eshyo6R6HMRsWbhsjUwEKBIOcsw-2-Xy4v2UnqlYgmz8Hlbbv5Wy_8hFBGypz-9hbUBQ",
+      "sig" : "0zob3KskaaaZDsEh9fDF9BA86HEofGLEaZ_IJeFKdcTIzjrarK2NHeB_wAeLuviqaFvqMpLQVsoSRRrc-yLBBw"
+    } ],
+    "caller" : "orders",
+    "responseHeader" : "eyJsYWJlbHMiOlt7ImNpZCI6ImNpZC1yZWNlaXB0LTEiLCJjbHMiOiJwcml2YXRlIiwib3duZXIiOiJhbGljZSJ9XSwic3RhbXAiOnsiYmluZCI6ImEtN2V6T1VaVWhBekpQQTFvZHRvVnlwMklPNGFueS1zZ2tjMWdpd2NWQjQiLCJpbmZsIjoiIiwiaW5zdCI6InBheS0xIiwicHJldiI6IjB6b2IzS3NrYWFhWkRzRWg5ZkRGOUJBODZIRW9mR0xFYVpfSUplRktkY1RJempyYXJLMk5IZUJfd0FlTHV2aXFhRnZxTXBMUVZzb1NSUnJjLXlMQkJ3IiwicmN2Ijoib3JkZXJzIiwicmlkIjoicmlkLWh0dHAtMSIsInNlc3MiOiIiLCJzaWciOiJzREUxaFdsVjdOZTdnQkFndUFycVhUN0laeUszNGE2cnJMSExua19veUNPX3pFNGRWNFBBZ29MSHFJc05zQlE4cUl4ZEdIeGpRUkE4QUpGTU53RzJDZyIsInN2YyI6InBheW1lbnQiLCJ0cyI6MTc2NzIyNTU5OTgwMCwidiI6M319",
+    "status" : 200,
+    "body" : "7b2270616964223a747275657d",
+    "keyring" : {
+      "gateway" : "gateway",
+      "orders" : "orders",
+      "payment" : "payment"
+    },
+    "allowedOrigins" : [ "gateway" ],
+    "sess" : "",
+    "now" : 1767225600000,
+    "policyNotAfter" : 4102444800000,
+    "callMaxAgeMs" : 5000,
+    "runMaxAgeMs" : 1800000,
+    "nonceTtlMs" : 15000,
+    "uses" : 1,
+    "expected" : {
+      "reason" : "OK",
+      "suspectSvc" : "payment",
+      "suspectInst" : "pay-1",
+      "labels" : [ {
+        "cls" : "private",
+        "cid" : "cid-receipt-1",
+        "owner" : "alice"
+      } ],
+      "resultHash" : "UU4OiqfyEERcK0QPyXKb9wRTpEagtkBgmP0vzFxX770"
+    },
+    "proofRoute" : "gateway/orders#createOrder/payment#charge"
   } ],
   "rules" : {
     "about" : "The HTTP rules the spec requires of a receiver, a caller, a partner and an egress, each case an input and the answer the spec gives. A key is looked up by name here, then in this file's top-level `keys`, then in v3.json; each new one is derived by v3.json's rule. A `material` is one organisation's policy key (by name), its signed root and signed keyring, each with its notAfter, the proofs of its routes and, for a partner, its entry service and reply certificate. Each root's tree has depth 1, its two routes filling both leaves with salts by v3.json's rule, so it has no padding; its rootId is \"v\" and the first 12 hex digits of SHA-256(utf8(\"paztport-http-v3-vector-root:\" + tree)), for the vectors only. A handshake request's nonce is the first 16 bytes (15 for `short-nonce`) of SHA-256(utf8(\"paztport-http-v3-vector-nonce:\" + name)), base64url, and `handshakeBodies` holds each request's JCS bytes, the body a step posts. Bodies and certificates are hex, and headers are their values as sent. A receiver case enters `request` at `service` `uses` times against one nonce cache that already holds `spent`, the handler then reads `read`, and `expected` is the last entry's answer. A partner case runs `steps` in order against one partner whose clock reads each step's `at`; a handshake's `as` names the session it opens, since the partner picks the id, and a call's boundary stamp is signed as the step runs, in the session it names; a call may carry `read`, what the handler reads once it is accepted. The spec's README says what each kind covers.",
@@ -7707,6 +7764,264 @@
       },
       "body" : "7b22636c73223a2270726976617465222c226f726967696e616c73223a5b7b22636964223a226369642d6f726465722d31222c22636c73223a2270726976617465222c2268223a22682d6f726465722d31222c226f776e6572223a22616c696365222c22737263223a22687474703a6f7264657273227d2c7b22636c73223a2270726976617465222c2268223a22682d636172642d31222c226f776e6572223a22616c696365222c22737263223a22687474703a6361726473227d2c7b22636c73223a2270726976617465222c2268223a22682d6f726465722d32222c226f776e6572223a22616c696365222c22737263223a22687474703a6f7264657273227d5d2c226f776e6572223a22616c696365222c2273616c74223a222d6b4e38594f6a6d786e7769476d3442547139685877227d",
       "opens" : false
+    } ]
+  },
+  "operations" : {
+    "table" : {
+      "file" : "{\n  \"operations\": [\n    {\n      \"method\": \"POST\",\n      \"name\": \"createOrder\",\n      \"template\": \"/orders\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"findOrders\",\n      \"template\": \"/orders\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"getOrder\",\n      \"template\": \"/orders/{}\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"search\",\n      \"template\": \"/orders/search\"\n    }\n  ],\n  \"service\": \"orders\",\n  \"v\": 1\n}\n",
+      "value" : {
+        "operations" : [ {
+          "method" : "POST",
+          "name" : "createOrder",
+          "template" : "/orders"
+        }, {
+          "method" : "GET",
+          "name" : "findOrders",
+          "template" : "/orders"
+        }, {
+          "method" : "GET",
+          "name" : "getOrder",
+          "template" : "/orders/{}"
+        }, {
+          "method" : "GET",
+          "name" : "search",
+          "template" : "/orders/search"
+        } ],
+        "service" : "orders",
+        "v" : 1
+      },
+      "opsHash" : "LcR_csw-F8l5ZDZG-tft6v0enkIsOopOnYDoQgE8DtM",
+      "route" : [ "orders", "ops:LcR_csw-F8l5ZDZG-tft6v0enkIsOopOnYDoQgE8DtM" ]
+    },
+    "refused" : [ {
+      "name" : "an operation name holding #",
+      "file" : "{\"operations\":[{\"method\":\"POST\",\"name\":\"create#Order\",\"template\":\"/orders\"}],\"service\":\"orders\",\"v\":1}",
+      "expected" : "refused"
+    }, {
+      "name" : "two operations with one name",
+      "file" : "{\"operations\":[{\"method\":\"POST\",\"name\":\"createOrder\",\"template\":\"/orders\"},{\"method\":\"GET\",\"name\":\"createOrder\",\"template\":\"/orders/{}\"}],\"service\":\"orders\",\"v\":1}",
+      "expected" : "refused"
+    }, {
+      "name" : "two operations with one method and template",
+      "file" : "{\"operations\":[{\"method\":\"POST\",\"name\":\"createOrder\",\"template\":\"/orders\"},{\"method\":\"POST\",\"name\":\"other\",\"template\":\"/orders\"}],\"service\":\"orders\",\"v\":1}",
+      "expected" : "refused"
+    }, {
+      "name" : "a template without a leading slash",
+      "file" : "{\"operations\":[{\"method\":\"POST\",\"name\":\"x\",\"template\":\"orders\"}],\"service\":\"orders\",\"v\":1}",
+      "expected" : "refused"
+    }, {
+      "name" : "a template with an empty segment",
+      "file" : "{\"operations\":[{\"method\":\"POST\",\"name\":\"x\",\"template\":\"/orders//x\"}],\"service\":\"orders\",\"v\":1}",
+      "expected" : "refused"
+    }, {
+      "name" : "a named path parameter",
+      "file" : "{\"operations\":[{\"method\":\"POST\",\"name\":\"x\",\"template\":\"/orders/{id}\"}],\"service\":\"orders\",\"v\":1}",
+      "expected" : "refused"
+    }, {
+      "name" : "a parameter inside a segment",
+      "file" : "{\"operations\":[{\"method\":\"POST\",\"name\":\"x\",\"template\":\"/a{}\"}],\"service\":\"orders\",\"v\":1}",
+      "expected" : "refused"
+    }, {
+      "name" : "a literal holding ?",
+      "file" : "{\"operations\":[{\"method\":\"POST\",\"name\":\"x\",\"template\":\"/a?b\"}],\"service\":\"orders\",\"v\":1}",
+      "expected" : "refused"
+    }, {
+      "name" : "a lowercase method",
+      "file" : "{\"operations\":[{\"method\":\"get\",\"name\":\"x\",\"template\":\"/orders\"}],\"service\":\"orders\",\"v\":1}",
+      "expected" : "refused"
+    }, {
+      "name" : "no operations",
+      "file" : "{\"operations\":[],\"service\":\"orders\",\"v\":1}",
+      "expected" : "refused"
+    }, {
+      "name" : "version 2",
+      "file" : "{\"operations\":[{\"method\":\"POST\",\"name\":\"createOrder\",\"template\":\"/orders\"}],\"service\":\"orders\",\"v\":2}",
+      "expected" : "refused"
+    }, {
+      "name" : "a service name holding #",
+      "file" : "{\"operations\":[{\"method\":\"POST\",\"name\":\"createOrder\",\"template\":\"/orders\"}],\"service\":\"a#b\",\"v\":1}",
+      "expected" : "refused"
+    }, {
+      "name" : "an extra member on the table",
+      "file" : "{\"extra\":1,\"operations\":[{\"method\":\"POST\",\"name\":\"createOrder\",\"template\":\"/orders\"}],\"service\":\"orders\",\"v\":1}",
+      "expected" : "refused"
+    }, {
+      "name" : "an extra member on an operation",
+      "file" : "{\"operations\":[{\"extra\":1,\"method\":\"POST\",\"name\":\"x\",\"template\":\"/\"}],\"service\":\"orders\",\"v\":1}",
+      "expected" : "refused"
+    } ],
+    "match" : [ {
+      "table" : "{\n  \"operations\": [\n    {\n      \"method\": \"POST\",\n      \"name\": \"createOrder\",\n      \"template\": \"/orders\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"findOrders\",\n      \"template\": \"/orders\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"getOrder\",\n      \"template\": \"/orders/{}\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"search\",\n      \"template\": \"/orders/search\"\n    }\n  ],\n  \"service\": \"orders\",\n  \"v\": 1\n}\n",
+      "method" : "GET",
+      "path" : "/orders/search",
+      "expected" : "search"
+    }, {
+      "table" : "{\n  \"operations\": [\n    {\n      \"method\": \"POST\",\n      \"name\": \"createOrder\",\n      \"template\": \"/orders\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"findOrders\",\n      \"template\": \"/orders\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"getOrder\",\n      \"template\": \"/orders/{}\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"search\",\n      \"template\": \"/orders/search\"\n    }\n  ],\n  \"service\": \"orders\",\n  \"v\": 1\n}\n",
+      "method" : "GET",
+      "path" : "/orders/123",
+      "expected" : "getOrder"
+    }, {
+      "table" : "{\n  \"operations\": [\n    {\n      \"method\": \"POST\",\n      \"name\": \"createOrder\",\n      \"template\": \"/orders\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"findOrders\",\n      \"template\": \"/orders\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"getOrder\",\n      \"template\": \"/orders/{}\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"search\",\n      \"template\": \"/orders/search\"\n    }\n  ],\n  \"service\": \"orders\",\n  \"v\": 1\n}\n",
+      "method" : "GET",
+      "path" : "/orders",
+      "expected" : "findOrders"
+    }, {
+      "table" : "{\n  \"operations\": [\n    {\n      \"method\": \"POST\",\n      \"name\": \"createOrder\",\n      \"template\": \"/orders\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"findOrders\",\n      \"template\": \"/orders\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"getOrder\",\n      \"template\": \"/orders/{}\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"search\",\n      \"template\": \"/orders/search\"\n    }\n  ],\n  \"service\": \"orders\",\n  \"v\": 1\n}\n",
+      "method" : "POST",
+      "path" : "/orders",
+      "expected" : "createOrder"
+    }, {
+      "table" : "{\n  \"operations\": [\n    {\n      \"method\": \"POST\",\n      \"name\": \"createOrder\",\n      \"template\": \"/orders\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"findOrders\",\n      \"template\": \"/orders\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"getOrder\",\n      \"template\": \"/orders/{}\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"search\",\n      \"template\": \"/orders/search\"\n    }\n  ],\n  \"service\": \"orders\",\n  \"v\": 1\n}\n",
+      "method" : "GET",
+      "path" : "/orders/a%2Fb",
+      "expected" : "getOrder"
+    }, {
+      "table" : "{\n  \"operations\": [\n    {\n      \"method\": \"POST\",\n      \"name\": \"createOrder\",\n      \"template\": \"/orders\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"findOrders\",\n      \"template\": \"/orders\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"getOrder\",\n      \"template\": \"/orders/{}\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"search\",\n      \"template\": \"/orders/search\"\n    }\n  ],\n  \"service\": \"orders\",\n  \"v\": 1\n}\n",
+      "method" : "GET",
+      "path" : "/orders/",
+      "expected" : null
+    }, {
+      "table" : "{\n  \"operations\": [\n    {\n      \"method\": \"POST\",\n      \"name\": \"createOrder\",\n      \"template\": \"/orders\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"findOrders\",\n      \"template\": \"/orders\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"getOrder\",\n      \"template\": \"/orders/{}\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"search\",\n      \"template\": \"/orders/search\"\n    }\n  ],\n  \"service\": \"orders\",\n  \"v\": 1\n}\n",
+      "method" : "GET",
+      "path" : "/orders/123/items",
+      "expected" : null
+    }, {
+      "table" : "{\n  \"operations\": [\n    {\n      \"method\": \"POST\",\n      \"name\": \"createOrder\",\n      \"template\": \"/orders\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"findOrders\",\n      \"template\": \"/orders\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"getOrder\",\n      \"template\": \"/orders/{}\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"search\",\n      \"template\": \"/orders/search\"\n    }\n  ],\n  \"service\": \"orders\",\n  \"v\": 1\n}\n",
+      "method" : "get",
+      "path" : "/orders",
+      "expected" : null
+    }, {
+      "table" : "{\n  \"operations\": [\n    {\n      \"method\": \"POST\",\n      \"name\": \"createOrder\",\n      \"template\": \"/orders\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"findOrders\",\n      \"template\": \"/orders\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"getOrder\",\n      \"template\": \"/orders/{}\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"search\",\n      \"template\": \"/orders/search\"\n    }\n  ],\n  \"service\": \"orders\",\n  \"v\": 1\n}\n",
+      "method" : "DELETE",
+      "path" : "/orders",
+      "expected" : null
+    }, {
+      "table" : "{\n  \"operations\": [\n    {\n      \"method\": \"GET\",\n      \"name\": \"x\",\n      \"template\": \"/a/{}/c\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"y\",\n      \"template\": \"/a/b/{}\"\n    }\n  ],\n  \"service\": \"orders\",\n  \"v\": 1\n}\n",
+      "method" : "GET",
+      "path" : "/a/b/c",
+      "expected" : "y"
+    } ],
+    "receive" : [ {
+      "name" : "the operation the chain names",
+      "policy" : "ops",
+      "service" : "orders",
+      "mode" : "enforce",
+      "request" : {
+        "method" : "POST",
+        "target" : "/orders",
+        "headers" : {
+          "X-Path-Chain" : "W3siYmluZCI6Ik01T1NuakJab2pUem9ldEY4djJqbjh2M1A1R29NdWlyX1YzbWxnUlQ3c0kiLCJpbmZsIjoiIiwiaW5zdCI6Imd3LTEiLCJwcmV2IjoiIiwicmN2Ijoib3JkZXJzI2NyZWF0ZU9yZGVyIiwicmlkIjoicmlkLWh0dHAtMSIsInNlc3MiOiIiLCJzaWciOiJHakFFOXpVZVoyY1VWSEdNdlo4RGIwYmNldUJBajFKMXdNU0JDZS1nenlmTVRJTS1JVDlva2JqMGlPVDFMSVlSU2pGNmdxcU85MVJWM1EycHpDbWFEQSIsInN2YyI6ImdhdGV3YXkiLCJ0cyI6MTc2NzIyNTU5ODUwMCwidiI6M31d",
+          "X-Path-Proof" : "eyJkaXJzIjoiUkxMTExMTEwiLCJsZWFmU2FsdCI6IlRzM0hXSldtMnc4alBYVlUxU3QyNEEiLCJyb290SWQiOiJ2NjAxNWNhZjI3MTYzIiwic2libGluZ3MiOlsiUW9ZbkVRbGMwWXVDYjlsZGM3ODdjemZjT0pYbjhidmVRdjZ3ZnFnSUZhQSIsIkJuY3IzLU01MGlud3EyTjN5TTVWQ1pzUUl5d0M5TVgxb3ozU0o3a2pUUWsiLCJwWVRxRGR6YWhJMDI0bkxZNkVIcVZ6MzlLbWZrYnZMNDFVRHFOTlNvUmNnIiwiYlYyWGRwX0lNYWhmbzQxVWJhVlJFYzhpVmJveTRaYWRmeGpLNWRKSzZFQSIsInNuRlNLMG9ENFd2ZGhscFZWemRPeUtzNlBmbUZfWHpDVUFnckRzNzJHa2ciLCJyYzE1RnRocjcwTmdrbHdsZkRZTU9sakd6STI5RzVzc2dlWGhacU5XaUE4IiwidGFtNEtLcUMyaGtaYTA3VThqR3lMQ29abnlud1BvNklueVJEei12M1BNRSIsImlNNFNlcnd2aXZDR1hkcEtEMkNBZmptbk9MbE9YdVdvUW9MYjU5bGVBR3MiXX0"
+        },
+        "body" : "7b22616d6f756e74223a3130307d"
+      },
+      "operation" : "createOrder",
+      "keyring" : {
+        "gateway" : "gateway"
+      },
+      "allowedOrigins" : [ "gateway" ],
+      "sess" : "",
+      "now" : 1767225600000,
+      "policyNotAfter" : 4102444800000,
+      "callMaxAgeMs" : 5000,
+      "runMaxAgeMs" : 1800000,
+      "nonceTtlMs" : 15000,
+      "expected" : {
+        "refusal" : null
+      }
+    }, {
+      "name" : "another operation",
+      "policy" : "ops",
+      "service" : "orders",
+      "mode" : "enforce",
+      "request" : {
+        "method" : "POST",
+        "target" : "/orders",
+        "headers" : {
+          "X-Path-Chain" : "W3siYmluZCI6Ik01T1NuakJab2pUem9ldEY4djJqbjh2M1A1R29NdWlyX1YzbWxnUlQ3c0kiLCJpbmZsIjoiIiwiaW5zdCI6Imd3LTEiLCJwcmV2IjoiIiwicmN2Ijoib3JkZXJzI2NyZWF0ZU9yZGVyIiwicmlkIjoicmlkLWh0dHAtMSIsInNlc3MiOiIiLCJzaWciOiJHakFFOXpVZVoyY1VWSEdNdlo4RGIwYmNldUJBajFKMXdNU0JDZS1nenlmTVRJTS1JVDlva2JqMGlPVDFMSVlSU2pGNmdxcU85MVJWM1EycHpDbWFEQSIsInN2YyI6ImdhdGV3YXkiLCJ0cyI6MTc2NzIyNTU5ODUwMCwidiI6M31d",
+          "X-Path-Proof" : "eyJkaXJzIjoiUkxMTExMTEwiLCJsZWFmU2FsdCI6IlRzM0hXSldtMnc4alBYVlUxU3QyNEEiLCJyb290SWQiOiJ2NjAxNWNhZjI3MTYzIiwic2libGluZ3MiOlsiUW9ZbkVRbGMwWXVDYjlsZGM3ODdjemZjT0pYbjhidmVRdjZ3ZnFnSUZhQSIsIkJuY3IzLU01MGlud3EyTjN5TTVWQ1pzUUl5d0M5TVgxb3ozU0o3a2pUUWsiLCJwWVRxRGR6YWhJMDI0bkxZNkVIcVZ6MzlLbWZrYnZMNDFVRHFOTlNvUmNnIiwiYlYyWGRwX0lNYWhmbzQxVWJhVlJFYzhpVmJveTRaYWRmeGpLNWRKSzZFQSIsInNuRlNLMG9ENFd2ZGhscFZWemRPeUtzNlBmbUZfWHpDVUFnckRzNzJHa2ciLCJyYzE1RnRocjcwTmdrbHdsZkRZTU9sakd6STI5RzVzc2dlWGhacU5XaUE4IiwidGFtNEtLcUMyaGtaYTA3VThqR3lMQ29abnlud1BvNklueVJEei12M1BNRSIsImlNNFNlcnd2aXZDR1hkcEtEMkNBZmptbk9MbE9YdVdvUW9MYjU5bGVBR3MiXX0"
+        },
+        "body" : "7b22616d6f756e74223a3130307d"
+      },
+      "operation" : "getOrder",
+      "keyring" : {
+        "gateway" : "gateway"
+      },
+      "allowedOrigins" : [ "gateway" ],
+      "sess" : "",
+      "now" : 1767225600000,
+      "policyNotAfter" : 4102444800000,
+      "callMaxAgeMs" : 5000,
+      "runMaxAgeMs" : 1800000,
+      "nonceTtlMs" : 15000,
+      "expected" : {
+        "refusal" : {
+          "status" : 403,
+          "body" : "7b22726561736f6e223a2242494e44494e475f4d49534d41544348227d"
+        }
+      }
+    }, {
+      "name" : "no operation",
+      "policy" : "ops",
+      "service" : "orders",
+      "mode" : "enforce",
+      "request" : {
+        "method" : "POST",
+        "target" : "/orders",
+        "headers" : {
+          "X-Path-Chain" : "W3siYmluZCI6Ik01T1NuakJab2pUem9ldEY4djJqbjh2M1A1R29NdWlyX1YzbWxnUlQ3c0kiLCJpbmZsIjoiIiwiaW5zdCI6Imd3LTEiLCJwcmV2IjoiIiwicmN2Ijoib3JkZXJzI2NyZWF0ZU9yZGVyIiwicmlkIjoicmlkLWh0dHAtMSIsInNlc3MiOiIiLCJzaWciOiJHakFFOXpVZVoyY1VWSEdNdlo4RGIwYmNldUJBajFKMXdNU0JDZS1nenlmTVRJTS1JVDlva2JqMGlPVDFMSVlSU2pGNmdxcU85MVJWM1EycHpDbWFEQSIsInN2YyI6ImdhdGV3YXkiLCJ0cyI6MTc2NzIyNTU5ODUwMCwidiI6M31d",
+          "X-Path-Proof" : "eyJkaXJzIjoiUkxMTExMTEwiLCJsZWFmU2FsdCI6IlRzM0hXSldtMnc4alBYVlUxU3QyNEEiLCJyb290SWQiOiJ2NjAxNWNhZjI3MTYzIiwic2libGluZ3MiOlsiUW9ZbkVRbGMwWXVDYjlsZGM3ODdjemZjT0pYbjhidmVRdjZ3ZnFnSUZhQSIsIkJuY3IzLU01MGlud3EyTjN5TTVWQ1pzUUl5d0M5TVgxb3ozU0o3a2pUUWsiLCJwWVRxRGR6YWhJMDI0bkxZNkVIcVZ6MzlLbWZrYnZMNDFVRHFOTlNvUmNnIiwiYlYyWGRwX0lNYWhmbzQxVWJhVlJFYzhpVmJveTRaYWRmeGpLNWRKSzZFQSIsInNuRlNLMG9ENFd2ZGhscFZWemRPeUtzNlBmbUZfWHpDVUFnckRzNzJHa2ciLCJyYzE1RnRocjcwTmdrbHdsZkRZTU9sakd6STI5RzVzc2dlWGhacU5XaUE4IiwidGFtNEtLcUMyaGtaYTA3VThqR3lMQ29abnlud1BvNklueVJEei12M1BNRSIsImlNNFNlcnd2aXZDR1hkcEtEMkNBZmptbk9MbE9YdVdvUW9MYjU5bGVBR3MiXX0"
+        },
+        "body" : "7b22616d6f756e74223a3130307d"
+      },
+      "operation" : null,
+      "keyring" : {
+        "gateway" : "gateway"
+      },
+      "allowedOrigins" : [ "gateway" ],
+      "sess" : "",
+      "now" : 1767225600000,
+      "policyNotAfter" : 4102444800000,
+      "callMaxAgeMs" : 5000,
+      "runMaxAgeMs" : 1800000,
+      "nonceTtlMs" : 15000,
+      "expected" : {
+        "refusal" : {
+          "status" : 403,
+          "body" : "7b22726561736f6e223a2242494e44494e475f4d49534d41544348227d"
+        }
+      }
+    }, {
+      "name" : "a chain naming no operation, where the policy names them",
+      "policy" : "ops",
+      "service" : "orders",
+      "mode" : "enforce",
+      "request" : {
+        "method" : "POST",
+        "target" : "/orders",
+        "headers" : {
+          "X-Path-Chain" : "W3siYmluZCI6Ik01T1NuakJab2pUem9ldEY4djJqbjh2M1A1R29NdWlyX1YzbWxnUlQ3c0kiLCJpbmZsIjoiIiwiaW5zdCI6Imd3LTEiLCJwcmV2IjoiIiwicmN2Ijoib3JkZXJzIiwicmlkIjoicmlkLWh0dHAtMSIsInNlc3MiOiIiLCJzaWciOiJWUFJXMGFobHI2bzV2T0E5ZlREU3dSczJKV1F6X3BfZXVxSGVOV3pyN0h4T2tVZ0J3Rk95QlpLZ3NacmJhSVJfNnktLXllWVRJLThYMkR6ZHVkX3REZyIsInN2YyI6ImdhdGV3YXkiLCJ0cyI6MTc2NzIyNTU5ODUwMCwidiI6M31d",
+          "X-Path-Proof" : "eyJkaXJzIjoiUkxMTExMTEwiLCJsZWFmU2FsdCI6IlRzM0hXSldtMnc4alBYVlUxU3QyNEEiLCJyb290SWQiOiJ2NjAxNWNhZjI3MTYzIiwic2libGluZ3MiOlsiUW9ZbkVRbGMwWXVDYjlsZGM3ODdjemZjT0pYbjhidmVRdjZ3ZnFnSUZhQSIsIkJuY3IzLU01MGlud3EyTjN5TTVWQ1pzUUl5d0M5TVgxb3ozU0o3a2pUUWsiLCJwWVRxRGR6YWhJMDI0bkxZNkVIcVZ6MzlLbWZrYnZMNDFVRHFOTlNvUmNnIiwiYlYyWGRwX0lNYWhmbzQxVWJhVlJFYzhpVmJveTRaYWRmeGpLNWRKSzZFQSIsInNuRlNLMG9ENFd2ZGhscFZWemRPeUtzNlBmbUZfWHpDVUFnckRzNzJHa2ciLCJyYzE1RnRocjcwTmdrbHdsZkRZTU9sakd6STI5RzVzc2dlWGhacU5XaUE4IiwidGFtNEtLcUMyaGtaYTA3VThqR3lMQ29abnlud1BvNklueVJEei12M1BNRSIsImlNNFNlcnd2aXZDR1hkcEtEMkNBZmptbk9MbE9YdVdvUW9MYjU5bGVBR3MiXX0"
+        },
+        "body" : "7b22616d6f756e74223a3130307d"
+      },
+      "operation" : "createOrder",
+      "keyring" : {
+        "gateway" : "gateway"
+      },
+      "allowedOrigins" : [ "gateway" ],
+      "sess" : "",
+      "now" : 1767225600000,
+      "policyNotAfter" : 4102444800000,
+      "callMaxAgeMs" : 5000,
+      "runMaxAgeMs" : 1800000,
+      "nonceTtlMs" : 15000,
+      "expected" : {
+        "refusal" : {
+          "status" : 403,
+          "body" : "7b22726561736f6e223a22504154485f4e4f545f414c4c4f574544227d"
+        }
+      }
     } ]
   }
 }
