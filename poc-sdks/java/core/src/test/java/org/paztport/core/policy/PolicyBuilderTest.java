@@ -137,4 +137,33 @@ class PolicyBuilderTest {
             return false;
         }
     }
+
+    @Test
+    void holderIsTheServicePart() {
+        PolicyBuilder.Result r = build(List.of(List.of("gateway", "orders#createOrder", "payment#charge")));
+
+        assertEquals(Set.of("gateway/orders#createOrder/payment#charge"), r.bundles().get("orders").proofs().keySet());
+        assertEquals(Set.of("gateway", "orders", "payment"), r.bundles().keySet());
+    }
+
+    @Test
+    void opsRouteGoesToTheServiceAndItsCallers() {
+        PolicyBuilder.Result r = build(List.of(
+                List.of("orders", "ops:H"),
+                List.of("gateway", "orders#getOrder"),
+                List.of("gateway", "tickets"),
+                List.of("tickets", "assistant")));
+
+        assertTrue(r.bundles().get("orders").proofs().containsKey("orders/ops:H"));
+        assertTrue(r.bundles().get("gateway").proofs().containsKey("orders/ops:H"));
+        assertFalse(r.bundles().get("tickets").proofs().containsKey("orders/ops:H"));
+        assertFalse(r.bundles().get("assistant").proofs().containsKey("orders/ops:H"));
+        assertFalse(r.bundles().containsKey("ops:H"));
+    }
+
+    @Test
+    void refusesAnOperationNodeBeforeTheLastWithABadPart() {
+        assertThrows(IllegalArgumentException.class, () -> build(List.of(List.of("gateway", "orders#", "payment"))));
+        assertThrows(IllegalArgumentException.class, () -> build(List.of(List.of("a#b#c", "payment"))));
+    }
 }

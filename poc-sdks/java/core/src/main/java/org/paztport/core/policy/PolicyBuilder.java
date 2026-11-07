@@ -17,12 +17,17 @@ import org.paztport.core.crypto.Crypto;
  * the policy tool.
  *
  * <p>Each route's proof is handed only to its second-to-last hop (the caller
- * that attaches it), so a service with no legitimate route to a destination is
- * never given a proof for one. Salts are freshly random each run. Routes go in
- * random distinct slots, so a proof's {@code dirs} does not reveal the route's
+ * that attaches it, held by its service when the hop is {@code <service>#<operation>}),
+ * so a service with no legitimate route to a destination is never given a proof for one.
+ * Salts are freshly random each run. Routes go in random distinct slots, so a proof's
+ * {@code dirs} does not reveal the route's
  * position in the policy (a lower bound on the route count). The {@code rootId}
  * is a random label per build, not derived from the routes, so it cannot be used
  * to confirm a guess at the policy's content.
+ *
+ * <p>A route of two nodes whose last is {@code ops:<hash>} covers a service's operation table. Its proof goes to
+ * the service and to every holder of a route that ends at the service, since those callers must check the table
+ * they use. It has no bundle of its own for the {@code ops:} node.
  */
 public final class PolicyBuilder {
 
@@ -42,7 +47,11 @@ public final class PolicyBuilder {
      * nothing, for a node {@link Routes#requireValidNode} refuses.
      */
     public static Result build(List<List<String>> routes, int depth, long notAfter, PrivateKey policyKey) {
-        routes.forEach(route -> route.forEach(Routes::requireValidNode));
+        for (List<String> route : routes) {
+            for (int i = 0; i < route.size(); i++) {
+                requireValidNodeAt(route.get(i), i == route.size() - 1);
+            }
+        }
         List<String> routeStrings = routes.stream().map(r -> Routes.join(r)).toList();
         String rootId = newRootId();
 
@@ -55,8 +64,10 @@ public final class PolicyBuilder {
         // Every service that appears anywhere gets a bundle, empty by default.
         Map<String, Map<String, MerkleProof>> proofsByService = new LinkedHashMap<>();
         for (List<String> route : routes) {
-            for (String node : route) {
-                proofsByService.computeIfAbsent(node, k -> new LinkedHashMap<>());
+            for (int i = 0; i < route.size(); i++) {
+                if (i < route.size() - 1 || !isOpsNode(route.get(i))) {
+                    proofsByService.computeIfAbsent(Routes.service(route.get(i)), k -> new LinkedHashMap<>());
+                }
             }
         }
 
@@ -65,13 +76,41 @@ public final class PolicyBuilder {
             if (route.size() < 2) {
                 throw new IllegalArgumentException("route has no caller (needs >= 2 nodes): " + route);
             }
-            String holder = route.get(route.size() - 2); // second-to-last hop
-            proofsByService.get(holder).put(routeStrings.get(i), tree.proofFor(routeStrings.get(i)));
+            String proof = routeStrings.get(i);
+            String holder = Routes.service(route.get(route.size() - 2)); // second-to-last hop
+            proofsByService.get(holder).put(proof, tree.proofFor(proof));
+            if (route.size() == 2 && isOpsNode(route.get(1))) {
+                // An operation table's callers need its proof too: every holder of a route that ends at the service.
+                for (int j = 0; j < routes.size(); j++) {
+                    List<String> other = routes.get(j);
+                    if (other.size() >= 2 && Routes.service(other.get(other.size() - 1)).equals(route.get(0))) {
+                        String caller = Routes.service(other.get(other.size() - 2));
+                        proofsByService.get(caller).put(proof, tree.proofFor(proof));
+                    }
+                }
+            }
         }
 
         Map<String, ProofBundle> bundles = new LinkedHashMap<>();
         proofsByService.forEach((svc, proofs) -> bundles.put(svc, new ProofBundle(svc, rootId, proofs)));
         return new Result(signedRoot, bundles);
+    }
+
+    private static boolean isOpsNode(String node) {
+        return node.startsWith("ops:");
+    }
+
+    /** A node before the last is a service or {@code <service>#<operation>}; the last is any valid node. */
+    private static void requireValidNodeAt(String node, boolean last) {
+        if (last) {
+            Routes.requireValidNode(node);
+            return;
+        }
+        Routes.requireValidService(Routes.service(node));
+        int hash = node.indexOf('#');
+        if (hash >= 0) {
+            Routes.requireValidOperation(node.substring(hash + 1));
+        }
     }
 
     /** {@code "v"} plus 12 lowercase hex characters from a CSPRNG. */

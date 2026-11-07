@@ -49,7 +49,7 @@ public final class Routes {
 
     /**
      * The service a route node names: the text before the first {@code #}, or the whole node when it has none. A
-     * node is {@code <service>} or {@code <service>#<operation>}; policy and keyrings are keyed by service.
+     * node is {@code <service>} or {@code <service>#<operation>}; policy bundles and keyrings are keyed by service.
      */
     public static String service(String node) {
         int hash = node.indexOf('#');
