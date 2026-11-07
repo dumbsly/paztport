@@ -432,8 +432,8 @@ func (r *request) refuse(outcome Outcome, ref refusal) (*extprocv3.ProcessingRes
 }
 
 // ended decides a request whose stream ended before it was decided, after the headers were answered, as
-// abandoned: the edge sent no answer that decides it, and cannot tell why the stream ended. A stream that ended before any
-// message carried no request.
+// abandoned: the edge sent no answer that decides it, and cannot tell why the stream ended. A stream that ended
+// before any message carried no request.
 func (r *request) ended() {
 	if r.phase == awaitingBody {
 		r.decide(Observation{Outcome: Abandoned, BodyBytes: len(r.body)})
