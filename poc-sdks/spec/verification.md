@@ -136,11 +136,11 @@ names the receiver's [operation](wire.md#operations) when it holds the receiver'
 destination any other way, by an address, an alias or a port, fails check 4 at an honest receiver
 (`BINDING_MISMATCH`). How a caller maps a destination to that name is its deployment's configuration, never
 something the request or the destination says. Over HTTP that name, without any operation, is the caller's
-`<target>`: in the response's nonce key, as the service the response stamp must be by, and in the `src` (`http:<target>`) of what the response
-adds to its influence. An egress names its partner's entry service by configuration
-([sessions-and-influence.md](sessions-and-influence.md#between-organisations)). (The Java and Go SDKs take the name
-from the URL's host by default, its ASCII letters in lower case; a host that is not ASCII gets no name:
-[Java SDK README](../java/README.md#paztport-spring).)
+`<target>`: in the response's nonce key, as the service the response stamp must be by, and in the `src`
+(`http:<target>`) of what the response adds to its influence. An egress names its partner's entry service by
+configuration ([sessions-and-influence.md](sessions-and-influence.md#between-organisations)). (The Java and Go SDKs
+take the name from the URL's host by default, its ASCII letters in lower case; a host that is not ASCII gets no
+name: [Java SDK README](../java/README.md#paztport-spring).)
 
 **The peer check.** A transport that authenticates the sender (mTLS, for example) SHOULD pass it as `peer`. Check
 12 then requires the last signer to be that sender. Only `svc` is compared: a certificate is issued per
@@ -338,14 +338,13 @@ connects to (TLS hostname verification, RFC 9110 §4.3.4). That is why a respons
 **Who attests.** In either [mode](#modes-and-refusals), a service attests a response only when the request's chain
 passed the live order, 0 to 12, at that service, as for a request at the receiver above: its own pinned material,
 `receiver` as a request at the receiver supplies it, the request's proof and influence, and the peer when there
-is one. This holds whether or
-not the service refuses requests that fail: one that does not enforce MUST still run the live order before it
-attests, and a failure there only withholds the attestation. A response stamp is shaped like a request stamp, so
-attesting a chain nobody checked would let anyone mint stamps under the service's key: on a forged one-stamp chain
-with an empty `sig`, the response is a valid origin stamp from the answering service. So a service with nothing to
-verify with never attests, and an origin, which starts each request tree afresh, never attests. Nor is a refusal
-attested, or a request that failed in audit mode. A service runs the live order at most once per request, since it
-spends the request's nonce key.
+is one. This holds whether or not the service refuses requests that fail: one that does not enforce MUST still run
+the live order before it attests, and a failure there only withholds the attestation. A response stamp is shaped
+like a request stamp, so attesting a chain nobody checked would let anyone mint stamps under the service's key: on a
+forged one-stamp chain with an empty `sig`, the response is a valid origin stamp from the answering service. So a
+service with nothing to verify with never attests, and an origin, which starts each request tree afresh, never
+attests. Nor is a refusal attested, or a request that failed in audit mode. A service runs the live order at most
+once per request, since it spends the request's nonce key.
 
 **A response, at the caller.** The caller checks `X-Path-Response` with `stamps` = the chain it sent then the
 response stamp, `receiver` = its own name, `receiverInRoute = false`, `proof` = the proof it sent,
