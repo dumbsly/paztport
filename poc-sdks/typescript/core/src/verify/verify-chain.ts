@@ -123,7 +123,7 @@ function check(input: VerifyRead, cfg: VerifierConfig): VerifyResult {
   }
 
   // 11. Route proven against a current root, ending at the receiver only when it is on the route.
-  const routed = checkRoute(stamps, input.receiverInRoute ? input.receiver : undefined, input.proof, roots);
+  const routed = checkRoute(stamps, input.receiverInRoute, input.proof, roots);
   if (!routed.ok) {
     return routed;
   }
@@ -144,16 +144,16 @@ function check(input: VerifyRead, cfg: VerifierConfig): VerifyResult {
  * 2. no field holds the `|` delimiter, rcv included (BAD_SIGNATURE);
  * 3. the origin's service is allowed (BAD_ORIGIN);
  * 4. each stamp is signed under one of the keys the current keyrings give its service, and links to the one
- *    before, over the whole chain (BAD_SIGNATURE, BROKEN_LINK); then each stamp's rcv is the next stamp's svc, and
- *    the last's is `input.receiver` (BINDING_MISMATCH);
+ *    before, over the whole chain (BAD_SIGNATURE, BROKEN_LINK); then each stamp's rcv addresses the next stamp's svc,
+ *    naming it or an operation of it, and the last's is `input.receiver` (BINDING_MISMATCH);
  * 5. every stamp carries the origin's rid (RID_MISMATCH);
  * 6. every stamp is in the session (SESSION_UNKNOWN);
  * 7. the last stamp is within the call window of now, and the origin within the run's lifetime (EXPIRED);
  * 8. the last stamp binds `expectedBind` (BINDING_MISMATCH);
  * 9. and commits to the influence its token holds (INFLUENCE_MISMATCH);
  * 10. its nonce key is new to the cache (REPLAY);
- * 11. the route, the chain's services then the receiver when `receiverInRoute`, is proven by the proof its token
- *     holds against a current root with the proof's rootId (PATH_NOT_ALLOWED);
+ * 11. the route, the first service then each rcv (the last only when `receiverInRoute`), is proven by the
+ *     proof its token holds against a current root with the proof's rootId (PATH_NOT_ALLOWED);
  * 12. with a peer, `peer.svc` is the last stamp's svc (PEER_MISMATCH).
  * With a peer, every result of checks 1 to 12 names it as the suspect; without one, only OK and PATH_NOT_ALLOWED name the last stamp.
  */

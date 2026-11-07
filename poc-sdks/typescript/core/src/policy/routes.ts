@@ -8,6 +8,17 @@ export function routeOf(services: readonly string[]): string {
   return services.join("/");
 }
 
+/** The service of a route node or an `rcv`: the text before the first `#`, or all of it when it holds none. */
+export function serviceOf(node: string): string {
+  const i = node.indexOf("#");
+  return i < 0 ? node : node.slice(0, i);
+}
+
+/** Whether an `rcv` addresses a service: the service itself, or `<service>#` and at least one more character. */
+export function addressedTo(rcv: string, svc: string): boolean {
+  return rcv === svc || (rcv.startsWith(svc + "#") && rcv.length > svc.length + 1);
+}
+
 /** The nodes of the route a session's local rules are pinned under: the client chain, then `rules:<hash>`. */
 export function rulesRouteNodes(clientChain: readonly string[], hash: string): string[] {
   return [...clientChain, RULES_ROUTE_PREFIX + hash];

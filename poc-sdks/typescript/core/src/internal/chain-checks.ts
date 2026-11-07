@@ -12,7 +12,7 @@ import { parseProof, provesPath } from "../policy/merkle.ts";
 import { isNotAfter } from "../policy/validity.ts";
 import type { ReasonCode, VerifyResult } from "../verify/reason.ts";
 import type { PinnedKeyring, PinnedRoot } from "../verify/verify-chain.ts";
-import { routeOf } from "../policy/routes.ts";
+import { addressedTo, routeOf } from "../policy/routes.ts";
 import { chainOf, signingBytes, type Stamp } from "../stamp/stamp.ts";
 
 /**
@@ -90,7 +90,7 @@ function signatureValid(publicKey: string, s: Stamp): boolean {
  * Checks 1 to 6: the chain was read and its stamps are all v3 by the stamp's schema (CHAIN_MISSING), no field
  * holds the delimiter, rcv included (BAD_SIGNATURE), the origin is allowed (BAD_ORIGIN), each stamp is signed under
  * one of the keys `cfg.keyrings` give its service, each distinct key tried once, and links to the one before
- * (BAD_SIGNATURE, BROKEN_LINK), then each stamp's rcv names the next stamp's service and the last's names `receiver`
+ * (BAD_SIGNATURE, BROKEN_LINK), then each stamp's rcv addresses the next stamp's service and the last's names `receiver`
  * (BINDING_MISMATCH), every stamp carries the rid (RID_MISMATCH), and the session (SESSION_UNKNOWN). With
  * `signers`, a stamp from another service or instance than expected is not one the expected key signed: BAD_ORIGIN
  * for the origin, BAD_SIGNATURE for any other. Returns the stamps, or the first failure.
@@ -134,8 +134,9 @@ export function checkStamps(
       return "BROKEN_LINK";
     }
   }
-  // Then the receivers: each stamp names the next hop, and the last the chain's receiver.
-  if (stamps.some((s, i) => s.rcv !== (i + 1 < stamps.length ? stamps[i + 1]!.svc : shape.receiver))) {
+  // Then the receivers: each stamp addresses the next hop's service, naming an operation of it or none, and the
+  // last names the chain's receiver exactly.
+  if (stamps.some((s, i) => (i + 1 < stamps.length ? !addressedTo(s.rcv, stamps[i + 1]!.svc) : s.rcv !== shape.receiver))) {
     return "BINDING_MISMATCH";
   }
 
@@ -183,19 +184,28 @@ export function checkCommitments(
 }
 
 /**
- * Check 11 and the result: the chain's services, then the receiver when given, proven by the proof read against one
- * of `roots` with the proof's rootId (PATH_NOT_ALLOWED); none, or one its schema refuses, proves nothing.
+ * The route a chain took: the first stamp's service, then each stamp's rcv, so a hop that names an operation carries
+ * it into the route. The last rcv is the receiver's, and is left off when the receiver is not on the route.
+ */
+export function routeFromRcv(stamps: readonly Stamp[], receiverInRoute: boolean): string {
+  const rcvs = stamps.map((s) => s.rcv);
+  return routeOf([stamps[0]!.svc, ...(receiverInRoute ? rcvs : rcvs.slice(0, -1))]);
+}
+
+/**
+ * Check 11 and the result: the route from the chain's rcvs, ending at the receiver when `receiverInRoute`, proven by
+ * the proof read against one of `roots` with the proof's rootId (PATH_NOT_ALLOWED); none, or one its schema refuses,
+ * proves nothing.
  */
 export function checkRoute(
   stamps: Stamp[],
-  receiver: string | undefined,
+  receiverInRoute: boolean,
   proof: JsonValue | undefined,
   roots: readonly PinnedRoot[],
 ): VerifyResult {
   const last = stamps[stamps.length - 1]!;
   // 11. Route proven against a root the proof names.
-  const svcs = stamps.map((s) => s.svc);
-  const route = routeOf(receiver !== undefined ? [...svcs, receiver] : svcs);
+  const route = routeFromRcv(stamps, receiverInRoute);
   if (!proven(proof, route, roots)) {
     return { ok: false, reason: "PATH_NOT_ALLOWED", suspectSvc: last.svc, suspectInst: last.inst };
   }

@@ -66,7 +66,8 @@ export type OfflineResult = VerifyResult;
  * 4. each stamp is signed under one of the keys the keyrings give its service, and links to the one before
  *    (BAD_SIGNATURE, BROKEN_LINK);
  *    with `signers`, each is by the expected service and instance, or it is BAD_SIGNATURE; then each
- *    stamp's rcv is the next stamp's svc and the last's is `receiver` (BINDING_MISMATCH);
+ *    stamp's rcv addresses the next stamp's svc, naming it or an operation of it, and the last's is `receiver`
+ *    (BINDING_MISMATCH);
  * 5. every stamp carries the record's rid (RID_MISMATCH);
  * 6. every stamp is in the session (SESSION_UNKNOWN);
  * 7. in place of the live freshness window, which has no clock to be fresh against offline: the last stamp's
@@ -78,8 +79,8 @@ export type OfflineResult = VerifyResult;
  * 9. and commits to the influence its token holds (INFLUENCE_MISMATCH);
  * 10. its nonce key has not been spent anywhere in the record set (REPLAY), which a live cache that forgets
  *     after its window cannot show;
- * 11. the route, the chain's services then the receiver when `receiverInRoute`, is proven by the proof its token
- *     holds against a root with the proof's rootId (PATH_NOT_ALLOWED).
+ * 11. the route, the first service then each rcv (the last only when `receiverInRoute`), is proven by the
+ *     proof its token holds against a root with the proof's rootId (PATH_NOT_ALLOWED).
  * Checks 1 to 6, 8, 9 and 11 are the live verifier's own code.
  */
 export function verifyChainOffline(input: OfflineInput, cfg: OfflineConfig): OfflineResult {
@@ -127,7 +128,7 @@ export function verifyChainOffline(input: OfflineInput, cfg: OfflineConfig): Off
   cfg.seen.add(cfg.nonceKey);
 
   // 11. Route proven against a root that counts for the record.
-  return checkRoute(stamps, input.receiverInRoute ? input.receiver : undefined, readOrUndefined(input.proof), roots);
+  return checkRoute(stamps, input.receiverInRoute, readOrUndefined(input.proof), roots);
 }
 
 /** Whether `ts` is one of `run`, the run's recorded start times, or `run` is absent; never when it is not a Set. */

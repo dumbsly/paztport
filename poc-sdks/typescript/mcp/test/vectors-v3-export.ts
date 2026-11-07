@@ -347,7 +347,7 @@ function sharedPrimitives() {
   };
 }
 
-type PolicyName = "client" | "server" | "mesh" | "mesh-second" | "mesh-relabelled";
+type PolicyName = "client" | "server" | "mesh" | "mesh-second" | "mesh-relabelled" | "ops";
 
 /** A pinned keyring or root of a case with several: the keyring's service-to-key-name map or the root's policy, and its window. */
 type KeyringPin = { keyring: Record<string, KeyName>; notAfter?: number };
@@ -394,6 +394,8 @@ export function buildVectors(): Record<string, unknown> {
       proofs: relabelledProofs,
       proofTokens: Object.fromEntries(Object.entries(relabelledProofs).map(([route, p]) => [route, writeToken(p)])),
     },
+    // Routes whose nodes name operations: a node is a service, or a service and an operation joined by `#`.
+    ops: policy(["gateway/orders#createOrder/payment#charge", "gateway/orders#createOrder"]),
   };
   check("the second tree has its own rootId and root", [meshSecond.rootId !== mesh.rootId, meshSecond.root !== mesh.root], [true, true]);
   const [CALL_ROUTE, OTHER_ROUTE, LOCAL_ROUTE] = policies.client.routes as [string, string, string];
@@ -539,6 +541,29 @@ export function buildVectors(): Record<string, unknown> {
     live(callCase("bad signature beats bad receiver", { chain: strayForgedCall }), no("BAD_SIGNATURE")),
     live(callCase("route fails before peer", { proofRoute: OTHER_ROUTE, peer: { svc: "search", inst: "10.0.0.9" } }), no("PATH_NOT_ALLOWED", "search", "10.0.0.9")),
     live({ ...responseCase, name: "response to wrong receiver", receiver: "other" }, no("BINDING_MISMATCH")),
+    // Operations named in rcv: a hop addresses the next service, with an operation of it or none, and the route carries them.
+    ...(() => {
+      const opsCase = (name: string, firstRcv: string, receiver: string, expected: Expected) => {
+        const first = stampBy({ svc: "gateway", inst: "gw-1", rid: "rid-2", ts: NOW - 1500, sess: "sess-2", rcv: firstRcv, bind: "bind-gateway-to-orders", infl: "", prev: "" }, "gateway");
+        const chain = [first, stampBy({ svc: "orders", inst: "ord-1", rid: "rid-2", ts: NOW - 500, sess: "sess-2", rcv: "payment#charge", bind: HTTP_BIND, infl: "", prev: first.sig }, "orders")];
+        return live(
+          {
+            name, chain, expectedBind: HTTP_BIND, influence: [], policy: "ops", proofRoute: "gateway/orders#createOrder/payment#charge", receiver,
+            receiverInRoute: true, peer: null, keyring: { gateway: "gateway", orders: "orders" }, allowedOrigins: ["gateway"], sess: "sess-2",
+            nonceKey: "rid-2|orders|req", uses: 1,
+          },
+          expected,
+        );
+      };
+      return [
+        opsCase("an operation named in rcv", "orders#createOrder", "payment#charge", ok("orders", "ord-1")),
+        opsCase("a chain naming another operation", "orders#createOrder", "payment#refund", no("BINDING_MISMATCH")),
+        opsCase("an operation, at a receiver that names none", "orders#createOrder", "payment", no("BINDING_MISMATCH")),
+        opsCase("an inner rcv naming another service's operation", "search#find", "payment#charge", no("BINDING_MISMATCH")),
+        opsCase("an empty operation", "orders#", "payment#charge", no("BINDING_MISMATCH")),
+        opsCase("a proof for another operation's route", "orders#getOrder", "payment#charge", no("PATH_NOT_ALLOWED", "orders", "ord-1")),
+      ];
+    })(),
     // Malformed rcv fields.
     // A stamp whose version is not the current one, beside a current one.
     live(callCase("a stamp whose v is not 3", { chain: wrongVersionCall }), no("CHAIN_MISSING")),
