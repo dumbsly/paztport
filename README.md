@@ -365,17 +365,17 @@ What Paztport needs from a deployment, and what it deliberately doesn't cover ye
   transport's authenticated sender (`PEER_MISMATCH`) only when it is given one. The
   Java mesh gives it one: every hop is mutual TLS, and `payment` takes the service
   named in the client certificate as the sender
-  ([check 12](poc-demos/java-mesh/README.md#the-verification-pipeline)). The SDKs
-  terminate TLS themselves, so the peer check sees the peer's certificate
-  first-hand. Behind a sidecar mesh (Istio's or Linkerd's per-pod proxy), mutual
-  TLS ends at the sidecar and the application sees only a local connection, so the
-  peer would be a header the sidecar asserts. That is a different trust model, in
-  which the application must be reachable only through its sidecar, and the SDKs
-  don't support it today. The agents demo runs over stdio, which has no TLS, so
-  there the check is skipped and the last signer is known only by its signature.
-  This also decides who can blame a replica.
-  Without a peer, the instance in a stamp is reported by the service that signed it.
-  The responder refuses a container that doesn't run the named service, but a
+  ([check 12](poc-demos/java-mesh/README.md#the-verification-pipeline)). Each service
+  terminates TLS in its own process, and the SDK reads the peer's certificate from
+  it, so the peer check sees it first-hand. Behind a sidecar mesh (Istio's or
+  Linkerd's per-pod proxy), mutual TLS ends at the sidecar and the application sees
+  only a local connection, so the peer would be a header the sidecar asserts. That
+  is a different trust model, in which the application must be reachable only
+  through its sidecar, and the SDKs don't support it today. The agents demo runs
+  over stdio, which has no TLS, so there the check is skipped and the last signer is
+  known only by its signature. This also decides who can blame a replica. Without a
+  peer, the instance in a stamp is reported by the service that signed it. The
+  responder refuses a container that doesn't run the named service, but a
   compromised service can still name any replica of itself. With a peer, a rejection
   names the sender's own TCP address instead, which the responder resolves to a
   container on the mesh network, so a replica can only be blamed for what it sent.
