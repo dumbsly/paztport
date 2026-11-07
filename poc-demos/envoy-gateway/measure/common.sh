@@ -856,8 +856,8 @@ processor_replicas() {
 }
 
 # processor_outcomes: the requests the processor's running pods decided, by outcome, added up over the pods:
-# "stamped=<n> refused_route=<n> refused_material=<n> refused_body=<n> refused_error=<n>". A pod that started again
-# counts from zero, so read processor_restarts beside it.
+# "stamped=<n> refused_route=<n> refused_material=<n> refused_body=<n> refused_error=<n>
+# abandoned=<n>". A pod that started again counts from zero, so read processor_restarts beside it.
 processor_outcomes() {
   local pod ip text texts="" outcome line="" n
   for pod in $(processor_pods); do
@@ -868,7 +868,7 @@ processor_outcomes() {
     }
     texts+="$text"$'\n'
   done
-  for outcome in stamped refused_route refused_material refused_body refused_error; do
+  for outcome in stamped refused_route refused_material refused_body refused_error abandoned; do
     n=$(metric_sum "$texts" "paztport_edge_requests_total{outcome=\"$outcome\"}")
     line+="$outcome=$n "
   done

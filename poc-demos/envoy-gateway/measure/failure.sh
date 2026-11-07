@@ -169,7 +169,7 @@ outcomes_by_pod() {
     ip=$(kn get pod "$pod" -o jsonpath='{.status.podIP}')
     line="$pod $(pod_restarts "$pod")"
     if text=$(kn exec checks -- curl -sf --max-time 10 "http://$ip:9090/metrics" 2>/dev/null); then
-      for outcome in stamped refused_route refused_material refused_body refused_error; do
+      for outcome in stamped refused_route refused_material refused_body refused_error abandoned; do
         line+=" $outcome=$(metric_sum "$text" "paztport_edge_requests_total{outcome=\"$outcome\"}")"
       done
     else

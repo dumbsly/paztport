@@ -468,8 +468,8 @@ func TestStampsABodyInChunksOnceOverTheWholeBody(t *testing.T) {
 	}
 }
 
-// TestNeverAnswersABodyThatNeverCompletes leaves a body whose stream never ends unanswered, so Envoy's
-// message timeout refuses it, and reports it refused, whether the stream closes or is cancelled.
+// TestNeverAnswersABodyThatNeverCompletes leaves a body whose stream never ends unanswered, and reports
+// the request abandoned when the stream ends, whether it closes or is cancelled.
 func TestNeverAnswersABodyThatNeverCompletes(t *testing.T) {
 	for _, end := range []error{nil, status.Error(codes.Canceled, "context canceled")} {
 		f := newFixture(t)
@@ -481,7 +481,27 @@ func TestNeverAnswersABodyThatNeverCompletes(t *testing.T) {
 			t.Fatalf("got %d responses, want only the headers answer", len(out))
 		}
 		waitsForTheBody(t, out[0], post)
-		f.observed(t, edge.RefusedBody)
+		f.observed(t, edge.Abandoned)
+	}
+}
+
+// TestAbandonsARequestWhoseStreamEndsAfterTheHeadersAnswer reports the request abandoned when its stream
+// ends with no body message at all, as when Envoy stops waiting for the headers answer, whether the
+// stream closes or is cancelled.
+func TestAbandonsARequestWhoseStreamEndsAfterTheHeadersAnswer(t *testing.T) {
+	for _, end := range []error{nil, status.Error(codes.Canceled, "context canceled")} {
+		f := newFixture(t)
+		out, err := f.run(end, requestHeaders(false, post...))
+		if end != nil && !errors.Is(err, end) {
+			t.Errorf("Process = %v, want %v", err, end)
+		}
+		if len(out) != 1 {
+			t.Fatalf("got %d responses, want only the headers answer", len(out))
+		}
+		waitsForTheBody(t, out[0], post)
+		if o := f.observed(t, edge.Abandoned); o.BodyBytes != 0 {
+			t.Fatalf("observed a body of %d bytes, want none", o.BodyBytes)
+		}
 	}
 }
 

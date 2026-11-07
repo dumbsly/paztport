@@ -546,6 +546,7 @@ func TestMetricsMoveWithEachRequest(t *testing.T) {
 		`paztport_edge_requests_total{outcome="refused_material"} 0`,
 		`paztport_edge_requests_total{outcome="refused_body"} 0`,
 		`paztport_edge_requests_total{outcome="refused_error"} 0`,
+		`paztport_edge_requests_total{outcome="abandoned"} 0`,
 		`paztport_edge_stamp_seconds_count 0`,
 		`paztport_edge_body_bytes_count 0`,
 		`paztport_edge_material_seconds_left 3599`,

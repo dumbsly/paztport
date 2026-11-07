@@ -15,7 +15,7 @@ import (
 
 // outcomes are every outcome a request can have, each counted from zero.
 var outcomes = []edge.Outcome{
-	edge.Stamped, edge.RefusedRoute, edge.RefusedMaterial, edge.RefusedBody, edge.RefusedError,
+	edge.Stamped, edge.RefusedRoute, edge.RefusedMaterial, edge.RefusedBody, edge.RefusedError, edge.Abandoned,
 }
 
 // metrics are the processor's own metrics, in a registry of their own with the Go runtime's and the
@@ -33,8 +33,8 @@ func newMetrics(set *material.Set, now func() time.Time) *metrics {
 		registry: prometheus.NewRegistry(),
 		requests: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "paztport_edge_requests_total",
-			Help: "Requests the edge decided, by outcome: stamped, or refused for its route, its material, its body " +
-				"or anything else.",
+			Help: "Requests the edge decided, by outcome: stamped; refused for its route, its material, its body " +
+				"or anything else; or abandoned, its stream ended before the edge decided it.",
 		}, []string{"outcome"}),
 		stamp: prometheus.NewHistogram(prometheus.HistogramOpts{
 			Name: "paztport_edge_stamp_seconds",

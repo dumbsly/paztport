@@ -38,12 +38,16 @@ const (
 	RefusedRoute Outcome = "refused_route"
 	// RefusedMaterial is a request refused because the edge's policy material has expired.
 	RefusedMaterial Outcome = "refused_material"
-	// RefusedBody is a request whose body the edge could not stamp whole: over the limit, never ending,
-	// or ending in trailers.
+	// RefusedBody is a request whose body the edge could not stamp whole: over the limit, or ending in
+	// trailers.
 	RefusedBody Outcome = "refused_body"
 	// RefusedError is a request refused for anything else: a stream that is not one buffered request, no
 	// single :method or :path, or a request the SDK would not stamp.
 	RefusedError Outcome = "refused_error"
+	// Abandoned is a request whose stream ended before the edge decided it. The edge cannot tell whether
+	// the client went away, the body never arrived whole, or Envoy stopped waiting for the edge's answer.
+	// It is not a refusal: the edge sent nothing.
+	Abandoned Outcome = "abandoned"
 )
 
 // Observation is what the edge reports of one request, once it is decided.
@@ -138,8 +142,8 @@ func New(cfg Config) (*Processor, error) {
 // Paztport refusal: 403 for a route it does not stamp for, 413 for a body over the limit, and 500 for
 // anything else: route metadata it cannot read, material that has expired, a request that ends in
 // trailers, a stream that is not one buffered request, or a request the SDK would not stamp. It never
-// lets a request go on without the stamp. A body that never ends is never answered, so Envoy's message
-// timeout refuses it.
+// lets a request go on without the stamp. A body that never ends is never answered: Envoy v1.40.2 starts
+// no message timer while it buffers a body, so the stream's end decides the request abandoned.
 //
 // At the response headers and trailers, it removes every Paztport header; it passes the response body as
 // it is. Response headers that arrive before the stamp are passed on in the same way: while Envoy honours
@@ -426,11 +430,12 @@ func (r *request) refuse(outcome Outcome, ref refusal) (*extprocv3.ProcessingRes
 	}}, true
 }
 
-// ended decides a request whose stream ended before it was decided: one whose body never ended. A stream
-// that ended before any message carried no request.
+// ended decides a request whose stream ended before it was decided, after the headers were answered, as
+// abandoned: the edge sent nothing, and cannot tell why the stream ended. A stream that ended before any
+// message carried no request.
 func (r *request) ended() {
 	if r.phase == awaitingBody {
-		r.decide(Observation{Outcome: RefusedBody, BodyBytes: len(r.body)})
+		r.decide(Observation{Outcome: Abandoned, BodyBytes: len(r.body)})
 	}
 }
 

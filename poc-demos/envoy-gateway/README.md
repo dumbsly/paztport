@@ -284,7 +284,7 @@ material has expired (the processor then refuses every request) and while it shu
 
 | Metric | Type | What it counts |
 |---|---|---|
-| `paztport_edge_requests_total{outcome}` | counter | each request the edge decided: `stamped`, `refused_route`, `refused_material`, `refused_body` or `refused_error` |
+| `paztport_edge_requests_total{outcome}` | counter | each request the edge decided: `stamped`, `refused_route`, `refused_material`, `refused_body`, `refused_error` or `abandoned` (its stream ended before the edge decided it: Envoy stopped waiting, or the client or the body never finished). `stamped` counts requests the edge stamped and answered, not requests delivered: Envoy may still give up before a late answer arrives, which its `message_timeouts` counts |
 | `paztport_edge_stamp_seconds` | histogram | how long stamping each stamped request took |
 | `paztport_edge_body_bytes` | histogram | the size of each decided request's body |
 | `paztport_edge_material_seconds_left` | gauge | how long the material stays ready; below zero once it has expired |
