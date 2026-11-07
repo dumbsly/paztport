@@ -47,6 +47,8 @@ type fakeStream struct {
 	in  []*extprocv3.ProcessingRequest
 	out []*extprocv3.ProcessingResponse
 	end error
+	// sendErr, when set, is what Send returns, after recording the response.
+	sendErr error
 }
 
 func (f *fakeStream) Context() context.Context { return context.Background() }
@@ -65,7 +67,7 @@ func (f *fakeStream) Recv() (*extprocv3.ProcessingRequest, error) {
 
 func (f *fakeStream) Send(r *extprocv3.ProcessingResponse) error {
 	f.out = append(f.out, r)
-	return nil
+	return f.sendErr
 }
 
 // fixture is one processor over test material, with what it reports.
@@ -483,6 +485,18 @@ func TestNeverAnswersABodyThatNeverCompletes(t *testing.T) {
 		waitsForTheBody(t, out[0], post)
 		f.observed(t, edge.Abandoned)
 	}
+}
+
+// TestAbandonsARequestWhoseHeadersAnswerCannotBeSent reports the request abandoned when sending the
+// headers answer fails, since the stream is over before the edge decided the request.
+func TestAbandonsARequestWhoseHeadersAnswerCannotBeSent(t *testing.T) {
+	f := newFixture(t)
+	sendErr := status.Error(codes.Unavailable, "transport is closing")
+	s := &fakeStream{in: []*extprocv3.ProcessingRequest{requestHeaders(false, post...)}, sendErr: sendErr}
+	if err := f.p.Process(s); !errors.Is(err, sendErr) {
+		t.Fatalf("Process = %v, want %v", err, sendErr)
+	}
+	f.observed(t, edge.Abandoned)
 }
 
 // TestAbandonsARequestWhoseStreamEndsAfterTheHeadersAnswer reports the request abandoned when its stream

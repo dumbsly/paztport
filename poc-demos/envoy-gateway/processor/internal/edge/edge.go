@@ -46,7 +46,7 @@ const (
 	RefusedError Outcome = "refused_error"
 	// Abandoned is a request whose stream ended before the edge decided it. The edge cannot tell whether
 	// the client went away, the body never arrived whole, or Envoy stopped waiting for the edge's answer.
-	// It is not a refusal: the edge sent nothing.
+	// It is not a refusal: the edge sent no answer that decides it.
 	Abandoned Outcome = "abandoned"
 )
 
@@ -163,6 +163,7 @@ func (p *Processor) Process(stream extprocv3.ExternalProcessor_ProcessServer) er
 		resp, done := r.handle(msg)
 		if resp != nil {
 			if err := stream.Send(resp); err != nil {
+				r.ended()
 				return err
 			}
 		}
@@ -431,7 +432,7 @@ func (r *request) refuse(outcome Outcome, ref refusal) (*extprocv3.ProcessingRes
 }
 
 // ended decides a request whose stream ended before it was decided, after the headers were answered, as
-// abandoned: the edge sent nothing, and cannot tell why the stream ended. A stream that ended before any
+// abandoned: the edge sent no answer that decides it, and cannot tell why the stream ended. A stream that ended before any
 // message carried no request.
 func (r *request) ended() {
 	if r.phase == awaitingBody {

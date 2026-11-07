@@ -6,9 +6,9 @@ Attaches the processor to the routes, and has Envoy reach it over mutual TLS. Wh
 and extraRoutes is empty, there is nothing to attach to, and the chart makes no EnvoyExtensionPolicy (the
 BackendTLSPolicy stays).
 
-The filter fails closed (failOpen: false): a processor that fails, is unreachable or does not answer within
-messageTimeout is a refusal (500). It sends the request's headers with the matched route's metadata, from which the
-processor names the HTTPRoute, and buffers the whole body before sending it. It sends the response's headers, and
+The filter fails closed (failOpen: false): a processor that fails or is unreachable is a refusal (500), and one
+that does not answer within messageTimeout is answered 504 by Envoy itself. It sends the request's headers
+with the matched route's metadata, from which the processor names the HTTPRoute, and buffers the whole body before sending it. It sends the response's headers, and
 not its body, so that the processor can remove every Paztport header from the response. It allows mode overrides: the
 processor's answer to headers that a body follows asks for the request's trailers too (restating these same body
 and response modes), so that a request ending in trailers with no body reaches the processor, and is refused,

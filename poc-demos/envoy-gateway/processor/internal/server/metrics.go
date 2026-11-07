@@ -33,7 +33,7 @@ func newMetrics(set *material.Set, now func() time.Time) *metrics {
 		registry: prometheus.NewRegistry(),
 		requests: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "paztport_edge_requests_total",
-			Help: "Requests the edge decided, by outcome: stamped; refused for its route, its material, its body " +
+			Help: "Requests the edge handled, by outcome: stamped; refused for its route, its material, its body " +
 				"or anything else; or abandoned, its stream ended before the edge decided it.",
 		}, []string{"outcome"}),
 		stamp: prometheus.NewHistogram(prometheus.HistogramOpts{
