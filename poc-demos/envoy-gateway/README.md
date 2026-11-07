@@ -786,11 +786,11 @@ One full run, `./run envoy-gateway measure`, on 2026-11-07 from 14:15Z (results 
 M5 Pro Mac (the model is the host's; the run prints only its Docker Desktop VM's 18 CPUs and 19.5 GiB of memory), one
 kind node. Every number is indicative. The run used Envoy Gateway v1.10.0, Envoy v1.40.2, Kubernetes 1.37.0, k6 2.3.0
 and a Temurin 25.0.5_8 JRE for `orders` and `payment`. A median is followed by the lowest and highest of its runs, in
-brackets; a single run says so. In the status counts, `other` is a reset or a timeout, which k6 does not separate.
-macOS's idle sleep was held off for the run (`caffeinate -i`). Every k6 run kept to its time, and every run that must
-keep its offered rate kept it: 293 pace lines, all passed (see [Measuring it](#measuring-it)). The run exits 1 for one
-known line, `failure`'s "nothing reached echo unstamped" in the case with every processor replica gone, and its
-suite-end total: the recovery leak in [Findings](#findings). Every other line passed.
+brackets; a single run says so. macOS's idle sleep was held off for the run (`caffeinate -i`). Every k6 run kept to
+its time, and every run that must keep its offered rate kept it: 293 pace lines, all passed (see
+[Measuring it](#measuring-it)). The run exits 1 for one known line, `failure`'s "nothing reached echo unstamped" in the
+case with every processor replica gone, and its suite-end total: the recovery leak in [Findings](#findings). Every
+other line passed.
 
 ### `load`
 
@@ -813,9 +813,9 @@ rate, every response a 200), 400-byte bodies.
 | 2 | 14000/s (10000-14000) | 14000/s (10000-14000) |
 | 4 | 14000/s (12000-14000) | 16000/s (14000-16000) |
 
-At one and two replicas the two routes have the same median, so there the ramps say nothing of what the processor
-adds. On one replica, `echo`'s p50 at 7000, 8000 and 10000/s was 1.35, 6.60 and 24.79 ms in the first round; plain
-Envoy's stayed near 0.2 ms.
+At one and two replicas the two routes have the same median, so there the ramps do not show what the processor costs
+in throughput. On one replica, `echo`'s p50 at 7000, 8000 and 10000/s was 1.35, 6.60 and 24.79 ms in the first round;
+plain Envoy's stayed near 0.2 ms.
 
 | Past saturation, one replica, 60 s | Requests | 200 | Envoy's 500 (`cluster_rq_active_overflow`) | k6 dropped | Stamped | Unstamped at `echo` |
 |---|---|---|---|---|---|---|
@@ -861,7 +861,7 @@ each.
 
 In the slowed case, the 504s are Envoy's `message_timeouts` (+4081), and the 500s its circuit breaker on the
 processor's cluster (`cluster_rq_active_overflow` +8). The slowed pod counted `abandoned` +3782, so 299 of the requests
-Envoy gave up on (4081 less 3782) the pod stamped and answered after Envoy had stopped waiting.
+Envoy gave up on (4081 less 3782) the pod stamped and answered, the answer reaching Envoy after it had stopped waiting.
 
 The processor's share of 140001 requests at 7000/s: 50.0% and 50.0% routing to endpoints, 58.3% and 41.7% routing to
 the Service.
@@ -903,9 +903,10 @@ At 1000/s on `orders-adopt`, one run a step.
 | 2, the processor attached (backends without Paztport) | 90001 | 0 | | none: neither verifies yet; Envoy's 79820 streams to the processor, the pods' 79820 stamps |
 | 3, `orders` then `payment` into `enforce` | 150001 | 199 (500) | 5.420 s | `orders` `OK` 135291; `payment` `OK` 131014; no `EXPIRED`; `CHAIN_MISSING` 0 |
 
-In step 2, Envoy started its streams from when it served the route with the filter, 0.70 s into the change, so the
-79820 are fewer than the run's 90001 requests. After step 3, `orders` counted `response checked CHAIN_MISSING` 4078
-(payment's responses before it ran Paztport). A request straight to `orders`, past the Gateway: 403 `CHAIN_MISSING`.
+In step 2, Envoy started its streams from when it served the route with the filter, 10.52 s into the run (0.70 s into
+the change), so the 79820 are fewer than the run's 90001 requests. After step 3, `orders` counted
+`response checked CHAIN_MISSING` 4078 (payment's responses before it ran Paztport). A request straight to `orders`, past
+the Gateway: 403 `CHAIN_MISSING`.
 
 ### `route`
 
@@ -931,13 +932,14 @@ The overlap against the old way, as the suite sums them; one run of each, so no 
 | not 200 on `orders`, material refusals apart (age refusals included) | 4716 (403: 420; 500: 4270; 503: 26), the suite's sum | 1994 (403: 149; 500: 1845): k6's 5770 non-200s less `orders`' 3776 `PATH_NOT_ALLOWED` |
 | load on `/pay` | 11302 requests, from just before its route was applied through step 3's rollouts; 189 404s before it was served, 183 errors | 6601, only after the rollouts, since its route comes after them; 186 404s before it was served, no error |
 
-The overlap's other errors outnumber the old way's, 4716 to 1994, 2.6 times the requests (390002 against 150001).
-Most of them came in its step 3 (4526), which, like the old way's one step, rolls the backends and the processor
-together; in both, most of the 500s were Envoy's circuit breaker on the processor's cluster as its pods rolled
-(`cluster_rq_active_overflow` +3818 in step 3, +1592 in the old way). That step 3 cost more than the old way is one run
-of each, and the run does not say why. What the overlap closes is the refusals for material. A stamp under the new
-tree was accepted while `orders`' own root was still the old one (20 of 20), and one under the old tree refused
-`PATH_NOT_ALLOWED` once it was unpinned (20 of 20).
+The overlap's other errors outnumber the old way's, 4716 to 1994, on 2.6 times the requests (390002 against 150001):
+1.21% of its requests against 1.33%. Most of them came in its step 3 (4526), which, like the old way's one step, rolls
+the backends and the processor together. In both, most of the 500s were Envoy's circuit breaker on the processor's
+cluster (`cluster_rq_active_overflow` +3818 in step 3, +1592 in the old way), as in rotation's last step, where only the
+backends rolled (+4439); [Findings](#findings) has a reading of it, not measured. That step 3 cost more than the old
+way is one run of each, and the run does not say why. What the overlap closes is the refusals for material. A stamp
+under the new tree was accepted while `orders`' own root was still the old one (20 of 20), and one under the old tree
+refused `PATH_NOT_ALLOWED` once it was unpinned (20 of 20).
 
 ### `rotation`
 
@@ -949,6 +951,6 @@ The edge's key rotated at 1000/s on `orders`, one run a step.
 | 2, the processor takes the new key and keyring | 90000 | 0 | | `OK` only |
 | 3, the old keyring unpinned | 150000 | 5504 (403: 212, 500: 4958, 503: 334) | 7.680 s | `orders` `EXPIRED` 212, `payment` `EXPIRED` 78; `cluster_rq_active_overflow` +4439 |
 
-A stamp under the new key was accepted while the backends' keyring was still the old one (20 of 20), and one under
-the old key refused `BAD_SIGNATURE` once it was unpinned (20 of 20). No request reached a backend without a stamp in
-any step of `rollout`, `route` or `rotation`.
+A stamp under the new key was accepted while `orders`' own keyring was still the old one (20 of 20), and one under
+the old key refused `BAD_SIGNATURE` once it was unpinned (20 of 20). No request reached a backend running Paztport
+without a stamp (`CHAIN_MISSING` 0 in every trace) in any step of `rollout`, `route` or `rotation`.
