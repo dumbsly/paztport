@@ -4,5 +4,5 @@
   "workspaces": ["core", "mcp", "policy-tool"],
   "scripts": {"test": "vitest run", "check": "tsc -p ."},
   "engines": {"node": ">=22.19"},
-  "devDependencies": {"typescript": "5.9.3", "vitest": "3.2.4", "@types/node": "22.18.0"}
+  "devDependencies": {"typescript": "5.9.3", "vitest": "4.1.12", "@types/node": "22.18.0"}
 }
