@@ -931,7 +931,7 @@ The overlap against the old way, as the suite sums them; one run of each, so no 
 | not 200 on `orders`, material refusals apart (age refusals included) | 4716 (403: 420; 500: 4270; 503: 26), the suite's sum | 1994 (403: 149; 500: 1845): k6's 5770 non-200s less `orders`' 3776 `PATH_NOT_ALLOWED` |
 | load on `/pay` | 11302 requests, from just before its route was applied through step 3's rollouts; 189 404s before it was served, 183 errors | 6601, only after the rollouts, since its route comes after them; 186 404s before it was served, no error |
 
-The overlap's other errors outnumber the old way's, 4716 to 1994, over 2.6 times the requests (390002 against 150001).
+The overlap's other errors outnumber the old way's, 4716 to 1994, 2.6 times the requests (390002 against 150001).
 Most of them came in its step 3 (4526), which, like the old way's one step, rolls the backends and the processor
 together; in both, most of the 500s were Envoy's circuit breaker on the processor's cluster as its pods rolled
 (`cluster_rq_active_overflow` +3818 in step 3, +1592 in the old way). That step 3 cost more than the old way is one run
