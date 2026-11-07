@@ -56,7 +56,8 @@ public final class Stamper {
      * Stamps an outbound call to {@code receiver}, committing the influence that shaped it.
      *
      * @throws IllegalArgumentException when this service's name or {@code receiver} is not a route node (see
-     *     {@link Routes#requireValidNode}); nothing is signed
+     *     {@link Routes#requireValidNode}), this service's name holds {@code #}, or a {@code receiver} holding
+     *     {@code #} lacks a valid service part or a non-empty operation part; nothing is signed
      */
     public Stamped next(List<Stamp> inbound, String receiver, String bind, List<InfluenceEntry> influence,
             ProofBundle bundle) {
@@ -98,7 +99,8 @@ public final class Stamper {
      * accepted. Pass only a chain that verified at this service.
      *
      * @throws IllegalArgumentException when {@code sess} is empty, or this service's name or {@code partnerEntry} is
-     *     not a route node; nothing is signed
+     *     not a route node, this service's name holds {@code #}, or a {@code partnerEntry} holding {@code #} lacks a
+     *     valid service part or a non-empty operation part; nothing is signed
      */
     public Stamped boundary(List<Stamp> verifiedInternal, String sess, String partnerEntry, String bind,
             List<InfluenceEntry> influence, ProofBundle bundle) {
@@ -133,9 +135,11 @@ public final class Stamper {
     }
 
     /**
-     * The one place a stamp is signed. Both names must be route nodes, as a policy can hold nothing else: a stamp
-     * over any other could never verify, so none is made. {@link Stamp} does not check this, because verifiers
-     * rebuild signing bytes with it and must refuse such a stamp by their own checks, not by an exception.
+     * The one place a stamp is signed. Both names must be route nodes, as a policy can hold nothing else, and the
+     * signing service's name must also hold no {@code #}. A receiver holding {@code #} needs a valid service part and
+     * a non-empty operation part. A stamp over any other could never verify, so none is made. {@link Stamp} does not
+     * check this, because verifiers rebuild signing bytes with it and must refuse such a stamp by their own checks,
+     * not by an exception.
      */
     private Stamp sign(String rid, String sess, String receiver, String bind, String infl, String prev) {
         requireService(svc, "the signing service");

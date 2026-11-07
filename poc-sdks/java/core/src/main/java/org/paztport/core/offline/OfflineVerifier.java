@@ -106,8 +106,7 @@ public final class OfflineVerifier {
         seen.add(in.nonceKey());
 
         // 11. Route proven against a root that counts for the record.
-        VerifyResult routed = ChainChecks.checkRoute(stamps, in.receiverInRoute(), in.proof(),
-                roots);
+        VerifyResult routed = ChainChecks.checkRoute(stamps, in.receiverInRoute(), in.proof(), roots);
         return new OfflineResult(routed.reason(), routed.suspectSvc(), routed.suspectInst());
     }
 

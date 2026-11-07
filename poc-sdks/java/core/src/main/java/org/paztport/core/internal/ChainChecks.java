@@ -102,8 +102,8 @@ public final class ChainChecks {
      * is allowed (BAD_ORIGIN), each stamp is signed under one of the keys {@code keyrings}, the current ones, give
      * its service ({@link #keysFor}) and links to the one before (BAD_SIGNATURE, BROKEN_LINK), then each stamp's
      * {@code rcv} addresses the next stamp's service, bare or with {@code #} and a non-empty operation, and the last's
-     * names the receiver exactly (BINDING_MISMATCH), every stamp
-     * carries the rid (RID_MISMATCH) and the session (SESSION_UNKNOWN). With {@code signers}, a stamp from another
+     * names the receiver exactly (BINDING_MISMATCH), every stamp carries the rid (RID_MISMATCH) and the session
+     * (SESSION_UNKNOWN). With {@code signers}, a stamp from another
      * service or instance than expected is not one the expected key signed: BAD_ORIGIN for the origin's instance,
      * BAD_SIGNATURE for any other. The result carries the stamps, or the first failure.
      */

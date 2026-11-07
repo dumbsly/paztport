@@ -40,8 +40,8 @@ import org.paztport.core.stamp.Stamp;
  * <li>the last stamp binds {@code expectedBind} (BINDING_MISMATCH);
  * <li>and commits to the influence (INFLUENCE_MISMATCH);
  * <li>its nonce key is new to the cache (REPLAY);
- * <li>the route, each {@code rcv} after the origin's service, is proven against a current root with the proof's
- *     {@code rootId} (PATH_NOT_ALLOWED);
+ * <li>the route, each {@code rcv} after the origin's service with the last left off unless {@code receiverInRoute},
+ *     is proven against a current root with the proof's {@code rootId} (PATH_NOT_ALLOWED);
  * <li>with a peer, the peer's service is the last signer (PEER_MISMATCH).
  * </ol>
  *
@@ -129,8 +129,7 @@ public final class Verifier {
 
         // 11. Route built from the stamps' rcv and proven against a current root; the receiver ends it only when it
         // is on the route.
-        VerifyResult routed = ChainChecks.checkRoute(stamps, in.receiverInRoute(), in.proof(),
-                roots);
+        VerifyResult routed = ChainChecks.checkRoute(stamps, in.receiverInRoute(), in.proof(), roots);
         if (!routed.ok()) {
             return routed;
         }

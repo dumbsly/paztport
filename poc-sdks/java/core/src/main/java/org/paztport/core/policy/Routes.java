@@ -6,10 +6,10 @@ package org.paztport.core.policy;
 import java.util.List;
 
 /**
- * The one place a route becomes a string. A policy leaf, a stamp chain plus its
- * receiver at verification, and an outbound proof lookup must all agree on the
- * exact text, since the Merkle leaf is the route string itself: service names
- * joined with {@code /}.
+ * The one place a route becomes a string. A policy leaf, a chain's origin service
+ * then each stamp's {@code rcv} at verification, and an outbound proof lookup must
+ * all agree on the exact text, since the Merkle leaf is the route string itself:
+ * nodes joined with {@code /}, each a service or {@code <service>#<operation>}.
  */
 public final class Routes {
 
@@ -49,7 +49,7 @@ public final class Routes {
 
     /**
      * The service a route node names: the text before the first {@code #}, or the whole node when it has none. A
-     * node is {@code <service>} or {@code <service>#<operation>}; policy, keyrings and bundles are keyed by service.
+     * node is {@code <service>} or {@code <service>#<operation>}; policy and keyrings are keyed by service.
      */
     public static String service(String node) {
         int hash = node.indexOf('#');
