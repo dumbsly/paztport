@@ -55,6 +55,12 @@ import org.slf4j.LoggerFactory;
  * entries as received. Influence that cannot be read is never dropped, because dropping it could hide private data
  * from the rule: in every mode, a non-origin service refuses it {@code 400 {"reason":"INFLUENCE_MISMATCH"}}.
  *
+ * <p>A chain may name this service's operation ({@code rcv} {@code <service>#<operation>}). The adapter passes the
+ * operation its framework will dispatch the request to ({@link InboundRequest#operation}), and the request is
+ * verified as received by {@code <service>#<operation>}, so a chain naming another operation, or one when the
+ * framework dispatches to none, is refused {@code BINDING_MISMATCH}. A chain that names no operation is verified
+ * under the service alone, whatever is dispatched. The trace line names the receiver as it was verified.
+ *
  * <p>An origin starts every request tree afresh: it ignores the inbound chain and influence, so its handler starts
  * from none, and it never attests.
  *
@@ -226,6 +232,7 @@ public final class HttpReceiver {
         ParsedChain parsed = Chains.parse(chain);
         List<Stamp> received = stamps(parsed);
         List<Stamp> inbound = origin ? null : received;
+        String named = receiverFor(receiver, received, request.operation());
         String rid = received != null ? received.get(0).rid() : "";
         carried.accept(inbound);
         if (listener != null) {
@@ -242,7 +249,7 @@ public final class HttpReceiver {
         NonceCacheUnavailableException cacheFailure = null;
         if (mode != VerificationMode.OFF) {
             VerifyInput input = VerifyInputs.request(chain, parsed, proofHeader, influenceHeader, request.method(),
-                    request.target(), request.body(), receiver, peer);
+                    request.target(), request.body(), named, peer);
             try {
                 checked = verifier.verify(input);
             } catch (NonceCacheUnavailableException e) {
@@ -256,7 +263,7 @@ public final class HttpReceiver {
                     return Accepted.unavailable(cacheFailure);
                 }
             } else {
-                trace(traceLine(rid, checked, receiver, peer, influence));
+                trace(traceLine(rid, checked, named, peer, influence));
                 if (!checked.ok()) {
                     publisher.publish(new AttestationEvent(checked.reason().name(), checked.suspectSvc(),
                             checked.suspectInst(), rid, mode == VerificationMode.AUDIT));
@@ -281,8 +288,8 @@ public final class HttpReceiver {
             // published. Run at most once per request, since the live order spends the request's nonce.
             try {
                 checked = verifier.verify(VerifyInputs.request(chain, parsed, proofHeader, influenceHeader,
-                        request.method(), request.target(), request.body(), receiver, peer));
-                trace(traceLine(rid, checked, receiver, peer, influence));
+                        request.method(), request.target(), request.body(), named, peer));
+                trace(traceLine(rid, checked, named, peer, influence));
                 verified = checked.ok();
             } catch (NonceCacheUnavailableException e) {
                 cacheFailure = cacheUnavailable(e);
@@ -290,6 +297,20 @@ public final class HttpReceiver {
         }
         return Accepted.served(inbound, verified, origin ? List.of() : influence,
                 attesting && checked != null && checked.ok() ? stamper : null, checked, cacheFailure);
+    }
+
+    /**
+     * The name this request is verified under: {@code service#operation} when the chain's last stamp names an
+     * operation and the framework dispatched to one, otherwise the bare service. Nothing here is trusted from the
+     * claim; it only chooses which name the verifier confirms, so a request naming an operation the framework did not
+     * dispatch to is refused, and a chain naming none is verified under the service alone.
+     */
+    static String receiverFor(String service, List<Stamp> received, String operation) {
+        if (received != null && !received.isEmpty() && operation != null
+                && received.get(received.size() - 1).rcv().indexOf('#') >= 0) {
+            return service + "#" + operation;
+        }
+        return service;
     }
 
     /** Logs that the nonce cache could not answer: the cause's class only, never its message, a key or a stamp. */

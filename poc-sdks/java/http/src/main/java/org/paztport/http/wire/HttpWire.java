@@ -19,6 +19,7 @@ import org.paztport.core.internal.JsonReader;
 import org.paztport.core.internal.JsonValue;
 import org.paztport.core.internal.JsonWriter;
 import org.paztport.core.policy.MerkleProof;
+import org.paztport.core.policy.Routes;
 import org.paztport.core.stamp.Bindings;
 import org.paztport.core.stamp.Chains;
 import org.paztport.core.stamp.Stamp;
@@ -171,7 +172,8 @@ public final class HttpWire {
         List<String> chain = new ArrayList<>();
         sent.forEach(s -> chain.add(s.toJson()));
         chain.add(JsonWriter.text(attestation.get("stamp")));
-        String target = sent.get(sent.size() - 1).rcv();
+        // The nonce key names the service, not the operation: a response is one per call whatever the call invoked.
+        String target = Routes.service(sent.get(sent.size() - 1).rcv());
         VerifyResult result = verifier.verify(new VerifyInput("[" + String.join(",", chain) + "]", bind, NONE,
                 sentProof == null ? null : sentProof.toJson(), caller, false, rid + "|" + target + "|resp", null));
         return new ResponseCheck(result, result.ok() ? List.copyOf(labels) : List.of(), hash);

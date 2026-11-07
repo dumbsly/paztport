@@ -38,6 +38,7 @@ import org.paztport.core.influence.Influence;
 import org.paztport.core.influence.InfluenceClass;
 import org.paztport.core.influence.InfluenceEntry;
 import org.paztport.core.policy.Keyring;
+import org.paztport.core.policy.OperationTable;
 import org.paztport.core.policy.PolicyBuilder;
 import org.paztport.core.stamp.Chains;
 import org.paztport.core.stamp.Stamp;
@@ -358,6 +359,111 @@ class HttpCallerTest {
 
         NullPointerException e = assertThrows(NullPointerException.class, () -> builder.receivers(null));
         assertEquals("receivers", e.getMessage());
+    }
+
+    // --- Operations ---
+
+    private static final OperationTable ORDERS_TABLE = new OperationTable("orders", List.of(
+            new OperationTable.Operation("getOrder", "GET", "/orders/{}"),
+            new OperationTable.Operation("findOrders", "GET", "/orders")));
+
+    private final PolicyBuilder.Result opsPolicy = PolicyBuilder.build(
+            List.of(List.of("gateway", "orders#getOrder"), List.of("gateway", "orders#findOrders"),
+                    List.of("gateway", "payment")), 4, NOT_AFTER, Crypto.generateEd25519KeyPair().getPrivate());
+
+    private HttpCaller.Builder gatewayOpsCaller() {
+        return HttpCaller.builder("gateway", gatewayStamper()).bundle(opsPolicy.bundles().get("gateway"));
+    }
+
+    /** What gateway uses to check responses under the operations policy. */
+    private Verifier gatewayOpsVerifier() {
+        long notAfter = opsPolicy.signedRoot().notAfter();
+        return new Verifier(new VerifierConfig(
+                List.of(new PinnedKeyring(Keyring.of(Map.of("gateway", gateway.getPublic(), "orders",
+                        orders.getPublic())), notAfter)),
+                List.of(new PinnedRoot(opsPolicy.signedRoot().rootBytes(), opsPolicy.signedRoot().rootId(),
+                        notAfter)),
+                notAfter, Set.of("gateway"), "",
+                new InMemoryNonceCache(), () -> 2500L, 5000, 5000));
+    }
+
+    @Test
+    void namesTheOperationFromTheReceiversTable() {
+        HttpCaller caller = gatewayOpsCaller().operations(List.of(ORDERS_TABLE)).build();
+        URI uri = URI.create("https://orders:8080/orders/123");
+
+        HttpCaller.Outbound outside = caller.stamp("GET", uri, NO_BODY, null, List.of());
+        HttpCaller.Outbound inside;
+        try (RequestContext.Scope scope = RequestContext.open()) {
+            inside = caller.stampFromContext("GET", uri, NO_BODY);
+        }
+
+        for (HttpCaller.Outbound sent : List.of(outside, inside)) {
+            assertEquals("orders#getOrder", chainOf(sent.headers()).get(0).rcv());
+            assertNotNull(sent.sent().proof(), "a proof was attached");
+            assertTrue(sent.sent().proof().verify("gateway/orders#getOrder", opsPolicy.signedRoot().rootBytes()),
+                    "it is the proof for gateway/orders#getOrder");
+            assertEquals("orders", sent.receiver());
+        }
+    }
+
+    @Test
+    void refusesACallNoOperationMatches() {
+        HttpCaller caller = gatewayOpsCaller().operations(List.of(ORDERS_TABLE)).build();
+
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class, () -> caller.stamp("DELETE",
+                URI.create("https://orders:8080/orders/123"), NO_BODY, null, List.of()));
+
+        assertTrue(e.getMessage().contains("orders"), e.getMessage());
+        assertTrue(e.getMessage().contains("DELETE"), e.getMessage());
+        assertTrue(!e.getMessage().contains("/orders/123"), e.getMessage());
+        assertTrue(e.getMessage().endsWith("; nothing is sent"), e.getMessage());
+    }
+
+    @Test
+    void matchesThePathWithoutTheQuery() {
+        HttpCaller caller = gatewayOpsCaller().operations(List.of(ORDERS_TABLE)).build();
+        URI uri = URI.create("https://orders:8080/orders?email=a");
+
+        HttpCaller.Outbound sent = caller.stamp("GET", uri, NO_BODY, null, List.of());
+
+        Stamp stamp = chainOf(sent.headers()).get(0);
+        assertEquals("orders#findOrders", stamp.rcv());
+        assertEquals(RequestBinding.compute("GET", "/orders?email=a", NO_BODY), stamp.bind());
+    }
+
+    @Test
+    void callerWithoutATableNamesTheService() {
+        HttpCaller caller = gatewayOpsCaller().build();
+
+        HttpCaller.Outbound sent = caller.stamp("GET", URI.create("https://payment:8080/pay"), NO_BODY, null,
+                List.of());
+
+        assertEquals("payment", chainOf(sent.headers()).get(0).rcv());
+    }
+
+    @Test
+    void twoTablesForOneServiceAreRefused() {
+        assertThrows(IllegalArgumentException.class,
+                () -> gatewayOpsCaller().operations(List.of(ORDERS_TABLE, ORDERS_TABLE)));
+    }
+
+    @Test
+    void responseAfterAnOperationUsesTheBareTarget() {
+        HttpCaller caller = gatewayOpsCaller().operations(List.of(ORDERS_TABLE)).verifier(gatewayOpsVerifier())
+                .build();
+        URI uri = URI.create("https://orders:8080/orders/123");
+        HttpCaller.Outbound attested = caller.stamp("GET", uri, NO_BODY, null, List.of());
+        HttpCaller.Outbound bare = caller.stamp("GET", uri, NO_BODY, null, List.of());
+        ContentLabel web = ContentLabel.fresh(InfluenceClass.THIRD_PARTY, null);
+
+        HttpCaller.Received good = caller.check(attested, 200, attestation(attested, "hello", List.of(web)),
+                utf8("hello"));
+        HttpCaller.Received unattested = caller.check(bare, 200, null, utf8("hello"));
+
+        assertTrue(good.check().result().ok(), good.check().result().reason().name());
+        assertEquals("http:orders", good.influence().get(0).src());
+        assertEquals("http:orders", unattested.influence().get(0).src());
     }
 
     // --- Responses ---

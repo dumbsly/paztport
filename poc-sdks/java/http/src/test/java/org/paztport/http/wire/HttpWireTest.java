@@ -355,6 +355,45 @@ class HttpWireTest {
     }
 
     @Test
+    void verifyResponseTargetIsTheServicePart() {
+        PolicyBuilder.Result ops = PolicyBuilder.build(List.of(List.of("gateway", "orders", "payment#charge")), 4,
+                NOT_AFTER, Crypto.generateEd25519KeyPair().getPrivate());
+        long notAfter = ops.signedRoot().notAfter();
+        List<String> spent = new java.util.ArrayList<>();
+        InMemoryNonceCache inner = new InMemoryNonceCache(60_000);
+        org.paztport.core.verify.NonceCache cache = new org.paztport.core.verify.NonceCache() {
+            @Override
+            public boolean seenBefore(String key, long now) {
+                spent.add(key);
+                return inner.seenBefore(key, now);
+            }
+
+            @Override
+            public long ttlMs() {
+                return inner.ttlMs();
+            }
+        };
+        Verifier opsVerifier = new Verifier(new VerifierConfig(
+                List.of(new PinnedKeyring(Keyring.of(Map.of("gateway", gatewayKey.getPublic(), "orders",
+                        ordersKey.getPublic(), "payment", paymentKey.getPublic())), notAfter)),
+                List.of(new PinnedRoot(ops.signedRoot().rootBytes(), ops.signedRoot().rootId(), notAfter)),
+                notAfter, Set.of("gateway"), "",
+                cache, () -> NOW, 30_000, 300_000));
+        Stamper.Stamped first = stamper("gateway", gatewayKey, true).next(List.of(), "orders", "b1", List.of(),
+                ops.bundles().get("gateway"));
+        Stamper.Stamped s = stamper("orders", ordersKey, false).next(first.chain(), "payment#charge",
+                RequestBinding.compute("POST", "/pay", BODY), List.of(), ops.bundles().get("orders"));
+        String header = respondHeader(s, 200, LABELS);
+
+        var first1 = HttpWire.verifyResponse(opsVerifier, s.chain(), s.proof(), header, 200, BODY, "orders");
+        var again = HttpWire.verifyResponse(opsVerifier, s.chain(), s.proof(), header, 200, BODY, "orders");
+
+        assertEquals(ReasonCode.OK, first1.result().reason());
+        assertEquals(ReasonCode.REPLAY, again.result().reason(), "the key <rid>|payment|resp was spent");
+        assertTrue(spent.contains("rid-1|payment|resp"), spent.toString());
+    }
+
+    @Test
     void resultHashBindsStatusAndBody() {
         assertNotEquals(HttpWire.resultHash(200, BODY), HttpWire.resultHash(201, BODY));
         assertNotEquals(HttpWire.resultHash(200, BODY), HttpWire.resultHash(200, new byte[0]));

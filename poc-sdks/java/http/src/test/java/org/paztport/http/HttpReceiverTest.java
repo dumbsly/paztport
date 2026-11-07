@@ -250,6 +250,78 @@ class HttpReceiverTest {
         }
     }
 
+    // --- Operations ---
+
+    private final PolicyBuilder.Result opsPolicy = PolicyBuilder.build(
+            List.of(List.of("gateway", "orders#getOrder"), List.of("gateway", "orders")), 4, NOT_AFTER,
+            Crypto.generateEd25519KeyPair().getPrivate());
+
+    /** Orders verifying requests under the operations policy, holding a stamp key, so it attests what verifies. */
+    private HttpReceiver ordersVerifying() {
+        long notAfter = opsPolicy.signedRoot().notAfter();
+        Verifier verifier = new Verifier(new VerifierConfig(
+                List.of(new PinnedKeyring(Keyring.of(Map.of("gateway", gateway.getPublic())), notAfter)),
+                List.of(new PinnedRoot(opsPolicy.signedRoot().rootBytes(), opsPolicy.signedRoot().rootId(), notAfter)),
+                notAfter, Set.of("gateway"), "", new InMemoryNonceCache(), () -> NOW, 5000, 5000));
+        return HttpReceiver.builder("orders").verifier(verifier).verifyRequests(true).publisher(events)
+                .stamper(new Stamper("orders", "ord-1", orders.getPrivate(), false, () -> "x", () -> NOW)).build();
+    }
+
+    /** A request from gateway to orders, whose stamp names {@code named}, with the operation the framework chose. */
+    private InboundRequest toOrders(String rid, String named, String operation) {
+        Stamper.Stamped gw = new Stamper("gateway", "gw-1", gateway.getPrivate(), true, () -> rid, () -> NOW)
+                .next(null, named, RequestBinding.compute("GET", "/orders/123", new byte[0]), List.of(),
+                        opsPolicy.bundles().get("gateway"));
+        Map<String, String> sent = new HashMap<>();
+        sent.put(PaztportHeaders.CHAIN, HttpWire.encodeChain(gw.chain()));
+        sent.put(PaztportHeaders.PROOF, HttpWire.encodeProof(gw.proof()));
+        return new InboundRequest("GET", "/orders/123", sent, new byte[0], operation);
+    }
+
+    @Test
+    void confirmsTheDispatchedOperation() {
+        Accepted ok = ordersVerifying().accept(toOrders("rid-1", "orders#getOrder", "getOrder"), null,
+                VerificationMode.ENFORCE);
+        assertNull(ok.refusal());
+        assertTrue(ok.attests());
+
+        for (String operation : new String[] {"createOrder", null}) {
+            Accepted other = ordersVerifying().accept(toOrders("rid-2", "orders#getOrder", operation), null,
+                    VerificationMode.ENFORCE);
+            assertEquals(403, other.refusal().status());
+            assertEquals("{\"reason\":\"BINDING_MISMATCH\"}", text(other.refusal()));
+        }
+    }
+
+    @Test
+    void chainNamingNoOperationGetsTheBareName() {
+        Accepted accepted = ordersVerifying().accept(toOrders("rid-1", "orders", "getOrder"), null,
+                VerificationMode.ENFORCE);
+
+        assertNull(accepted.refusal(), "it verifies against gateway/orders");
+    }
+
+    @Test
+    void auditServesAMisnamedOperation() {
+        Accepted accepted = ordersVerifying().accept(toOrders("rid-1", "orders#getOrder", "createOrder"), null,
+                VerificationMode.AUDIT);
+
+        assertNull(accepted.refusal());
+        assertNull(accepted.verifiedChain());
+        assertEquals(1, events.all.size());
+        assertEquals("BINDING_MISMATCH", events.all.get(0).reason());
+        assertEquals(true, events.all.get(0).audit());
+        assertFalse(accepted.attests(), "an unverified chain is not attested");
+    }
+
+    @Test
+    void traceNamesTheReceiverWithItsOperation() {
+        ordersVerifying().accept(toOrders("rid-1", "orders#getOrder", "getOrder"), null, VerificationMode.ENFORCE);
+
+        assertEquals(List.of("PAZTPORT_TRACE request rid=rid-1 reason=OK receiver=orders#getOrder \u2713 peer=none"
+                + " classes=-"), traceLines());
+    }
+
     @Test
     void enforceValidRequestPassesWithTheVerifiedInfluence() {
         Accepted accepted = verifying(null).accept(

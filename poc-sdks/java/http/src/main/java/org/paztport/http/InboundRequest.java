@@ -20,8 +20,17 @@ import org.paztport.http.wire.RequestBinding;
  *     {@link PaztportHeaders}, so an adapter may pass only those. Two names that differ only in case are one header,
  *     and the later wins.
  * @param body the body, whole; the receiver does not change it, and the record does not copy it
+ * @param operation the name of the operation the framework will dispatch this request to, or null when it
+ *     dispatches to none (or the adapter does not know); the receiver confirms it against the chain, never reads it
+ *     from the request
  */
-public record InboundRequest(String method, String target, Map<String, String> headers, byte[] body) {
+public record InboundRequest(String method, String target, Map<String, String> headers, byte[] body,
+        String operation) {
+
+    /** A request with no known operation. */
+    public InboundRequest(String method, String target, Map<String, String> headers, byte[] body) {
+        this(method, target, headers, body, null);
+    }
 
     public InboundRequest {
         Objects.requireNonNull(method, "method");

@@ -4,6 +4,7 @@
 package org.paztport.http;
 
 import java.net.URI;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -14,6 +15,7 @@ import java.util.TreeSet;
 import org.paztport.core.influence.ContentLabel;
 import org.paztport.core.influence.InfluenceClass;
 import org.paztport.core.influence.InfluenceEntry;
+import org.paztport.core.policy.OperationTable;
 import org.paztport.core.policy.ProofBundle;
 import org.paztport.core.policy.Routes;
 import org.paztport.core.stamp.Stamp;
@@ -46,6 +48,12 @@ import org.slf4j.LoggerFactory;
  * never dropped. The target is the receiver's policy name, as stamped. Every response checked logs one
  * {@code PAZTPORT_TRACE response} line.
  *
+ * <p>Where the caller holds a receiver's operation table ({@link Builder#operations}), the stamp names the operation
+ * the call invokes, {@code <receiver>#<operation>}, found by matching the call's method and raw path (without its
+ * query, and not percent-decoded) to the table; a call no operation matches is refused before anything is signed. The
+ * route proof attached is then the one for the chain ending at that operation. Everything that names the receiver as
+ * a service keeps the bare name: {@link Outbound#receiver}, the response's target and its {@code src}.
+ *
  * <p>The functions are {@link #stamp(String, URI, byte[], List, List)}, given the inbound chain and the influence
  * so far, and {@link #check}, which answers what a response contributes; they touch no thread-local, so another
  * binding, or another language, mirrors them. {@link #stampFromContext} and {@link #recordToContext} are the blocking
@@ -65,6 +73,7 @@ public final class HttpCaller {
     private final ProofBundle bundle;
     private final Verifier verifier;
     private final Map<String, String> receivers;
+    private final Map<String, OperationTable> tables;
 
     private HttpCaller(Builder b) {
         this.caller = b.caller;
@@ -72,6 +81,7 @@ public final class HttpCaller {
         this.bundle = b.bundle;
         this.verifier = b.verifier;
         this.receivers = b.receivers;
+        this.tables = b.tables;
     }
 
     /**
@@ -91,6 +101,7 @@ public final class HttpCaller {
         private ProofBundle bundle;
         private Verifier verifier;
         private Map<String, String> receivers = Map.of();
+        private Map<String, OperationTable> tables = Map.of();
 
         private Builder(String caller, Stamper stamper) {
             this.caller = caller;
@@ -150,6 +161,27 @@ public final class HttpCaller {
                 }
             });
             this.receivers = Map.copyOf(names);
+            return this;
+        }
+
+        /**
+         * The operation tables of the receivers this service calls, where it names the operation a call invokes: a
+         * call to a receiver with a table is stamped {@code <receiver>#<operation>}, the operation the table matches
+         * the call's method and path to. A receiver without a table is named by its service alone. This replaces any
+         * tables given before.
+         *
+         * @throws NullPointerException when {@code tables} is null
+         * @throws IllegalArgumentException when two tables are for one service
+         */
+        public Builder operations(Collection<OperationTable> tables) {
+            Objects.requireNonNull(tables, "operations");
+            Map<String, OperationTable> byService = new HashMap<>();
+            for (OperationTable table : tables) {
+                if (byService.putIfAbsent(table.service(), table) != null) {
+                    throw new IllegalArgumentException("two operation tables are for the service " + table.service());
+                }
+            }
+            this.tables = Map.copyOf(byService);
             return this;
         }
 
@@ -253,7 +285,8 @@ public final class HttpCaller {
      * @param inbound the chain this request received, or null where there is none (an origin, or no request)
      * @param influence what has shaped the call so far; empty for none
      * @throws IllegalArgumentException when the method is null or empty, the URI's host has no receiver name (see
-     *     {@link #receiver}), or the receiver or this service is not a route node; nothing is signed
+     *     {@link #receiver}), the receiver or this service is not a route node, or the receiver has an operation table
+     *     and no operation of it matches the method and path; nothing is signed
      */
     public Outbound stamp(String method, URI uri, byte[] body, List<Stamp> inbound,
             List<InfluenceEntry> influence) {
@@ -265,8 +298,9 @@ public final class HttpCaller {
      * after the request's inbound chain and commits to its influence so far; outside one, with neither, and its
      * response will not be recorded.
      *
-     * @throws IllegalArgumentException when the method is null or empty, the URI's host has no receiver name, or the
-     *     receiver or this service is not a route node; nothing is signed
+     * @throws IllegalArgumentException when the method is null or empty, the URI's host has no receiver name, the
+     *     receiver or this service is not a route node, or no operation of the receiver's table matches; nothing is
+     *     signed
      */
     public Outbound stampFromContext(String method, URI uri, byte[] body) {
         // Outside a scope the context belongs to no unit of work, so it is neither read nor written.
@@ -288,7 +322,18 @@ public final class HttpCaller {
         String rawPath = uri.getRawPath() == null || uri.getRawPath().isEmpty() ? "/" : uri.getRawPath();
         String query = uri.getRawQuery();
         String target = query == null || query.isEmpty() ? rawPath : rawPath + "?" + query;
-        Stamper.Stamped stamped = stamper.next(inbound, receiver, RequestBinding.compute(method, target, body),
+        // The operation is matched on the raw path alone, as sent: no query, and nothing percent-decoded.
+        String named = receiver;
+        OperationTable table = tables.get(receiver);
+        if (table != null) {
+            String operation = table.match(method, rawPath);
+            if (operation == null) {
+                throw new IllegalArgumentException("no operation of " + receiver + " matches a " + method
+                        + " call; nothing is sent");
+            }
+            named = receiver + "#" + operation;
+        }
+        Stamper.Stamped stamped = stamper.next(inbound, named, RequestBinding.compute(method, target, body),
                 influence, bundle);
 
         Map<String, String> headers = new LinkedHashMap<>();

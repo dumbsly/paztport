@@ -169,6 +169,19 @@ function stamped is checked with `check`. It refuses a call stamped in a scope
 that has since closed in the same way, inside a later scope or outside any, since
 its request is over and what its response adds would go to another.
 
+A chain may name the operation each hop invokes (`rcv` `orders#getOrder`).
+A caller names it when its builder is given the receivers' operation tables
+(`operations(Collection<OperationTable>)`, one per service): the call's method and
+raw path, without the query and not percent-decoded, are matched to the table, and
+a call no operation matches is refused before anything is signed, naming the
+receiver and the method. A call to a receiver with no table is named by the
+service alone. The response's target, its `src` and `Outbound.receiver()` keep the
+bare service name. A receiver is told the operation its framework will dispatch to
+(`InboundRequest.operation`, null for none) and verifies the request as received
+by `orders#getOrder`; a chain naming another operation, or one when nothing is
+dispatched, is refused `BINDING_MISMATCH` (or served and published under `AUDIT`),
+and a chain that names no operation is verified under the service alone.
+
 `BoundaryClient` is the egress's side: `BoundaryClient.builder()` takes this
 service's stamper, proofs, root, keyring and policy key, the partner's entry
 service, `https` URL and pinned policy key, the boundary key, a listener, the JDK
