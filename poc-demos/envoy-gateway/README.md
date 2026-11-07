@@ -23,9 +23,9 @@ was repeated, its median comes first and the lowest and highest after it, in bra
 single run. The tables are under [Measurements](#measurements).
 
 1. **Load: does the edge become the bottleneck?** At 1000 requests a second the processor adds 0.35 ms at p50 and
-   0.56 ms at p99. One replica on this node saturates between 8000 and 10000/s, its tail latency growing from 6000/s.
-   Two replicas sustained what plain Envoy did, and four one step less. Why one replica saturates there is not
-   measured: no suite read the processor's CPU.
+   0.56 ms at p99. On the ramps, one and two replicas sustained what plain Envoy did (10000/s and 14000/s), and four
+   one step less. One replica's latency climbs from 7000/s, though, its tail already by 6000/s (below). Why it climbs
+   there is not measured: no suite read the processor's CPU.
    - At 1000 requests a second with a 400-byte body, the processor adds 0.35 ms at p50 (one round's +0.27 to +0.37)
      and 0.56 ms at p99 (+0.54 to +0.56) to plain Envoy on the same listener. With a 256 KiB body at 500/s it adds
      0.49 ms and 1.37 ms: the cost of buffering the body and sending it to the processor. Stamping itself (hashing
@@ -35,9 +35,9 @@ single run. The tables are under [Measurements](#measurements).
      backends verifying, `orders` stamping its call and both attesting their responses.
    - One processor replica (one CPU) met the ramps' test for sustained up to 10000/s in all three rounds, but its p50
      rose from 0.84 ms at 6000/s to 1.35 ms at 7000/s, 6.60 ms at 8000/s and 24.79 ms at 10000/s (the first round;
-     p99 25 ms already at 6000/s), while plain Envoy's stayed near 0.2 ms on the same stages. Past 10000/s, Envoy's
-     circuit breaker on the processor's cluster shed load (below). The two sides' medians were equal at one replica
-     (10000/s), so the ramps alone say nothing about the processor there; the latency does.
+     p99 25 ms already at 6000/s), while plain Envoy's stayed near 0.2 ms on the same stages. At 15000/s and 20000/s,
+     Envoy's circuit breaker on the processor's cluster shed load (below). The two sides' medians were equal at one
+     replica (10000/s), so the ramps alone say nothing about the processor there; the latency does.
    - Two replicas sustained 14000/s (10000-14000), as plain Envoy did (14000/s, 10000-14000), so there too the ramps
      show no cost. At four, 14000/s (12000-14000) against plain Envoy's 16000/s (14000-16000): the processor cost a
      step, within spreads that meet at 14000/s.
@@ -55,12 +55,10 @@ single run. The tables are under [Measurements](#measurements).
    - one processor container killed: 2186 requests refused with 500, all within 0.44 s, both replicas ready again
      2.50 s after the kill, nothing unstamped;
    - a `kubectl rollout restart` of the processor: no error in 630001 requests;
-   - one replica slowed by 600 ms on its gRPC port alone: it stayed ready (19 of 19 probes), Envoy's health check took
-     it out 2.45 s later, and the errors stopped 2.83 s after the delay: 4081 504s at the `messageTimeout` and 8 500s
-     from Envoy's circuit breaker (see [Findings](#findings));
-   - the same replica then slowed as a whole pod: readiness took it out 1.69 s later; no request failed from Envoy's
-     health check's reading on, nor after the pod was ready again, and its container was not restarted (a longer
-     delay can restart it; see [Findings](#findings));
+   - one replica slowed by 600 ms on its gRPC port alone: it stayed ready, Envoy's health check took it out, and the
+     errors, 4081 504s and 8 500s, stopped 2.83 s after the delay (see [Findings](#findings));
+   - the same replica then slowed as a whole pod: readiness took it out 1.69 s later, with no further error and no
+     restart (a longer delay can restart it; see [Findings](#findings));
    - every replica gone for 30 s: every response a 5xx while none existed (209999), the first 200 to a probe 0.92 s
      after two replicas were asked for, and 4200 requests reached `echo` unstamped as they came back: Envoy
      Gateway's recovery leak (see [Findings](#findings)). With `routingType: Service`, 0;
@@ -111,12 +109,9 @@ single run. The tables are under [Measurements](#measurements).
    concept](../../README.md#52-limits-of-the-concept)).
 
    The edge's key was rotated at 1000/s in three overlap steps, one run each, and no request was refused for the
-   key. The first step, `orders` and `payment` rolled together onto both keyrings, cost 428 non-200s (189 500s and
-   239 503s). The processor's step cost no error. The last, the two backends rolled together onto the new keyring
-   alone, cost 5504 of 150000, with about 5 s in which every request failed: Envoy's circuit breaker on the
-   processor's cluster refused 4439 of them, and `orders` refused 212 `EXPIRED` (`payment` 78). Both backend steps
-   rolled the same two Deployments, and the run does not say why the last cost so much more. Read it as the cost of
-   rolling the backends under load, not of the key; not measured (see [Measurements](#rotation)).
+   key. The processor's step cost no error; the two backend steps cost 428 and 5504 non-200s, which
+   [Findings](#findings) reads as the cost of rolling the backends under load (the steps are under
+   [Measurements](#rotation)).
 9. **Upgrades.** See [Why ext_proc now, and a dynamic module later](#why-ext_proc-now-and-a-dynamic-module-later).
 
 ## Running it
@@ -547,11 +542,12 @@ What the checks and the measurements found, beyond the numbers.
   closed. Measured: one replica offered 15000/s refused 172975 that way while stamping every request that came back 200;
   on `orders` at 3000/s Envoy refused 9598 of 60001 while the processors stamped only 50403 in 20 s, about 2500 a
   second, far under what two replicas sustained on `echo`; and three steps that rolled the backends under load counted
-  4439 (rotation's last), 3818 (`route`'s last overlap step) and 1592 (its old way). A reading of the `orders` case, not
-  measured: Envoy holds a request's stream to the processor open until the response's headers, since the filter is
-  sent them, so a slow backend holds the processor's streams as well, and enough of them in flight fill the 1024 while
-  the processor itself is idle. The run does not give the number in flight: at the accepted rate, the p50 of 350 ms
-  gives about 880 and the p90 of 596 ms about 1500.
+  4439 (rotation's last), 3818 (`route`'s last overlap step) and 1592 (its old way). A reading of the `orders` case and
+  the rolling steps, not measured: Envoy holds a request's stream to the processor open until the response's headers,
+  since the filter is sent them, so a slow backend holds the processor's streams as well, and enough of them in flight
+  fill the 1024 while the processor itself is idle. The run does not give the number in flight: at the accepted rate,
+  the `orders` case's p50 of 350 ms gives about 880 and its p90 of 596 ms about 1500 (both over every response, the
+  circuit breaker's 500s included).
 - **A replica slow on its gRPC port is invisible to readiness.** A replica slowed by 600 ms on port 9002 alone kept
   answering `/readyz` (19 of 19 probes) and stayed ready. Readiness cannot see such a replica: the gRPC port takes only
   mutual TLS with Envoy's certificate, which the kubelet cannot present, so its probe never goes through that port.
@@ -560,11 +556,11 @@ What the checks and the measurements found, beyond the numbers.
   one out of its endpoints; that needs Envoy Gateway v1.10, since v1.9's health checks offered no ALPN and grpc-go
   refuses a TLS client that offers no `h2`. Without the check, in the earlier run `20261105T192122Z` on Envoy Gateway
   v1.9.2, such a replica stayed in Envoy's endpoints and cost 96750 504s. With it, the check read the replica failing
-  2.45 s after the delay, and the errors stopped 2.83 s after it: 4081 504s, exactly Envoy's `message_timeouts`
-  (+4081), and 8 500s from its circuit breaker. The slowed pod counted 3782 requests `abandoned`, so of the 4081
-  requests Envoy gave up on, the pod stamped and answered 299 (4081 less 3782), the answer reaching Envoy after it had
-  stopped waiting. Slowed then as a whole pod, it was taken out by readiness 1.69 s later; no request failed from the
-  health check's reading on, nor after the pod was ready again, and its container was not restarted.
+  2.45 s after the delay, and the errors stopped 2.83 s after it, consistent with requests already sent to the replica
+  waiting out the `messageTimeout`: 4081 504s, all Envoy's `message_timeouts`, and 8 500s from its circuit breaker.
+  The slowed pod stamped 299 of those 4081 too late (see [`failure`](#failure)). Slowed then as a whole pod, it was
+  taken out by readiness 1.69 s later; no request failed from the health check's reading on, nor after the pod was
+  ready again, and its container was not restarted.
 - **A whole pod slowed for 20 s or more can be restarted, and the restart is not drained.** The liveness probe
   (`/livez`, every 10 s, with Kubernetes' defaults of a 1 s timeout and three failures) fails every probe while the
   whole pod is slowed, and three failures need at least 20 s of delay. In a shorter run of `failure` on the same
@@ -625,7 +621,7 @@ What the checks and the measurements found, beyond the numbers.
 | A stolen stamp | `PEER_MISMATCH` (check 7) | the peer check |
 | A second BackendTrafficPolicy or EnvoyExtensionPolicy on a route, or one on the Gateway | `Conflicted`, or the Gateway's `Overridden` | `backendTrafficPolicy: false`, `mergeType`, and alerts (see [The chart](#the-chart)) |
 | Merged gateways | the NetworkPolicy admits nothing, and the edge refuses everything | `gateway.envoyPodLabels` |
-| Every processor replica gone | refused while down; one request a kept-alive connection unstamped on recovery | backends in `enforce`; `routingType: Service`; the PodDisruptionBudget and two replicas |
+| Every processor replica gone | refused while down; 4200 unstamped on recovery in the run, one a kept-alive connection by the count | backends in `enforce`; `routingType: Service`; the PodDisruptionBudget and two replicas |
 | More than 1024 requests in flight | Envoy's own 500 | capacity; it fails closed |
 | A processor replica slow on its gRPC port | 504s at the `messageTimeout` for its share until Envoy's health check takes it out (4081 in the run, stopping 2.83 s after the delay) | the chart's health check (see [The chart](#the-chart)); an operator's alert on 504s and `message_timeouts` for the gap (see **A slow processor replica** under [Operating it](#operating-it)) |
 | `X-Forwarded-For` | Boot would take the peer's instance from it | `SERVER_FORWARDHEADERSSTRATEGY=NONE` |
@@ -658,8 +654,9 @@ What the checks and the measurements found, beyond the numbers.
   `notAfter`, which can overstate how long the edge's stamps will be accepted. It fails closed: past it the processor
   refuses every request, and a stamp a receiver no longer accepts is refused there.
 - **A slow processor replica.** Until Envoy's health check takes it out (about `unhealthyThreshold` times `interval`,
-  plus the check's timeout; 2.45 s in the run), its share of requests ends in 504s at the `messageTimeout`: alert on
-  the 504s, and on the counter under **What to watch**.
+  plus the check's timeout; 2.45 s in the run), and for up to one `messageTimeout` after (the last 504 at 2.83 s), its
+  share of requests ends in 504s at the `messageTimeout`: alert on the 504s, and on the counter under **What to
+  watch**.
 - **What to watch.** `paztport_edge_requests_total` by outcome, `paztport_edge_material_seconds_left`, and, from
   Envoy, the processor's cluster: `streams_failed`, `message_timeouts` and `cluster_rq_active_overflow`; and the
   backends' reasons other than `OK`.
@@ -817,7 +814,7 @@ other line passed.
 ### `load`
 
 Three alternated rounds of 20 s a side, after a discarded warm-up; every run at its offered rate, every response a
-200, `echo` sent nothing unstamped.
+200, nothing reached `echo` unstamped.
 
 | Body, rate | Plain Envoy p50 | p99 | With the processor p50 | p99 | Added p50 | Added p99 |
 |---|---|---|---|---|---|---|
@@ -864,8 +861,8 @@ The whole edge at 500/s, 400-byte bodies, three alternated rounds; every run at 
 The route `orders` with Paztport, one ramp: sustained 2000/s (p50 5.50 ms, p99 12.67 ms); at 3000/s, 2494.9/s
 achieved, p50 195.40 ms, 9836 dropped. Overloaded at 3000/s from 6000 users for 20 s: 60001 requests, 50403 200s,
 9598 Envoy's 500 (`cluster_rq_active_overflow` on the processor's cluster, 9598), the processor stamping exactly the
-50403, both backends counting only `OK`; the longest request took 1322.79 ms, under `orders`' 5 s `maxAgeMs`, so the
-age check was not reached.
+50403, both backends counting only `OK`; p50 349.99 ms and p90 596.36 ms over every response, and the longest request
+took 1322.79 ms, under `orders`' 5 s `maxAgeMs`, so the age check was not reached.
 
 ### `failure`
 
@@ -875,15 +872,18 @@ each.
 | Case | Requests | Not 200 | Window | Recovery | Unstamped at `echo` |
 |---|---|---|---|---|---|
 | one processor container killed | 420001 | 2186 (500) | 0.443 s | both ready 2.50 s after the kill | 0 |
-| one replica slowed 600 ms, port 9002 for 60 s, then the pod until readiness takes it out and 10 s more; Envoy health-checks the processor | 840003 | 4089 (504: 4081, 500: 8) | 2.327 s | ready throughout the port-only delay (19 of 19 probes); Envoy's health check read it failing 2.45 s after the port delay, the errors stopping 2.83 s after it, and none from that reading on, through the whole-pod delay or after the pod was ready again; out of readiness 1.69 s after the whole pod was slowed; no restart | 0 |
+| one replica slowed 600 ms, port 9002 and then the whole pod (below) | 840003 | 4089 (504: 4081, 500: 8) | 2.327 s | ready throughout the port-only delay (19 of 19); out of Envoy's endpoints 2.45 s after it; out of readiness 1.69 s after the whole-pod delay; no restart | 0 |
 | every replica gone 30 s, routing to endpoints | 630001 | 224040 (500) | 32.006 s | first 200 to a probe 0.92 s after the upgrade to two | 4200, all after the upgrade to two |
 | every replica gone 30 s, `routingType: Service` | 630002 | 238664 (500: 172465, 504: 66199) | 35.387 s | first 200 to a probe 2.51 s after the upgrade to two | 0 |
 | the processor rolled (`kubectl rollout restart`) | 630001 | 0 | | two new replicas ready 1.75 s after the restart | 0 |
 | one `orders` container killed, the route `orders` | 90001 | 15 (503) | 0.305 s | both ready 3.70 s after; 356 retries after 364 failed connections; each of 89987 stamps served once | |
 
-In the slowed case, the 504s are Envoy's `message_timeouts` (+4081), and the 500s its circuit breaker on the
-processor's cluster (`cluster_rq_active_overflow` +8). The slowed pod counted `abandoned` +3782, so 299 of the requests
-Envoy gave up on (4081 less 3782) the pod stamped and answered, the answer reaching Envoy after it had stopped waiting.
+In the slowed case, with Envoy health-checking the processor, port 9002 alone was slowed for 60 s, then the whole pod
+until readiness took it out and 10 s more. The errors stopped 2.83 s after the port delay (the last at +12.88 s, the
+delay at +10.05 s), and none came after, through the whole-pod delay or once the pod was ready again. The 504s are
+Envoy's `message_timeouts` (+4081), and the 500s its circuit breaker on the processor's cluster
+(`cluster_rq_active_overflow` +8). The slowed pod counted `abandoned` +3782, so 299 of the requests Envoy gave up on
+(4081 less 3782) the pod stamped and answered, the answer reaching Envoy after it had stopped waiting.
 
 The processor's share of 140001 requests at 7000/s: 50.0% and 50.0% routing to endpoints, 58.3% and 41.7% routing to
 the Service.
