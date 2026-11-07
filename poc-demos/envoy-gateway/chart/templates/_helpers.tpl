@@ -108,8 +108,8 @@ which sprig would read as octal, and no more than 18 digits, which could pass in
 
 {{- /*
 Refuses values the processor would not start with, or that would leave the edge without a limit: no route mapped, an
-attach that is not true or false, no keyring or root, and a body limit that is not a whole number of bytes from 1 to 1
-GiB (1073741824), the processor's own bounds. bodyLimit is a plain number of bytes, such as 1048576, as a number or a
+attach that is not true or false, no keyring or root, and a body limit that is not a whole number of bytes from 1 to
+1 GiB (1073741824), the processor's own bounds. bodyLimit is a plain number of bytes, such as 1048576, as a number or a
 string of digits without a leading zero: a quantity such as 1Mi, a fraction or anything else is refused. It refuses as
 well no Gateway for the NetworkPolicy to admit the Envoy pods of, and a mergeType Envoy Gateway does not take for a
 policy on routes (it refuses Replace).
