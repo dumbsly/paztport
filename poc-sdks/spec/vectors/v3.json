@@ -2546,6 +2546,126 @@
       }
     },
     {
+      "name": "an inner operation holding a `/`",
+      "chain": [
+        {
+          "v": 3,
+          "svc": "gateway",
+          "inst": "gw-1",
+          "rid": "rid-2",
+          "ts": 1767225598500,
+          "sess": "sess-2",
+          "rcv": "orders#a/b",
+          "bind": "bind-gateway-to-orders",
+          "infl": "",
+          "prev": "",
+          "sig": "KNQGjmYyjKA0zWLWLj4G_6HL1X1ys07zaGCZpD0xJ3uXGfvWSE3k0tDlhPj_TTHmAEPi26ckM-I3WYUFJCa6CA"
+        },
+        {
+          "v": 3,
+          "svc": "orders",
+          "inst": "ord-1",
+          "rid": "rid-2",
+          "ts": 1767225599500,
+          "sess": "sess-2",
+          "rcv": "payment#charge",
+          "bind": "bind-orders-to-payment",
+          "infl": "",
+          "prev": "KNQGjmYyjKA0zWLWLj4G_6HL1X1ys07zaGCZpD0xJ3uXGfvWSE3k0tDlhPj_TTHmAEPi26ckM-I3WYUFJCa6CA",
+          "sig": "GsaXDOhAqstXTwLlxEoG-1QhVvzz5gC7uYSa0Cq2r-8GDAntVAybU2P4M7NvxBqbnlCIrt_G7sLHRvypNtWjDQ"
+        }
+      ],
+      "chainToken": "W3siYmluZCI6ImJpbmQtZ2F0ZXdheS10by1vcmRlcnMiLCJpbmZsIjoiIiwiaW5zdCI6Imd3LTEiLCJwcmV2IjoiIiwicmN2Ijoib3JkZXJzI2EvYiIsInJpZCI6InJpZC0yIiwic2VzcyI6InNlc3MtMiIsInNpZyI6IktOUUdqbVl5aktBMHpXTFdMajRHXzZITDFYMXlzMDd6YUdDWnBEMHhKM3VYR2Z2V1NFM2swdERsaFBqX1RUSG1BRVBpMjZja00tSTNXWVVGSkNhNkNBIiwic3ZjIjoiZ2F0ZXdheSIsInRzIjoxNzY3MjI1NTk4NTAwLCJ2IjozfSx7ImJpbmQiOiJiaW5kLW9yZGVycy10by1wYXltZW50IiwiaW5mbCI6IiIsImluc3QiOiJvcmQtMSIsInByZXYiOiJLTlFHam1ZeWpLQTB6V0xXTGo0R182SEwxWDF5czA3emFHQ1pwRDB4SjN1WEdmdldTRTNrMHREbGhQal9UVEhtQUVQaTI2Y2tNLUkzV1lVRkpDYTZDQSIsInJjdiI6InBheW1lbnQjY2hhcmdlIiwicmlkIjoicmlkLTIiLCJzZXNzIjoic2Vzcy0yIiwic2lnIjoiR3NhWERPaEFxc3RYVHdMbHhFb0ctMVFoVnZ6ejVnQzd1WVNhMENxMnItOEdEQW50VkF5YlUyUDRNN052eEJxYm5sQ0lydF9HN3NMSFJ2eXBOdFdqRFEiLCJzdmMiOiJvcmRlcnMiLCJ0cyI6MTc2NzIyNTU5OTUwMCwidiI6M31d",
+      "expectedBind": "bind-orders-to-payment",
+      "influence": [],
+      "influenceToken": "W10",
+      "policy": "ops",
+      "proofRoute": "gateway/orders#createOrder/payment#charge",
+      "receiver": "payment#charge",
+      "receiverInRoute": true,
+      "peer": null,
+      "keyring": {
+        "gateway": "gateway",
+        "orders": "orders"
+      },
+      "allowedOrigins": [
+        "gateway"
+      ],
+      "sess": "sess-2",
+      "nonceKey": "rid-2|orders|req",
+      "now": 1767225600000,
+      "callMaxAgeMs": 5000,
+      "runMaxAgeMs": 1800000,
+      "nonceTtlMs": 15000,
+      "policyNotAfter": 4102444800000,
+      "uses": 1,
+      "expected": {
+        "reason": "BINDING_MISMATCH",
+        "suspectSvc": "",
+        "suspectInst": ""
+      }
+    },
+    {
+      "name": "an inner operation holding a `#`",
+      "chain": [
+        {
+          "v": 3,
+          "svc": "gateway",
+          "inst": "gw-1",
+          "rid": "rid-2",
+          "ts": 1767225598500,
+          "sess": "sess-2",
+          "rcv": "orders#a#b",
+          "bind": "bind-gateway-to-orders",
+          "infl": "",
+          "prev": "",
+          "sig": "MPo4MfTVh2cWfhdBfcDZtvYdJ4Cmif6Gxk7bO0wCqOddwWq5PSd5GCtqAeBeJ9og9NsIraMJOpd1rLiqL0DDAw"
+        },
+        {
+          "v": 3,
+          "svc": "orders",
+          "inst": "ord-1",
+          "rid": "rid-2",
+          "ts": 1767225599500,
+          "sess": "sess-2",
+          "rcv": "payment#charge",
+          "bind": "bind-orders-to-payment",
+          "infl": "",
+          "prev": "MPo4MfTVh2cWfhdBfcDZtvYdJ4Cmif6Gxk7bO0wCqOddwWq5PSd5GCtqAeBeJ9og9NsIraMJOpd1rLiqL0DDAw",
+          "sig": "wAq2iHPjbkatvcG44tN47jXjkxiZN78DNdadPSHI-z8Z1PcvyevuUU-pM5QDXAFWS7BJkhSckNZqDwup7XH-Ag"
+        }
+      ],
+      "chainToken": "W3siYmluZCI6ImJpbmQtZ2F0ZXdheS10by1vcmRlcnMiLCJpbmZsIjoiIiwiaW5zdCI6Imd3LTEiLCJwcmV2IjoiIiwicmN2Ijoib3JkZXJzI2EjYiIsInJpZCI6InJpZC0yIiwic2VzcyI6InNlc3MtMiIsInNpZyI6Ik1QbzRNZlRWaDJjV2ZoZEJmY0RadHZZZEo0Q21pZjZHeGs3Yk8wd0NxT2Rkd1dxNVBTZDVHQ3RxQWVCZUo5b2c5TnNJcmFNSk9wZDFyTGlxTDBEREF3Iiwic3ZjIjoiZ2F0ZXdheSIsInRzIjoxNzY3MjI1NTk4NTAwLCJ2IjozfSx7ImJpbmQiOiJiaW5kLW9yZGVycy10by1wYXltZW50IiwiaW5mbCI6IiIsImluc3QiOiJvcmQtMSIsInByZXYiOiJNUG80TWZUVmgyY1dmaGRCZmNEWnR2WWRKNENtaWY2R3hrN2JPMHdDcU9kZHdXcTVQU2Q1R0N0cUFlQmVKOW9nOU5zSXJhTUpPcGQxckxpcUwwRERBdyIsInJjdiI6InBheW1lbnQjY2hhcmdlIiwicmlkIjoicmlkLTIiLCJzZXNzIjoic2Vzcy0yIiwic2lnIjoid0FxMmlIUGpia2F0dmNHNDR0TjQ3alhqa3hpWk43OEROZGFkUFNISS16OFoxUGN2eWV2dVVVLXBNNVFEWEFGV1M3QkpraFNja05acUR3dXA3WEgtQWciLCJzdmMiOiJvcmRlcnMiLCJ0cyI6MTc2NzIyNTU5OTUwMCwidiI6M31d",
+      "expectedBind": "bind-orders-to-payment",
+      "influence": [],
+      "influenceToken": "W10",
+      "policy": "ops",
+      "proofRoute": "gateway/orders#createOrder/payment#charge",
+      "receiver": "payment#charge",
+      "receiverInRoute": true,
+      "peer": null,
+      "keyring": {
+        "gateway": "gateway",
+        "orders": "orders"
+      },
+      "allowedOrigins": [
+        "gateway"
+      ],
+      "sess": "sess-2",
+      "nonceKey": "rid-2|orders|req",
+      "now": 1767225600000,
+      "callMaxAgeMs": 5000,
+      "runMaxAgeMs": 1800000,
+      "nonceTtlMs": 15000,
+      "policyNotAfter": 4102444800000,
+      "uses": 1,
+      "expected": {
+        "reason": "BINDING_MISMATCH",
+        "suspectSvc": "",
+        "suspectInst": ""
+      }
+    },
+    {
       "name": "a proof for another operation's route",
       "chain": [
         {

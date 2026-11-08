@@ -79,7 +79,7 @@ class JsonTextRoundTripTest {
 
     /** How many distinct objects of each kind are checked, so a case can't silently fall out of the walk. */
     private static final Map<Kind, Integer> CASES = Map.of(Kind.KEYRING, 13, Kind.ROOT, 22, Kind.PROOF, 9,
-            Kind.STAMP, 33, Kind.INFLUENCE, 9, Kind.REQUEST, 7, Kind.CERT, 10, Kind.REPLY, 37);
+            Kind.STAMP, 37, Kind.INFLUENCE, 9, Kind.REQUEST, 7, Kind.CERT, 10, Kind.REPLY, 37);
 
     private enum Outcome { SAME, NORMALISED, REFUSED }
 

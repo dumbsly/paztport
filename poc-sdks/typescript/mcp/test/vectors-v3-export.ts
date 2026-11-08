@@ -543,8 +543,12 @@ export function buildVectors(): Record<string, unknown> {
     live({ ...responseCase, name: "response to wrong receiver", receiver: "other" }, no("BINDING_MISMATCH")),
     // Operations named in rcv: a hop addresses the next service, with an operation of it or none, and the route carries them.
     ...(() => {
-      const opsCase = (name: string, firstRcv: string, receiver: string, expected: Expected) => {
-        const first = stampBy({ svc: "gateway", inst: "gw-1", rid: "rid-2", ts: NOW - 1500, sess: "sess-2", rcv: firstRcv, bind: "bind-gateway-to-orders", infl: "", prev: "" }, "gateway");
+      // signStamp refuses an rcv that is not a stampable route node, so a name it would refuse is signed over the stamp's bytes directly.
+      const handSigned = (fields: Omit<Stamp, "v" | "sig">, key: KeyName): Stamp => ({
+        v: 3, ...fields, sig: encode(sign(keys[key].priv, signingBytes({ v: 3, ...fields }))),
+      }) as Stamp;
+      const opsCase = (name: string, firstRcv: string, receiver: string, expected: Expected, byHand = false) => {
+        const first = (byHand ? handSigned : stampBy)({ svc: "gateway", inst: "gw-1", rid: "rid-2", ts: NOW - 1500, sess: "sess-2", rcv: firstRcv, bind: "bind-gateway-to-orders", infl: "", prev: "" }, "gateway");
         const chain = [first, stampBy({ svc: "orders", inst: "ord-1", rid: "rid-2", ts: NOW - 500, sess: "sess-2", rcv: "payment#charge", bind: HTTP_BIND, infl: "", prev: first.sig }, "orders")];
         return live(
           {
@@ -561,6 +565,8 @@ export function buildVectors(): Record<string, unknown> {
         opsCase("an operation, at a receiver that names none", "orders#createOrder", "payment", no("BINDING_MISMATCH")),
         opsCase("an inner rcv naming another service's operation", "search#find", "payment#charge", no("BINDING_MISMATCH")),
         opsCase("an empty operation", "orders#", "payment#charge", no("BINDING_MISMATCH")),
+        opsCase("an inner operation holding a `/`", "orders#a/b", "payment#charge", no("BINDING_MISMATCH"), true),
+        opsCase("an inner operation holding a `#`", "orders#a#b", "payment#charge", no("BINDING_MISMATCH"), true),
         opsCase("a proof for another operation's route", "orders#getOrder", "payment#charge", no("PATH_NOT_ALLOWED", "orders", "ord-1")),
       ];
     })(),
