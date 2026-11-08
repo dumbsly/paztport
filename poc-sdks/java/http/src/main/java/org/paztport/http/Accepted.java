@@ -29,9 +29,10 @@ public final class Accepted {
     private final Stamper attester;
     private final VerifyResult result;
     private final NonceCacheUnavailableException cacheFailure;
+    private final String operation;
 
     private Accepted(HttpAnswer refusal, List<Stamp> inbound, boolean verified, List<InfluenceEntry> influence,
-            Stamper attester, VerifyResult result, NonceCacheUnavailableException cacheFailure) {
+            Stamper attester, VerifyResult result, NonceCacheUnavailableException cacheFailure, String operation) {
         this.refusal = refusal;
         this.inbound = inbound;
         this.verified = verified;
@@ -39,16 +40,17 @@ public final class Accepted {
         this.attester = attester;
         this.result = result;
         this.cacheFailure = cacheFailure;
+        this.operation = operation;
     }
 
     /** @param result the result the request was refused for, or null when no verification ran */
     static Accepted refused(HttpAnswer refusal, VerifyResult result) {
-        return new Accepted(refusal, null, false, List.of(), null, result, null);
+        return new Accepted(refusal, null, false, List.of(), null, result, null, null);
     }
 
     /** The request refused as unavailable because the nonce cache could not answer: no result, and the failure. */
     static Accepted unavailable(NonceCacheUnavailableException cacheFailure) {
-        return new Accepted(HttpAnswer.unavailable(), null, false, List.of(), null, null, cacheFailure);
+        return new Accepted(HttpAnswer.unavailable(), null, false, List.of(), null, null, cacheFailure, null);
     }
 
     /**
@@ -57,10 +59,24 @@ public final class Accepted {
      * @param result the live order's result on the request, or null when it did not run or the nonce cache could not
      *     answer
      * @param cacheFailure why the nonce cache could not answer, or null
+     * @param operation the operation the request was verified as received by, or null ({@link #operation})
      */
     static Accepted served(List<Stamp> inbound, boolean verified, List<InfluenceEntry> influence,
-            Stamper attester, VerifyResult result, NonceCacheUnavailableException cacheFailure) {
-        return new Accepted(null, inbound, verified, List.copyOf(influence), attester, result, cacheFailure);
+            Stamper attester, VerifyResult result, NonceCacheUnavailableException cacheFailure, String operation) {
+        return new Accepted(null, inbound, verified, List.copyOf(influence), attester, result, cacheFailure,
+                operation);
+    }
+
+    /**
+     * The operation a served request was verified as received by, {@code <service>#<operation>} less the service:
+     * the one the adapter said the request will be dispatched to, where the chain named an operation and the live
+     * order ran on the request, under a mode or for attestation alone, whether or not it passed. Null where the chain
+     * named none, so the request was verified under the service alone, where nothing was verified, and for a refusal.
+     * An adapter whose framework can change the handler after this was decided checks, as the handler runs, that it
+     * is still this operation's.
+     */
+    public String operation() {
+        return operation;
     }
 
     /** The answer to send in place of the handler's, or null when the request is served. */

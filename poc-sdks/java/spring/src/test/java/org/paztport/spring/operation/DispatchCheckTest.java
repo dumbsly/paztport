@@ -20,6 +20,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -52,8 +53,8 @@ import org.springframework.web.filter.OncePerRequestFilter;
 /**
  * On the real servlet container, a filter after Paztport's that changes the request's method or path makes the
  * DispatcherServlet run another handler than the operation Paztport's filter confirmed. The check made as the handler
- * is about to run refuses it under {@code enforce} and only logs it under {@code audit}; an honest request, and the
- * error dispatch after a handler throws, pass it untouched.
+ * is about to run refuses it under {@code enforce}, and elsewhere logs it and leaves the answer unattested; an honest
+ * request, a chain that names no operation, and the error dispatch after a handler throws, pass it untouched.
  */
 class DispatchCheckTest {
 
@@ -76,9 +77,14 @@ class DispatchCheckTest {
         log.setLevel(null);
     }
 
-    /** Starts orders under {@code mode}, then captures the check's log, which starting would otherwise reset. */
+    /** Starts orders verifying requests under {@code mode}. */
     private Orders start(Path dir, String mode) throws IOException {
-        Orders orders = Orders.start(dir, mode);
+        return startWith(dir, "paztport.verify=true", "paztport.mode=" + mode);
+    }
+
+    /** Starts orders with {@code more}, then captures the check's log, which starting would otherwise reset. */
+    private Orders startWith(Path dir, String... more) throws IOException {
+        Orders orders = Orders.start(dir, more);
         logged.start();
         log.addAppender(logged);
         log.setLevel(Level.INFO);
@@ -97,6 +103,7 @@ class DispatchCheckTest {
             assertThat(answer.statusCode()).isEqualTo(403);
             assertThat(answer.body()).isEqualTo("{\"reason\":\"BINDING_MISMATCH\"}");
             assertThat(RAN).as("neither the confirmed handler nor the other one ran").isEmpty();
+            assertThat(attestation(answer)).as("the refusal is not attested").isNull();
             assertOneWarning("orders#createOrder", "none");
         }
     }
@@ -149,6 +156,51 @@ class DispatchCheckTest {
         }
     }
 
+    /** A rewritten request is served under audit, and its answer is not attested, while an honest one's is. */
+    @Test
+    void dispatchCheckWithholdsAttestationUnderAudit(@TempDir Path dir) throws Exception {
+        try (Orders orders = start(dir, "audit")) {
+            assertWithheldAttestation(orders);
+        }
+    }
+
+    /** On a service that does not verify requests, whose verifier still decides attestation, the same holds. */
+    @Test
+    void dispatchCheckWithholdsAttestationWithoutVerifying(@TempDir Path dir) throws Exception {
+        try (Orders orders = startWith(dir, "paztport.verify=false")) {
+            assertWithheldAttestation(orders);
+        }
+    }
+
+    private void assertWithheldAttestation(Orders orders) throws Exception {
+        HttpResponse<String> honest = orders.send("POST", "/orders", "orders#createOrder", null);
+        assertThat(honest.body()).isEqualTo("createOrder");
+        assertThat(attestation(honest)).as("an honest request's answer is attested").isNotNull();
+        assertThat(logged.list).isEmpty();
+
+        HttpResponse<String> rewritten = orders.send("POST", "/orders", "orders#createOrder", "method");
+        assertThat(rewritten.statusCode()).isEqualTo(200);
+        assertThat(rewritten.body()).isEqualTo("deleteOrders");
+        assertThat(attestation(rewritten)).as("the other handler's answer is not attested").isNull();
+        assertOneWarning("orders#createOrder", "none");
+    }
+
+    /** A chain that names no operation had none confirmed, so a later rewrite contradicts nothing. */
+    @Test
+    void dispatchCheckIgnoresAChainNamingNoOperation(@TempDir Path dir) throws Exception {
+        try (Orders orders = start(dir, "enforce")) {
+            HttpResponse<String> answer = orders.send("POST", "/orders", "orders", "method");
+            assertThat(answer.statusCode()).isEqualTo(200);
+            assertThat(answer.body()).isEqualTo("deleteOrders");
+            assertThat(attestation(answer)).as("verified under the service alone, whatever runs").isNotNull();
+            assertThat(logged.list).isEmpty();
+        }
+    }
+
+    private static String attestation(HttpResponse<String> answer) {
+        return answer.headers().firstValue(PaztportHeaders.RESPONSE).orElse(null);
+    }
+
     /** One WARN line, naming the operation confirmed and the one the handler is, and never the path. */
     private void assertOneWarning(String confirmed, String dispatched) {
         assertThat(logged.list).hasSize(1);
@@ -158,17 +210,23 @@ class DispatchCheckTest {
                 .doesNotContain("/orders").doesNotContain("/items");
     }
 
-    /** Orders, verifying gateway's requests and holding its own table, on a free port. */
+    /**
+     * Orders, holding its own table, on a free port, with {@code more} properties. Gateway may call each of its
+     * operations, and orders itself by a route that names none.
+     */
     private record Orders(ConfigurableApplicationContext app, OperationWorld world, PolicyBuilder.Result built,
             int port) implements AutoCloseable {
 
-        static Orders start(Path dir, String mode) throws IOException {
+        static Orders start(Path dir, String... more) throws IOException {
             OperationWorld world = new OperationWorld(dir);
-            PolicyBuilder.Result built = world.write(OperationWorld.routes());
+            List<List<String>> routes = new ArrayList<>(OperationWorld.routes());
+            routes.add(List.of("gateway", "orders"));
+            PolicyBuilder.Result built = world.write(routes);
+            List<String> props = new ArrayList<>(List.of("server.port=0", "spring.main.banner-mode=off",
+                    "paztport.origins=gateway", "paztport.operations.table-path=" + world.file("ops-orders.json")));
+            props.addAll(List.of(more));
             ConfigurableApplicationContext app = new SpringApplicationBuilder(App.class)
-                    .properties(world.service("orders", "server.port=0", "spring.main.banner-mode=off",
-                            "paztport.verify=true", "paztport.mode=" + mode, "paztport.origins=gateway",
-                            "paztport.operations.table-path=" + world.file("ops-orders.json")))
+                    .properties(world.service("orders", props.toArray(String[]::new)))
                     .run();
             return new Orders(app, world, built,
                     Integer.parseInt(app.getEnvironment().getProperty("local.server.port")));

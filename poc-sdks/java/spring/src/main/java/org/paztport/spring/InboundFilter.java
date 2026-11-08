@@ -68,9 +68,10 @@ import org.springframework.web.util.ContentCachingResponseWrapper;
  * <p>On a service that names its operations, the filter hands the receiver the operation the request will be
  * dispatched to, which {@link OperationResolver} works out from Spring's handler mappings before the receiver
  * verifies and before the handler runs. A chain naming another operation is then refused {@code BINDING_MISMATCH}.
- * Where it verified the request under {@code audit} or {@code enforce}, it records that operation on the request
- * ({@link VerifiedOperation}), so that a later filter which changes the method or the path, and so the handler, is
- * caught as the handler is about to run.
+ * Where the chain named an operation and the receiver verified the request with it, under a mode or for attestation
+ * alone, the filter records that operation on the request ({@link VerifiedOperation}), so that a later filter which
+ * changes the method or the path, and so the handler, is caught as the handler is about to run; the answer of a
+ * handler caught there is never attested.
  *
  * <p>The control plane ({@link #controlPlane}) is not filtered, so it is not observed.
  */
@@ -179,11 +180,11 @@ public final class InboundFilter extends OncePerRequestFilter {
                 Refusals.write(response, accepted.refusal());
                 return;
             }
-            if (operations != null && mode != VerificationMode.OFF
-                    && request.getDispatcherType() == DispatcherType.REQUEST) {
+            VerifiedOperation verified = null;
+            if (accepted.operation() != null && request.getDispatcherType() == DispatcherType.REQUEST) {
                 // Read as the handler is about to run, which catches a later filter that changes the handler.
-                request.setAttribute(VerifiedOperation.ATTRIBUTE,
-                        new VerifiedOperation(operation, mode == VerificationMode.ENFORCE));
+                verified = new VerifiedOperation(accepted.operation(), mode == VerificationMode.ENFORCE);
+                request.setAttribute(VerifiedOperation.ATTRIBUTE, verified);
             }
             if (!accepted.attests()) {
                 chain.doFilter(wrapped, response);
@@ -197,8 +198,9 @@ public final class InboundFilter extends OncePerRequestFilter {
                 request.getAsyncContext().addListener(new CopyWhenComplete(cached));
                 return;
             }
-            // Committed means the container has sent something the handler did not finish with: leave it alone.
-            if (!cached.isCommitted()) {
+            // Committed means the container has sent something the handler did not finish with: leave it alone. A
+            // handler that is not the operation verified answered for another, so its answer is not attested.
+            if (!cached.isCommitted() && (verified == null || !verified.contradicted())) {
                 String attestation = accepted.attest(cached.getStatus(), cached.getContentAsByteArray(),
                         RequestContext.labels());
                 if (attestation != null) {

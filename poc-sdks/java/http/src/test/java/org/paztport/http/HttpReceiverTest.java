@@ -284,6 +284,7 @@ class HttpReceiverTest {
                 VerificationMode.ENFORCE);
         assertNull(ok.refusal());
         assertTrue(ok.attests());
+        assertEquals("getOrder", ok.operation(), "the operation the request was verified as received by");
 
         for (String operation : new String[] {"createOrder", null}) {
             Accepted other = ordersVerifying().accept(toOrders("rid-2", "orders#getOrder", operation), null,
@@ -299,6 +300,18 @@ class HttpReceiverTest {
                 VerificationMode.ENFORCE);
 
         assertNull(accepted.refusal(), "it verifies against gateway/orders");
+        assertNull(accepted.operation(), "no operation was confirmed, whatever is dispatched");
+    }
+
+    @Test
+    void anOperationIsConfirmedOnlyWhereTheLiveOrderRanWithIt() {
+        Accepted off = ordersVerifying().accept(toOrders("rid-1", "orders#getOrder", "getOrder"), null,
+                VerificationMode.OFF);
+        assertNull(off.operation(), "nothing was verified");
+
+        Accepted audited = ordersVerifying().accept(toOrders("rid-2", "orders#getOrder", "createOrder"), null,
+                VerificationMode.AUDIT);
+        assertEquals("createOrder", audited.operation(), "verified with it, though the chain named another");
     }
 
     @Test

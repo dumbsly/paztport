@@ -59,7 +59,8 @@ import org.slf4j.LoggerFactory;
  * operation its framework will dispatch the request to ({@link InboundRequest#operation}), and the request is
  * verified as received by {@code <service>#<operation>}, so a chain naming another operation, or one when the
  * framework dispatches to none, is refused {@code BINDING_MISMATCH}. A chain that names no operation is verified
- * under the service alone, whatever is dispatched. The trace line names the receiver as it was verified.
+ * under the service alone, whatever is dispatched. The trace line names the receiver as it was verified, and
+ * {@link Accepted#operation} the operation, if any, for an adapter that checks it again as the handler runs.
  *
  * <p>An origin starts every request tree afresh: it ignores the inbound chain and influence, so its handler starts
  * from none, and it never attests.
@@ -295,8 +296,10 @@ public final class HttpReceiver {
                 cacheFailure = cacheUnavailable(e);
             }
         }
+        // The operation counts as confirmed only where the chain named one and the live order ran with it.
+        String operation = checked != null && !named.equals(receiver) ? request.operation() : null;
         return Accepted.served(inbound, verified, origin ? List.of() : influence,
-                attesting && checked != null && checked.ok() ? stamper : null, checked, cacheFailure);
+                attesting && checked != null && checked.ok() ? stamper : null, checked, cacheFailure, operation);
     }
 
     /**

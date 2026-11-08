@@ -24,11 +24,14 @@ import org.springframework.web.servlet.HandlerMapping;
  * {@link HandlerMapping#BEST_MATCHING_PATTERN_ATTRIBUTE}, in the same way ({@link OperationResolver#operationAt}).
  * Without such a filter the two are always the same, since the same mappings answer the same request.
  *
- * <p>Where they differ, one WARN line names both operations, never the path. Under {@code enforce} the request is
- * refused {@code 403 {"reason":"BINDING_MISMATCH"}} and the handler does not run; under {@code audit} it is served.
+ * <p>Where they differ, one WARN line names both operations, never the path, and the operation is marked contradicted,
+ * so the filter attests no answer for it. Under {@code enforce} the request is refused
+ * {@code 403 {"reason":"BINDING_MISMATCH"}} and the handler does not run. Under {@code audit}, and on a service that
+ * verifies only to decide attestation, it is served unattested, as a request whose chain names another operation is.
  * Only the request's own dispatch is checked, where the filter recorded the operation ({@link VerifiedOperation}): a
- * request it did not record passes, and so do forward and error dispatches, which carry the attribute over from the
- * request's own dispatch to another handler, such as the error page's.
+ * request it did not record, whose chain named no operation and so had none confirmed, passes, and so do forward and
+ * error dispatches, which carry the attribute over from the request's own dispatch to another handler, such as the
+ * error page's.
  */
 final class DispatchCheck implements HandlerInterceptor {
 
@@ -61,11 +64,11 @@ final class DispatchCheck implements HandlerInterceptor {
         if (Objects.equals(dispatched, verified.operation())) {
             return true;
         }
+        verified.contradict();
         // Both names come from this service's own table, whose rules allow nothing that could break the line.
         LOG.warn("the request was verified for the operation {} but the handler about to run is the operation {}: "
                 + "a filter after Paztport's changed its method or path; {}", name(verified.operation()),
-                name(dispatched),
-                verified.enforced() ? "refused" : "served, under audit");
+                name(dispatched), verified.enforced() ? "refused" : "served unattested");
         if (!verified.enforced()) {
             return true;
         }
