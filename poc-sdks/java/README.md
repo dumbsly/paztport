@@ -305,8 +305,10 @@ hands a session request's body to `HttpSessions.serve`.
   The stamp binds the status, the body and the labels its handler added with
   `RequestContext.label`, and is sent as `X-Path-Response`. Refusals and audit-mode
   failures are not attested. The stamp covers the whole body, so the body is held
-  until the handler returns. An async response is not attested: its body is sent
-  whole when the async work completes, with no `X-Path-Response`.
+  until the handler returns, or, where a forward carries the request elsewhere,
+  until the forward returns, when the container closes the response. An async
+  response is not attested: its body is sent whole when the async work completes,
+  with no `X-Path-Response`.
 - **The outbound interceptor** stamps every `RestClient` call through
   `HttpCaller`, attaches the proof and the influence so far, having first removed
   every `X-Path-` header the application set, and reads each

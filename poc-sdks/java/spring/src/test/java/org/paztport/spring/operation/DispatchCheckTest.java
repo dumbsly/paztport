@@ -20,9 +20,12 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -32,8 +35,15 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.paztport.core.policy.Keyring;
 import org.paztport.core.policy.PolicyBuilder;
 import org.paztport.core.stamp.Stamper;
+import org.paztport.core.verify.InMemoryNonceCache;
+import org.paztport.core.verify.PinnedKeyring;
+import org.paztport.core.verify.PinnedRoot;
+import org.paztport.core.verify.ReasonCode;
+import org.paztport.core.verify.Verifier;
+import org.paztport.core.verify.VerifierConfig;
 import org.paztport.http.wire.HttpWire;
 import org.paztport.http.wire.PaztportHeaders;
 import org.paztport.http.wire.RequestBinding;
@@ -65,7 +75,7 @@ import org.springframework.web.servlet.ModelAndView;
  * handler starts, a chain that names no operation, and the error page, pass it untouched. The test's filter can also
  * write a 401 itself ({@code deny}) or forward or include to another registered servlet ({@code servlet-forward},
  * {@code servlet-include}); an answer whose handler the check never saw is not attested where the chain named an
- * operation.
+ * operation. Whatever forwards the request, its answer is sent whole, and attested where it may be.
  */
 class DispatchCheckTest {
 
@@ -143,16 +153,16 @@ class DispatchCheckTest {
     }
 
     /**
-     * A filter after Paztport's that forwards, so the request's own dispatch never reaches a handler. Tomcat suspends
-     * the response once a forward through a wrapped response returns, so the body Paztport's filter holds for
-     * attestation never reaches the caller after any forward; only the status, the handlers that ran and the missing
-     * attestation are asserted here.
+     * A filter after Paztport's that forwards, so the request's own dispatch never reaches a handler. The container
+     * closes the response when the forward returns, so the refusal is sent whole from there.
      */
     @Test
     void dispatchCheckRefusesAForward(@TempDir Path dir) throws Exception {
         try (Service orders = start(dir, "enforce")) {
             HttpResponse<String> answer = orders.send("GET", "/orders/search", "orders#search", "forward");
             assertThat(answer.statusCode()).isEqualTo(403);
+            assertThat(answer.body()).isEqualTo("{\"reason\":\"BINDING_MISMATCH\"}");
+            assertThat(answer.headers().firstValue("Content-Type")).hasValue("application/json");
             assertThat(RAN).as("neither the confirmed handler nor the other one ran").isEmpty();
             assertThat(attestation(answer)).as("the refusal is not attested").isNull();
             assertOneWarning("orders#search", "orders#getOrder");
@@ -164,6 +174,7 @@ class DispatchCheckTest {
         try (Service orders = start(dir, "audit")) {
             HttpResponse<String> answer = orders.send("GET", "/orders/search", "orders#search", "forward");
             assertThat(answer.statusCode()).isEqualTo(200);
+            assertThat(answer.body()).isEqualTo("getOrder");
             assertThat(RAN).containsExactly("getOrder");
             assertThat(attestation(answer)).as("the other handler's answer is not attested").isNull();
             assertOneWarning("orders#search", "orders#getOrder");
@@ -176,8 +187,59 @@ class DispatchCheckTest {
         try (Service orders = start(dir, "enforce")) {
             HttpResponse<String> answer = orders.send("GET", "/orders/search?forward=yes", "orders#search", null);
             assertThat(answer.statusCode()).isEqualTo(200);
+            assertThat(answer.body()).isEqualTo("getOrder");
+            assertThat(attestation(answer)).as("the confirmed handler's answer is attested").isNotNull();
             assertThat(RAN).containsExactly("search", "getOrder");
             assertThat(logged.list).isEmpty();
+        }
+    }
+
+    /** The answer finished when the forward returned is the one attested: its status and its whole body. */
+    @Test
+    void forwardedAnswerIsAttestedWhole(@TempDir Path dir) throws Exception {
+        try (Service orders = start(dir, "enforce")) {
+            Service.Exchange exchange = orders.exchange("GET", "/orders/search?forward=yes", "orders#search", null);
+            HttpWire.ResponseCheck check = HttpWire.verifyResponse(orders.gatewayVerifier(),
+                    exchange.sent().chain(), exchange.sent().proof(), attestation(exchange.answer()), 200,
+                    "getOrder".getBytes(StandardCharsets.UTF_8), "gateway");
+            assertThat(check.result().reason()).isEqualTo(ReasonCode.OK);
+        }
+    }
+
+    /** A forward the forwarded handler starts again: the innermost forward finishes the answer, once. */
+    @Test
+    void nestedForwardIsAttested(@TempDir Path dir) throws Exception {
+        try (Service orders = start(dir, "enforce")) {
+            HttpResponse<String> answer = orders.send("GET", "/orders/search?forward=twice", "orders#search", null);
+            assertThat(answer.statusCode()).isEqualTo(200);
+            assertThat(answer.body()).isEqualTo("getOrder");
+            assertThat(attestation(answer)).isNotNull();
+            assertThat(RAN).containsExactly("search", "relay", "getOrder");
+            assertThat(logged.list).isEmpty();
+        }
+    }
+
+    /** A forwarded handler that throws leaves the error page to the container, and nothing is attested. */
+    @Test
+    void forwardedHandlerThatThrowsIsNotAttested(@TempDir Path dir) throws Exception {
+        try (Service orders = start(dir, "enforce")) {
+            HttpResponse<String> answer = orders.send("GET", "/orders/search?forward=fail", "orders#search", null);
+            assertThat(answer.statusCode()).isEqualTo(500);
+            assertThat(attestation(answer)).isNull();
+            assertThat(RAN).containsExactly("search", "getItem");
+            assertThat(logged.list).isEmpty();
+        }
+    }
+
+    /** A forward to a handler that answers from async work: its body is sent whole once that work completes. */
+    @Test
+    void forwardToAsyncWorkIsSentWhole(@TempDir Path dir) throws Exception {
+        try (Service payment = startPayment(dir, "enforce")) {
+            HttpResponse<String> answer = payment.send("POST", "/charge", "payment", "forward-async");
+            assertThat(answer.statusCode()).isEqualTo(200);
+            assertThat(answer.body()).isEqualTo("later");
+            assertThat(attestation(answer)).as("an async answer is not attested").isNull();
+            assertThat(RAN).containsExactly("later");
         }
     }
 
@@ -379,7 +441,10 @@ class DispatchCheckTest {
         }
     }
 
-    /** A filter that answers itself before any handler runs leaves the check nothing to confirm, so nothing to attest. */
+    /**
+     * A filter that answers itself before any handler runs leaves the check nothing to confirm, so nothing to
+     * attest.
+     */
     @Test
     void filterWrittenAnswerIsNotAttested(@TempDir Path dir) throws Exception {
         try (Service payment = startPayment(dir, "enforce")) {
@@ -412,6 +477,28 @@ class DispatchCheckTest {
             assertThat(answer.body()).isEqualTo("legacy");
             assertThat(RAN).containsExactly("legacy");
             assertThat(attestation(answer)).isNull();
+        }
+    }
+
+    /** Another registered servlet a filter forwards to: its answer is sent whole, and not attested. */
+    @Test
+    void otherServletForwardedIsNotAttested(@TempDir Path dir) throws Exception {
+        try (Service payment = startPayment(dir, "enforce")) {
+            HttpResponse<String> answer = payment.send("POST", "/charge", "payment#charge", "servlet-forward");
+            assertThat(answer.statusCode()).isEqualTo(200);
+            assertThat(answer.body()).isEqualTo("legacy");
+            assertThat(attestation(answer)).isNull();
+        }
+    }
+
+    /** On a chain that names no operation, the same answer is attested, there being no operation to vouch for. */
+    @Test
+    void otherServletForwardedIsAttestedWithoutAnOperation(@TempDir Path dir) throws Exception {
+        try (Service payment = startPayment(dir, "enforce")) {
+            HttpResponse<String> answer = payment.send("POST", "/charge", "payment", "servlet-forward");
+            assertThat(answer.statusCode()).isEqualTo(200);
+            assertThat(answer.body()).isEqualTo("legacy");
+            assertThat(attestation(answer)).isNotNull();
         }
     }
 
@@ -456,11 +543,20 @@ class DispatchCheckTest {
                     Integer.parseInt(context.getEnvironment().getProperty("local.server.port")));
         }
 
+        /** What gateway sent, its chain and proof, and the answer it got. */
+        record Exchange(Stamper.Stamped sent, HttpResponse<String> answer) {
+        }
+
         /**
          * Sends {@code method target} with gateway's first hop naming {@code rcv}, bound to the request as sent,
          * asking the test's filter for {@code rewrite} (one of {@link Rewrite}'s, or null for none).
          */
         HttpResponse<String> send(String method, String target, String rcv, String rewrite) throws Exception {
+            return exchange(method, target, rcv, rewrite).answer();
+        }
+
+        /** As {@link #send}, keeping what gateway sent. */
+        Exchange exchange(String method, String target, String rcv, String rewrite) throws Exception {
             String rid = UUID.randomUUID().toString();
             Stamper.Stamped sent = new Stamper("gateway", "gw-1", world.gateway.getPrivate(), true, () -> rid,
                     System::currentTimeMillis).next(null, rcv, RequestBinding.compute(method, target, new byte[0]),
@@ -478,7 +574,18 @@ class DispatchCheckTest {
             if (rewrite != null) {
                 request.header(Rewrite.HEADER, rewrite);
             }
-            return http.send(request.build(), HttpResponse.BodyHandlers.ofString());
+            return new Exchange(sent, http.send(request.build(), HttpResponse.BodyHandlers.ofString()));
+        }
+
+        /** Gateway's verifier, as a caller checks an answer's attestation with it. */
+        Verifier gatewayVerifier() {
+            long notAfter = OperationWorld.NOT_AFTER;
+            return new Verifier(new VerifierConfig(
+                    List.of(new PinnedKeyring(Keyring.of(Map.of("gateway", world.gateway.getPublic(),
+                            "orders", world.orders.getPublic(), "payment", world.payment.getPublic())), notAfter)),
+                    List.of(new PinnedRoot(built.signedRoot().rootBytes(), built.signedRoot().rootId(), notAfter)),
+                    notAfter, Set.of("gateway"), "", new InMemoryNonceCache(60_000), System::currentTimeMillis,
+                    30_000, 300_000));
         }
 
         @Override
@@ -529,9 +636,10 @@ class DispatchCheckTest {
      * {@code DELETE /orders}, {@code path} turns any path into {@code /orders/123}, and {@code forward} forwards the
      * request there. On payment, {@code include} includes {@code POST /charge?mode=refund} in place of the request's
      * own dispatch, {@code include-twice} does so twice, {@code async} starts async work and dispatches it there,
-     * {@code include-then-async} includes it and then starts async work and dispatches it to {@code /charge}, and
-     * {@code error} sends an error before any handler runs, {@code deny} writes a 401 itself, and
-     * {@code servlet-forward} and {@code servlet-include} go to the servlet at {@code /legacy}.
+     * {@code include-then-async} includes it and then starts async work and dispatches it to {@code /charge},
+     * {@code error} sends an error before any handler runs, {@code deny} writes a 401 itself,
+     * {@code servlet-forward} and {@code servlet-include} go to the servlet at {@code /legacy}, and
+     * {@code forward-async} forwards to {@code /later}, which answers from async work.
      */
     static final class Rewrite extends OncePerRequestFilter {
 
@@ -571,6 +679,8 @@ class DispatchCheckTest {
                 request.getRequestDispatcher("/legacy").forward(request, response);
             } else if ("servlet-include".equals(rewrite)) {
                 request.getRequestDispatcher("/legacy").include(request, response);
+            } else if ("forward-async".equals(rewrite)) {
+                request.getRequestDispatcher("/later").forward(request, response);
             } else if ("error".equals(rewrite)) {
                 response.sendError(HttpServletResponse.SC_SERVICE_UNAVAILABLE);
             } else if ("path".equals(rewrite)) {
@@ -596,7 +706,7 @@ class DispatchCheckTest {
         }
     }
 
-    /** Orders' operations, each recording that it ran and answering its name, and one handler in no table. */
+    /** Orders' operations, each recording that it ran and answering its name, and two handlers in no table. */
     @RestController
     static class OrdersHandlers {
 
@@ -605,11 +715,28 @@ class DispatchCheckTest {
             return ran("getOrder");
         }
 
-        /** Forwards to {@code /orders/123} itself when asked to. */
+        /**
+         * Forwards itself when asked to: to {@code /orders/relay} for {@code twice}, to {@code /items/1}, which
+         * throws, for {@code fail}, and to {@code /orders/123} for anything else.
+         */
         @GetMapping("/orders/search")
         Object search(@RequestParam(required = false) String forward) {
             String name = ran("search");
-            return forward == null ? name : new ModelAndView("forward:/orders/123");
+            if (forward == null) {
+                return name;
+            }
+            return switch (forward) {
+                case "twice" -> new ModelAndView("forward:/orders/relay");
+                case "fail" -> new ModelAndView("forward:/items/1");
+                default -> new ModelAndView("forward:/orders/123");
+            };
+        }
+
+        /** Mapped, and in no table: forwards to {@code /orders/123}. */
+        @GetMapping("/orders/relay")
+        ModelAndView relay() {
+            ran("relay");
+            return new ModelAndView("forward:/orders/123");
         }
 
         @PostMapping("/orders")
@@ -632,7 +759,7 @@ class DispatchCheckTest {
     }
 
     /**
-     * Payment's operations on {@code /charge}, each recording that it ran, and one handler in no table.
+     * Payment's operations on {@code /charge}, each recording that it ran, and two handlers in no table.
      * {@code charge} answers its name, or as {@code then} asks includes {@code /fragment}, answers from async work,
      * or throws so that the container dispatches the request to its error page.
      */
@@ -675,6 +802,13 @@ class DispatchCheckTest {
         @PostMapping("/fragment")
         String fragment() {
             return ran("fragment");
+        }
+
+        /** Mapped, and in no table: answers from async work. */
+        @PostMapping("/later")
+        Callable<String> later() {
+            ran("later");
+            return () -> "later";
         }
     }
 
