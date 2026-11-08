@@ -372,6 +372,26 @@ class OperationResolverTest {
                 .hasMessageContaining("charge").hasMessageContaining("refund");
     }
 
+    /** A {@code POST /pay} handler, which only its method condition tells apart from one mapped for every method. */
+    @RestController
+    static class PayPost {
+
+        @PostMapping("/pay")
+        String pay() {
+            return "pay";
+        }
+    }
+
+    @Test
+    void startRefusesAnEntranceToldApartByAMethodCondition(@TempDir Path dir) throws Exception {
+        OperationWorld world = new OperationWorld(dir);
+        world.write(OperationWorld.routes());
+        runPayment(world, List.of(PaymentHandlers.Charges.class, PaymentHandlers.PayAnyMethod.class, PayPost.class),
+                context -> assertThat(context).getFailure()
+                        .hasMessageContaining("the operation pay, POST /pay")
+                        .hasMessageContaining("more than one handler").hasMessageContaining("a method condition"));
+    }
+
     /** Only {@code charge} on {@code POST /charge}: no handler has {@code refund}'s condition. */
     @RestController
     static class ChargeOnly {

@@ -74,13 +74,13 @@ import org.springframework.web.util.ServletRequestPathUtils;
  * {@code name=value}, or the operation with none where the mapping has no {@code params} condition. The context does
  * not start where a mapping on a table entrance has a {@code params} condition that is none of the entrance's, or
  * where an operation is no handler or more than one, as two handlers that the entrance tells apart by headers, media
- * types or a regex are, or where one handler is more than one of an entrance's operations. Two beans that inherit one
- * handler method are two handlers. A mapping that is on no table entrance is allowed: it is reachable only by routes
- * that name no operation. Any other handler, a router function's or a URL-mapped one's, is no operation. Nor does
- * the context start beside a {@link HiddenHttpMethodFilter}, which changes the request's method after the inbound
- * filter has confirmed the operation for the method sent. Any other filter that changes the method, the path or the
- * parameters after the inbound filter is caught as the handler is about to run ({@link DispatchCheck}), which asks
- * this for the operation of the handler the DispatcherServlet chose.
+ * types, a regex or a method condition are, or where one handler is more than one of an entrance's operations. Two
+ * beans that inherit one handler method are two handlers. A mapping that is on no table entrance is allowed: it is
+ * reachable only by routes that name no operation. Any other handler, a router function's or a URL-mapped one's, is
+ * no operation. Nor does the context start beside a {@link HiddenHttpMethodFilter}, which changes the request's
+ * method after the inbound filter has confirmed the operation for the method sent. Any other filter that changes the
+ * method, the path or the parameters after the inbound filter is caught as the handler is about to run
+ * ({@link DispatchCheck}), which asks this for the operation of the handler the DispatcherServlet chose.
  */
 public final class OperationResolver implements SmartInitializingSingleton {
 
@@ -346,8 +346,8 @@ public final class OperationResolver implements SmartInitializingSingleton {
                 throw new IllegalStateException("paztport.operations.table-path: the operation " + describe(op)
                         + ", is more than one handler of this service, " + of + "; the entrance " + op.method() + " "
                         + op.template() + " tells them apart by something a caller's table cannot hold, such as "
-                        + "headers, a media type or a pattern's regex, so map one handler for each of its query "
-                        + "conditions");
+                        + "headers, a media type, a pattern's regex or a method condition, so map one handler for "
+                        + "each of its query conditions");
             }
         }
         return operations;

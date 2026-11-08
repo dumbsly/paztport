@@ -367,11 +367,11 @@ hands a session request's body to `HttpSessions.serve`.
     has a `params` condition the entrance does not hold (`!mode`, `mode`, two
     expressions, or a value no operation has), or where two handlers on one entrance
     share a `params` condition and are told apart only by headers, a media type
-    (`consumes`, `produces`) or a pattern's regex, or where one handler is two
-    operations of an entrance; `consumes` on an entrance's only handler is
-    allowed. Two beans that inherit one handler method are two handlers. A mapping
-    on no table entrance is allowed; it is reachable only by routes that name no
-    operation;
+    (`consumes`, `produces`), a pattern's regex or a method condition (one mapped
+    for the method, one for every method), or where one handler is two operations
+    of an entrance; `consumes` on an entrance's only handler is allowed. Two beans
+    that inherit one handler method are two handlers. A mapping on no table
+    entrance is allowed; it is reachable only by routes that name no operation;
   - a receiver's table the bundle holds no proof for is set aside, with one line
     naming the receiver, and calls to it name no operation, so the receiver then
     needs a route that names none;
