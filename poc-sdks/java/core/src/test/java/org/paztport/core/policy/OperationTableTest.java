@@ -157,6 +157,17 @@ class OperationTableTest {
     }
 
     @Test
+    void namesTheEntranceRuleItBreaks() {
+        String refund = opq("refund", "/charge", "{\"mode\":\"refund\"}");
+        IllegalArgumentException different = assertThrows(IllegalArgumentException.class, () -> OperationTable.read(
+                file("payment", "1", refund, opq("cancel", "/charge", "{\"kind\":\"refund\"}"))));
+        assertTrue(different.getMessage().contains("different parameters"), different.getMessage());
+        IllegalArgumentException same = assertThrows(IllegalArgumentException.class, () -> OperationTable.read(
+                file("payment", "1", refund, opq("cancel", "/charge", "{\"mode\":\"refund\"}"))));
+        assertTrue(same.getMessage().contains("share the query condition"), same.getMessage());
+    }
+
+    @Test
     void matchesAQuery() {
         OperationTable t = payment();
         assertEquals("refund", t.match("POST", "/charge", "mode=refund"));
@@ -167,6 +178,9 @@ class OperationTableTest {
         assertEquals("refund", t.match("POST", "/charge", "other=1&mode=refund"));
         assertNull(t.match("POST", "/charge", "mode=refund&mode=refund"));
         assertEquals("pay", t.match("POST", "/pay", "mode=refund&mode=refund"));
+        assertEquals("charge", t.match("POST", "/charge", "mode"));
+        assertNull(t.match("POST", "/charge", "mode&mode=refund"));
+        assertEquals("charge", t.match("POST", "/charge", ""));
     }
 
     @Test

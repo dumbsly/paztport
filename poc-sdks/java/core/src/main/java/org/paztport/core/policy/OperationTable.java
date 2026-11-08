@@ -24,9 +24,9 @@ import org.paztport.core.internal.JsonWriter;
 /**
  * A service's operation table, {@code ops-<service>.json}: the operations an HTTP service names, each a method and
  * a path template, and where an entrance serves several, a query condition. A caller that holds the table names
- * the operation each call invokes in its stamp's
- * {@code rcv} ({@code orders#createOrder}), using {@link #match} to find it. The receiver does not use {@code match}:
- * it confirms its operation from its own routing, the handler its framework dispatches to.
+ * the operation each call invokes in its stamp's {@code rcv} ({@code orders#createOrder}), using {@link #match} to
+ * find it. The receiver does not use {@code match}: it confirms its operation from its own routing, the handler
+ * its framework dispatches to.
  *
  * <p>The signed root covers a table as the route {@code <service>/ops:<hash>}, see {@link #route()}, and a service
  * and its callers must not use a table the root does not cover, see {@link #coveredBy}. The service's own bundle
@@ -83,15 +83,15 @@ public record OperationTable(String service, List<Operation> operations) {
                 requireQueryToken(q.value(), "a query value");
             }
             String entrance = o.method() + " " + o.template();
+            if (q != null && !parameters.computeIfAbsent(entrance, k -> q.parameter()).equals(q.parameter())) {
+                throw new IllegalArgumentException("the query conditions of the entrance " + entrance
+                        + " name different parameters");
+            }
             if (!entrances.computeIfAbsent(entrance, k -> new HashSet<>()).add(q == null ? null : q.value())) {
                 throw new IllegalArgumentException(q == null
                         ? "two operations of the entrance " + entrance + " have no query condition"
                         : "two operations of the entrance " + entrance + " share the query condition "
                                 + q.parameter() + "=" + q.value());
-            }
-            if (q != null && !parameters.computeIfAbsent(entrance, k -> q.parameter()).equals(q.parameter())) {
-                throw new IllegalArgumentException("the query conditions of the entrance " + entrance
-                        + " name different parameters");
             }
         }
     }
