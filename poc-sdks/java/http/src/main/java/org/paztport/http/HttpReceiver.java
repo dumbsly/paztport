@@ -296,7 +296,8 @@ public final class HttpReceiver {
                 cacheFailure = cacheUnavailable(e);
             }
         }
-        // The operation counts as confirmed only where the chain named one and the live order ran with it.
+        // The operation the request was verified with, where the chain named one and the live order ran, whether
+        // or not it passed (it may have failed under audit or where it ran for attestation alone).
         String operation = checked != null && !named.equals(receiver) ? request.operation() : null;
         return Accepted.served(inbound, verified, origin ? List.of() : influence,
                 attesting && checked != null && checked.ok() ? stamper : null, checked, cacheFailure, operation);

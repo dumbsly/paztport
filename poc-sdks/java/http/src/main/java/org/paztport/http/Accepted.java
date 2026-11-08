@@ -68,7 +68,7 @@ public final class Accepted {
     }
 
     /**
-     * The operation a served request was verified as received by, {@code <service>#<operation>} less the service:
+     * The operation a served request was verified as received by, the operation part of {@code <service>#<operation>}:
      * the one the adapter said the request will be dispatched to, where the chain named an operation and the live
      * order ran on the request, under a mode or for attestation alone, whether or not it passed. Null where the chain
      * named none, so the request was verified under the service alone, where nothing was verified, and for a refusal.

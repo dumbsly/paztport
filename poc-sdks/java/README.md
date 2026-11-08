@@ -380,14 +380,17 @@ hands a session request's body to `HttpSessions.serve`.
   other URL-mapped handlers have no operation. A partner's entry names none.
 
   A filter that changes the request's method or path after Paztport's filter has
-  run makes another handler run than the one confirmed. Such a filter is caught
-  when the handler is about to run: where the chain named an operation, the
+  run makes another handler run than the one confirmed. Such a filter is caught,
+  whether it wraps the request or forwards it, when the first handler the
+  request reaches is about to run: where the chain named an operation, the
   operation is worked out again from that handler's pattern, and where it
   differs one warning names both operations and the answer is not attested.
   Under `enforce` the request is refused `403 {"reason":"BINDING_MISMATCH"}`;
   in `audit`, and on a service that verifies only to decide attestation, it is
-  served unattested. A chain that names no operation had none confirmed, so it
-  is not checked. Spring's method-override filter, `HiddenHttpMethodFilter`
+  served unattested. A forward the confirmed handler starts itself is not
+  checked again, and a chain that names no operation had none confirmed, so it
+  is not checked. A refusal here counts as served in the `paztport.request`
+  observation, which ends before the handler runs. Spring's method-override filter, `HiddenHttpMethodFilter`
   (`spring.mvc.hiddenmethod.filter.enabled`), is also refused at start: a
   service with its own table does not start beside it.
 

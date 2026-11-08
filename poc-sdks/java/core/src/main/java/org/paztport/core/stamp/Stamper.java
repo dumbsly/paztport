@@ -101,8 +101,7 @@ public final class Stamper {
      *
      * @throws IllegalArgumentException when {@code sess} is empty, or this service's name or {@code partnerEntry} is
      *     not a route node, this service's name holds {@code #}, or a {@code partnerEntry} holding {@code #} lacks a
-     *     valid service part or a valid operation name (a route node holding no {@code #}); nothing is
-     *     signed
+     *     valid service part or a valid operation name (a route node holding no {@code #}); nothing is signed
      */
     public Stamped boundary(List<Stamp> verifiedInternal, String sess, String partnerEntry, String bind,
             List<InfluenceEntry> influence, ProofBundle bundle) {
