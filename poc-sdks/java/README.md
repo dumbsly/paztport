@@ -392,15 +392,19 @@ hands a session request's body to `HttpSessions.serve`.
   router functions and other handlers that are not annotated have no operation. A
   partner's entry names none.
 
-  Spring's `params` condition reads the request's parameters, which a servlet
-  container also fills from a form body (`application/x-www-form-urlencoded`)
-  where nothing has read the body first, while a caller's table matches the query
-  alone. Either way the operation is the handler that runs: where `mode=refund` in
-  a form body makes Spring run `refund`, a chain naming `charge` is refused. On
-  Tomcat, Paztport's filter reads the body to bind it first, so the parameters
-  hold the query alone and the same request runs `charge`. A handler that switches
-  on a body field is one operation, whatever it does: operations are told apart
-  by the query only.
+  A service routes by method, path and query alone, and a request whose routing a
+  body field changes is refused. Spring's `params` condition reads the request's
+  parameters, while a caller's table matches the query alone. Paztport's filter
+  reads the body to bind it before anything parses it, so a `POST` form body
+  (`application/x-www-form-urlencoded`) is not seen: the query alone decides, and
+  the handler named runs, so `mode=refund` in the body of a `POST /charge` runs
+  `charge`. On a `PUT`, `PATCH` or `DELETE`, Boot's form content filter, which runs
+  after Paztport's, adds the body's fields to the parameters, so a form body that
+  meets a `params` condition makes Spring choose another handler than the one
+  confirmed, and the request is caught at dispatch, below: refused under `enforce`,
+  served unattested elsewhere. A handler that switches on a body
+  field is one operation, whatever it does: operations are told apart by the
+  query only.
 
   A filter that changes the request's method, path or parameters after Paztport's
   filter has run makes another handler run than the one confirmed. Such a filter

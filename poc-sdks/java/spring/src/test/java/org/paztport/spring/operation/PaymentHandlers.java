@@ -6,13 +6,14 @@ package org.paztport.spring.operation;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
  * Payment's handlers, each recording that it ran and answering its own name, so a test can tell which one ran.
- * {@link Charges} serves the entrance {@code POST /charge}, whose two operations a query condition tells apart; the
- * operation {@code pay} is served by either {@link PayJson} or {@link PayAnyMethod}.
+ * {@link Charges} serves the entrances {@code POST /charge} and {@code PUT /charge}, each of whose two operations a
+ * query condition tells apart; the operation {@code pay} is served by either {@link PayJson} or {@link PayAnyMethod}.
  */
 final class PaymentHandlers {
 
@@ -38,6 +39,16 @@ final class PaymentHandlers {
         @PostMapping(path = "/charge", params = "mode=refund")
         String refund() {
             return ran("refund");
+        }
+
+        @PutMapping("/charge")
+        String amend() {
+            return ran("amend");
+        }
+
+        @PutMapping(path = "/charge", params = "mode=refund")
+        String amendRefund() {
+            return ran("amendRefund");
         }
     }
 

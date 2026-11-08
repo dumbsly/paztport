@@ -11,8 +11,12 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.paztport.core.policy.OperationTable;
 import org.paztport.core.policy.OperationTable.Operation;
 import org.paztport.spring.PaztportAutoConfiguration;
@@ -236,7 +240,7 @@ class OperationResolverTest {
                         .hasMessageContaining("POST /orders").hasMessageContaining("createOrder"));
     }
 
-    /** A {@code POST /charge} handler for a request without the parameter, a condition the table cannot hold. */
+    /** A {@code POST /charge} handler for a request without the parameter. */
     @RestController
     static class ChargeWithoutMode {
 
@@ -246,14 +250,65 @@ class OperationResolverTest {
         }
     }
 
-    @Test
-    void startRefusesAConditionTheTableCannotExpress(@TempDir Path dir) throws Exception {
+    /** A {@code POST /charge} handler for a request that holds the parameter, whatever its value. */
+    @RestController
+    static class ChargeWithAnyMode {
+
+        @PostMapping(path = "/charge", params = "mode")
+        String chargeWithAnyMode() {
+            return "chargeWithAnyMode";
+        }
+    }
+
+    /** A {@code POST /charge} handler for a request whose parameter is not {@code refund}. */
+    @RestController
+    static class ChargeNotRefund {
+
+        @PostMapping(path = "/charge", params = "mode!=refund")
+        String chargeNotRefund() {
+            return "chargeNotRefund";
+        }
+    }
+
+    /** A {@code POST /charge} handler for a value no operation of the entrance holds. */
+    @RestController
+    static class ChargeVoid {
+
+        @PostMapping(path = "/charge", params = "mode=void")
+        String chargeVoid() {
+            return "chargeVoid";
+        }
+    }
+
+    /** A {@code POST /charge} handler with two expressions, where a table condition is one. */
+    @RestController
+    static class ChargeTwoParameters {
+
+        @PostMapping(path = "/charge", params = {"mode=refund", "fast=yes"})
+        String chargeTwoParameters() {
+            return "chargeTwoParameters";
+        }
+    }
+
+    static Stream<Arguments> conditionsTheTableCannotExpress() {
+        return Stream.of(
+                Arguments.of(ChargeWithoutMode.class, "!mode"),
+                Arguments.of(ChargeWithAnyMode.class, "[mode]"),
+                Arguments.of(ChargeNotRefund.class, "mode!=refund"),
+                Arguments.of(ChargeVoid.class, "mode=void"),
+                Arguments.of(ChargeTwoParameters.class, "fast=yes"));
+    }
+
+    @ParameterizedTest
+    @MethodSource("conditionsTheTableCannotExpress")
+    void startRefusesAConditionTheTableCannotExpress(Class<?> handler, String condition, @TempDir Path dir)
+            throws Exception {
         OperationWorld world = new OperationWorld(dir);
         world.write(OperationWorld.routes());
-        runPayment(world, List.of(PaymentHandlers.Charges.class, PaymentHandlers.PayJson.class,
-                ChargeWithoutMode.class), context -> assertThat(context).getFailure()
+        runPayment(world, List.of(PaymentHandlers.Charges.class, PaymentHandlers.PayJson.class, handler),
+                context -> assertThat(context).getFailure()
                         .hasMessageContaining("paztport.operations.table-path")
-                        .hasMessageContaining("POST /charge").hasMessageContaining("!mode"));
+                        .hasMessageContaining("POST /charge").hasMessageContaining(condition));
     }
 
     /** A second {@code GET /items/{}} handler, which Spring tells apart from {@code getItem} by its regex alone. */
@@ -294,6 +349,6 @@ class OperationResolverTest {
         world.write(OperationWorld.routes());
         runPayment(world, List.of(ChargeOnly.class, PaymentHandlers.PayJson.class), context -> assertThat(context)
                 .getFailure().hasMessageContaining("paztport.operations.table-path")
-                .hasMessageContaining("refund").hasMessageContaining("POST /charge"));
+                .hasMessageContaining("the operation refund, POST /charge"));
     }
 }

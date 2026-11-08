@@ -17,6 +17,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.TreeMap;
 import org.paztport.core.policy.OperationTable;
 import org.springframework.beans.factory.BeanFactoryUtils;
 import org.springframework.beans.factory.ListableBeanFactory;
@@ -42,9 +43,17 @@ import org.springframework.web.util.ServletRequestPathUtils;
  * request, so this asks the same handler mappings, in the same order, as it will: every {@link HandlerMapping} bean,
  * sorted by order, the first that answers a handler deciding. The pattern is the one that mapping sets as
  * {@link HandlerMapping#BEST_MATCHING_PATTERN_ATTRIBUTE}, which the handler's interceptors read too. So a request that
- * Spring and a caller read differently (a regex variable, a trailing slash, a percent-encoded segment or query value,
- * a form body's parameter) is confirmed as the operation Spring will actually run, or as none, and a chain naming the
- * caller's choice is refused.
+ * Spring and a caller read differently (a regex variable, a trailing slash, a percent-encoded segment or query value)
+ * is confirmed as the operation Spring will actually run, or as none, and a chain naming the caller's choice is
+ * refused.
+ *
+ * <p>A service routes by method, path and query alone, and a request whose routing a body field changes is refused.
+ * The inbound filter reads the body to bind it before anything parses it, so on a {@code POST} the container never
+ * adds a form body's fields to the parameters: the query alone decides, and the handler named runs. On a {@code PUT},
+ * {@code PATCH} or {@code DELETE}, Boot's form content filter, which runs after the inbound filter, adds them, so a
+ * form body that meets a {@code params} condition makes the DispatcherServlet choose another handler than the one
+ * this named, and the check made as that handler is about to run ({@link DispatchCheck}) refuses the request under
+ * {@code enforce}, and elsewhere serves it unattested.
  *
  * <p>Spring's {@code HandlerMappingIntrospector}, which asked the mappings in this way for a filter, is deprecated for
  * removal as of Spring Framework 7, so this asks them itself. Where a mapping fails the request (a method or a media
@@ -234,13 +243,16 @@ public final class OperationResolver implements SmartInitializingSingleton {
 
     /**
      * The operation each annotated handler of {@code mappings} is where it serves one of {@code table}'s entrances,
-     * by its Java method, the HTTP method and the template; refusing, with the first it finds, a mapping on a table
-     * entrance whose {@code params} condition is none of the entrance's query conditions, and an operation that no
-     * handler is, or more than one. A mapping with no method condition serves each of the table's methods at its
-     * templates; one whose pattern normalises to no template, or that is on no table entrance, is no operation.
+     * by its Java method, the HTTP method and the template; refusing a mapping on a table entrance whose
+     * {@code params} condition is none of the entrance's query conditions, and an operation that no handler is, or
+     * more than one. A mapping with no method condition serves each of the table's methods at its templates; one whose
+     * pattern normalises to no template, or that is on no table entrance, is no operation. Handlers are told apart by
+     * their Java method, so two beans that inherit one handler method from a base class are one handler: the same
+     * code runs for either, so it is the same operation. Where more than one refusal applies, the one reported is the
+     * same on every start: the entrances and operations are checked in table order, and handlers by name.
      */
     static Map<Served, String> operationsOf(OperationTable table, List<HandlerMapping> mappings) {
-        Map<String, List<OperationTable.Operation>> entrances = new HashMap<>();
+        Map<String, List<OperationTable.Operation>> entrances = new LinkedHashMap<>();
         Map<String, Set<String>> methodsAt = new HashMap<>();
         for (OperationTable.Operation op : table.operations()) {
             entrances.computeIfAbsent(op.method() + " " + op.template(), k -> new ArrayList<>()).add(op);
@@ -248,6 +260,7 @@ public final class OperationResolver implements SmartInitializingSingleton {
         }
         Map<Served, String> operations = new HashMap<>();
         Map<OperationTable.Operation, Map<Method, HandlerMethod>> handlers = new HashMap<>();
+        Map<String, TreeMap<String, String>> unheld = new HashMap<>();
         for (HandlerMapping mapping : mappings) {
             if (!(mapping instanceof RequestMappingInfoHandlerMapping annotated)) {
                 continue;
@@ -269,15 +282,28 @@ public final class OperationResolver implements SmartInitializingSingleton {
                         if (of == null) {
                             continue;
                         }
-                        OperationTable.Operation op = conditionOf(of, info, handler, entrance);
+                        OperationTable.Operation op = conditionOf(of, info);
+                        if (op == null) {
+                            unheld.computeIfAbsent(entrance, k -> new TreeMap<>()).put(handler.toString(),
+                                    unheldCondition(of, info, handler, entrance));
+                            continue;
+                        }
                         handlers.computeIfAbsent(op, k -> new LinkedHashMap<>()).put(handler.getMethod(), handler);
                         operations.put(new Served(handler.getMethod(), method, template), op.name());
                     }
                 }
             }
         }
+        for (String entrance : entrances.keySet()) {
+            TreeMap<String, String> refusals = unheld.get(entrance);
+            if (refusals != null) {
+                throw new IllegalStateException(refusals.firstEntry().getValue());
+            }
+        }
         for (OperationTable.Operation op : table.operations()) {
-            Collection<HandlerMethod> of = handlers.getOrDefault(op, Map.of()).values();
+            List<String> of = new ArrayList<>();
+            handlers.getOrDefault(op, Map.of()).values().forEach(handler -> of.add(handler.toString()));
+            Collections.sort(of);
             if (of.isEmpty()) {
                 throw new IllegalStateException("paztport.operations.table-path: the operation " + describe(op)
                         + ", is not a handler mapping of this service; no handler maps that method, a pattern that "
@@ -298,12 +324,9 @@ public final class OperationResolver implements SmartInitializingSingleton {
     /**
      * The operation of an entrance, {@code of}, that a mapping on it is: the one whose query condition is the
      * mapping's one non-negated {@code params} expression {@code name=value}, or the one with none where the mapping
-     * has no {@code params} condition.
-     *
-     * @throws IllegalStateException where the mapping's {@code params} condition is none of those
+     * has no {@code params} condition; null where its {@code params} condition is none of those.
      */
-    private static OperationTable.Operation conditionOf(List<OperationTable.Operation> of, RequestMappingInfo info,
-            HandlerMethod handler, String entrance) {
+    private static OperationTable.Operation conditionOf(List<OperationTable.Operation> of, RequestMappingInfo info) {
         Set<NameValueExpression<String>> params = info.getParamsCondition().getExpressions();
         OperationTable.Condition condition = null;
         boolean expressible = params.isEmpty();
@@ -317,14 +340,20 @@ public final class OperationResolver implements SmartInitializingSingleton {
                 return op;
             }
         }
+        return null;
+    }
+
+    /** The refusal of a mapping on {@code entrance} whose {@code params} condition none of its operations hold. */
+    private static String unheldCondition(List<OperationTable.Operation> of, RequestMappingInfo info,
+            HandlerMethod handler, String entrance) {
         List<String> conditions = new ArrayList<>();
         for (OperationTable.Operation op : of) {
             conditions.add(op.query() == null ? "none" : condition(op.query()));
         }
-        throw new IllegalStateException("paztport.operations.table-path: the handler " + handler + " is mapped on "
-                + "the entrance " + entrance + " with the params condition " + info.getParamsCondition() + ", which "
-                + "is none of that entrance's query conditions in the table, " + String.join(", ", conditions)
-                + "; give it one of those, or map it on an entrance the table does not hold");
+        return "paztport.operations.table-path: the handler " + handler + " is mapped on the entrance " + entrance
+                + " with the params condition " + info.getParamsCondition() + ", which is none of that entrance's "
+                + "query conditions in the table, " + String.join(", ", conditions) + "; give it one of those, or "
+                + "map it on an entrance the table does not hold";
     }
 
     /** {@code name, METHOD /template}, and {@code ?parameter=value} where the operation has a query condition. */

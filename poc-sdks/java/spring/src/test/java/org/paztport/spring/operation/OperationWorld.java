@@ -38,11 +38,13 @@ final class OperationWorld {
             new Operation("createOrder", "POST", "/orders"),
             new Operation("getItem", "GET", "/items/{}")));
 
-    /** Payment's table: one entrance of two operations, told apart by a query condition, and a third. */
+    /** Payment's table: two entrances of two operations each, told apart by a query condition, and a fifth. */
     static final OperationTable PAYMENT = new OperationTable("payment", List.of(
             new Operation("charge", "POST", "/charge"),
             new Operation("refund", "POST", "/charge", new OperationTable.Condition("mode", "refund")),
-            new Operation("pay", "POST", "/pay")));
+            new Operation("pay", "POST", "/pay"),
+            new Operation("amend", "PUT", "/charge"),
+            new Operation("amendRefund", "PUT", "/charge", new OperationTable.Condition("mode", "refund"))));
 
     final KeyPair policy = Crypto.generateEd25519KeyPair();
     final KeyPair gateway = Crypto.generateEd25519KeyPair();
@@ -63,7 +65,8 @@ final class OperationWorld {
                 List.of("gateway", "orders#getOrder"), List.of("gateway", "orders#search"),
                 List.of("gateway", "orders#createOrder"), List.of("gateway", "orders#getItem"),
                 List.of("gateway", "payment#charge"), List.of("gateway", "payment#refund"),
-                List.of("gateway", "payment#pay"), List.of("orders", "payment#charge"),
+                List.of("gateway", "payment#pay"), List.of("gateway", "payment#amend"),
+                List.of("gateway", "payment#amendRefund"), List.of("orders", "payment#charge"),
                 ORDERS.route(), PAYMENT.route());
     }
 

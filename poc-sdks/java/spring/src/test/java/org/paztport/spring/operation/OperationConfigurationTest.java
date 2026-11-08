@@ -357,19 +357,74 @@ class OperationConfigurationTest {
     }
 
     /**
-     * On Tomcat the request's parameters hold a form body's only where nothing has read the body first, and
-     * Paztport's filter reads it to bind it, so there Spring's params condition sees the query alone. Whichever it
-     * sees, the operation confirmed is the handler that runs: of a chain naming {@code charge} and one naming
-     * {@code refund} for a form body holding {@code mode=refund}, the one naming the handler that runs is served by
-     * it, and the other is refused before any handler runs.
+     * On a {@code POST} the container never adds a form body's fields to the parameters, since Paztport's filter
+     * reads the body to bind it first: the query alone decides, so a chain naming {@code charge} for a form body
+     * holding {@code mode=refund} is served by {@code charge}, and one naming {@code refund} is refused before any
+     * handler runs.
      */
     @Test
-    void formBodyOnTheContainerIsTheHandlerThatRuns(@TempDir Path dir) throws Exception {
+    void postFormBodyIsNotSeen(@TempDir Path dir) throws Exception {
         OperationWorld world = new OperationWorld(dir);
         PolicyBuilder.Result built = world.write(OperationWorld.routes());
         PaymentHandlers.RAN.clear();
+        onTomcat(world, built, form -> {
+            HttpResponse<String> named = form.send("POST", "payment#charge");
+            assertThat(named.statusCode()).isEqualTo(200);
+            assertThat(named.body()).isEqualTo("charge");
+            HttpResponse<String> other = form.send("POST", "payment#refund");
+            assertThat(other.statusCode()).isEqualTo(403);
+            assertThat(other.body()).isEqualTo("{\"reason\":\"BINDING_MISMATCH\"}");
+        });
+        assertThat(PaymentHandlers.RAN).containsExactly("charge");
+    }
+
+    /**
+     * On a {@code PUT} Boot's form content filter, after Paztport's, adds a form body's fields to the parameters, so
+     * {@code mode=refund} in the body makes Spring choose {@code amendRefund}, while the filter confirmed the
+     * {@code amend} the chain named from the query alone: a request whose routing a body field changes is refused,
+     * as the handler is about to run, and no handler runs.
+     */
+    @Test
+    void putFormBodyMeetingAConditionIsRefusedAtDispatch(@TempDir Path dir) throws Exception {
+        OperationWorld world = new OperationWorld(dir);
+        PolicyBuilder.Result built = world.write(OperationWorld.routes());
+        PaymentHandlers.RAN.clear();
+        ListAppender<ILoggingEvent> checked = new ListAppender<>();
+        Logger check = (Logger) LoggerFactory.getLogger(DispatchCheck.class);
+        onTomcat(world, built, form -> {
+            // Attached once the application has started, since starting resets the loggers.
+            checked.start();
+            check.addAppender(checked);
+            check.setLevel(Level.INFO);
+            try {
+                HttpResponse<String> answer = form.send("PUT", "payment#amend");
+                assertThat(answer.statusCode()).isEqualTo(403);
+                assertThat(answer.body()).isEqualTo("{\"reason\":\"BINDING_MISMATCH\"}");
+            } finally {
+                check.detachAppender(checked);
+                check.setLevel(null);
+            }
+        });
+        assertThat(PaymentHandlers.RAN).as("no handler ran").isEmpty();
+        assertThat(checked.list).as("refused as the handler was about to run, not by the filter").singleElement()
+                .satisfies(warning -> assertThat(warning.getFormattedMessage()).contains("payment#amend")
+                        .contains("payment#amendRefund"));
+    }
+
+    /** Sends a form body holding {@code mode=refund} to {@code /charge}. */
+    private interface FormSender {
+        /** Sends it as {@code method}, with gateway's first hop naming {@code rcv}. */
+        HttpResponse<String> send(String method, String rcv) throws Exception;
+    }
+
+    private interface TomcatConsumer {
+        void accept(FormSender form) throws Exception;
+    }
+
+    /** Runs payment on Tomcat, verifying gateway's requests under {@code enforce}, and hands {@code then} a sender. */
+    private static void onTomcat(OperationWorld world, PolicyBuilder.Result built, TomcatConsumer then)
+            throws Exception {
         byte[] body = "mode=refund".getBytes(StandardCharsets.UTF_8);
-        List<String> served = new ArrayList<>();
         try (ConfigurableApplicationContext app = new SpringApplicationBuilder(PaymentApp.class)
                 .properties(world.service("payment", "server.port=0", "spring.main.banner-mode=off",
                         "paztport.verify=true", "paztport.mode=enforce", "paztport.origins=gateway",
@@ -377,10 +432,10 @@ class OperationConfigurationTest {
                 .run(); HttpClient http = TestHttp.newClient()) {
             URI uri = URI.create("http://127.0.0.1:" + app.getEnvironment().getProperty("local.server.port")
                     + "/charge");
-            for (String operation : List.of("charge", "refund")) {
-                String[] hop = firstHop(world, built, "payment#" + operation, "POST", "/charge", body,
-                        UUID.randomUUID().toString());
-                HttpRequest.Builder request = TestHttp.request(uri).POST(HttpRequest.BodyPublishers.ofByteArray(body))
+            then.accept((method, rcv) -> {
+                String[] hop = firstHop(world, built, rcv, method, "/charge", body, UUID.randomUUID().toString());
+                HttpRequest.Builder request = TestHttp.request(uri)
+                        .method(method, HttpRequest.BodyPublishers.ofByteArray(body))
                         .header("Content-Type", "application/x-www-form-urlencoded")
                         .header(PaztportHeaders.CHAIN, hop[0]);
                 if (hop[1] != null) {
@@ -389,18 +444,9 @@ class OperationConfigurationTest {
                 if (hop[2] != null) {
                     request.header(PaztportHeaders.INFLUENCE, hop[2]);
                 }
-                HttpResponse<String> answer = http.send(request.build(), HttpResponse.BodyHandlers.ofString());
-                if (answer.statusCode() == 200) {
-                    assertThat(answer.body()).isEqualTo(operation);
-                    served.add(operation);
-                } else {
-                    assertThat(answer.statusCode()).isEqualTo(403);
-                    assertThat(answer.body()).isEqualTo("{\"reason\":\"BINDING_MISMATCH\"}");
-                }
-            }
+                return http.send(request.build(), HttpResponse.BodyHandlers.ofString());
+            });
         }
-        assertThat(served).as("exactly one of the two is the handler that runs").hasSize(1);
-        assertThat(PaymentHandlers.RAN).as("only that handler ran").isEqualTo(served);
     }
 
     @SpringBootConfiguration
