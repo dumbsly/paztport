@@ -17,10 +17,11 @@ import org.springframework.web.servlet.HandlerInterceptor;
 import org.springframework.web.servlet.HandlerMapping;
 
 /**
- * Checks, as the handler is about to run, that it is the operation the inbound filter verified the request for.
- * The filter works the operation out from the request as it is when the filter runs; a filter after it that changes
- * the method or the path makes the DispatcherServlet choose another handler. So this works the operation out again
- * from the request as the handler sees it, its method and the pattern its handler mapping set as
+ * Checks, as the first handler the request reaches is about to run, that it is the operation the inbound filter
+ * verified the request for. The filter works the operation out from the request as it is when the filter runs; a
+ * filter after it that changes the method or the path, by wrapping the request or by forwarding it, makes the
+ * DispatcherServlet choose another handler. So this works the operation out again from the request as the handler
+ * sees it, its method and the pattern its handler mapping set as
  * {@link HandlerMapping#BEST_MATCHING_PATTERN_ATTRIBUTE}, in the same way ({@link OperationResolver#operationAt}).
  * Without such a filter the two are always the same, since the same mappings answer the same request.
  *
@@ -28,10 +29,11 @@ import org.springframework.web.servlet.HandlerMapping;
  * so the filter attests no answer for it. Under {@code enforce} the request is refused
  * {@code 403 {"reason":"BINDING_MISMATCH"}} and the handler does not run. Under {@code audit}, and on a service that
  * verifies only to decide attestation, it is served unattested, as a request whose chain names another operation is.
- * Only the request's own dispatch is checked, where the filter recorded the operation ({@link VerifiedOperation}): a
- * request it did not record, whose chain named no operation and so had none confirmed, passes, and so do forward and
- * error dispatches, which carry the attribute over from the request's own dispatch to another handler, such as the
- * error page's.
+ * Only the first handler a request reaches on its own dispatch or on a forward is checked, where the filter recorded
+ * the operation ({@link VerifiedOperation}), which is then marked checked. A forward that handler starts, such as a
+ * {@code forward:} view, is its own and passes, as does a request the filter did not record, whose chain named no
+ * operation and so had none confirmed. Error, async and include dispatches pass too: they carry the attribute over
+ * from the request's own dispatch to another handler, such as the error page's.
  */
 final class DispatchCheck implements HandlerInterceptor {
 
@@ -54,10 +56,13 @@ final class DispatchCheck implements HandlerInterceptor {
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler)
             throws Exception {
-        if (request.getDispatcherType() != DispatcherType.REQUEST
-                || !(request.getAttribute(VerifiedOperation.ATTRIBUTE) instanceof VerifiedOperation verified)) {
+        DispatcherType dispatch = request.getDispatcherType();
+        if ((dispatch != DispatcherType.REQUEST && dispatch != DispatcherType.FORWARD)
+                || !(request.getAttribute(VerifiedOperation.ATTRIBUTE) instanceof VerifiedOperation verified)
+                || verified.checked()) {
             return true;
         }
+        verified.check();
         String pattern = request.getAttribute(HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE) instanceof String p
                 ? p : null;
         String dispatched = operations.operationAt(request.getMethod(), pattern);
@@ -66,8 +71,8 @@ final class DispatchCheck implements HandlerInterceptor {
         }
         verified.contradict();
         // Both names come from this service's own table, whose rules allow nothing that could break the line.
-        LOG.warn("the request was verified for the operation {} but the handler about to run is the operation {}: "
-                + "a filter after Paztport's changed its method or path; {}", name(verified.operation()),
+        LOG.warn("the request was verified for the operation {} but the handler about to run is the operation {}: a "
+                + "filter after Paztport's changed its method or path, or forwarded it; {}", name(verified.operation()),
                 name(dispatched), verified.enforced() ? "refused" : "served unattested");
         if (!verified.enforced()) {
             return true;

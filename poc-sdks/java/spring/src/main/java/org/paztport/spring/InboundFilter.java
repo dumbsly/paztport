@@ -70,8 +70,8 @@ import org.springframework.web.util.ContentCachingResponseWrapper;
  * verifies and before the handler runs. A chain naming another operation is then refused {@code BINDING_MISMATCH}.
  * Where the chain named an operation and the receiver verified the request with it, under a mode or for attestation
  * alone, the filter records that operation on the request ({@link VerifiedOperation}), so that a later filter which
- * changes the method or the path, and so the handler, is caught as the handler is about to run; the answer of a
- * handler caught there is never attested.
+ * changes the method or the path, and so the handler, by wrapping the request or by forwarding it, is caught as the
+ * handler is about to run; the answer of a handler caught there is never attested.
  *
  * <p>The control plane ({@link #controlPlane}) is not filtered, so it is not observed.
  */

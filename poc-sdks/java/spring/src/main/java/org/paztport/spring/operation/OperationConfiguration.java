@@ -21,9 +21,7 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.core.Ordered;
-import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
-import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
+import org.springframework.web.servlet.handler.MappedInterceptor;
 
 /**
  * Reads {@code paztport.operations.*}: this service's own operation table and its receivers' tables, each used only
@@ -80,21 +78,17 @@ public class OperationConfiguration {
     }
 
     /**
-     * The check, as each handler is about to run, that it is the operation the inbound filter verified the request
-     * for ({@link DispatchCheck}), on a service that names its own operations. It is an interceptor so
-     * that it sees the handler the DispatcherServlet chose after every filter has run, and it comes before the
-     * application's interceptors, so that none of them acts on a request it refuses.
+     * The check, as the first handler a request reaches is about to run, that it is the operation the inbound filter
+     * verified the request for ({@link DispatchCheck}), on a service that names its own operations. It is an
+     * interceptor so that it sees the handler the DispatcherServlet chose after every filter has run. It is a
+     * {@link MappedInterceptor} bean with no path patterns, so every handler mapping in the context picks it up, one
+     * the application declares included, and puts it ahead of the interceptors a {@code WebMvcConfigurer} registers:
+     * none of those acts on a request it refuses.
      */
     @Bean
     @ConditionalOnProperty("paztport.operations.table-path")
-    WebMvcConfigurer paztportDispatchCheck(OperationResolver operations, PaztportProperties props) {
-        DispatchCheck check = new DispatchCheck(operations, props.getServiceName());
-        return new WebMvcConfigurer() {
-            @Override
-            public void addInterceptors(InterceptorRegistry registry) {
-                registry.addInterceptor(check).order(Ordered.HIGHEST_PRECEDENCE);
-            }
-        };
+    MappedInterceptor paztportDispatchCheck(OperationResolver operations, PaztportProperties props) {
+        return new MappedInterceptor(null, new DispatchCheck(operations, props.getServiceName()));
     }
 
     /**

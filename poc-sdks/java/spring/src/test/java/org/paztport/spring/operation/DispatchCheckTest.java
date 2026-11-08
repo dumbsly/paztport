@@ -47,8 +47,10 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.filter.OncePerRequestFilter;
+import org.springframework.web.servlet.ModelAndView;
 
 /**
  * On the real servlet container, a filter after Paztport's that changes the request's method or path makes the
@@ -115,7 +117,47 @@ class DispatchCheckTest {
             assertThat(answer.statusCode()).isEqualTo(403);
             assertThat(answer.body()).isEqualTo("{\"reason\":\"BINDING_MISMATCH\"}");
             assertThat(RAN).as("neither the confirmed handler nor the other one ran").isEmpty();
+            assertThat(attestation(answer)).as("the refusal is not attested").isNull();
             assertOneWarning("orders#search", "orders#getOrder");
+        }
+    }
+
+    /**
+     * A filter after Paztport's that forwards, so the request's own dispatch never reaches a handler. Tomcat suspends
+     * the response once a forward through a wrapped response returns, so the body Paztport's filter holds for
+     * attestation never reaches the caller after any forward; only the status, the handlers that ran and the missing
+     * attestation are asserted here.
+     */
+    @Test
+    void dispatchCheckRefusesAForward(@TempDir Path dir) throws Exception {
+        try (Orders orders = start(dir, "enforce")) {
+            HttpResponse<String> answer = orders.send("GET", "/orders/search", "orders#search", "forward");
+            assertThat(answer.statusCode()).isEqualTo(403);
+            assertThat(RAN).as("neither the confirmed handler nor the other one ran").isEmpty();
+            assertThat(attestation(answer)).as("the refusal is not attested").isNull();
+            assertOneWarning("orders#search", "orders#getOrder");
+        }
+    }
+
+    @Test
+    void dispatchCheckOnlyLogsAForwardUnderAudit(@TempDir Path dir) throws Exception {
+        try (Orders orders = start(dir, "audit")) {
+            HttpResponse<String> answer = orders.send("GET", "/orders/search", "orders#search", "forward");
+            assertThat(answer.statusCode()).isEqualTo(200);
+            assertThat(RAN).containsExactly("getOrder");
+            assertThat(attestation(answer)).as("the other handler's answer is not attested").isNull();
+            assertOneWarning("orders#search", "orders#getOrder");
+        }
+    }
+
+    /** The confirmed handler ran first, so a forward it starts itself is not checked again. */
+    @Test
+    void dispatchCheckPassesAForwardItsHandlerStarts(@TempDir Path dir) throws Exception {
+        try (Orders orders = start(dir, "enforce")) {
+            HttpResponse<String> answer = orders.send("GET", "/orders/search?forward=yes", "orders#search", null);
+            assertThat(answer.statusCode()).isEqualTo(200);
+            assertThat(RAN).containsExactly("search", "getOrder");
+            assertThat(logged.list).isEmpty();
         }
     }
 
@@ -277,7 +319,8 @@ class DispatchCheckTest {
 
     /**
      * Changes the request as the test's header asks: {@code method} turns {@code POST /orders} into
-     * {@code DELETE /orders}, and {@code path} turns any path into {@code /orders/123}.
+     * {@code DELETE /orders}, {@code path} turns any path into {@code /orders/123}, and {@code forward} forwards the
+     * request there.
      */
     static final class Rewrite extends OncePerRequestFilter {
 
@@ -294,6 +337,8 @@ class DispatchCheckTest {
                         return "DELETE";
                     }
                 }, response);
+            } else if ("forward".equals(rewrite)) {
+                request.getRequestDispatcher("/orders/123").forward(request, response);
             } else if ("path".equals(rewrite)) {
                 chain.doFilter(new HttpServletRequestWrapper(request) {
                     @Override
@@ -326,9 +371,11 @@ class DispatchCheckTest {
             return ran("getOrder");
         }
 
+        /** Forwards to {@code /orders/123} itself when asked to. */
         @GetMapping("/orders/search")
-        String search() {
-            return ran("search");
+        Object search(@RequestParam(required = false) String forward) {
+            String name = ran("search");
+            return forward == null ? name : new ModelAndView("forward:/orders/123");
         }
 
         @PostMapping("/orders")
