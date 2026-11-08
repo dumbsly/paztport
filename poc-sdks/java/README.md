@@ -423,9 +423,13 @@ hands a session request's body to `HttpSessions.serve`.
   and async work it resumes, are not checked again; the error page is not
   checked; and a chain that names no operation had none confirmed, so it is not
   checked. The check sees only handlers that a `DispatcherServlet` mapping runs:
-  a forward or include to another registered servlet is not checked. A refusal
-  here counts as served in the `paztport.request`
-  observation, which ends before the handler runs. Spring's method-override filter, `HiddenHttpMethodFilter`
+  a forward or include to another registered servlet is not checked. Such a
+  servlet still runs, and where the chain named an operation, an answer whose
+  handler the check never saw (one a filter writes itself, such as a 401, or
+  another servlet's) is not attested, while on a chain that names no operation
+  it is, there being no operation to vouch for. A refusal here counts as served
+  in the `paztport.request` observation, which ends before the handler runs.
+  Spring's method-override filter, `HiddenHttpMethodFilter`
   (`spring.mvc.hiddenmethod.filter.enabled`), is also refused at start: a
   service with its own table does not start beside it.
 

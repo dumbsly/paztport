@@ -11,6 +11,7 @@ import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
+import jakarta.servlet.http.HttpServlet;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletRequestWrapper;
 import jakarta.servlet.http.HttpServletResponse;
@@ -42,6 +43,7 @@ import org.springframework.boot.SpringBootConfiguration;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
+import org.springframework.boot.web.servlet.ServletRegistrationBean;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
@@ -60,7 +62,10 @@ import org.springframework.web.servlet.ModelAndView;
  * it elsewhere by a forward, an include or an async dispatch, makes the DispatcherServlet run another handler than
  * the operation Paztport's filter confirmed. The check made as the handler is about to run refuses it under
  * {@code enforce}, and elsewhere logs it and leaves the answer unattested; an honest request, a dispatch the confirmed
- * handler starts, a chain that names no operation, and the error page, pass it untouched.
+ * handler starts, a chain that names no operation, and the error page, pass it untouched. The test's filter can also
+ * write a 401 itself ({@code deny}) or forward or include to another registered servlet ({@code servlet-forward},
+ * {@code servlet-include}); an answer whose handler the check never saw is not attested where the chain named an
+ * operation.
  */
 class DispatchCheckTest {
 
@@ -374,6 +379,42 @@ class DispatchCheckTest {
         }
     }
 
+    /** A filter that answers itself before any handler runs leaves the check nothing to confirm, so nothing to attest. */
+    @Test
+    void filterWrittenAnswerIsNotAttested(@TempDir Path dir) throws Exception {
+        try (Service payment = startPayment(dir, "enforce")) {
+            HttpResponse<String> answer = payment.send("POST", "/charge", "payment#charge", "deny");
+            assertThat(answer.statusCode()).isEqualTo(401);
+            assertThat(answer.body()).isEqualTo("denied");
+            assertThat(attestation(answer)).as("no handler was checked").isNull();
+            assertThat(RAN).isEmpty();
+            assertThat(logged.list).isEmpty();
+        }
+    }
+
+    /** A chain that names no operation has none to vouch for, so the same answer is attested. */
+    @Test
+    void filterWrittenAnswerIsAttestedWithoutAnOperation(@TempDir Path dir) throws Exception {
+        try (Service payment = startPayment(dir, "enforce")) {
+            HttpResponse<String> answer = payment.send("POST", "/charge", "payment", "deny");
+            assertThat(answer.statusCode()).isEqualTo(401);
+            assertThat(answer.body()).isEqualTo("denied");
+            assertThat(attestation(answer)).isNotNull();
+        }
+    }
+
+    /** Another registered servlet answers outside the check's sight, so its answer is not the operation's. */
+    @Test
+    void otherServletIncludedIsNotAttested(@TempDir Path dir) throws Exception {
+        try (Service payment = startPayment(dir, "enforce")) {
+            HttpResponse<String> answer = payment.send("POST", "/charge", "payment#charge", "servlet-include");
+            assertThat(answer.statusCode()).isEqualTo(200);
+            assertThat(answer.body()).isEqualTo("legacy");
+            assertThat(RAN).containsExactly("legacy");
+            assertThat(attestation(answer)).isNull();
+        }
+    }
+
     private static String attestation(HttpResponse<String> answer) {
         return answer.headers().firstValue(PaztportHeaders.RESPONSE).orElse(null);
     }
@@ -468,6 +509,19 @@ class DispatchCheckTest {
         FilterRegistrationBean<Rewrite> rewrite() {
             return new FilterRegistrationBean<>(new Rewrite());
         }
+
+        /** Another registered servlet, which the check does not see. */
+        @Bean
+        ServletRegistrationBean<HttpServlet> legacy() {
+            return new ServletRegistrationBean<>(new HttpServlet() {
+                @Override
+                protected void service(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+                    RAN.add("legacy");
+                    resp.setContentType("text/plain");
+                    resp.getWriter().write("legacy");
+                }
+            }, "/legacy");
+        }
     }
 
     /**
@@ -476,7 +530,8 @@ class DispatchCheckTest {
      * request there. On payment, {@code include} includes {@code POST /charge?mode=refund} in place of the request's
      * own dispatch, {@code include-twice} does so twice, {@code async} starts async work and dispatches it there,
      * {@code include-then-async} includes it and then starts async work and dispatches it to {@code /charge}, and
-     * {@code error} sends an error before any handler runs.
+     * {@code error} sends an error before any handler runs, {@code deny} writes a 401 itself, and
+     * {@code servlet-forward} and {@code servlet-include} go to the servlet at {@code /legacy}.
      */
     static final class Rewrite extends OncePerRequestFilter {
 
@@ -508,6 +563,14 @@ class DispatchCheckTest {
             } else if ("include-then-async".equals(rewrite)) {
                 request.getRequestDispatcher(REFUND).include(request, response);
                 request.startAsync().dispatch("/charge");
+            } else if ("deny".equals(rewrite)) {
+                response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                response.setContentType("text/plain");
+                response.getWriter().write("denied");
+            } else if ("servlet-forward".equals(rewrite)) {
+                request.getRequestDispatcher("/legacy").forward(request, response);
+            } else if ("servlet-include".equals(rewrite)) {
+                request.getRequestDispatcher("/legacy").include(request, response);
             } else if ("error".equals(rewrite)) {
                 response.sendError(HttpServletResponse.SC_SERVICE_UNAVAILABLE);
             } else if ("path".equals(rewrite)) {

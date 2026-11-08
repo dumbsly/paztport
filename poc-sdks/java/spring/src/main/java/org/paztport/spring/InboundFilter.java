@@ -71,7 +71,9 @@ import org.springframework.web.util.ContentCachingResponseWrapper;
  * Where the chain named an operation and the receiver verified the request with it, under a mode or for attestation
  * alone, the filter records that operation on the request ({@link VerifiedOperation}), so that a later filter which
  * changes the method or the path, and so the handler, by wrapping the request or by dispatching it elsewhere, is
- * caught as the handler is about to run; the answer of a handler caught there is never attested. A handler reached by
+ * caught as the handler is about to run; the answer of a handler caught there is never attested, nor is any answer
+ * whose handler the check never saw (one a filter wrote itself, or another registered servlet's), while on a chain
+ * that names no operation the answer is attested, there being no operation to vouch for. A handler reached by
  * an include cannot set the status, so where the check refuses one, this filter writes the refusal once the chain
  * returns, in place of anything written before it, unless the response is already committed.
  *
@@ -203,9 +205,10 @@ public final class InboundFilter extends OncePerRequestFilter {
                 request.getAsyncContext().addListener(new CopyWhenComplete(cached));
                 return;
             }
-            // Committed means the container has sent something the handler did not finish with: leave it alone. A
-            // handler that is not the operation verified answered for another, so its answer is not attested.
-            if (!cached.isCommitted() && (verified == null || !verified.contradicted())) {
+            // Committed means the container has sent something the handler did not finish with: leave it alone. Where
+            // an operation was verified, an answer whose handler the check never saw, or found to be another
+            // operation's, is not the confirmed operation's, so it is not attested.
+            if (!cached.isCommitted() && (verified == null || (verified.checked() && !verified.contradicted()))) {
                 String attestation = accepted.attest(cached.getStatus(), cached.getContentAsByteArray(),
                         RequestContext.labels());
                 if (attestation != null) {
