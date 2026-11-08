@@ -13,9 +13,11 @@ import org.paztport.http.HttpAnswer;
  * mode or for attestation alone. The check made as a handler is about to run reads it: it checks the first handler
  * the request reaches, however a later filter dispatched it there, and marks it checked, so a dispatch that handler
  * starts is not checked again; and it marks it contradicted when that handler is another operation's, so the filter
- * attests nothing for it. A handler reached by an include cannot set the status, so there the check marks the refusal
- * owed and the filter writes it once the chain returns. Both take it from here. A request without the attribute had
- * no operation confirmed. It is not for an application to use.
+ * attests nothing for it. Paztport's last interceptor marks it reached once every interceptor before it has let the
+ * request on to the handler, so an answer an interceptor writes when it stops the request is not attested either. A
+ * handler reached by an include cannot set the status, so there the check marks the refusal owed and the filter
+ * writes it once the chain returns. Each takes it from here. A request without the attribute had no operation
+ * confirmed. It is not for an application to use.
  */
 public final class VerifiedOperation {
 
@@ -28,6 +30,7 @@ public final class VerifiedOperation {
     private final String operation;
     private final boolean enforced;
     private boolean checked;
+    private boolean reached;
     private boolean contradicted;
     private boolean refusalOwed;
 
@@ -58,6 +61,16 @@ public final class VerifiedOperation {
     /** Whether the first handler the request reached has been checked, so any later one is not. */
     public boolean checked() {
         return checked;
+    }
+
+    /** Marks that the handler has been reached: every interceptor before Paztport's last one let the request on. */
+    public void reach() {
+        reached = true;
+    }
+
+    /** Whether the handler has been reached, so an answer written before it ran, by an interceptor, is told apart. */
+    public boolean reached() {
+        return reached;
     }
 
     /** Marks that the handler about to run is not this operation's. */

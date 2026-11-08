@@ -67,7 +67,10 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.filter.OncePerRequestFilter;
+import org.springframework.web.servlet.HandlerInterceptor;
 import org.springframework.web.servlet.ModelAndView;
+import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
+import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 import org.springframework.web.util.ContentCachingResponseWrapper;
 
 /**
@@ -78,7 +81,8 @@ import org.springframework.web.util.ContentCachingResponseWrapper;
  * handler starts, a chain that names no operation, and the error page, pass it untouched. The test's filter can also
  * write a 401 itself ({@code deny}) or forward or include to another registered servlet ({@code servlet-forward},
  * {@code servlet-include}); an answer whose handler the check never saw is not attested where the chain named an
- * operation. Whatever forwards the request, its answer is sent whole, and attested where it may be.
+ * operation, nor is one that an interceptor of payment's own writes as it stops the request before the handler.
+ * Whatever forwards the request, its answer is sent whole, and attested where it may be.
  */
 class DispatchCheckTest {
 
@@ -551,6 +555,34 @@ class DispatchCheckTest {
         }
     }
 
+    /**
+     * An interceptor the application registers runs after the check and stops the request with its own answer
+     * before the handler runs: the check confirmed the handler, but nothing the handler wrote is there to attest.
+     */
+    @Test
+    void interceptorWrittenAnswerIsNotAttested(@TempDir Path dir) throws Exception {
+        try (Service payment = startPayment(dir, "enforce")) {
+            HttpResponse<String> answer = payment.send("POST", "/charge", "payment#charge", "intercept");
+            assertThat(answer.statusCode()).isEqualTo(401);
+            assertThat(answer.body()).isEqualTo("denied");
+            assertThat(attestation(answer)).as("the handler was never reached").isNull();
+            assertThat(RAN).isEmpty();
+            assertThat(logged.list).isEmpty();
+        }
+    }
+
+    /** A chain that names no operation has none to vouch for, so the interceptor's answer is attested. */
+    @Test
+    void interceptorWrittenAnswerIsAttestedWithoutAnOperation(@TempDir Path dir) throws Exception {
+        try (Service payment = startPayment(dir, "enforce")) {
+            HttpResponse<String> answer = payment.send("POST", "/charge", "payment", "intercept");
+            assertThat(answer.statusCode()).isEqualTo(401);
+            assertThat(answer.body()).isEqualTo("denied");
+            assertThat(attestation(answer)).isNotNull();
+            assertThat(RAN).isEmpty();
+        }
+    }
+
     /** Another registered servlet answers outside the check's sight, so its answer is not the operation's. */
     @Test
     void otherServletIncludedIsNotAttested(@TempDir Path dir) throws Exception {
@@ -721,6 +753,32 @@ class DispatchCheckTest {
             return new FilterRegistrationBean<>(new Rewrite());
         }
 
+        /**
+         * An interceptor registered as an application registers one, so with the default order: it stops the request
+         * with a 401 of its own where the test's header asks for {@code intercept}.
+         */
+        @Bean
+        WebMvcConfigurer intercepting() {
+            return new WebMvcConfigurer() {
+                @Override
+                public void addInterceptors(InterceptorRegistry registry) {
+                    registry.addInterceptor(new HandlerInterceptor() {
+                        @Override
+                        public boolean preHandle(HttpServletRequest request, HttpServletResponse response,
+                                Object handler) throws IOException {
+                            if (!"intercept".equals(request.getHeader(Rewrite.HEADER))) {
+                                return true;
+                            }
+                            response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                            response.setContentType("text/plain");
+                            response.getWriter().write("denied");
+                            return false;
+                        }
+                    });
+                }
+            };
+        }
+
         /** Another registered servlet, which the check does not see. */
         @Bean
         ServletRegistrationBean<HttpServlet> legacy() {
@@ -743,7 +801,8 @@ class DispatchCheckTest {
      * {@code include-then-async} includes it and then starts async work and dispatches it to {@code /charge},
      * {@code error} sends an error before any handler runs, {@code deny} writes a 401 itself,
      * {@code servlet-forward} and {@code servlet-include} go to the servlet at {@code /legacy}, and
-     * {@code forward-async} forwards to {@code /later}, which answers from async work. On either, {@code buffer}
+     * {@code forward-async} forwards to {@code /later}, which answers from async work; {@code intercept} passes the
+     * request on for payment's own interceptor to stop. On either, {@code buffer}
      * holds the response in its own buffer and copies it once the chain returns, and {@code wrap} passes it on in a
      * wrapper that does not buffer.
      */

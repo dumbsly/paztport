@@ -21,6 +21,9 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.Ordered;
+import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
+import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 import org.springframework.web.servlet.handler.MappedInterceptor;
 
 /**
@@ -32,7 +35,7 @@ import org.springframework.web.servlet.handler.MappedInterceptor;
  *   <li>The service's own table must be this service's and covered, or the context does not start. Once the handler
  *       mappings are known, each of its operations must be one of them ({@link OperationResolver}). Each request's
  *       handler is checked, as it is about to run, against the operation the request was verified for
- *       ({@link DispatchCheck}).
+ *       ({@link DispatchCheck}), and the answer is attested only once the handler was reached ({@link HandlerReached}).
  *   <li>A receiver's table the bundle holds no proof for is set aside, with one line naming the receiver, and calls
  *       to that receiver name no operation: the receiver then needs a route that names none, so this fails closed.
  *       The receivers' tables are read where the caller is built, so on a service that makes calls
@@ -89,6 +92,24 @@ public class OperationConfiguration {
     @ConditionalOnProperty("paztport.operations.table-path")
     MappedInterceptor paztportDispatchCheck(OperationResolver operations, PaztportProperties props) {
         return new MappedInterceptor(null, new DispatchCheck(operations, props.getServiceName()));
+    }
+
+    /**
+     * Paztport's last interceptor ({@link HandlerReached}), which records that the handler was reached, on a service
+     * that names its own operations, so that an answer an interceptor writes when it stops the request is not
+     * attested. It is registered through {@code addInterceptors} at the lowest precedence, so it runs after the check,
+     * which every mapping runs ahead of the registered interceptors, and after every interceptor the application
+     * registers with the default order.
+     */
+    @Bean
+    @ConditionalOnProperty("paztport.operations.table-path")
+    WebMvcConfigurer paztportHandlerReached() {
+        return new WebMvcConfigurer() {
+            @Override
+            public void addInterceptors(InterceptorRegistry registry) {
+                registry.addInterceptor(new HandlerReached()).order(Ordered.LOWEST_PRECEDENCE);
+            }
+        };
     }
 
     /**

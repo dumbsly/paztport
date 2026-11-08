@@ -77,10 +77,11 @@ import org.springframework.web.util.ContentCachingResponseWrapper;
  * alone, the filter records that operation on the request ({@link VerifiedOperation}), so that a later filter which
  * changes the method or the path, and so the handler, by wrapping the request or by dispatching it elsewhere, is
  * caught as the handler is about to run; the answer of a handler caught there is never attested, nor is any answer
- * whose handler the check never saw (one a filter wrote itself, or another registered servlet's), while on a chain
- * that names no operation the answer is attested, there being no operation to vouch for. A handler reached by
- * an include cannot set the status, so where the check refuses one, this filter writes the refusal once the chain
- * returns, in place of anything written before it, unless the response is already committed.
+ * whose handler the check never saw (one a filter wrote itself, or another registered servlet's), nor one an
+ * interceptor wrote when it stopped the request before the handler was reached (Paztport's last interceptor records
+ * that it was), while on a chain that names no operation the answer is attested, there being no operation to vouch for.
+ * A handler reached by an include cannot set the status, so where the check refuses one, this filter writes the refusal
+ * once the chain returns, in place of anything written before it, unless the response is already committed.
  *
  * <p>The control plane ({@link #controlPlane}) is not filtered, so it is not observed.
  */
@@ -260,9 +261,10 @@ public final class InboundFilter extends OncePerRequestFilter {
         }
         // Committed means the container has sent something the handler did not finish with: leave it alone. Where
         // an operation was verified, an answer whose handler the check never saw, or found to be another
-        // operation's, is not the confirmed operation's, so it is not attested.
-        if (attestable && !cached.isCommitted()
-                && (verified == null || (verified.checked() && !verified.contradicted()))) {
+        // operation's, or that an interceptor wrote before the handler was reached, is not the confirmed
+        // operation's, so it is not attested.
+        if (attestable && !cached.isCommitted() && (verified == null
+                || (verified.checked() && verified.reached() && !verified.contradicted()))) {
             String attestation = pending.accepted.attest(cached.getStatus(), cached.getContentAsByteArray(),
                     RequestContext.labels());
             if (attestation != null) {

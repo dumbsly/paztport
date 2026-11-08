@@ -429,9 +429,13 @@ hands a session request's body to `HttpSessions.serve`.
   a forward or include to another registered servlet is not checked. Such a
   servlet still runs, and where the chain named an operation, an answer whose
   handler the check never saw (one a filter writes itself, such as a 401, or
-  another servlet's) is not attested, while on a chain that names no operation
-  it is, there being no operation to vouch for. A refusal here counts as served
-  in the `paztport.request` observation, which ends before the handler runs.
+  another servlet's), or that an interceptor writes when it stops the request
+  before the handler runs, is not attested, while on a chain that names no
+  operation it is, there being no operation to vouch for. Paztport's own last
+  interceptor, registered at the lowest precedence, records that the handler was
+  reached, so an application interceptor ordered after it is not told apart. A
+  refusal here counts as served in the `paztport.request` observation, which ends
+  before the handler runs.
   Spring's method-override filter, `HiddenHttpMethodFilter`
   (`spring.mvc.hiddenmethod.filter.enabled`), is also refused at start: a
   service with its own table does not start beside it.
