@@ -63,6 +63,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.filter.OncePerRequestFilter;
@@ -99,6 +100,9 @@ class DispatchCheckTest {
         log.detachAppender(logged);
         log.setLevel(null);
     }
+
+    /** Turns on Spring's method-override filter, which a service with its own table does not start beside. */
+    private static final String HIDDEN_METHOD = "spring.mvc.hiddenmethod.filter.enabled=true";
 
     /** Starts orders verifying requests under {@code mode}. */
     private Service start(Path dir, String mode) throws IOException {
@@ -291,6 +295,34 @@ class DispatchCheckTest {
                     "application/x-www-form-urlencoded", "field=hello");
             assertThat(answer.statusCode()).isEqualTo(200);
             assertThat(answer.body()).isEqualTo("echo field=hello values=1");
+        }
+    }
+
+    /**
+     * On a service with no table, beside Spring's method-override filter: that filter reads {@code _method} from the
+     * {@code POST} form, which spends the body as the container would, so Boot's form content filter does not add the
+     * fields again to the {@code PUT} it makes, and the handler sees each once. That filter adds its fields to the
+     * request's own only where there is a query, so the request carries one.
+     */
+    @Test
+    void overriddenPostFormFieldIsNotDoubled(@TempDir Path dir) throws Exception {
+        try (Service payment = startPayment(dir, "enforce", Service.NO_TABLE, HIDDEN_METHOD)) {
+            HttpResponse<String> answer = payment.sendBody("POST", "/echo?source=form", "payment", null,
+                    "application/x-www-form-urlencoded", "_method=PUT&field=hello");
+            assertThat(answer.statusCode()).isEqualTo(200);
+            assertThat(answer.body()).isEqualTo("echo field=hello values=1");
+            assertThat(RAN).containsExactly("echoPut");
+        }
+    }
+
+    /** Once the form's fields are parameters, Spring builds a {@code POST} form's body from them for the handler. */
+    @Test
+    void spentPostFormBodyStillReachesTheHandler(@TempDir Path dir) throws Exception {
+        try (Service payment = startPayment(dir, "enforce", Service.NO_TABLE, HIDDEN_METHOD)) {
+            HttpResponse<String> answer = payment.sendBody("POST", "/form-body", "payment", null,
+                    "application/x-www-form-urlencoded", "field=hello");
+            assertThat(answer.statusCode()).isEqualTo(200);
+            assertThat(answer.body()).isEqualTo("body field=hello");
         }
     }
 
@@ -576,15 +608,20 @@ class DispatchCheckTest {
         /** A property that leaves the service without its stamp key, so that it attests nothing. */
         static final String NO_STAMP_KEY = "no-stamp-key";
 
+        /** A property that leaves the service without its table, so that it names no operation. */
+        static final String NO_TABLE = "no-table";
+
         static Service start(Path dir, Class<?> app, String name, String... more) throws IOException {
             OperationWorld world = new OperationWorld(dir);
             List<List<String>> routes = new ArrayList<>(OperationWorld.routes());
             routes.add(List.of("gateway", name));
             PolicyBuilder.Result built = world.write(routes);
             List<String> props = new ArrayList<>(List.of("server.port=0", "spring.main.banner-mode=off",
-                    "paztport.origins=gateway",
-                    "paztport.operations.table-path=" + world.file("ops-" + name + ".json")));
+                    "paztport.origins=gateway"));
             props.addAll(List.of(more));
+            if (!props.remove(NO_TABLE)) {
+                props.add("paztport.operations.table-path=" + world.file("ops-" + name + ".json"));
+            }
             boolean stampKey = !props.remove(NO_STAMP_KEY);
             String[] properties = Stream.of(world.service(name, props.toArray(String[]::new)))
                     .filter(p -> stampKey || !p.startsWith("paztport.key-path="))
@@ -876,18 +913,25 @@ class DispatchCheckTest {
         /** Mapped, and in no table: answers the form field it was given, and how many values it had. */
         @PostMapping("/echo")
         String echoPost(@RequestParam(required = false) String field, HttpServletRequest request) {
-            return echo(field, request);
+            return echo("echo", field, request);
         }
 
         @PutMapping("/echo")
         String echoPut(@RequestParam(required = false) String field, HttpServletRequest request) {
-            return echo(field, request);
+            return echo("echoPut", field, request);
         }
 
-        private static String echo(String field, HttpServletRequest request) {
+        private static String echo(String name, String field, HttpServletRequest request) {
             String[] values = request.getParameterValues("field");
-            ran("echo");
+            ran(name);
             return "echo field=" + field + " values=" + (values == null ? 0 : values.length);
+        }
+
+        /** Mapped, and in no table: answers the body Spring hands it. */
+        @PostMapping("/form-body")
+        String formBody(@RequestBody String body) {
+            ran("formBody");
+            return "body " + body;
         }
 
         /** Mapped, and in no table. */

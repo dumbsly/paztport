@@ -15,7 +15,8 @@ import org.springframework.mock.web.MockHttpServletRequest;
 
 /**
  * A POST form body the filter has read is served as parameters from the cached bytes, after the container's own
- * (query) parameters, in the order and with the decoding the container would use.
+ * (query) parameters, in the order and with the decoding the container would use; once it is, the body reads as
+ * spent, as the container's does.
  */
 class CachedBodyHttpServletRequestTest {
 
@@ -113,15 +114,57 @@ class CachedBodyHttpServletRequestTest {
         container.setParameter("q", "1");
         CachedBodyHttpServletRequest request = cached(container, "field=hello");
         HttpServletRequest view = request.withQueryParametersOnly();
+        assertThat(view.getMethod()).isEqualTo("POST");
+        assertThat(new String(view.getInputStream().readAllBytes(), StandardCharsets.UTF_8))
+                .isEqualTo("field=hello");
         assertThat(request.getParameter("field")).isEqualTo("hello");
         assertThat(view.getParameter("field")).isNull();
         assertThat(view.getParameter("q")).isEqualTo("1");
         assertThat(view.getParameterValues("field")).isNull();
         assertThat(view.getParameterMap()).containsOnlyKeys("q");
         assertThat(Collections.list(view.getParameterNames())).isEqualTo(List.of("q"));
-        assertThat(view.getMethod()).isEqualTo("POST");
-        assertThat(new String(view.getInputStream().readAllBytes(), StandardCharsets.UTF_8))
+    }
+
+    /** Before any parameter is read the body reads whole; once a POST form's fields are parameters, it is spent. */
+    @Test
+    void postFormBodyIsSpentOnceItsFieldsAreParameters() throws Exception {
+        CachedBodyHttpServletRequest request = cached(container("POST", FORM), "field=hello");
+        assertThat(new String(request.getInputStream().readAllBytes(), StandardCharsets.UTF_8))
                 .isEqualTo("field=hello");
+        assertThat(request.getReader().readLine()).isEqualTo("field=hello");
+        assertThat(request.getParameter("field")).isEqualTo("hello");
+        assertThat(request.getInputStream().readAllBytes()).isEmpty();
+        assertThat(request.getInputStream().isFinished()).isTrue();
+        assertThat(request.getReader().read()).isEqualTo(-1);
+        assertThat(request.getParameter("field")).as("the fields stay parameters").isEqualTo("hello");
+    }
+
+    /** The query-only view's parameters are the container's, so reading them does not spend the body. */
+    @Test
+    void queryOnlyViewLeavesTheBodyUnspent() throws Exception {
+        MockHttpServletRequest container = container("POST", FORM);
+        container.setParameter("q", "1");
+        CachedBodyHttpServletRequest request = cached(container, "field=hello");
+        HttpServletRequest view = request.withQueryParametersOnly();
+        assertThat(view.getParameter("q")).isEqualTo("1");
+        assertThat(view.getParameterValues("q")).containsExactly("1");
+        assertThat(view.getParameterMap()).containsOnlyKeys("q");
+        assertThat(Collections.list(view.getParameterNames())).containsExactly("q");
+        assertThat(new String(request.getInputStream().readAllBytes(), StandardCharsets.UTF_8))
+                .isEqualTo("field=hello");
+    }
+
+    /** Only a POST form's fields become parameters here, so no other body is spent by reading parameters. */
+    @Test
+    void otherBodiesAreNeverSpent() throws Exception {
+        for (CachedBodyHttpServletRequest request : List.of(cached(container("PUT", FORM), "field=hello"),
+                cached(container("POST", "application/json"), "{\"field\":\"hello\"}"))) {
+            String body = new String(request.cachedBody(), StandardCharsets.UTF_8);
+            request.getParameter("field");
+            request.getParameterMap();
+            assertThat(new String(request.getInputStream().readAllBytes(), StandardCharsets.UTF_8)).isEqualTo(body);
+            assertThat(request.getReader().readLine()).isEqualTo(body);
+        }
     }
 
     @Test

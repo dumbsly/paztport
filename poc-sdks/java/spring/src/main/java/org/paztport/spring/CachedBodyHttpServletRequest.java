@@ -34,6 +34,14 @@ import java.util.Map;
  * {@code DELETE} Boot's form content filter, which runs after this request is made,
  * adds the fields later from the cached bytes, and serving them here too would
  * double them.
+ *
+ * <p>Once a {@code POST} form's fields have been read as parameters, its body reads
+ * as spent, an empty stream and reader, as the container's does once it has parsed
+ * the form. Code that reads the body after the parameters, such as Boot's form
+ * content filter behind Spring's method-override filter, which makes the request a
+ * {@code PUT}, would otherwise add every field a second time. Before any parameter
+ * is read the body still reads whole, and Spring builds a {@code POST} form's body
+ * for a handler from its parameters.
  */
 final class CachedBodyHttpServletRequest extends HttpServletRequestWrapper {
 
@@ -43,6 +51,9 @@ final class CachedBodyHttpServletRequest extends HttpServletRequestWrapper {
 
     /** A {@code POST} form's parameters as decoded in the encoding they name; replaced when the encoding changes. */
     private Parameters form;
+
+    /** Whether a {@code POST} form's fields have been read as parameters, after which the body reads as spent. */
+    private volatile boolean spent;
 
     CachedBodyHttpServletRequest(HttpServletRequest request, byte[] body) {
         super(request);
@@ -124,6 +135,7 @@ final class CachedBodyHttpServletRequest extends HttpServletRequestWrapper {
         if (!"POST".equals(getMethod()) || !isForm(getContentType())) {
             return null;
         }
+        spent = true;
         Charset charset = encoding(StandardCharsets.ISO_8859_1);
         if (form == null || !charset.equals(form.charset())) {
             Map<String, List<String>> merged = new LinkedHashMap<>();
@@ -191,7 +203,7 @@ final class CachedBodyHttpServletRequest extends HttpServletRequestWrapper {
 
     @Override
     public ServletInputStream getInputStream() {
-        ByteArrayInputStream source = new ByteArrayInputStream(body);
+        ByteArrayInputStream source = new ByteArrayInputStream(unread());
         return new ServletInputStream() {
             @Override
             public boolean isFinished() {
@@ -218,7 +230,12 @@ final class CachedBodyHttpServletRequest extends HttpServletRequestWrapper {
     @Override
     public BufferedReader getReader() {
         Charset charset = encoding(StandardCharsets.UTF_8);
-        return new BufferedReader(new InputStreamReader(new ByteArrayInputStream(body), charset));
+        return new BufferedReader(new InputStreamReader(new ByteArrayInputStream(unread()), charset));
+    }
+
+    /** What is left to read of the body: none once its fields are parameters, all of it until then. */
+    private byte[] unread() {
+        return spent ? new byte[0] : body;
     }
 
     static byte[] readAll(HttpServletRequest request) throws IOException {
