@@ -550,7 +550,8 @@ receiver is not on the route (a response, below), the last stamp's `rcv` is left
 ## Operations
 
 Over HTTP a service may name its operations, so that a policy can allow a route through one operation of a
-service and not through another. A service that does publishes an operation table, its callers name the
+service and not through another. An operation is one handler of the service, the code a request runs; one
+entrance may serve several, told apart by a query parameter. A service that does publishes an operation table, its callers name the
 operation each call invokes, and it confirms that operation itself. The MCP profile has no operations: its
 receivers already name one tool.
 
@@ -561,37 +562,49 @@ receivers already name one tool.
   "operations": [
     {
       "method": "POST",
-      "name": "createOrder",
-      "template": "/orders"
+      "name": "charge",
+      "template": "/charge"
     },
     {
-      "method": "GET",
-      "name": "getOrder",
-      "template": "/orders/{}"
+      "method": "POST",
+      "name": "refund",
+      "query": {
+        "mode": "refund"
+      },
+      "template": "/charge"
     }
   ],
-  "service": "orders",
+  "service": "payment",
   "v": 1
 }
 ```
 
 - `service` is the service's name, and `v` is `1`.
-- `operations` is a non-empty array of objects with exactly the members `method`, `name` and `template`, each a
-  string.
+- `operations` is a non-empty array of objects with the members `method`, `name` and `template`, each a string,
+  and optionally `query`, and no others.
 - `name` is a [route node](#routes) that holds no `#`, and no two operations share one.
 - `method` is an HTTP method: one or more of the characters `A` to `Z`.
 - `template` is `/`, or `/` and then segments joined with `/`, each one non-empty: either `{}`, which matches any
   one non-empty segment, or literal text holding none of `/`, `{`, `}`, `?` and `#`, which matches itself exactly.
-- No two operations share both their `method` and their `template`.
+- `query`, where present, is an object with exactly one member, a condition: the call's query holds that
+  parameter with that value. Its name and its value are each one or more of the characters `A` to `Z`, `a` to
+  `z`, `0` to `9`, `-`, `.`, `_` and `~`.
+- The operations that share a `method` and a `template` are an entrance. No two operations of an entrance share
+  a `query` or both have none; every `query` of an entrance names the same parameter.
 
 A reader refuses a table that breaks any of these.
 
-**Matching.** A call's operation is the one whose `method` is the call's method, exactly, and whose `template`
-matches the call's raw path: the path as sent, without the query and not percent-decoded, with as many segments
-as the template and each matching. When more than one matches, the first segment, from the left, at which their
-templates differ decides: the template with a literal segment there is the call's operation. No tie is left,
-since two templates that match one path and agree on which segments are literal are the same template. A call no
-operation matches has none.
+**Matching.** An operation matches a call when its `method` is the call's method, exactly, its `template`
+matches the call's raw path (the path as sent, without the query and not percent-decoded, with as many segments
+as the template and each matching), and its `query`, where it has one, holds. A `query` holds when the call's
+raw query, split at each `&` into parameters and each parameter at its first `=` into a name and a value, none
+of them percent-decoded, holds exactly one parameter with the condition's name, whose value is the condition's
+value. A call whose raw query holds more than once a parameter that a `query` of an entrance names matches none
+of that entrance's operations. When more than one operation matches, the first segment, from the left, at which
+their templates differ decides: the template with a literal segment there wins. Of the operations of one
+entrance, one whose `query` holds wins over the one with none. No tie is left: two templates that match one
+path and agree on which segments are literal are the same template, and the conditions of an entrance name one
+parameter with distinct values, so at most one holds. A call no operation matches has none.
 
 **The hash and its route.** `opsHash = b64url(H(utf8("operations\n" ‖ JCS(table))))`, where `table` is the table
 as read. The signed root covers a table as the route `<svc>/ops:<opsHash>`. A service and its callers MUST NOT
@@ -602,11 +615,14 @@ name, then `#`, then the call's operation: `orders#createOrder`. It MUST NOT sen
 matches no operation. A caller that holds no table for the receiver names the receiver alone. Either way the
 route names what was asked for, so the policy says whether it is allowed.
 
-**Confirming it.** The receiver does not take its operation from the request. It works it out from its own
-routing and supplies it as part of `receiver` ([verification.md](verification.md#http-requests-and-responses)),
-so a chain that names another operation fails check 4. A service's own operation is therefore named under the
-previous hop's signature and confirmed by the service, never claimed by it: code running in a service can name
-only the operation it invokes on the next hop, which that hop confirms in turn.
+**Confirming it.** The receiver does not take its operation from the request. Its operation is the handler its
+framework will run: it works that out from its own routing and supplies it as part of `receiver`
+([verification.md](verification.md#http-requests-and-responses)), so a chain that names another operation fails
+check 4. A service that names operations MUST route each request that names one to a single handler by its
+method, path and query condition alone, and a receiver whose routing would run another handler refuses the
+request. A service's own operation is therefore named under the previous hop's signature and confirmed by the
+service, never claimed by it: code running in a service can name only the operation it invokes on the next hop,
+which that hop confirms in turn.
 
 ## The signed root
 
