@@ -392,25 +392,39 @@ class OperationConfigurationTest {
     }
 
     /**
-     * On a {@code POST} the container never adds a form body's fields to the parameters, since Paztport's filter
-     * reads the body to bind it first: the query alone decides, so a chain naming {@code charge} for a form body
-     * holding {@code mode=refund} is served by {@code charge}, and one naming {@code refund} is refused before any
-     * handler runs.
+     * On a {@code POST} Paztport's filter serves a form body's fields as parameters, so {@code mode=refund} in the
+     * body makes Spring choose {@code refund}, while the filter named the operation from the query alone: whichever
+     * the chain names, {@code charge} that Spring will not run or {@code refund} that the query does not name, the
+     * request is refused, as the handler is about to run, and no handler runs.
      */
     @Test
-    void postFormBodyIsNotSeen(@TempDir Path dir) throws Exception {
+    void postFormBodyMeetingAConditionIsRefusedAtDispatch(@TempDir Path dir) throws Exception {
         OperationWorld world = new OperationWorld(dir);
         PolicyBuilder.Result built = world.write(OperationWorld.routes());
         PaymentHandlers.RAN.clear();
+        ListAppender<ILoggingEvent> checked = new ListAppender<>();
+        Logger check = (Logger) LoggerFactory.getLogger(DispatchCheck.class);
         onTomcat(world, built, form -> {
-            HttpResponse<String> named = form.send("POST", "payment#charge");
-            assertThat(named.statusCode()).isEqualTo(200);
-            assertThat(named.body()).isEqualTo("charge");
-            HttpResponse<String> other = form.send("POST", "payment#refund");
-            assertThat(other.statusCode()).isEqualTo(403);
-            assertThat(other.body()).isEqualTo("{\"reason\":\"BINDING_MISMATCH\"}");
+            // Attached once the application has started, since starting resets the loggers.
+            checked.start();
+            check.addAppender(checked);
+            check.setLevel(Level.INFO);
+            try {
+                HttpResponse<String> named = form.send("POST", "payment#charge");
+                assertThat(named.statusCode()).isEqualTo(403);
+                assertThat(named.body()).isEqualTo("{\"reason\":\"BINDING_MISMATCH\"}");
+                assertThat(checked.list).as("refused as the handler was about to run, not by the filter")
+                        .singleElement().satisfies(warning -> assertThat(warning.getFormattedMessage())
+                                .contains("payment#charge").contains("payment#refund"));
+                HttpResponse<String> other = form.send("POST", "payment#refund");
+                assertThat(other.statusCode()).isEqualTo(403);
+                assertThat(other.body()).isEqualTo("{\"reason\":\"BINDING_MISMATCH\"}");
+            } finally {
+                check.detachAppender(checked);
+                check.setLevel(null);
+            }
         });
-        assertThat(PaymentHandlers.RAN).containsExactly("charge");
+        assertThat(PaymentHandlers.RAN).as("no handler ran").isEmpty();
     }
 
     /**

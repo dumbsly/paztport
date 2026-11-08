@@ -272,6 +272,28 @@ class DispatchCheckTest {
         }
     }
 
+    /** A form field reaches a handler on a {@code POST}, which the container would not parse once the body is read. */
+    @Test
+    void postFormFieldReachesTheHandler(@TempDir Path dir) throws Exception {
+        try (Service payment = startPayment(dir, "enforce")) {
+            HttpResponse<String> answer = payment.sendBody("POST", "/echo", "payment", null,
+                    "application/x-www-form-urlencoded", "field=hello");
+            assertThat(answer.statusCode()).isEqualTo(200);
+            assertThat(answer.body()).isEqualTo("echo field=hello values=1");
+        }
+    }
+
+    /** A {@code PUT} form's fields are added by Boot's form content filter alone, so the handler sees each once. */
+    @Test
+    void putFormFieldIsNotDoubled(@TempDir Path dir) throws Exception {
+        try (Service payment = startPayment(dir, "enforce")) {
+            HttpResponse<String> answer = payment.sendBody("PUT", "/echo", "payment", null,
+                    "application/x-www-form-urlencoded", "field=hello");
+            assertThat(answer.statusCode()).isEqualTo(200);
+            assertThat(answer.body()).isEqualTo("echo field=hello values=1");
+        }
+    }
+
     /**
      * A filter after Paztport's that includes another operation in place of the request's own dispatch. An included
      * handler cannot set the status, so the check owes the refusal and Paztport's filter writes it once the chain
@@ -584,14 +606,27 @@ class DispatchCheckTest {
             return exchange(method, target, rcv, rewrite).answer();
         }
 
+        /** As {@link #send}, with {@code body} as {@code contentType}, and the first hop bound over it. */
+        HttpResponse<String> sendBody(String method, String target, String rcv, String rewrite, String contentType,
+                String body) throws Exception {
+            return exchange(method, target, rcv, rewrite, contentType, body.getBytes(StandardCharsets.UTF_8))
+                    .answer();
+        }
+
         /** As {@link #send}, keeping what gateway sent. */
         Exchange exchange(String method, String target, String rcv, String rewrite) throws Exception {
+            return exchange(method, target, rcv, rewrite, null, new byte[0]);
+        }
+
+        private Exchange exchange(String method, String target, String rcv, String rewrite, String contentType,
+                byte[] body) throws Exception {
             String rid = UUID.randomUUID().toString();
             Stamper.Stamped sent = new Stamper("gateway", "gw-1", world.gateway.getPrivate(), true, () -> rid,
-                    System::currentTimeMillis).next(null, rcv, RequestBinding.compute(method, target, new byte[0]),
+                    System::currentTimeMillis).next(null, rcv, RequestBinding.compute(method, target, body),
                     List.of(), built.bundles().get("gateway"));
             HttpRequest.Builder request = TestHttp.request(URI.create("http://127.0.0.1:" + port + target))
-                    .method(method, HttpRequest.BodyPublishers.noBody())
+                    .method(method, body.length == 0 ? HttpRequest.BodyPublishers.noBody()
+                            : HttpRequest.BodyPublishers.ofByteArray(body))
                     .header(PaztportHeaders.CHAIN, HttpWire.encodeChain(sent.chain()));
             String influence = HttpWire.encodeInfluence(List.of());
             if (influence != null) {
@@ -599,6 +634,9 @@ class DispatchCheckTest {
             }
             if (sent.proof() != null) {
                 request.header(PaztportHeaders.PROOF, HttpWire.encodeProof(sent.proof()));
+            }
+            if (contentType != null) {
+                request.header("Content-Type", contentType);
             }
             if (rewrite != null) {
                 request.header(Rewrite.HEADER, rewrite);
@@ -833,6 +871,23 @@ class DispatchCheckTest {
         @PutMapping(path = "/charge", params = "mode=refund")
         String amendRefund() {
             return ran("amendRefund");
+        }
+
+        /** Mapped, and in no table: answers the form field it was given, and how many values it had. */
+        @PostMapping("/echo")
+        String echoPost(@RequestParam(required = false) String field, HttpServletRequest request) {
+            return echo(field, request);
+        }
+
+        @PutMapping("/echo")
+        String echoPut(@RequestParam(required = false) String field, HttpServletRequest request) {
+            return echo(field, request);
+        }
+
+        private static String echo(String field, HttpServletRequest request) {
+            String[] values = request.getParameterValues("field");
+            ran("echo");
+            return "echo field=" + field + " values=" + (values == null ? 0 : values.length);
         }
 
         /** Mapped, and in no table. */

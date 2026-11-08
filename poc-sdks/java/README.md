@@ -399,18 +399,17 @@ hands a session request's body to `HttpSessions.serve`.
   partner's entry names none.
 
   A service routes by method, path and query alone, and a request whose routing a
-  body field changes is refused under `enforce`. Spring's `params` condition reads
-  the request's parameters, while a caller's table matches the query alone.
-  Paztport's filter reads the body to bind it before anything parses it, so a
-  `POST` form body (`application/x-www-form-urlencoded`) is not seen: the query
-  alone decides, and the handler named runs, so `mode=refund` in the body of a
-  `POST /charge` runs `charge`. On a `PUT`, `PATCH` or `DELETE`, Boot's form
-  content filter, which runs after Paztport's, adds the body's fields to the
-  parameters, so a form body that meets a `params` condition makes Spring choose
-  another handler than the one confirmed, and the request is caught at dispatch,
-  below: refused under `enforce`, served unattested elsewhere. A handler that
-  switches on a body field is one operation, whatever it does: operations are told
-  apart by the query only.
+  body field changes is refused under `enforce`. The operation is named from the
+  method, path and query. Spring's `params` condition reads the request's
+  parameters, which also hold a form body's fields (on a `POST` through
+  Paztport's filter, on `PUT`, `PATCH` and `DELETE` through Boot's form content
+  filter), while a caller's table matches the query alone. So a form body
+  (`application/x-www-form-urlencoded`) that meets a `params` condition makes
+  Spring choose another handler than the one named, and the request is caught at
+  dispatch, below: refused under `enforce`, served unattested elsewhere, whatever
+  the method. Handlers see form fields as usual. A handler that switches on a body
+  field is one operation, whatever it does: operations are told apart by the query
+  only.
 
   A filter that changes the request's method, path or parameters after Paztport's
   filter has run makes another handler run than the one confirmed. Such a filter

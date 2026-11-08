@@ -183,8 +183,10 @@ public final class InboundFilter extends OncePerRequestFilter {
         byte[] body = CachedBodyHttpServletRequest.readAll(request);
         CachedBodyHttpServletRequest wrapped = new CachedBodyHttpServletRequest(request, body);
         VerificationMode mode = verifyRequests ? modeHolder.get() : VerificationMode.OFF;
-        // The handler the request will reach decides its operation, before the receiver verifies the chain.
-        String operation = operations == null ? null : operations.operationFor(wrapped);
+        // The handler the request will reach decides its operation, before the receiver verifies the chain. A service
+        // routes by method, path and query alone, so the operation is named without the body's form fields; a body
+        // field that makes Spring choose another handler is caught when that handler is about to run.
+        String operation = operations == null ? null : operations.operationFor(wrapped.withQueryParametersOnly());
         try (RequestContext.Entered<Accepted> entered = observed(inbound(request, body, operation),
                 PeerIdentity.from(request), mode)) {
             Accepted accepted = entered.result();
