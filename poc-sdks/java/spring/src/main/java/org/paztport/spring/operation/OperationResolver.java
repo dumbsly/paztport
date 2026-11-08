@@ -5,11 +5,13 @@ package org.paztport.spring.operation;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletRequestWrapper;
+import java.lang.reflect.Method;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Enumeration;
 import java.util.HashMap;
-import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -22,21 +24,27 @@ import org.springframework.beans.factory.SmartInitializingSingleton;
 import org.springframework.core.annotation.AnnotationAwareOrderComparator;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.filter.HiddenHttpMethodFilter;
+import org.springframework.web.method.HandlerMethod;
 import org.springframework.web.servlet.DispatcherServlet;
+import org.springframework.web.servlet.HandlerExecutionChain;
 import org.springframework.web.servlet.HandlerMapping;
+import org.springframework.web.servlet.mvc.condition.NameValueExpression;
 import org.springframework.web.servlet.mvc.method.RequestMappingInfo;
 import org.springframework.web.servlet.mvc.method.RequestMappingInfoHandlerMapping;
 import org.springframework.web.util.ServletRequestPathUtils;
 
 /**
- * This service's operation for a request: the one its own table holds for the request's method and the pattern of
- * the handler the {@link DispatcherServlet} will dispatch the request to. The inbound filter runs before the
- * DispatcherServlet has mapped the request, so this asks the same handler mappings, in the same order, as it will:
- * every {@link HandlerMapping} bean, sorted by order, the first that answers a handler deciding. The pattern is the
- * one that mapping sets as {@link HandlerMapping#BEST_MATCHING_PATTERN_ATTRIBUTE}, which the handler's interceptors
- * read too. The operation is never found by matching the path against the table, so a path that Spring and a caller
- * match differently (a regex variable, a trailing slash, a percent-encoded segment) is confirmed as the operation
- * Spring will actually run, or as none, and a chain naming the caller's choice is refused.
+ * This service's operation for a request: the operation in its own table that the handler the
+ * {@link DispatcherServlet} will dispatch the request to is, for the request's method and the template of the
+ * handler's pattern. An operation is a handler, so of one entrance's operations, which share a method and a template,
+ * the one a request has is the handler Spring's routing picks by its {@code params} condition, never one found by
+ * matching the request against the table. The inbound filter runs before the DispatcherServlet has mapped the
+ * request, so this asks the same handler mappings, in the same order, as it will: every {@link HandlerMapping} bean,
+ * sorted by order, the first that answers a handler deciding. The pattern is the one that mapping sets as
+ * {@link HandlerMapping#BEST_MATCHING_PATTERN_ATTRIBUTE}, which the handler's interceptors read too. So a request that
+ * Spring and a caller read differently (a regex variable, a trailing slash, a percent-encoded segment or query value,
+ * a form body's parameter) is confirmed as the operation Spring will actually run, or as none, and a chain naming the
+ * caller's choice is refused.
  *
  * <p>Spring's {@code HandlerMappingIntrospector}, which asked the mappings in this way for a filter, is deprecated for
  * removal as of Spring Framework 7, so this asks them itself. Where a mapping fails the request (a method or a media
@@ -48,19 +56,37 @@ import org.springframework.web.util.ServletRequestPathUtils;
  * a variable that captures the rest of the path, or a segment that mixes literal text and a variable normalises to
  * none, so the request has no operation.
  *
- * <p>Once every singleton is created, so every handler mapping is known, it checks the table: each of its operations
- * must be an annotated handler mapping, a method (or none, which takes every method) and a pattern that normalises
- * to the operation's template, or the context does not start. A mapping that is in no table is allowed: it is
- * reachable only by routes that name no operation. Nor does the context start beside a {@link HiddenHttpMethodFilter},
- * which changes the request's method after the inbound filter has confirmed the operation for the method sent. Any
- * other filter that changes the method or the path after the inbound filter is caught as the handler is about to run
- * ({@link DispatchCheck}), which asks this for the operation of the handler the DispatcherServlet chose.
+ * <p>Once every singleton is created, so every handler mapping is known, it checks the table against the annotated
+ * handler mappings, each a method (or none, which takes every method), patterns and a {@code params} condition, and
+ * learns from them which operation each handler is ({@link #operationsOf}). A mapping on a table entrance is that
+ * entrance's operation whose query condition is the mapping's {@code params} condition, one non-negated
+ * {@code name=value}, or the operation with none where the mapping has no {@code params} condition. The context does
+ * not start where a mapping on a table entrance has a {@code params} condition that is none of the entrance's, or
+ * where an operation is no handler or more than one, as two handlers that the entrance tells apart by headers, media
+ * types or a regex are. A mapping that is on no table entrance is allowed: it is reachable only by routes that name
+ * no operation. Any other handler, a router function's or a URL-mapped one's, is no operation. Nor does the context
+ * start beside a {@link HiddenHttpMethodFilter}, which changes the request's method after the inbound filter has
+ * confirmed the operation for the method sent. Any other filter that changes the method, the path or the parameters
+ * after the inbound filter is caught as the handler is about to run ({@link DispatchCheck}), which asks this for the
+ * operation of the handler the DispatcherServlet chose.
  */
 public final class OperationResolver implements SmartInitializingSingleton {
 
     private final OperationTable table;
     private final ListableBeanFactory beans;
     private volatile List<HandlerMapping> mappings = List.of();
+    private volatile Map<Served, String> operations = Map.of();
+
+    /**
+     * Where a handler is served: its Java method, which stays the same in the copy of the handler a mapping answers
+     * for each request with its bean resolved, an HTTP method and a template.
+     */
+    record Served(Method handler, String method, String template) {
+    }
+
+    /** The handler a request will be dispatched to, and the pattern its mapping sets, either null for none. */
+    private record Dispatched(Object handler, String pattern) {
+    }
 
     /**
      * @param table this service's own table, covered by the signed root
@@ -73,7 +99,8 @@ public final class OperationResolver implements SmartInitializingSingleton {
 
     /**
      * Finds the handler mappings as the DispatcherServlet finds them, every one in the context and its ancestors,
-     * in their order, and refuses a table operation that none of them maps, or a method-override filter.
+     * in their order, learns which operation each handler is, and refuses a table its handlers do not serve one to
+     * one ({@link #operationsOf}), or a method-override filter.
      */
     @Override
     public void afterSingletonsInstantiated() {
@@ -81,51 +108,65 @@ public final class OperationResolver implements SmartInitializingSingleton {
         List<HandlerMapping> found = new ArrayList<>(
                 BeanFactoryUtils.beansOfTypeIncludingAncestors(beans, HandlerMapping.class, true, false).values());
         AnnotationAwareOrderComparator.sort(found);
-        requireMapped(table, found);
+        operations = Map.copyOf(operationsOf(table, found));
         mappings = List.copyOf(found);
     }
 
     /**
-     * The name of the operation in this service's table for the request's method and the pattern of the handler it
-     * will be dispatched to, or null when it will be dispatched to none, or to one whose pattern normalises to no
-     * template or to a template the table has no operation at for that method. The request's attributes are as they
+     * The name of the operation in this service's table that the handler the request will be dispatched to is, for
+     * the request's method and the template of the handler's pattern, or null when it will be dispatched to none, or
+     * to a handler that is no operation of the table ({@link #operationOf}). The request's attributes are as they
      * were afterwards.
      */
     public String operationFor(HttpServletRequest request) {
-        return operationAt(request.getMethod(), patternFor(request));
+        Dispatched dispatched = dispatch(request);
+        return operationOf(dispatched.handler(), request.getMethod(), dispatched.pattern());
     }
 
     /**
-     * The name of the operation in this service's table for {@code method} and a handler's {@code pattern}, or null
-     * when the pattern is null, normalises to no template, or is at a template the table has no operation at for
-     * that method.
+     * The name of the operation in this service's table that {@code handler} is when it serves {@code method} at
+     * {@code pattern}, or null when the handler is not an annotated one, the pattern is null or normalises to no
+     * template, or the handler is no operation there.
      */
-    String operationAt(String method, String pattern) {
+    String operationOf(Object handler, String method, String pattern) {
         String template = template(pattern);
-        return template == null ? null : table.operationFor(method, template, null);
+        if (!(handler instanceof HandlerMethod annotated) || template == null) {
+            return null;
+        }
+        return operations.get(new Served(annotated.getMethod(), method, template));
     }
 
     /**
      * The pattern the DispatcherServlet's handler mapping sets for the request as it maps it, or null when no mapping
-     * will answer a handler, or the one that will sets no pattern as it maps. Annotated handlers' and router
-     * functions' mappings set it then; a URL-mapped handler's, such as static resources', sets it only as the handler
-     * is about to run, so a request for one has no pattern here and no operation. The mappings run against a wrapper
-     * that keeps every attribute they set or remove to itself, so nothing they leave reaches the request; the request
-     * path is parsed into it, as the DispatcherServlet parses it before it asks the mappings.
+     * will answer a handler, or the one that will sets no pattern as it maps ({@link #dispatch}).
      */
     String patternFor(HttpServletRequest request) {
+        return dispatch(request).pattern();
+    }
+
+    /**
+     * The handler the DispatcherServlet's handler mappings will answer for the request, and the pattern the one that
+     * answers sets as it maps it; both null when none will answer. Annotated handlers' and router functions' mappings
+     * set the pattern then; a URL-mapped handler's, such as static resources', sets it only as the handler is about to
+     * run, so a request for one has no pattern here. The mappings run against a wrapper that keeps every attribute
+     * they set or remove to itself, so nothing they leave reaches the request; the request path is parsed into it, as
+     * the DispatcherServlet parses it before it asks the mappings.
+     */
+    private Dispatched dispatch(HttpServletRequest request) {
         Probe probe = new Probe(request);
         ServletRequestPathUtils.parseAndCache(probe);
         try {
             for (HandlerMapping mapping : mappings) {
-                if (mapping.getHandler(probe) != null) {
-                    return probe.set(HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE) instanceof String p ? p : null;
+                HandlerExecutionChain chain = mapping.getHandler(probe);
+                if (chain != null) {
+                    return new Dispatched(chain.getHandler(),
+                            probe.set(HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE) instanceof String p ? p : null);
                 }
             }
         } catch (Exception e) {
             // The DispatcherServlet fails the request here too, with an error and no handler.
         }
-        return null;
+        return new Dispatched(null, null);
     }
 
     /**
@@ -191,35 +232,109 @@ public final class OperationResolver implements SmartInitializingSingleton {
         }
     }
 
-    /** Refuses the first operation of {@code table} that no annotated handler maps. */
-    static void requireMapped(OperationTable table, List<HandlerMapping> mappings) {
-        Set<String> mapped = new HashSet<>();
+    /**
+     * The operation each annotated handler of {@code mappings} is where it serves one of {@code table}'s entrances,
+     * by its Java method, the HTTP method and the template; refusing, with the first it finds, a mapping on a table
+     * entrance whose {@code params} condition is none of the entrance's query conditions, and an operation that no
+     * handler is, or more than one. A mapping with no method condition serves each of the table's methods at its
+     * templates; one whose pattern normalises to no template, or that is on no table entrance, is no operation.
+     */
+    static Map<Served, String> operationsOf(OperationTable table, List<HandlerMapping> mappings) {
+        Map<String, List<OperationTable.Operation>> entrances = new HashMap<>();
+        Map<String, Set<String>> methodsAt = new HashMap<>();
+        for (OperationTable.Operation op : table.operations()) {
+            entrances.computeIfAbsent(op.method() + " " + op.template(), k -> new ArrayList<>()).add(op);
+            methodsAt.computeIfAbsent(op.template(), k -> new LinkedHashSet<>()).add(op.method());
+        }
+        Map<Served, String> operations = new HashMap<>();
+        Map<OperationTable.Operation, Map<Method, HandlerMethod>> handlers = new HashMap<>();
         for (HandlerMapping mapping : mappings) {
-            if (mapping instanceof RequestMappingInfoHandlerMapping annotated) {
-                for (RequestMappingInfo info : annotated.getHandlerMethods().keySet()) {
-                    Set<RequestMethod> methods = info.getMethodsCondition().getMethods();
-                    for (String pattern : info.getPatternValues()) {
-                        String template = template(pattern);
-                        if (template == null) {
+            if (!(mapping instanceof RequestMappingInfoHandlerMapping annotated)) {
+                continue;
+            }
+            for (Map.Entry<RequestMappingInfo, HandlerMethod> mapped : annotated.getHandlerMethods().entrySet()) {
+                RequestMappingInfo info = mapped.getKey();
+                HandlerMethod handler = mapped.getValue();
+                Set<RequestMethod> declared = info.getMethodsCondition().getMethods();
+                for (String pattern : info.getPatternValues()) {
+                    String template = template(pattern);
+                    if (template == null) {
+                        continue;
+                    }
+                    Collection<String> methods = declared.isEmpty() ? methodsAt.getOrDefault(template, Set.of())
+                            : declared.stream().map(RequestMethod::name).toList();
+                    for (String method : methods) {
+                        String entrance = method + " " + template;
+                        List<OperationTable.Operation> of = entrances.get(entrance);
+                        if (of == null) {
                             continue;
                         }
-                        if (methods.isEmpty()) {
-                            mapped.add("* " + template);
-                        }
-                        for (RequestMethod method : methods) {
-                            mapped.add(method.name() + " " + template);
-                        }
+                        OperationTable.Operation op = conditionOf(of, info, handler, entrance);
+                        handlers.computeIfAbsent(op, k -> new LinkedHashMap<>()).put(handler.getMethod(), handler);
+                        operations.put(new Served(handler.getMethod(), method, template), op.name());
                     }
                 }
             }
         }
         for (OperationTable.Operation op : table.operations()) {
-            if (!mapped.contains(op.method() + " " + op.template()) && !mapped.contains("* " + op.template())) {
-                throw new IllegalStateException("paztport.operations.table-path: the operation " + op.name() + ", "
-                        + op.method() + " " + op.template() + ", is not a handler mapping of this service; no handler "
-                        + "maps that method and a pattern that normalises to that template");
+            Collection<HandlerMethod> of = handlers.getOrDefault(op, Map.of()).values();
+            if (of.isEmpty()) {
+                throw new IllegalStateException("paztport.operations.table-path: the operation " + describe(op)
+                        + ", is not a handler mapping of this service; no handler maps that method, a pattern that "
+                        + "normalises to that template and " + (op.query() == null ? "no params condition"
+                                : "the params condition " + condition(op.query())));
+            }
+            if (of.size() > 1) {
+                throw new IllegalStateException("paztport.operations.table-path: the operation " + describe(op)
+                        + ", is more than one handler of this service, " + of + "; the entrance " + op.method() + " "
+                        + op.template() + " tells them apart by something a caller's table cannot hold, such as "
+                        + "headers, a media type or a pattern's regex, so map one handler for each of its query "
+                        + "conditions");
             }
         }
+        return operations;
+    }
+
+    /**
+     * The operation of an entrance, {@code of}, that a mapping on it is: the one whose query condition is the
+     * mapping's one non-negated {@code params} expression {@code name=value}, or the one with none where the mapping
+     * has no {@code params} condition.
+     *
+     * @throws IllegalStateException where the mapping's {@code params} condition is none of those
+     */
+    private static OperationTable.Operation conditionOf(List<OperationTable.Operation> of, RequestMappingInfo info,
+            HandlerMethod handler, String entrance) {
+        Set<NameValueExpression<String>> params = info.getParamsCondition().getExpressions();
+        OperationTable.Condition condition = null;
+        boolean expressible = params.isEmpty();
+        if (params.size() == 1) {
+            NameValueExpression<String> only = params.iterator().next();
+            expressible = !only.isNegated() && only.getValue() != null;
+            condition = expressible ? new OperationTable.Condition(only.getName(), only.getValue()) : null;
+        }
+        for (OperationTable.Operation op : of) {
+            if (expressible && Objects.equals(op.query(), condition)) {
+                return op;
+            }
+        }
+        List<String> conditions = new ArrayList<>();
+        for (OperationTable.Operation op : of) {
+            conditions.add(op.query() == null ? "none" : condition(op.query()));
+        }
+        throw new IllegalStateException("paztport.operations.table-path: the handler " + handler + " is mapped on "
+                + "the entrance " + entrance + " with the params condition " + info.getParamsCondition() + ", which "
+                + "is none of that entrance's query conditions in the table, " + String.join(", ", conditions)
+                + "; give it one of those, or map it on an entrance the table does not hold");
+    }
+
+    /** {@code name, METHOD /template}, and {@code ?parameter=value} where the operation has a query condition. */
+    private static String describe(OperationTable.Operation op) {
+        return op.name() + ", " + op.method() + " " + op.template()
+                + (op.query() == null ? "" : "?" + condition(op.query()));
+    }
+
+    private static String condition(OperationTable.Condition query) {
+        return query.parameter() + "=" + query.value();
     }
 
     /**

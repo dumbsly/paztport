@@ -356,10 +356,20 @@ hands a session request's body to `HttpSessions.serve`.
   root, the overlap's included. So either property needs `paztport.proofs-path`
   and the keyring, root and policy pin, or the service does not start. At startup:
   - the service's own table must be its own and covered, and each of its operations
-    must be a handler mapping: a method and a pattern that normalises to the
-    operation's template (each whole-segment variable, `{id}` or `{id:\d+}`,
-    becomes `{}`). A mapping that is in no table is allowed; it is reachable only
-    by routes that name no operation;
+    must be exactly one handler: an annotated handler mapping whose method (or
+    none, which takes every method) is the operation's, whose pattern normalises to
+    the operation's template (each whole-segment variable, `{id}` or `{id:\d+}`,
+    becomes `{}`), and whose `params` condition is the operation's `query`
+    (`params = "mode=refund"` for `{"mode": "refund"}`), or none for an operation
+    without one. An entrance, the operations that share a method and a template,
+    may so carry several operations, `charge` and `refund` on `POST /charge`, told
+    apart by a query condition. The start fails where a mapping on a table entrance
+    has a `params` condition the entrance does not hold (`!mode`, `mode`, two
+    expressions, or a value no operation has), or where two handlers on one entrance
+    share a `params` condition and are told apart only by headers, a media type
+    (`consumes`, `produces`) or a pattern's regex; `consumes` on an entrance's only
+    handler is allowed. A mapping on no table entrance is allowed; it is reachable
+    only by routes that name no operation;
   - a receiver's table the bundle holds no proof for is set aside, with one line
     naming the receiver, and calls to it name no operation, so the receiver then
     needs a route that names none;
@@ -368,23 +378,36 @@ hands a session request's body to `HttpSessions.serve`.
 
   The receiver never takes its operation from the request. Before it verifies, and
   before the handler runs, the filter asks Spring's handler mappings, in the
-  `DispatcherServlet`'s order, which handler the request will reach, and takes that
-  handler's pattern (the one `HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE`
-  holds) to the table. A request that will reach no handler, a handler that is in
-  no table, or a pattern with a wildcard, a rest-of-path variable or a segment that
-  mixes text and a variable, has no operation. So a path the caller's table and
-  Spring match differently, `/orders/` with a trailing slash, `/items/abc` against
-  `{id:\d+}`, or a percent-encoded segment, is confirmed as what Spring will run,
-  or as nothing, and a chain naming the caller's choice is refused
-  `403 {"reason":"BINDING_MISMATCH"}` before any handler runs. Static resources and
-  other URL-mapped handlers have no operation. A partner's entry names none.
+  `DispatcherServlet`'s order, which handler the request will reach, and the
+  operation is that handler, at the request's method and its pattern's template
+  (the pattern `HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE` holds). A request
+  that will reach no handler, a handler that is in no table, or a pattern with a
+  wildcard, a rest-of-path variable or a segment that mixes text and a variable,
+  has no operation. So a request the caller's table and Spring read differently,
+  `/orders/` with a trailing slash, `/items/abc` against `{id:\d+}`, a
+  percent-encoded segment, or `?mode=%72efund`, which Spring decodes to `refund`
+  where a caller matches the raw query, is confirmed as what Spring will run, or
+  as nothing, and a chain naming the caller's choice is refused
+  `403 {"reason":"BINDING_MISMATCH"}` before any handler runs. Static resources,
+  router functions and other handlers that are not annotated have no operation. A
+  partner's entry names none.
 
-  A filter that changes the request's method or path after Paztport's filter has
-  run makes another handler run than the one confirmed. Such a filter is caught,
-  whether it wraps the request or forwards it, when the first handler the
-  request reaches is about to run: where the chain named an operation, the
-  operation is worked out again from that handler's pattern, and where it
-  differs one warning names both operations and the answer is not attested.
+  Spring's `params` condition reads the request's parameters, which a servlet
+  container also fills from a form body (`application/x-www-form-urlencoded`)
+  where nothing has read the body first, while a caller's table matches the query
+  alone. Either way the operation is the handler that runs: where `mode=refund` in
+  a form body makes Spring run `refund`, a chain naming `charge` is refused. On
+  Tomcat, Paztport's filter reads the body to bind it first, so the parameters
+  hold the query alone and the same request runs `charge`. A handler that switches
+  on a body field is one operation, whatever it does: operations are told apart
+  by the query only.
+
+  A filter that changes the request's method, path or parameters after Paztport's
+  filter has run makes another handler run than the one confirmed. Such a filter
+  is caught, whether it wraps the request or forwards it, when the first handler
+  the request reaches is about to run: where the chain named an operation, the
+  operation is worked out again from that handler, and where it differs one
+  warning names both operations and the answer is not attested.
   Under `enforce` the request is refused `403 {"reason":"BINDING_MISMATCH"}`;
   in `audit`, and on a service that verifies only to decide attestation, it is
   served unattested. A forward the confirmed handler starts itself is not

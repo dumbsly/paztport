@@ -19,11 +19,11 @@ import org.springframework.web.servlet.HandlerMapping;
 /**
  * Checks, as the first handler the request reaches is about to run, that it is the operation the inbound filter
  * verified the request for. The filter works the operation out from the request as it is when the filter runs; a
- * filter after it that changes the method or the path, by wrapping the request or by forwarding it, makes the
- * DispatcherServlet choose another handler. So this works the operation out again from the request as the handler
- * sees it, its method and the pattern its handler mapping set as
- * {@link HandlerMapping#BEST_MATCHING_PATTERN_ATTRIBUTE}, in the same way ({@link OperationResolver#operationAt}).
- * Without such a filter the two are always the same, since the same mappings answer the same request.
+ * filter after it that changes the method, the path or the parameters, by wrapping the request or by forwarding it,
+ * makes the DispatcherServlet choose another handler. So this works the operation out again, in the same way
+ * ({@link OperationResolver#operationOf}), from the handler about to run, the request's method as the handler sees it
+ * and the pattern its handler mapping set as {@link HandlerMapping#BEST_MATCHING_PATTERN_ATTRIBUTE}. Without such a
+ * filter the two are always the same, since the same mappings answer the same request.
  *
  * <p>Where they differ, one WARN line names both operations, never the path, and the operation is marked contradicted,
  * so the filter attests no answer for it. Under {@code enforce} the request is refused
@@ -65,15 +65,15 @@ final class DispatchCheck implements HandlerInterceptor {
         verified.check();
         String pattern = request.getAttribute(HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE) instanceof String p
                 ? p : null;
-        String dispatched = operations.operationAt(request.getMethod(), pattern);
+        String dispatched = operations.operationOf(handler, request.getMethod(), pattern);
         if (Objects.equals(dispatched, verified.operation())) {
             return true;
         }
         verified.contradict();
         // Both names come from this service's own table, whose rules allow nothing that could break the line.
         LOG.warn("the request was verified for the operation {} but the handler about to run is the operation {}: a "
-                + "filter after Paztport's changed its method or path, or forwarded it; {}", name(verified.operation()),
-                name(dispatched), verified.enforced() ? "refused" : "served unattested");
+                + "filter after Paztport's changed its method, path or parameters, or forwarded it; {}",
+                name(verified.operation()), name(dispatched), verified.enforced() ? "refused" : "served unattested");
         if (!verified.enforced()) {
             return true;
         }

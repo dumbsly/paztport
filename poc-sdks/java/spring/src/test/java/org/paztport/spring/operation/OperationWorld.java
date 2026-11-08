@@ -23,8 +23,8 @@ import org.paztport.core.policy.ProofBundle;
 import org.paztport.core.policy.Routes;
 
 /**
- * The files of a small mesh in which {@code gateway} calls {@code orders} and {@code orders} calls {@code payment},
- * both of which name their operations, written as keygen and the policy tool write them.
+ * The files of a small mesh in which {@code gateway} calls {@code orders} and {@code payment}, and {@code orders}
+ * calls {@code payment}, both of which name their operations, written as keygen and the policy tool write them.
  */
 final class OperationWorld {
 
@@ -38,24 +38,32 @@ final class OperationWorld {
             new Operation("createOrder", "POST", "/orders"),
             new Operation("getItem", "GET", "/items/{}")));
 
+    /** Payment's table: one entrance of two operations, told apart by a query condition, and a third. */
     static final OperationTable PAYMENT = new OperationTable("payment", List.of(
-            new Operation("charge", "POST", "/charge")));
+            new Operation("charge", "POST", "/charge"),
+            new Operation("refund", "POST", "/charge", new OperationTable.Condition("mode", "refund")),
+            new Operation("pay", "POST", "/pay")));
 
     final KeyPair policy = Crypto.generateEd25519KeyPair();
     final KeyPair gateway = Crypto.generateEd25519KeyPair();
     final KeyPair orders = Crypto.generateEd25519KeyPair();
+    final KeyPair payment = Crypto.generateEd25519KeyPair();
     final Path dir;
 
     OperationWorld(Path dir) {
         this.dir = dir;
     }
 
-    /** The routes of a policy that covers both tables and lets gateway reach each of orders' operations. */
+    /**
+     * The routes of a policy that covers both tables and lets gateway reach each of orders' and payment's
+     * operations.
+     */
     static List<List<String>> routes() {
         return List.of(
                 List.of("gateway", "orders#getOrder"), List.of("gateway", "orders#search"),
                 List.of("gateway", "orders#createOrder"), List.of("gateway", "orders#getItem"),
-                List.of("orders", "payment#charge"),
+                List.of("gateway", "payment#charge"), List.of("gateway", "payment#refund"),
+                List.of("gateway", "payment#pay"), List.of("orders", "payment#charge"),
                 ORDERS.route(), PAYMENT.route());
     }
 
@@ -67,16 +75,19 @@ final class OperationWorld {
     }
 
     /**
-     * Writes the keys, a keyring holding gateway and orders, the pin, both tables and the root and bundles built
-     * from {@code routes}, and answers what was built.
+     * Writes the keys, a keyring holding gateway, orders and payment, the pin, both tables and the root and bundles
+     * built from {@code routes}, and answers what was built.
      */
     PolicyBuilder.Result write(List<List<String>> routes) throws IOException {
         String pin = pub(policy);
         Files.writeString(dir.resolve("policy.pub"), pin + "\n");
         Files.writeString(dir.resolve("gateway.key"), Base64Url.encode(Crypto.encodePrivateKey(gateway.getPrivate())));
         Files.writeString(dir.resolve("orders.key"), Base64Url.encode(Crypto.encodePrivateKey(orders.getPrivate())));
+        Files.writeString(dir.resolve("payment.key"),
+                Base64Url.encode(Crypto.encodePrivateKey(payment.getPrivate())));
         Files.writeString(dir.resolve("keyring.json"), KeyringFile.sign(
-                Map.of("gateway", pub(gateway), "orders", pub(orders)), pin, NOT_AFTER, policy.getPrivate()).toFile());
+                Map.of("gateway", pub(gateway), "orders", pub(orders), "payment", pub(payment)), pin, NOT_AFTER,
+                policy.getPrivate()).toFile());
         Files.writeString(dir.resolve("ops-orders.json"), ORDERS.toFile());
         Files.writeString(dir.resolve("ops-payment.json"), PAYMENT.toFile());
         PolicyBuilder.Result built = PolicyBuilder.build(routes, 4, NOT_AFTER, policy.getPrivate());

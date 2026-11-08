@@ -16,9 +16,14 @@ import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -33,17 +38,24 @@ import org.paztport.http.wire.PaztportHeaders;
 import org.paztport.http.wire.RequestBinding;
 import org.paztport.spring.InboundFilter;
 import org.paztport.spring.PaztportAutoConfiguration;
+import org.paztport.spring.TestHttp;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.SpringBootConfiguration;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
+import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
+import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.boot.restclient.RestClientCustomizer;
 import org.springframework.boot.test.context.assertj.AssertableWebApplicationContext;
 import org.springframework.boot.test.context.runner.WebApplicationContextRunner;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.boot.webmvc.autoconfigure.WebMvcAutoConfiguration;
+import org.springframework.context.ConfigurableApplicationContext;
+import org.springframework.context.annotation.Import;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.client.RestClient;
 
@@ -177,8 +189,22 @@ class OperationConfigurationTest {
 
     /** Runs orders, verifying gateway's requests and holding its own table, with the filter in front of MockMvc. */
     private void runOrders(OperationWorld world, MvcConsumer then) {
-        runner.withPropertyValues(world.service("orders", "paztport.verify=true", "paztport.origins=gateway",
-                        "paztport.operations.table-path=" + world.file("ops-orders.json")))
+        runService(runner, world, "orders", then);
+    }
+
+    /** Runs payment, as {@link #runOrders} runs orders, with the handlers of {@code POST /charge} and {@code pay}. */
+    private void runPayment(OperationWorld world, MvcConsumer then) {
+        runService(new WebApplicationContextRunner()
+                .withConfiguration(AutoConfigurations.of(WebMvcAutoConfiguration.class,
+                        PaztportAutoConfiguration.class))
+                .withUserConfiguration(PaymentHandlers.Charges.class, PaymentHandlers.PayJson.class),
+                world, "payment", then);
+    }
+
+    private static void runService(WebApplicationContextRunner runner, OperationWorld world, String service,
+            MvcConsumer then) {
+        runner.withPropertyValues(world.service(service, "paztport.verify=true", "paztport.origins=gateway",
+                        "paztport.operations.table-path=" + world.file("ops-" + service + ".json")))
                 .run(context -> {
                     assertThat(context).hasNotFailed();
                     InboundFilter filter = context.getBean("paztportInboundFilterRegistration",
@@ -194,16 +220,37 @@ class OperationConfigurationTest {
     /** Gateway's first hop of {@code GET uri}, naming {@code rcv}, as its chain and proof headers. */
     private static String[] firstHop(OperationWorld world, PolicyBuilder.Result built, String rcv, String uri,
             String rid) {
+        return firstHop(world, built, rcv, "GET", uri, new byte[0], rid);
+    }
+
+    /** Gateway's first hop of {@code method uri} with {@code body}, naming {@code rcv}. */
+    private static String[] firstHop(OperationWorld world, PolicyBuilder.Result built, String rcv, String method,
+            String uri, byte[] body, String rid) {
         Stamper.Stamped sent = new Stamper("gateway", "gw-1", world.gateway.getPrivate(), true, () -> rid,
-                System::currentTimeMillis).next(null, rcv, RequestBinding.compute("GET", uri, new byte[0]), List.of(),
+                System::currentTimeMillis).next(null, rcv, RequestBinding.compute(method, uri, body), List.of(),
                 built.bundles().get("gateway"));
         return new String[] {HttpWire.encodeChain(sent.chain()),
             sent.proof() == null ? null : HttpWire.encodeProof(sent.proof()), HttpWire.encodeInfluence(List.of())};
     }
 
     private static ResultActions send(MockMvc mvc, String uri, String[] hop) throws Exception {
-        // A URI, not a template, so that a percent-encoded path is sent as it stands.
-        MockHttpServletRequestBuilder request = get(URI.create(uri)).header(PaztportHeaders.CHAIN, hop[0]);
+        return send(mvc, get(URI.create(uri)), hop);
+    }
+
+    /** {@code POST uri} with {@code hop}, and with {@code body} as {@code contentType} where it is not null. */
+    private static ResultActions post(MockMvc mvc, String uri, String contentType, byte[] body, String[] hop)
+            throws Exception {
+        MockHttpServletRequestBuilder request = MockMvcRequestBuilders.post(URI.create(uri));
+        if (contentType != null) {
+            request.contentType(contentType).content(body);
+        }
+        return send(mvc, request, hop);
+    }
+
+    private static ResultActions send(MockMvc mvc, MockHttpServletRequestBuilder request, String[] hop)
+            throws Exception {
+        // A URI, not a template, so that a percent-encoded path or query is sent as it stands.
+        request.header(PaztportHeaders.CHAIN, hop[0]);
         if (hop[1] != null) {
             request.header(PaztportHeaders.PROOF, hop[1]);
         }
@@ -247,5 +294,118 @@ class OperationConfigurationTest {
             send(mvc, "/items/42", firstHop(world, built, "orders#getItem", "/items/42", "rid-" + rid))
                     .andExpect(status().isOk()).andExpect(content().string("getItem"));
         });
+    }
+
+    /**
+     * Of an entrance's operations, the one confirmed is the handler Spring runs, which its query condition picks: a
+     * chain naming the other is refused before any handler runs.
+     */
+    @Test
+    void chainNamingChargeOnARefundRequestIsRefused(@TempDir Path dir) throws Exception {
+        OperationWorld world = new OperationWorld(dir);
+        PolicyBuilder.Result built = world.write(OperationWorld.routes());
+        PaymentHandlers.RAN.clear();
+        runPayment(world, (mvc, context) -> {
+            String uri = "/charge?mode=refund";
+            post(mvc, uri, null, null, firstHop(world, built, "payment#charge", "POST", uri, new byte[0], "rid-1"))
+                    .andExpect(status().isForbidden())
+                    .andExpect(content().json("{\"reason\":\"BINDING_MISMATCH\"}", true));
+            assertThat(PaymentHandlers.RAN).as("no handler ran").isEmpty();
+            post(mvc, uri, null, null, firstHop(world, built, "payment#refund", "POST", uri, new byte[0], "rid-2"))
+                    .andExpect(status().isOk()).andExpect(content().string("refund"));
+            assertThat(PaymentHandlers.RAN).containsExactly("refund");
+        });
+    }
+
+    /**
+     * A caller matches the raw query, which holds no {@code mode=refund}, so it names {@code charge}; Spring reads the
+     * decoded parameter and runs {@code refund}, so the chain is refused.
+     */
+    @Test
+    void encodedConditionIsRefused(@TempDir Path dir) throws Exception {
+        OperationWorld world = new OperationWorld(dir);
+        PolicyBuilder.Result built = world.write(OperationWorld.routes());
+        PaymentHandlers.RAN.clear();
+        runPayment(world, (mvc, context) -> {
+            String uri = "/charge?mode=%72efund";
+            assertThat(OperationWorld.PAYMENT.match("POST", "/charge", "mode=%72efund")).isEqualTo("charge");
+            post(mvc, uri, null, null, firstHop(world, built, "payment#charge", "POST", uri, new byte[0], "rid-1"))
+                    .andExpect(status().isForbidden())
+                    .andExpect(content().json("{\"reason\":\"BINDING_MISMATCH\"}", true));
+            assertThat(PaymentHandlers.RAN).as("no handler ran").isEmpty();
+        });
+    }
+
+    /**
+     * Where the request's parameters hold a form body's, as MockMvc's do, Spring's params condition reads them too,
+     * while a caller's table matches the query alone: so a chain naming {@code charge} for a form body holding
+     * {@code mode=refund} is refused.
+     */
+    @Test
+    void formBodyConditionIsRefused(@TempDir Path dir) throws Exception {
+        OperationWorld world = new OperationWorld(dir);
+        PolicyBuilder.Result built = world.write(OperationWorld.routes());
+        PaymentHandlers.RAN.clear();
+        runPayment(world, (mvc, context) -> {
+            byte[] body = "mode=refund".getBytes(StandardCharsets.UTF_8);
+            post(mvc, "/charge", "application/x-www-form-urlencoded", body,
+                    firstHop(world, built, "payment#charge", "POST", "/charge", body, "rid-1"))
+                    .andExpect(status().isForbidden())
+                    .andExpect(content().json("{\"reason\":\"BINDING_MISMATCH\"}", true));
+            assertThat(PaymentHandlers.RAN).as("no handler ran").isEmpty();
+        });
+    }
+
+    /**
+     * On Tomcat the request's parameters hold a form body's only where nothing has read the body first, and
+     * Paztport's filter reads it to bind it, so there Spring's params condition sees the query alone. Whichever it
+     * sees, the operation confirmed is the handler that runs: of a chain naming {@code charge} and one naming
+     * {@code refund} for a form body holding {@code mode=refund}, the one naming the handler that runs is served by
+     * it, and the other is refused before any handler runs.
+     */
+    @Test
+    void formBodyOnTheContainerIsTheHandlerThatRuns(@TempDir Path dir) throws Exception {
+        OperationWorld world = new OperationWorld(dir);
+        PolicyBuilder.Result built = world.write(OperationWorld.routes());
+        PaymentHandlers.RAN.clear();
+        byte[] body = "mode=refund".getBytes(StandardCharsets.UTF_8);
+        List<String> served = new ArrayList<>();
+        try (ConfigurableApplicationContext app = new SpringApplicationBuilder(PaymentApp.class)
+                .properties(world.service("payment", "server.port=0", "spring.main.banner-mode=off",
+                        "paztport.verify=true", "paztport.mode=enforce", "paztport.origins=gateway",
+                        "paztport.operations.table-path=" + world.file("ops-payment.json")))
+                .run(); HttpClient http = TestHttp.newClient()) {
+            URI uri = URI.create("http://127.0.0.1:" + app.getEnvironment().getProperty("local.server.port")
+                    + "/charge");
+            for (String operation : List.of("charge", "refund")) {
+                String[] hop = firstHop(world, built, "payment#" + operation, "POST", "/charge", body,
+                        UUID.randomUUID().toString());
+                HttpRequest.Builder request = TestHttp.request(uri).POST(HttpRequest.BodyPublishers.ofByteArray(body))
+                        .header("Content-Type", "application/x-www-form-urlencoded")
+                        .header(PaztportHeaders.CHAIN, hop[0]);
+                if (hop[1] != null) {
+                    request.header(PaztportHeaders.PROOF, hop[1]);
+                }
+                if (hop[2] != null) {
+                    request.header(PaztportHeaders.INFLUENCE, hop[2]);
+                }
+                HttpResponse<String> answer = http.send(request.build(), HttpResponse.BodyHandlers.ofString());
+                if (answer.statusCode() == 200) {
+                    assertThat(answer.body()).isEqualTo(operation);
+                    served.add(operation);
+                } else {
+                    assertThat(answer.statusCode()).isEqualTo(403);
+                    assertThat(answer.body()).isEqualTo("{\"reason\":\"BINDING_MISMATCH\"}");
+                }
+            }
+        }
+        assertThat(served).as("exactly one of the two is the handler that runs").hasSize(1);
+        assertThat(PaymentHandlers.RAN).as("only that handler ran").isEqualTo(served);
+    }
+
+    @SpringBootConfiguration
+    @EnableAutoConfiguration
+    @Import({PaymentHandlers.Charges.class, PaymentHandlers.PayJson.class})
+    static class PaymentApp {
     }
 }
