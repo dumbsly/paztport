@@ -70,8 +70,10 @@ import org.springframework.web.util.ContentCachingResponseWrapper;
  * verifies and before the handler runs. A chain naming another operation is then refused {@code BINDING_MISMATCH}.
  * Where the chain named an operation and the receiver verified the request with it, under a mode or for attestation
  * alone, the filter records that operation on the request ({@link VerifiedOperation}), so that a later filter which
- * changes the method or the path, and so the handler, by wrapping the request or by forwarding it, is caught as the
- * handler is about to run; the answer of a handler caught there is never attested.
+ * changes the method or the path, and so the handler, by wrapping the request or by dispatching it elsewhere, is
+ * caught as the handler is about to run; the answer of a handler caught there is never attested. A handler reached by
+ * an include cannot set the status, so where the check refuses one, this filter writes the refusal once the chain
+ * returns, in place of anything written before it, unless the response is already committed.
  *
  * <p>The control plane ({@link #controlPlane}) is not filtered, so it is not observed.
  */
@@ -188,6 +190,7 @@ public final class InboundFilter extends OncePerRequestFilter {
             }
             if (!accepted.attests()) {
                 chain.doFilter(wrapped, response);
+                writeOwedRefusal(verified, response);
                 return;
             }
             ContentCachingResponseWrapper cached = new ContentCachingResponseWrapper(response);
@@ -198,6 +201,7 @@ public final class InboundFilter extends OncePerRequestFilter {
                 request.getAsyncContext().addListener(new CopyWhenComplete(cached));
                 return;
             }
+            writeOwedRefusal(verified, cached);
             // Committed means the container has sent something the handler did not finish with: leave it alone. A
             // handler that is not the operation verified answered for another, so its answer is not attested.
             if (!cached.isCommitted() && (verified == null || !verified.contradicted())) {
@@ -208,6 +212,20 @@ public final class InboundFilter extends OncePerRequestFilter {
                 }
             }
             cached.copyBodyToResponse();
+        }
+    }
+
+    /**
+     * Writes the refusal the check owes for a handler reached by an include ({@link VerifiedOperation#refusalOwed}),
+     * which could not set the status itself, in place of anything a filter after this one wrote around the include.
+     * A response already committed has gone out with what that filter sent and cannot be refused; its handler did
+     * not run, and nothing is attested for it.
+     */
+    private static void writeOwedRefusal(VerifiedOperation verified, HttpServletResponse response)
+            throws IOException {
+        if (verified != null && verified.refusalOwed() && !response.isCommitted()) {
+            response.resetBuffer();
+            Refusals.write(response, VerifiedOperation.REFUSAL);
         }
     }
 

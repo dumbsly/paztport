@@ -408,15 +408,19 @@ hands a session request's body to `HttpSessions.serve`.
 
   A filter that changes the request's method, path or parameters after Paztport's
   filter has run makes another handler run than the one confirmed. Such a filter
-  is caught, whether it wraps the request or forwards it, when the first handler
-  the request reaches is about to run: where the chain named an operation, the
-  operation is worked out again from that handler, and where it differs one
-  warning names both operations and the answer is not attested.
-  Under `enforce` the request is refused `403 {"reason":"BINDING_MISMATCH"}`;
-  in `audit`, and on a service that verifies only to decide attestation, it is
-  served unattested. A forward the confirmed handler starts itself is not
-  checked again, and a chain that names no operation had none confirmed, so it
-  is not checked. A refusal here counts as served in the `paztport.request`
+  is caught, whether it wraps the request, forwards it, includes another path or
+  dispatches async work elsewhere, when the first handler the request reaches is
+  about to run: where the chain named an operation, the operation is worked out
+  again from that handler, and where it differs one warning names both operations
+  and the answer is not attested. Under `enforce` the request is refused
+  `403 {"reason":"BINDING_MISMATCH"}`, and no handler runs for it afterwards;
+  since an included handler cannot set the status, Paztport's filter writes that
+  refusal once the chain returns, unless the response is already committed. In
+  `audit`, and on a service that verifies only to decide attestation, it is
+  served unattested. A forward or include the confirmed handler starts itself,
+  and async work it resumes, are not checked again; the error page is not
+  checked; and a chain that names no operation had none confirmed, so it is not
+  checked. A refusal here counts as served in the `paztport.request`
   observation, which ends before the handler runs. Spring's method-override filter, `HiddenHttpMethodFilter`
   (`spring.mvc.hiddenmethod.filter.enabled`), is also refused at start: a
   service with its own table does not start beside it.

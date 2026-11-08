@@ -23,7 +23,9 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.Callable;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -47,16 +49,18 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.filter.OncePerRequestFilter;
 import org.springframework.web.servlet.ModelAndView;
 
 /**
- * On the real servlet container, a filter after Paztport's that changes the request's method or path makes the
- * DispatcherServlet run another handler than the operation Paztport's filter confirmed. The check made as the handler
- * is about to run refuses it under {@code enforce}, and elsewhere logs it and leaves the answer unattested; an honest
- * request, a chain that names no operation, and the error dispatch after a handler throws, pass it untouched.
+ * On the real servlet container, a filter after Paztport's that changes the request's method or path, or dispatches
+ * it elsewhere by a forward, an include or an async dispatch, makes the DispatcherServlet run another handler than
+ * the operation Paztport's filter confirmed. The check made as the handler is about to run refuses it under
+ * {@code enforce}, and elsewhere logs it and leaves the answer unattested; an honest request, a dispatch the confirmed
+ * handler starts, a chain that names no operation, and the error page, pass it untouched.
  */
 class DispatchCheckTest {
 
@@ -80,17 +84,28 @@ class DispatchCheckTest {
     }
 
     /** Starts orders verifying requests under {@code mode}. */
-    private Orders start(Path dir, String mode) throws IOException {
+    private Service start(Path dir, String mode) throws IOException {
         return startWith(dir, "paztport.verify=true", "paztport.mode=" + mode);
     }
 
-    /** Starts orders with {@code more}, then captures the check's log, which starting would otherwise reset. */
-    private Orders startWith(Path dir, String... more) throws IOException {
-        Orders orders = Orders.start(dir, more);
+    /** Starts orders with {@code more}. */
+    private Service startWith(Path dir, String... more) throws IOException {
+        return capture(Service.start(dir, App.class, "orders", more));
+    }
+
+    /** Starts payment verifying requests under {@code mode}, then {@code more}. */
+    private Service startPayment(Path dir, String mode, String... more) throws IOException {
+        List<String> props = new ArrayList<>(List.of("paztport.verify=true", "paztport.mode=" + mode));
+        props.addAll(List.of(more));
+        return capture(Service.start(dir, PaymentApp.class, "payment", props.toArray(String[]::new)));
+    }
+
+    /** Captures the check's log once {@code service} has started, since starting would otherwise reset it. */
+    private Service capture(Service service) {
         logged.start();
         log.addAppender(logged);
         log.setLevel(Level.INFO);
-        return orders;
+        return service;
     }
 
     @AfterAll
@@ -100,7 +115,7 @@ class DispatchCheckTest {
 
     @Test
     void dispatchCheckRefusesARewrittenMethod(@TempDir Path dir) throws Exception {
-        try (Orders orders = start(dir, "enforce")) {
+        try (Service orders = start(dir, "enforce")) {
             HttpResponse<String> answer = orders.send("POST", "/orders", "orders#createOrder", "method");
             assertThat(answer.statusCode()).isEqualTo(403);
             assertThat(answer.body()).isEqualTo("{\"reason\":\"BINDING_MISMATCH\"}");
@@ -112,7 +127,7 @@ class DispatchCheckTest {
 
     @Test
     void dispatchCheckRefusesARewrittenPath(@TempDir Path dir) throws Exception {
-        try (Orders orders = start(dir, "enforce")) {
+        try (Service orders = start(dir, "enforce")) {
             HttpResponse<String> answer = orders.send("GET", "/orders/search", "orders#search", "path");
             assertThat(answer.statusCode()).isEqualTo(403);
             assertThat(answer.body()).isEqualTo("{\"reason\":\"BINDING_MISMATCH\"}");
@@ -130,7 +145,7 @@ class DispatchCheckTest {
      */
     @Test
     void dispatchCheckRefusesAForward(@TempDir Path dir) throws Exception {
-        try (Orders orders = start(dir, "enforce")) {
+        try (Service orders = start(dir, "enforce")) {
             HttpResponse<String> answer = orders.send("GET", "/orders/search", "orders#search", "forward");
             assertThat(answer.statusCode()).isEqualTo(403);
             assertThat(RAN).as("neither the confirmed handler nor the other one ran").isEmpty();
@@ -141,7 +156,7 @@ class DispatchCheckTest {
 
     @Test
     void dispatchCheckOnlyLogsAForwardUnderAudit(@TempDir Path dir) throws Exception {
-        try (Orders orders = start(dir, "audit")) {
+        try (Service orders = start(dir, "audit")) {
             HttpResponse<String> answer = orders.send("GET", "/orders/search", "orders#search", "forward");
             assertThat(answer.statusCode()).isEqualTo(200);
             assertThat(RAN).containsExactly("getOrder");
@@ -153,7 +168,7 @@ class DispatchCheckTest {
     /** The confirmed handler ran first, so a forward it starts itself is not checked again. */
     @Test
     void dispatchCheckPassesAForwardItsHandlerStarts(@TempDir Path dir) throws Exception {
-        try (Orders orders = start(dir, "enforce")) {
+        try (Service orders = start(dir, "enforce")) {
             HttpResponse<String> answer = orders.send("GET", "/orders/search?forward=yes", "orders#search", null);
             assertThat(answer.statusCode()).isEqualTo(200);
             assertThat(RAN).containsExactly("search", "getOrder");
@@ -161,9 +176,113 @@ class DispatchCheckTest {
         }
     }
 
+    /**
+     * A filter after Paztport's that includes another operation in place of the request's own dispatch. An included
+     * handler cannot set the status, so the check owes the refusal and Paztport's filter writes it once the chain
+     * returns; a second include after the first is refused too, so neither runs.
+     */
+    @Test
+    void dispatchCheckRefusesAnInclude(@TempDir Path dir) throws Exception {
+        try (Service payment = startPayment(dir, "enforce")) {
+            for (String include : List.of("include", "include-twice")) {
+                HttpResponse<String> answer = payment.send("POST", "/charge", "payment#charge", include);
+                assertThat(answer.statusCode()).as(include).isEqualTo(403);
+                assertThat(answer.body()).as(include).isEqualTo("{\"reason\":\"BINDING_MISMATCH\"}");
+                assertThat(answer.headers().firstValue("Content-Type")).as(include).hasValue("application/json");
+                assertThat(RAN).as("neither the confirmed handler nor the other one ran").isEmpty();
+                assertThat(attestation(answer)).as("the refusal is not attested").isNull();
+            }
+            assertThat(logged.list).as("one line for each request's first include").hasSize(2);
+            assertThat(logged.list).allSatisfy(warning -> assertThat(warning.getFormattedMessage())
+                    .contains("payment#charge").contains("payment#refund"));
+        }
+    }
+
+    /** On a service with no stamp key, which attests nothing and so holds no answer back, the include is refused. */
+    @Test
+    void dispatchCheckRefusesAnIncludeWithoutAttesting(@TempDir Path dir) throws Exception {
+        try (Service payment = startPayment(dir, "enforce", Service.NO_STAMP_KEY)) {
+            HttpResponse<String> answer = payment.send("POST", "/charge", "payment#charge", "include");
+            assertThat(answer.statusCode()).isEqualTo(403);
+            assertThat(answer.body()).isEqualTo("{\"reason\":\"BINDING_MISMATCH\"}");
+            assertThat(RAN).as("neither the confirmed handler nor the other one ran").isEmpty();
+            assertOneWarning("payment#charge", "payment#refund");
+        }
+    }
+
+    @Test
+    void dispatchCheckOnlyLogsAnIncludeUnderAudit(@TempDir Path dir) throws Exception {
+        try (Service payment = startPayment(dir, "audit")) {
+            HttpResponse<String> answer = payment.send("POST", "/charge", "payment#charge", "include");
+            assertThat(answer.statusCode()).isEqualTo(200);
+            assertThat(answer.body()).isEqualTo("refund");
+            assertThat(RAN).containsExactly("refund");
+            assertThat(attestation(answer)).as("the other handler's answer is not attested").isNull();
+            assertOneWarning("payment#charge", "payment#refund");
+        }
+    }
+
+    /** A filter after Paztport's that starts async work and dispatches it to another operation. */
+    @Test
+    void dispatchCheckRefusesAnAsyncDispatch(@TempDir Path dir) throws Exception {
+        try (Service payment = startPayment(dir, "enforce")) {
+            HttpResponse<String> answer = payment.send("POST", "/charge", "payment#charge", "async");
+            assertThat(answer.statusCode()).isEqualTo(403);
+            assertThat(answer.body()).isEqualTo("{\"reason\":\"BINDING_MISMATCH\"}");
+            assertThat(RAN).as("neither the confirmed handler nor the other one ran").isEmpty();
+            assertThat(attestation(answer)).as("the refusal is not attested").isNull();
+            assertOneWarning("payment#charge", "payment#refund");
+        }
+    }
+
+    /** The confirmed handler ran first, so an include it makes itself is not checked again. */
+    @Test
+    void dispatchCheckPassesAnIncludeItsHandlerStarts(@TempDir Path dir) throws Exception {
+        try (Service payment = startPayment(dir, "enforce")) {
+            HttpResponse<String> answer = payment.send("POST", "/charge?then=fragment", "payment#charge", null);
+            assertThat(answer.statusCode()).isEqualTo(200);
+            assertThat(answer.body()).isEqualTo("fragment");
+            assertThat(RAN).containsExactly("charge", "fragment");
+            assertThat(attestation(answer)).as("the confirmed handler's answer is attested").isNotNull();
+            assertThat(logged.list).isEmpty();
+        }
+    }
+
+    /** Async work the confirmed handler starts resumes on that handler, already checked. */
+    @Test
+    void dispatchCheckPassesAnAsyncRequestItsHandlerStarts(@TempDir Path dir) throws Exception {
+        try (Service payment = startPayment(dir, "enforce")) {
+            HttpResponse<String> answer = payment.send("POST", "/charge?then=async", "payment#charge", null);
+            assertThat(answer.statusCode()).isEqualTo(200);
+            assertThat(answer.body()).isEqualTo("charged later");
+            assertThat(RAN).containsExactly("charge");
+            assertThat(logged.list).isEmpty();
+        }
+    }
+
+    /**
+     * The error page is not checked: neither after the confirmed handler throws, nor where a filter after Paztport's
+     * sends an error before any handler runs, so that the error page is the first handler the request reaches.
+     */
+    @Test
+    void dispatchCheckPassesAnErrorPage(@TempDir Path dir) throws Exception {
+        try (Service payment = startPayment(dir, "enforce")) {
+            HttpResponse<String> thrown = payment.send("POST", "/charge?then=fail", "payment#charge", null);
+            assertThat(thrown.statusCode()).isEqualTo(500);
+            assertThat(thrown.body()).doesNotContain("BINDING_MISMATCH").contains("\"status\":500");
+            assertThat(RAN).containsExactly("charge");
+
+            HttpResponse<String> sent = payment.send("POST", "/charge", "payment#charge", "error");
+            assertThat(sent.statusCode()).isEqualTo(503);
+            assertThat(sent.body()).doesNotContain("BINDING_MISMATCH").contains("\"status\":503");
+            assertThat(RAN).containsExactly("charge");
+            assertThat(logged.list).isEmpty();
+        }
+    }
+
     @Test
     void dispatchCheckPassesAnUnchangedRequest(@TempDir Path dir) throws Exception {
-        try (Orders orders = start(dir, "enforce")) {
+        try (Service orders = start(dir, "enforce")) {
             HttpResponse<String> created = orders.send("POST", "/orders", "orders#createOrder", null);
             assertThat(created.statusCode()).isEqualTo(200);
             assertThat(created.body()).isEqualTo("createOrder");
@@ -177,7 +296,7 @@ class DispatchCheckTest {
 
     @Test
     void dispatchCheckIgnoresErrorDispatch(@TempDir Path dir) throws Exception {
-        try (Orders orders = start(dir, "enforce")) {
+        try (Service orders = start(dir, "enforce")) {
             // The error dispatch still carries what the filter recorded, while /error is another handler.
             HttpResponse<String> answer = orders.send("GET", "/items/42", "orders#getItem", null);
             assertThat(answer.statusCode()).isEqualTo(500);
@@ -189,7 +308,7 @@ class DispatchCheckTest {
 
     @Test
     void dispatchCheckOnlyLogsUnderAudit(@TempDir Path dir) throws Exception {
-        try (Orders orders = start(dir, "audit")) {
+        try (Service orders = start(dir, "audit")) {
             HttpResponse<String> answer = orders.send("POST", "/orders", "orders#createOrder", "method");
             assertThat(answer.statusCode()).isEqualTo(200);
             assertThat(answer.body()).isEqualTo("deleteOrders");
@@ -201,7 +320,7 @@ class DispatchCheckTest {
     /** A rewritten request is served under audit, and its answer is not attested, while an honest one's is. */
     @Test
     void dispatchCheckWithholdsAttestationUnderAudit(@TempDir Path dir) throws Exception {
-        try (Orders orders = start(dir, "audit")) {
+        try (Service orders = start(dir, "audit")) {
             assertWithheldAttestation(orders);
         }
     }
@@ -209,12 +328,12 @@ class DispatchCheckTest {
     /** On a service that does not verify requests, whose verifier still decides attestation, the same holds. */
     @Test
     void dispatchCheckWithholdsAttestationWithoutVerifying(@TempDir Path dir) throws Exception {
-        try (Orders orders = startWith(dir, "paztport.verify=false")) {
+        try (Service orders = startWith(dir, "paztport.verify=false")) {
             assertWithheldAttestation(orders);
         }
     }
 
-    private void assertWithheldAttestation(Orders orders) throws Exception {
+    private void assertWithheldAttestation(Service orders) throws Exception {
         HttpResponse<String> honest = orders.send("POST", "/orders", "orders#createOrder", null);
         assertThat(honest.body()).isEqualTo("createOrder");
         assertThat(attestation(honest)).as("an honest request's answer is attested").isNotNull();
@@ -230,7 +349,7 @@ class DispatchCheckTest {
     /** A chain that names no operation had none confirmed, so a later rewrite contradicts nothing. */
     @Test
     void dispatchCheckIgnoresAChainNamingNoOperation(@TempDir Path dir) throws Exception {
-        try (Orders orders = start(dir, "enforce")) {
+        try (Service orders = start(dir, "enforce")) {
             HttpResponse<String> answer = orders.send("POST", "/orders", "orders", "method");
             assertThat(answer.statusCode()).isEqualTo(200);
             assertThat(answer.body()).isEqualTo("deleteOrders");
@@ -249,34 +368,40 @@ class DispatchCheckTest {
         ILoggingEvent warning = logged.list.get(0);
         assertThat(warning.getLevel()).isEqualTo(Level.WARN);
         assertThat(warning.getFormattedMessage()).contains(confirmed).contains(dispatched)
-                .doesNotContain("/orders").doesNotContain("/items");
+                .doesNotContain("/orders").doesNotContain("/items").doesNotContain("/charge");
     }
 
     /**
-     * Orders, holding its own table, on a free port, with {@code more} properties. Gateway may call each of its
-     * operations, and orders itself by a route that names none.
+     * {@code name}, orders or payment, run as {@code app} with its own table, on a free port, with {@code more}
+     * properties. Gateway may call each of its operations, and the service itself by a route that names none.
      */
-    private record Orders(ConfigurableApplicationContext app, OperationWorld world, PolicyBuilder.Result built,
+    private record Service(ConfigurableApplicationContext app, OperationWorld world, PolicyBuilder.Result built,
             int port) implements AutoCloseable {
 
-        static Orders start(Path dir, String... more) throws IOException {
+        /** A property that leaves the service without its stamp key, so that it attests nothing. */
+        static final String NO_STAMP_KEY = "no-stamp-key";
+
+        static Service start(Path dir, Class<?> app, String name, String... more) throws IOException {
             OperationWorld world = new OperationWorld(dir);
             List<List<String>> routes = new ArrayList<>(OperationWorld.routes());
-            routes.add(List.of("gateway", "orders"));
+            routes.add(List.of("gateway", name));
             PolicyBuilder.Result built = world.write(routes);
             List<String> props = new ArrayList<>(List.of("server.port=0", "spring.main.banner-mode=off",
-                    "paztport.origins=gateway", "paztport.operations.table-path=" + world.file("ops-orders.json")));
+                    "paztport.origins=gateway",
+                    "paztport.operations.table-path=" + world.file("ops-" + name + ".json")));
             props.addAll(List.of(more));
-            ConfigurableApplicationContext app = new SpringApplicationBuilder(App.class)
-                    .properties(world.service("orders", props.toArray(String[]::new)))
-                    .run();
-            return new Orders(app, world, built,
-                    Integer.parseInt(app.getEnvironment().getProperty("local.server.port")));
+            boolean stampKey = !props.remove(NO_STAMP_KEY);
+            String[] properties = Stream.of(world.service(name, props.toArray(String[]::new)))
+                    .filter(p -> stampKey || !p.startsWith("paztport.key-path="))
+                    .toArray(String[]::new);
+            ConfigurableApplicationContext context = new SpringApplicationBuilder(app).properties(properties).run();
+            return new Service(context, world, built,
+                    Integer.parseInt(context.getEnvironment().getProperty("local.server.port")));
         }
 
         /**
          * Sends {@code method target} with gateway's first hop naming {@code rcv}, bound to the request as sent,
-         * asking the test's filter for {@code rewrite} ({@code method}, {@code path}, or null for none).
+         * asking the test's filter for {@code rewrite} (one of {@link Rewrite}'s, or null for none).
          */
         HttpResponse<String> send(String method, String target, String rcv, String rewrite) throws Exception {
             String rid = UUID.randomUUID().toString();
@@ -317,14 +442,31 @@ class DispatchCheckTest {
         }
     }
 
+    /** Payment, with its handlers and the same filter after Paztport's. */
+    @SpringBootConfiguration
+    @EnableAutoConfiguration
+    @Import({ChargeHandlers.class, PaymentHandlers.PayJson.class})
+    static class PaymentApp {
+
+        @Bean
+        FilterRegistrationBean<Rewrite> rewrite() {
+            return new FilterRegistrationBean<>(new Rewrite());
+        }
+    }
+
     /**
      * Changes the request as the test's header asks: {@code method} turns {@code POST /orders} into
      * {@code DELETE /orders}, {@code path} turns any path into {@code /orders/123}, and {@code forward} forwards the
-     * request there.
+     * request there. On payment, {@code include} includes {@code POST /charge?mode=refund} in place of the request's
+     * own dispatch, {@code include-twice} does so twice, {@code async} starts async work and dispatches it there, and
+     * {@code error} sends an error before any handler runs.
      */
     static final class Rewrite extends OncePerRequestFilter {
 
         static final String HEADER = "X-Test-Rewrite";
+
+        /** Payment's {@code refund}, on the same entrance as {@code charge}. */
+        private static final String REFUND = "/charge?mode=refund";
 
         @Override
         protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
@@ -339,6 +481,15 @@ class DispatchCheckTest {
                 }, response);
             } else if ("forward".equals(rewrite)) {
                 request.getRequestDispatcher("/orders/123").forward(request, response);
+            } else if ("include".equals(rewrite)) {
+                request.getRequestDispatcher(REFUND).include(request, response);
+            } else if ("include-twice".equals(rewrite)) {
+                request.getRequestDispatcher(REFUND).include(request, response);
+                request.getRequestDispatcher(REFUND).include(request, response);
+            } else if ("async".equals(rewrite)) {
+                request.startAsync().dispatch(REFUND);
+            } else if ("error".equals(rewrite)) {
+                response.sendError(HttpServletResponse.SC_SERVICE_UNAVAILABLE);
             } else if ("path".equals(rewrite)) {
                 chain.doFilter(new HttpServletRequestWrapper(request) {
                     @Override
@@ -395,10 +546,57 @@ class DispatchCheckTest {
         String deleteOrders() {
             return ran("deleteOrders");
         }
+    }
 
-        private static String ran(String name) {
-            RAN.add(name);
-            return name;
+    /**
+     * Payment's operations on {@code /charge}, each recording that it ran, and one handler in no table.
+     * {@code charge} answers its name, or as {@code then} asks includes {@code /fragment}, answers from async work,
+     * or throws so that the container dispatches the request to its error page.
+     */
+    @RestController
+    static class ChargeHandlers {
+
+        @PostMapping("/charge")
+        Object charge(@RequestParam(required = false) String then, HttpServletRequest request,
+                HttpServletResponse response) throws ServletException, IOException {
+            ran("charge");
+            if ("fragment".equals(then)) {
+                request.getRequestDispatcher("/fragment").include(request, response);
+                return null;
+            }
+            if ("async".equals(then)) {
+                return (Callable<String>) () -> "charged later";
+            }
+            if ("fail".equals(then)) {
+                throw new IllegalStateException("the handler failed");
+            }
+            return "charge";
         }
+
+        @PostMapping(path = "/charge", params = "mode=refund")
+        String refund() {
+            return ran("refund");
+        }
+
+        @PutMapping("/charge")
+        String amend() {
+            return ran("amend");
+        }
+
+        @PutMapping(path = "/charge", params = "mode=refund")
+        String amendRefund() {
+            return ran("amendRefund");
+        }
+
+        /** Mapped, and in no table. */
+        @PostMapping("/fragment")
+        String fragment() {
+            return ran("fragment");
+        }
+    }
+
+    private static String ran(String name) {
+        RAN.add(name);
+        return name;
     }
 }
