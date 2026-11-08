@@ -551,9 +551,9 @@ receiver is not on the route (a response, below), the last stamp's `rcv` is left
 
 Over HTTP a service may name its operations, so that a policy can allow a route through one operation of a
 service and not through another. An operation is one handler of the service, the code a request runs; one
-entrance may serve several, told apart by a query parameter. A service that does publishes an operation table, its callers name the
-operation each call invokes, and it confirms that operation itself. The MCP profile has no operations: its
-receivers already name one tool.
+entrance may serve several, told apart by a query parameter. A service that does publishes an operation table,
+its callers name the operation each call invokes, and it confirms that operation itself. The MCP profile has no
+operations: its receivers already name one tool.
 
 **The table** is `ops-<svc>.json`, read as a [file](#files):
 
