@@ -395,18 +395,18 @@ hands a session request's body to `HttpSessions.serve`.
   partner's entry names none.
 
   A service routes by method, path and query alone, and a request whose routing a
-  body field changes is refused. Spring's `params` condition reads the request's
-  parameters, while a caller's table matches the query alone. Paztport's filter
-  reads the body to bind it before anything parses it, so a `POST` form body
-  (`application/x-www-form-urlencoded`) is not seen: the query alone decides, and
-  the handler named runs, so `mode=refund` in the body of a `POST /charge` runs
-  `charge`. On a `PUT`, `PATCH` or `DELETE`, Boot's form content filter, which runs
-  after Paztport's, adds the body's fields to the parameters, so a form body that
-  meets a `params` condition makes Spring choose another handler than the one
-  confirmed, and the request is caught at dispatch, below: refused under `enforce`,
-  served unattested elsewhere. A handler that switches on a body
-  field is one operation, whatever it does: operations are told apart by the
-  query only.
+  body field changes is refused under `enforce`. Spring's `params` condition reads
+  the request's parameters, while a caller's table matches the query alone.
+  Paztport's filter reads the body to bind it before anything parses it, so a
+  `POST` form body (`application/x-www-form-urlencoded`) is not seen: the query
+  alone decides, and the handler named runs, so `mode=refund` in the body of a
+  `POST /charge` runs `charge`. On a `PUT`, `PATCH` or `DELETE`, Boot's form
+  content filter, which runs after Paztport's, adds the body's fields to the
+  parameters, so a form body that meets a `params` condition makes Spring choose
+  another handler than the one confirmed, and the request is caught at dispatch,
+  below: refused under `enforce`, served unattested elsewhere. A handler that
+  switches on a body field is one operation, whatever it does: operations are told
+  apart by the query only.
 
   A filter that changes the request's method, path or parameters after Paztport's
   filter has run makes another handler run than the one confirmed. Such a filter
@@ -422,7 +422,9 @@ hands a session request's body to `HttpSessions.serve`.
   served unattested. A forward or include the confirmed handler starts itself,
   and async work it resumes, are not checked again; the error page is not
   checked; and a chain that names no operation had none confirmed, so it is not
-  checked. A refusal here counts as served in the `paztport.request`
+  checked. The check sees only handlers that a `DispatcherServlet` mapping runs:
+  a forward or include to another registered servlet is not checked. A refusal
+  here counts as served in the `paztport.request`
   observation, which ends before the handler runs. Spring's method-override filter, `HiddenHttpMethodFilter`
   (`spring.mvc.hiddenmethod.filter.enabled`), is also refused at start: a
   service with its own table does not start beside it.

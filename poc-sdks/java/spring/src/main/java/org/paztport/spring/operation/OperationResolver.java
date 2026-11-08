@@ -49,13 +49,13 @@ import org.springframework.web.util.ServletRequestPathUtils;
  * is confirmed as the operation Spring will actually run, or as none, and a chain naming the caller's choice is
  * refused.
  *
- * <p>A service routes by method, path and query alone, and a request whose routing a body field changes is refused.
- * The inbound filter reads the body to bind it before anything parses it, so on a {@code POST} the container never
- * adds a form body's fields to the parameters: the query alone decides, and the handler named runs. On a {@code PUT},
- * {@code PATCH} or {@code DELETE}, Boot's form content filter, which runs after the inbound filter, adds them, so a
- * form body that meets a {@code params} condition makes the DispatcherServlet choose another handler than the one
- * this named, and the check made as that handler is about to run ({@link DispatchCheck}) refuses the request under
- * {@code enforce}, and elsewhere serves it unattested.
+ * <p>A service routes by method, path and query alone, and a request whose routing a body field changes is refused
+ * under {@code enforce}. The inbound filter reads the body to bind it before anything parses it, so on a {@code POST}
+ * the container never adds a form body's fields to the parameters: the query alone decides, and the handler named runs.
+ * On a {@code PUT}, {@code PATCH} or {@code DELETE}, Boot's form content filter, which runs after the inbound filter,
+ * adds them, so a form body that meets a {@code params} condition makes the DispatcherServlet choose another handler
+ * than the one this named, and the check made as that handler is about to run ({@link DispatchCheck}) refuses the
+ * request under {@code enforce}, and elsewhere serves it unattested.
  *
  * <p>Spring's {@code HandlerMappingIntrospector}, which asked the mappings in this way for a filter, is deprecated for
  * removal as of Spring Framework 7, so this asks them itself. Where a mapping fails the request (a method or a media
