@@ -56,12 +56,14 @@ import org.springframework.web.util.ContentCachingResponseWrapper;
  * <p>When the receiver says the answer is attested, this filter holds the body until the handler returns, since the
  * stamp covers all of it, and hands the status, the body and the handler's labels ({@link RequestContext#label}) to
  * {@link Accepted#attest}, setting what comes back as {@code X-Path-Response}. Where a forward carries the request
- * elsewhere, the answer is finished, and attested where it may be, when the forward returns, since the container closes
- * the response then and drops anything written to it later. Deciding when the answer is complete is the servlet's part,
- * and this filter's: a handler that throws sends no attestation, and a body the container writes afterwards (an error
- * page after {@code sendError}) is not the one attested; either way the caller cannot verify it and counts it as
- * untrusted. An async response is not attested either, because its body is written after the filter has returned: it is
- * sent whole when the async work completes, without {@code X-Path-Response}, and its caller counts it as untrusted.
+ * elsewhere, the answer is finished when the forward returns, since the container closes the response then and drops
+ * anything written to it later: it is attested where it may be if the forward wrote into this filter's buffer directly,
+ * and sent unattested behind another filter's response wrapper, which may hold the body itself. Deciding when the
+ * answer is complete is the servlet's part, and this filter's: a handler that throws sends no attestation, and a body
+ * the container writes afterwards (an error page after {@code sendError}) is not the one attested; either way the
+ * caller cannot verify it and counts it as untrusted. An async response is not attested either, because its body is
+ * written after the filter has returned: it is sent whole when the async work completes, without
+ * {@code X-Path-Response}, and its caller counts it as untrusted.
  *
  * <p>Each request filtered is recorded as one {@link PaztportObservation#REQUEST} observation: the mode, the reason
  * the verification gave and whether the request was served or refused. It spans the decision and ends before the
@@ -210,7 +212,7 @@ public final class InboundFilter extends OncePerRequestFilter {
             } finally {
                 request.removeAttribute(PENDING);
             }
-            finish(request, pending);
+            finish(request, pending, true);
         }
     }
 
@@ -225,8 +227,10 @@ public final class InboundFilter extends OncePerRequestFilter {
                 && request.getAttribute(PENDING) instanceof Pending pending && !pending.finished) {
             chain.doFilter(request, response);
             // The servlet spec closes the response when a forward returns, and Tomcat suspends it, so the answer is
-            // final here and anything copied to it later would be dropped.
-            finish(forwarded, pending);
+            // final here and anything copied to it later would be dropped. A later filter may hold the forwarded
+            // body in its own buffer and copy it only after this, so only a forward that writes straight into the
+            // held wrapper can be vouched for; behind any other wrapper the answer is sent unattested.
+            finish(forwarded, pending, response == pending.cached);
             return;
         }
         super.doFilter(request, response, chain);
@@ -234,10 +238,10 @@ public final class InboundFilter extends OncePerRequestFilter {
 
     /**
      * Finishes the held answer once: writes any refusal the check owes, then either leaves the body to async work
-     * or attests the answer where it may be and sends it. Whichever dispatch finishes first, the innermost forward
-     * or the request's own, does it; the others find it finished.
+     * or sends it, attested where {@code attestable} and the rule below allow. Whichever dispatch finishes first,
+     * the innermost forward or the request's own, does it; the others find it finished.
      */
-    private static void finish(HttpServletRequest request, Pending pending) throws IOException {
+    private static void finish(HttpServletRequest request, Pending pending, boolean attestable) throws IOException {
         if (pending.finished) {
             return;
         }
@@ -255,7 +259,8 @@ public final class InboundFilter extends OncePerRequestFilter {
         // Committed means the container has sent something the handler did not finish with: leave it alone. Where
         // an operation was verified, an answer whose handler the check never saw, or found to be another
         // operation's, is not the confirmed operation's, so it is not attested.
-        if (!cached.isCommitted() && (verified == null || (verified.checked() && !verified.contradicted()))) {
+        if (attestable && !cached.isCommitted()
+                && (verified == null || (verified.checked() && !verified.contradicted()))) {
             String attestation = pending.accepted.attest(cached.getStatus(), cached.getContentAsByteArray(),
                     RequestContext.labels());
             if (attestation != null) {

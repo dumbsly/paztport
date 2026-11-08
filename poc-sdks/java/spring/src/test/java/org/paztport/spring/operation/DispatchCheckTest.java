@@ -15,6 +15,7 @@ import jakarta.servlet.http.HttpServlet;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletRequestWrapper;
 import jakarta.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.HttpServletResponseWrapper;
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -66,6 +67,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.filter.OncePerRequestFilter;
 import org.springframework.web.servlet.ModelAndView;
+import org.springframework.web.util.ContentCachingResponseWrapper;
 
 /**
  * On the real servlet container, a filter after Paztport's that changes the request's method or path, or dispatches
@@ -216,6 +218,33 @@ class DispatchCheckTest {
             assertThat(attestation(answer)).isNotNull();
             assertThat(RAN).containsExactly("search", "relay", "getOrder");
             assertThat(logged.list).isEmpty();
+        }
+    }
+
+    /**
+     * A filter after Paztport's that holds the response in its own buffer, as {@code ShallowEtagHeaderFilter} does:
+     * the forwarded handler writes there, out of Paztport's sight, so the answer is not attested.
+     */
+    @Test
+    void forwardBehindABufferingFilterIsNotAttested(@TempDir Path dir) throws Exception {
+        try (Service orders = start(dir, "enforce")) {
+            HttpResponse<String> answer = orders.send("GET", "/orders/search?forward=yes", "orders#search", "buffer");
+            assertThat(answer.statusCode()).isEqualTo(200);
+            // The buffering filter copies the body after the container has closed the response, so it is lost.
+            assertThat(answer.body()).isEmpty();
+            assertThat(attestation(answer)).isNull();
+            assertThat(RAN).containsExactly("search", "getOrder");
+        }
+    }
+
+    /** A filter after Paztport's that wraps the response without buffering: the answer is sent whole, unattested. */
+    @Test
+    void forwardBehindAWrapperIsSentWholeUnattested(@TempDir Path dir) throws Exception {
+        try (Service orders = start(dir, "enforce")) {
+            HttpResponse<String> answer = orders.send("GET", "/orders/search?forward=yes", "orders#search", "wrap");
+            assertThat(answer.statusCode()).isEqualTo(200);
+            assertThat(answer.body()).isEqualTo("getOrder");
+            assertThat(attestation(answer)).isNull();
         }
     }
 
@@ -639,7 +668,9 @@ class DispatchCheckTest {
      * {@code include-then-async} includes it and then starts async work and dispatches it to {@code /charge},
      * {@code error} sends an error before any handler runs, {@code deny} writes a 401 itself,
      * {@code servlet-forward} and {@code servlet-include} go to the servlet at {@code /legacy}, and
-     * {@code forward-async} forwards to {@code /later}, which answers from async work.
+     * {@code forward-async} forwards to {@code /later}, which answers from async work. On either, {@code buffer}
+     * holds the response in its own buffer and copies it once the chain returns, and {@code wrap} passes it on in a
+     * wrapper that does not buffer.
      */
     static final class Rewrite extends OncePerRequestFilter {
 
@@ -681,6 +712,12 @@ class DispatchCheckTest {
                 request.getRequestDispatcher("/legacy").include(request, response);
             } else if ("forward-async".equals(rewrite)) {
                 request.getRequestDispatcher("/later").forward(request, response);
+            } else if ("buffer".equals(rewrite)) {
+                ContentCachingResponseWrapper buffered = new ContentCachingResponseWrapper(response);
+                chain.doFilter(request, buffered);
+                buffered.copyBodyToResponse();
+            } else if ("wrap".equals(rewrite)) {
+                chain.doFilter(request, new HttpServletResponseWrapper(response));
             } else if ("error".equals(rewrite)) {
                 response.sendError(HttpServletResponse.SC_SERVICE_UNAVAILABLE);
             } else if ("path".equals(rewrite)) {
