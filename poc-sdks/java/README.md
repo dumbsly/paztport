@@ -438,11 +438,14 @@ hands a session request's body to `HttpSessions.serve`.
   before the handler runs, is not attested, while on a chain that names no
   operation it is, there being no operation to vouch for. Paztport's own last
   interceptor, registered at the lowest precedence, records that the handler was
-  reached, so an application interceptor ordered after it is not told apart. A
-  refusal here counts as served in the `paztport.request` observation, which ends
-  before the handler runs. Spring's method-override filter,
-  `HiddenHttpMethodFilter` (`spring.mvc.hiddenmethod.filter.enabled`), is also
-  refused at start: a service with its own table does not start beside it.
+  reached, so an application interceptor ordered after it is not told apart. It
+  is registered through Spring MVC's configuration, so a handler mapping that an
+  application declares as a bean of its own does not run it, and that mapping's
+  answers to a chain naming an operation are not attested. A refusal here counts
+  as served in the `paztport.request` observation, which ends before the handler
+  runs. Spring's method-override filter, `HiddenHttpMethodFilter`
+  (`spring.mvc.hiddenmethod.filter.enabled`), is also refused at start: a service
+  with its own table does not start beside it.
 
   Under `server.servlet.context-path` no operation matches: callers match the
   full raw path, context path included, so such calls are refused at the source.
