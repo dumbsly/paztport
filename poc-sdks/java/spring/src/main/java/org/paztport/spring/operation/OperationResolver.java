@@ -274,7 +274,7 @@ public final class OperationResolver implements SmartInitializingSingleton {
         }
         Map<Served, String> operations = new HashMap<>();
         Map<Served, Set<String>> named = new HashMap<>();
-        Map<OperationTable.Operation, Map<Handler, HandlerMethod>> handlers = new HashMap<>();
+        Map<String, Map<Handler, HandlerMethod>> handlers = new HashMap<>();
         Map<String, TreeMap<String, String>> unheld = new HashMap<>();
         for (HandlerMapping mapping : mappings) {
             if (!(mapping instanceof RequestMappingInfoHandlerMapping annotated)) {
@@ -297,17 +297,18 @@ public final class OperationResolver implements SmartInitializingSingleton {
                         if (of == null) {
                             continue;
                         }
-                        OperationTable.Operation op = conditionOf(of, info);
-                        if (op == null) {
+                        String name = expressible(info) ? table.operationFor(method, template, conditionOf(info))
+                                : null;
+                        if (name == null) {
                             unheld.computeIfAbsent(entrance, k -> new TreeMap<>()).put(handler.toString(),
                                     unheldCondition(of, info, handler, entrance));
                             continue;
                         }
-                        handlers.computeIfAbsent(op, k -> new LinkedHashMap<>())
+                        handlers.computeIfAbsent(name, k -> new LinkedHashMap<>())
                                 .put(new Handler(handler.getBeanType(), handler.getMethod()), handler);
                         Served served = new Served(handler.getBeanType(), handler.getMethod(), method, template);
-                        named.computeIfAbsent(served, k -> new TreeSet<>()).add(op.name());
-                        operations.put(served, op.name());
+                        named.computeIfAbsent(served, k -> new TreeSet<>()).add(name);
+                        operations.put(served, name);
                     }
                 }
             }
@@ -333,7 +334,7 @@ public final class OperationResolver implements SmartInitializingSingleton {
         }
         for (OperationTable.Operation op : table.operations()) {
             List<String> of = new ArrayList<>();
-            handlers.getOrDefault(op, Map.of()).values().forEach(handler -> of.add(handler.toString()));
+            handlers.getOrDefault(op.name(), Map.of()).values().forEach(handler -> of.add(handler.toString()));
             Collections.sort(of);
             if (of.isEmpty()) {
                 throw new IllegalStateException("paztport.operations.table-path: the operation " + describe(op)
@@ -353,25 +354,30 @@ public final class OperationResolver implements SmartInitializingSingleton {
     }
 
     /**
-     * The operation of an entrance, {@code of}, that a mapping on it is: the one whose query condition is the
-     * mapping's one non-negated {@code params} expression {@code name=value}, or the one with none where the mapping
-     * has no {@code params} condition; null where its {@code params} condition is none of those.
+     * Whether a mapping's {@code params} condition is one an operation's query condition can be: none, or one
+     * non-negated expression {@code name=value}.
      */
-    private static OperationTable.Operation conditionOf(List<OperationTable.Operation> of, RequestMappingInfo info) {
+    private static boolean expressible(RequestMappingInfo info) {
         Set<NameValueExpression<String>> params = info.getParamsCondition().getExpressions();
-        OperationTable.Condition condition = null;
-        boolean expressible = params.isEmpty();
-        if (params.size() == 1) {
-            NameValueExpression<String> only = params.iterator().next();
-            expressible = !only.isNegated() && only.getValue() != null;
-            condition = expressible ? new OperationTable.Condition(only.getName(), only.getValue()) : null;
+        if (params.size() != 1) {
+            return params.isEmpty();
         }
-        for (OperationTable.Operation op : of) {
-            if (expressible && Objects.equals(op.query(), condition)) {
-                return op;
-            }
+        NameValueExpression<String> only = params.iterator().next();
+        return !only.isNegated() && only.getValue() != null;
+    }
+
+    /**
+     * The query condition of a mapping whose {@code params} condition is {@link #expressible}: its one expression
+     * {@code name=value}, or null where it has none. The operation the mapping is on an entrance is the one with
+     * this condition there ({@link OperationTable#operationFor(String, String, OperationTable.Condition)}).
+     */
+    private static OperationTable.Condition conditionOf(RequestMappingInfo info) {
+        Set<NameValueExpression<String>> params = info.getParamsCondition().getExpressions();
+        if (params.isEmpty()) {
+            return null;
         }
-        return null;
+        NameValueExpression<String> only = params.iterator().next();
+        return new OperationTable.Condition(only.getName(), only.getValue());
     }
 
     /** The refusal of a mapping on {@code entrance} whose {@code params} condition none of its operations hold. */
