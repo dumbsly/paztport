@@ -394,8 +394,9 @@ class OperationConfigurationTest {
     /**
      * On a {@code POST} Paztport's filter serves a form body's fields as parameters, so {@code mode=refund} in the
      * body makes Spring choose {@code refund}, while the filter named the operation from the query alone: whichever
-     * the chain names, {@code charge} that Spring will not run or {@code refund} that the query does not name, the
-     * request is refused, as the handler is about to run, and no handler runs.
+     * the chain names, the request is refused and no handler runs. A chain naming {@code charge}, which Spring will
+     * not run, is refused as the handler is about to run; one naming {@code refund} is refused by the filter's own
+     * verification, since the operation named from the query is {@code charge}.
      */
     @Test
     void postFormBodyMeetingAConditionIsRefusedAtDispatch(@TempDir Path dir) throws Exception {

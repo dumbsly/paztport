@@ -308,9 +308,14 @@ hands a session request's body to `HttpSessions.serve`.
   until the handler returns, or, where a forward carries the request elsewhere,
   until the forward returns, when the container closes the response. A forward's
   answer is attested then where the forward writes into Paztport's buffer
-  directly; behind another filter's response wrapper, which may hold the body in
-  its own buffer, it is sent unattested. An async response is not attested: its
-  body is sent whole when the async work completes, with no `X-Path-Response`.
+  directly, and never behind another filter's response wrapper: behind one that
+  does not buffer the body it arrives whole, and behind one that buffers it
+  (`ShallowEtagHeaderFilter`, a logging `ContentCachingResponseWrapper`) the body
+  is lost, as the container has closed the response before that filter copies it.
+  A forward made through a named dispatcher (`ServletContext.getNamedDispatcher`)
+  does not pass through URL-mapped filters, so its answer is finished only after
+  the forward returns, and its body is lost. An async response is not attested:
+  its body is sent whole when the async work completes, with no `X-Path-Response`.
 - **The outbound interceptor** stamps every `RestClient` call through
   `HttpCaller`, attaches the proof and the influence so far, having first removed
   every `X-Path-` header the application set, and reads each
@@ -435,10 +440,9 @@ hands a session request's body to `HttpSessions.serve`.
   interceptor, registered at the lowest precedence, records that the handler was
   reached, so an application interceptor ordered after it is not told apart. A
   refusal here counts as served in the `paztport.request` observation, which ends
-  before the handler runs.
-  Spring's method-override filter, `HiddenHttpMethodFilter`
-  (`spring.mvc.hiddenmethod.filter.enabled`), is also refused at start: a
-  service with its own table does not start beside it.
+  before the handler runs. Spring's method-override filter,
+  `HiddenHttpMethodFilter` (`spring.mvc.hiddenmethod.filter.enabled`), is also
+  refused at start: a service with its own table does not start beside it.
 
   Under `server.servlet.context-path` no operation matches: callers match the
   full raw path, context path included, so such calls are refused at the source.

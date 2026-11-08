@@ -58,12 +58,14 @@ import org.springframework.web.util.ContentCachingResponseWrapper;
  * {@link Accepted#attest}, setting what comes back as {@code X-Path-Response}. Where a forward carries the request
  * elsewhere, the answer is finished when the forward returns, since the container closes the response then and drops
  * anything written to it later: it is attested where it may be if the forward wrote into this filter's buffer directly,
- * and sent unattested behind another filter's response wrapper, which may hold the body itself. Deciding when the
- * answer is complete is the servlet's part, and this filter's: a handler that throws sends no attestation, and a body
- * the container writes afterwards (an error page after {@code sendError}) is not the one attested; either way the
- * caller cannot verify it and counts it as untrusted. An async response is not attested either, because its body is
- * written after the filter has returned: it is sent whole when the async work completes, without
- * {@code X-Path-Response}, and its caller counts it as untrusted.
+ * and never behind another filter's response wrapper. Behind a wrapper that does not buffer the body it arrives whole;
+ * behind one that buffers it ({@code ShallowEtagHeaderFilter}, a logging {@code ContentCachingResponseWrapper}) it is
+ * lost, as the container has closed the response before that filter copies it. Deciding when the answer is complete is
+ * the servlet's part, and this filter's: a handler that throws sends no attestation, and a body the container writes
+ * afterwards (an error page after {@code sendError}) is not the one attested; either way the caller cannot verify it
+ * and counts it as untrusted. An async response is not attested either, because its body is written after the filter
+ * has returned: it is sent whole when the async work completes, without {@code X-Path-Response}, and its caller counts
+ * it as untrusted.
  *
  * <p>Each request filtered is recorded as one {@link PaztportObservation#REQUEST} observation: the mode, the reason
  * the verification gave and whether the request was served or refused. It spans the decision and ends before the
@@ -232,7 +234,7 @@ public final class InboundFilter extends OncePerRequestFilter {
             // The servlet spec closes the response when a forward returns, and Tomcat suspends it, so the answer is
             // final here and anything copied to it later would be dropped. A later filter may hold the forwarded
             // body in its own buffer and copy it only after this, so only a forward that writes straight into the
-            // held wrapper can be vouched for; behind any other wrapper the answer is sent unattested.
+            // held wrapper can be vouched for; behind any other wrapper the answer is not attested.
             finish(forwarded, pending, response == pending.cached);
             return;
         }

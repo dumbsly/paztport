@@ -82,7 +82,9 @@ import org.springframework.web.util.ContentCachingResponseWrapper;
  * write a 401 itself ({@code deny}) or forward or include to another registered servlet ({@code servlet-forward},
  * {@code servlet-include}); an answer whose handler the check never saw is not attested where the chain named an
  * operation, nor is one that an interceptor of payment's own writes as it stops the request before the handler.
- * Whatever forwards the request, its answer is sent whole, and attested where it may be.
+ * Whatever forwards the request, its answer is finished when the forward returns: sent whole, and attested where it
+ * may be, where the forward writes into Paztport's buffer; whole and unattested behind another filter's wrapper that
+ * does not buffer the body; and lost, unattested, behind one that does.
  */
 class DispatchCheckTest {
 
