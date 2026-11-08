@@ -9,6 +9,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
 
@@ -77,6 +78,33 @@ class CachedBodyHttpServletRequestTest {
         assertThat(request.getParameter("n")).isEqualTo("cafÃ©");
         request.setCharacterEncoding("UTF-8");
         assertThat(request.getParameter("n")).isEqualTo("café");
+    }
+
+    /**
+     * The merged parameters are built once per encoding, so a walk that asks for each name's values in turn, as
+     * Spring's binding does, costs one parse, not one per name.
+     */
+    @Test
+    void parametersAreBuiltOncePerEncoding() throws Exception {
+        MockHttpServletRequest container = container("POST", FORM);
+        container.setParameter("q", "1");
+        CachedBodyHttpServletRequest request = cached(container, "n=caf%C3%A9");
+        Map<String, String[]> first = request.getParameterMap();
+        assertThat(request.getParameterMap()).isSameAs(first);
+        request.setCharacterEncoding("UTF-8");
+        Map<String, String[]> decoded = request.getParameterMap();
+        assertThat(decoded).isNotSameAs(first);
+        assertThat(decoded.get("n")).containsExactly("caf\u00e9");
+        assertThat(request.getParameterMap()).isSameAs(decoded);
+    }
+
+    /** The values handed out are the caller's own: changing them changes nothing the request serves next. */
+    @Test
+    void valuesHandedOutCannotChangeTheParameters() {
+        CachedBodyHttpServletRequest request = cached(container("POST", FORM), "a=1&a=2");
+        request.getParameterValues("a")[0] = "changed";
+        assertThat(request.getParameterValues("a")).containsExactly("1", "2");
+        assertThat(request.getParameter("a")).isEqualTo("1");
     }
 
     @Test

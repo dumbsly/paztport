@@ -41,10 +41,8 @@ final class CachedBodyHttpServletRequest extends HttpServletRequestWrapper {
 
     private final byte[] body;
 
-    /** The form's fields as decoded in {@link #formCharset}; replaced when the encoding changes. */
-    private Map<String, List<String>> form;
-
-    private Charset formCharset;
+    /** A {@code POST} form's parameters as decoded in the encoding they name; replaced when the encoding changes. */
+    private Parameters form;
 
     CachedBodyHttpServletRequest(HttpServletRequest request, byte[] body) {
         super(request);
@@ -86,42 +84,50 @@ final class CachedBodyHttpServletRequest extends HttpServletRequestWrapper {
 
     @Override
     public String getParameter(String name) {
-        String[] values = getParameterValues(name);
-        return values == null ? null : values[0];
+        Parameters parameters = formParameters();
+        if (parameters == null) {
+            return super.getParameter(name);
+        }
+        List<String> values = parameters.values().get(name);
+        return values == null ? null : values.get(0);
     }
 
     @Override
     public String[] getParameterValues(String name) {
-        return getParameterMap().get(name);
+        Parameters parameters = formParameters();
+        if (parameters == null) {
+            return super.getParameterValues(name);
+        }
+        List<String> values = parameters.values().get(name);
+        return values == null ? null : values.toArray(String[]::new);
     }
 
     @Override
     public Enumeration<String> getParameterNames() {
-        return Collections.enumeration(getParameterMap().keySet());
+        Parameters parameters = formParameters();
+        return parameters == null ? super.getParameterNames()
+                : Collections.enumeration(parameters.values().keySet());
     }
 
     @Override
     public Map<String, String[]> getParameterMap() {
-        Map<String, List<String>> fields = formFields();
-        if (fields.isEmpty()) {
-            return super.getParameterMap();
-        }
-        Map<String, List<String>> merged = new LinkedHashMap<>();
-        super.getParameterMap().forEach((name, values) -> merged.put(name, new ArrayList<>(List.of(values))));
-        fields.forEach((name, values) -> merged.computeIfAbsent(name, n -> new ArrayList<>()).addAll(values));
-        Map<String, String[]> map = new LinkedHashMap<>();
-        merged.forEach((name, values) -> map.put(name, values.toArray(String[]::new)));
-        return Collections.unmodifiableMap(map);
+        Parameters parameters = formParameters();
+        return parameters == null ? super.getParameterMap() : parameters.map();
     }
 
-    /** The fields of a {@code POST} form body, none for any other request. */
-    private synchronized Map<String, List<String>> formFields() {
+    /**
+     * The parameters of a {@code POST} form, the container's then the body's fields, built once for the encoding set
+     * at the call, since the container's own do not change; null for any other request, whose parameters are the
+     * container's alone.
+     */
+    private synchronized Parameters formParameters() {
         if (!"POST".equals(getMethod()) || !isForm(getContentType())) {
-            return Map.of();
+            return null;
         }
         Charset charset = encoding(StandardCharsets.ISO_8859_1);
-        if (form == null || !charset.equals(formCharset)) {
-            Map<String, List<String>> fields = new LinkedHashMap<>();
+        if (form == null || !charset.equals(form.charset())) {
+            Map<String, List<String>> merged = new LinkedHashMap<>();
+            super.getParameterMap().forEach((name, values) -> merged.put(name, new ArrayList<>(List.of(values))));
             for (String pair : new String(body, charset).split("&")) {
                 int equals = pair.indexOf('=');
                 String name = equals < 0 ? pair : pair.substring(0, equals);
@@ -132,15 +138,33 @@ final class CachedBodyHttpServletRequest extends HttpServletRequestWrapper {
                 try {
                     String decodedName = URLDecoder.decode(name, charset);
                     String decodedValue = URLDecoder.decode(value, charset);
-                    fields.computeIfAbsent(decodedName, n -> new ArrayList<>()).add(decodedValue);
+                    merged.computeIfAbsent(decodedName, n -> new ArrayList<>()).add(decodedValue);
                 } catch (IllegalArgumentException malformedEscape) {
                     // Leaves out a field whose escape is malformed rather than failing the whole request.
                 }
             }
-            form = fields;
-            formCharset = charset;
+            form = Parameters.of(charset, merged);
         }
         return form;
+    }
+
+    /**
+     * A form's parameters, built once: {@code values} serves {@link #getParameter}, {@link #getParameterValues}
+     * (as a fresh array each call) and {@link #getParameterNames}, and cannot be changed; {@code map} is what
+     * {@link #getParameterMap} answers. As on the container, the arrays in that map are shared by its callers, so a
+     * caller that changes one changes only what the map answers, never the other three.
+     */
+    private record Parameters(Charset charset, Map<String, List<String>> values, Map<String, String[]> map) {
+
+        static Parameters of(Charset charset, Map<String, List<String>> merged) {
+            Map<String, List<String>> values = new LinkedHashMap<>();
+            Map<String, String[]> map = new LinkedHashMap<>();
+            merged.forEach((name, list) -> {
+                values.put(name, List.copyOf(list));
+                map.put(name, list.toArray(String[]::new));
+            });
+            return new Parameters(charset, Collections.unmodifiableMap(values), Collections.unmodifiableMap(map));
+        }
     }
 
     /** The request's character encoding, or {@code fallback} when it sets none or names one this JVM lacks. */
