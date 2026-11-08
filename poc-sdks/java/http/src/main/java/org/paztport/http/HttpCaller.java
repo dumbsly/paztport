@@ -326,7 +326,7 @@ public final class HttpCaller {
         String named = receiver;
         OperationTable table = tables.get(receiver);
         if (table != null) {
-            String operation = table.match(method, rawPath, uri.getRawQuery());
+            String operation = table.match(method, rawPath, query);
             if (operation == null) {
                 throw new IllegalArgumentException("no operation of " + receiver + " matches a "
                         + LogSafe.of(method) + " call; nothing is sent");
