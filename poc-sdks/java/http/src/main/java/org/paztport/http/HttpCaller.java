@@ -322,11 +322,11 @@ public final class HttpCaller {
         String rawPath = uri.getRawPath() == null || uri.getRawPath().isEmpty() ? "/" : uri.getRawPath();
         String query = uri.getRawQuery();
         String target = query == null || query.isEmpty() ? rawPath : rawPath + "?" + query;
-        // The operation is matched on the raw path alone, as sent: no query, and nothing percent-decoded.
+        // The operation is matched on the raw path and raw query, as sent: nothing is percent-decoded.
         String named = receiver;
         OperationTable table = tables.get(receiver);
         if (table != null) {
-            String operation = table.match(method, rawPath);
+            String operation = table.match(method, rawPath, uri.getRawQuery());
             if (operation == null) {
                 throw new IllegalArgumentException("no operation of " + receiver + " matches a "
                         + LogSafe.of(method) + " call; nothing is sent");

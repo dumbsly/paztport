@@ -408,6 +408,27 @@ class HttpCallerTest {
     }
 
     @Test
+    void namesAnOperationByItsQuery() {
+        OperationTable payment = new OperationTable("payment", List.of(
+                new OperationTable.Operation("charge", "POST", "/charge"),
+                new OperationTable.Operation("refund", "POST", "/charge",
+                        new OperationTable.Condition("mode", "refund"))));
+        PolicyBuilder.Result policy = PolicyBuilder.build(
+                List.of(List.of("gateway", "payment#charge"), List.of("gateway", "payment#refund")), 4, NOT_AFTER,
+                Crypto.generateEd25519KeyPair().getPrivate());
+        HttpCaller caller = HttpCaller.builder("gateway", gatewayStamper()).bundle(policy.bundles().get("gateway"))
+                .operations(List.of(payment)).build();
+
+        HttpCaller.Outbound refund = caller.stamp("POST", URI.create("https://payment/charge?mode=refund"), NO_BODY,
+                null, List.of());
+        HttpCaller.Outbound charge = caller.stamp("POST", URI.create("https://payment/charge"), NO_BODY, null,
+                List.of());
+
+        assertEquals("payment#refund", chainOf(refund.headers()).get(0).rcv());
+        assertEquals("payment#charge", chainOf(charge.headers()).get(0).rcv());
+    }
+
+    @Test
     void refusesACallNoOperationMatches() {
         HttpCaller caller = gatewayOpsCaller().operations(List.of(ORDERS_TABLE)).build();
 

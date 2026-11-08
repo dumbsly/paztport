@@ -7,10 +7,12 @@ import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import org.paztport.core.crypto.Crypto;
 import org.paztport.core.encoding.Base64Url;
@@ -21,7 +23,8 @@ import org.paztport.core.internal.JsonWriter;
 
 /**
  * A service's operation table, {@code ops-<service>.json}: the operations an HTTP service names, each a method and
- * a path template. A caller that holds the table names the operation each call invokes in its stamp's
+ * a path template, and where an entrance serves several, a query condition. A caller that holds the table names
+ * the operation each call invokes in its stamp's
  * {@code rcv} ({@code orders#createOrder}), using {@link #match} to find it. The receiver does not use {@code match}:
  * it confirms its operation from its own routing, the handler its framework dispatches to.
  *
@@ -35,12 +38,25 @@ import org.paztport.core.internal.JsonWriter;
  */
 public record OperationTable(String service, List<Operation> operations) {
 
-    /** One operation: its name (a route node holding no {@code #}), HTTP method and path template. */
-    public record Operation(String name, String method, String template) {
+    /** A query condition: the call's query holds the parameter {@code parameter} with the value {@code value}. */
+    public record Condition(String parameter, String value) {
+    }
+
+    /**
+     * One operation: its name (a route node holding no {@code #}), HTTP method, path template and, where the
+     * entrance it shares with other operations needs it, the query condition that tells it apart; null for none.
+     */
+    public record Operation(String name, String method, String template, Condition query) {
+
+        /** An operation with no query condition. */
+        public Operation(String name, String method, String template) {
+            this(name, method, template, null);
+        }
     }
 
     private static final Set<String> MEMBERS = Set.of("operations", "service", "v");
     private static final Set<String> OPERATION_MEMBERS = Set.of("method", "name", "template");
+    private static final Set<String> OPTIONAL_OPERATION_MEMBERS = Set.of("query");
     private static final String PARAMETER = "{}";
     private static final String DOMAIN = "operations\n";
 
@@ -52,7 +68,8 @@ public record OperationTable(String service, List<Operation> operations) {
             throw new IllegalArgumentException("operations must not be empty");
         }
         Set<String> names = new HashSet<>();
-        Set<String> shapes = new HashSet<>();
+        Map<String, Set<String>> entrances = new HashMap<>();
+        Map<String, String> parameters = new HashMap<>();
         for (Operation o : operations) {
             Routes.requireValidOperation(o.name());
             if (!names.add(o.name())) {
@@ -60,9 +77,21 @@ public record OperationTable(String service, List<Operation> operations) {
             }
             requireMethod(o.method());
             requireTemplate(o.template());
-            if (!shapes.add(o.method() + " " + o.template())) {
-                throw new IllegalArgumentException("two operations share the method " + o.method()
-                        + " and the template " + o.template());
+            Condition q = o.query();
+            if (q != null) {
+                requireQueryToken(q.parameter(), "a query parameter name");
+                requireQueryToken(q.value(), "a query value");
+            }
+            String entrance = o.method() + " " + o.template();
+            if (!entrances.computeIfAbsent(entrance, k -> new HashSet<>()).add(q == null ? null : q.value())) {
+                throw new IllegalArgumentException(q == null
+                        ? "two operations of the entrance " + entrance + " have no query condition"
+                        : "two operations of the entrance " + entrance + " share the query condition "
+                                + q.parameter() + "=" + q.value());
+            }
+            if (q != null && !parameters.computeIfAbsent(entrance, k -> q.parameter()).equals(q.parameter())) {
+                throw new IllegalArgumentException("the query conditions of the entrance " + entrance
+                        + " name different parameters");
             }
         }
     }
@@ -86,9 +115,18 @@ public record OperationTable(String service, List<Operation> operations) {
         List<Operation> operations = new ArrayList<>();
         for (JsonValue item : JsonFields.array(o, "operations")) {
             JsonValue.Obj op = JsonFields.object(item);
-            JsonFields.exactly(op, OPERATION_MEMBERS, Set.of());
+            JsonFields.exactly(op, OPERATION_MEMBERS, OPTIONAL_OPERATION_MEMBERS);
+            Condition query = null;
+            if (op.get("query") != null) {
+                JsonValue.Obj q = JsonFields.object(op, "query");
+                if (q.names().size() != 1) {
+                    throw new IllegalArgumentException("member query must have exactly one member");
+                }
+                String parameter = q.names().iterator().next();
+                query = new Condition(parameter, JsonFields.string(q, parameter));
+            }
             operations.add(new Operation(JsonFields.string(op, "name"), JsonFields.string(op, "method"),
-                    JsonFields.string(op, "template")));
+                    JsonFields.string(op, "template"), query));
         }
         return new OperationTable(JsonFields.string(o, "service"), operations);
     }
@@ -99,6 +137,11 @@ public record OperationTable(String service, List<Operation> operations) {
             Map<String, JsonValue> m = new LinkedHashMap<>();
             m.put("method", new JsonValue.Str(op.method()));
             m.put("name", new JsonValue.Str(op.name()));
+            if (op.query() != null) {
+                Map<String, JsonValue> q = new LinkedHashMap<>();
+                q.put(op.query().parameter(), new JsonValue.Str(op.query().value()));
+                m.put("query", new JsonValue.Obj(q));
+            }
             m.put("template", new JsonValue.Str(op.template()));
             items.add(new JsonValue.Obj(m));
         }
@@ -131,10 +174,12 @@ public record OperationTable(String service, List<Operation> operations) {
 
     /**
      * The name of the operation a call invokes, or null when none matches. {@code rawPath} is the path as sent: no
-     * query and not percent-decoded, so a caller that holds a request target with a query strips it first. Of the
-     * templates that match, the one with a literal segment at the first segment where they differ wins.
+     * query and not percent-decoded; {@code rawQuery} is the query as sent, also not decoded, or null when there is
+     * none. A call that repeats a parameter an entrance's condition names matches none of that entrance's
+     * operations. Of the templates that match, the one with a literal segment at the first segment where they
+     * differ wins, and of one entrance the operation whose condition holds wins over the one with none.
      */
-    public String match(String method, String rawPath) {
+    public String match(String method, String rawPath, String rawQuery) {
         if (!rawPath.startsWith("/")) {
             return null;
         }
@@ -146,10 +191,11 @@ public record OperationTable(String service, List<Operation> operations) {
                 continue;
             }
             String[] segments = op.template().substring(1).split("/", -1);
-            if (!matches(segments, path)) {
+            if (!matches(segments, path) || !queryAllows(op, rawQuery)) {
                 continue;
             }
-            if (best == null || prefersLiteral(segments, bestSegments)) {
+            if (best == null || prefersLiteral(segments, bestSegments)
+                    || (op.template().equals(best.template()) && op.query() != null && best.query() == null)) {
                 best = op;
                 bestSegments = segments;
             }
@@ -157,14 +203,46 @@ public record OperationTable(String service, List<Operation> operations) {
         return best == null ? null : best.name();
     }
 
-    /** The name of the operation with exactly this method and template, or null. */
-    public String operationFor(String method, String template) {
+    /** The name of the operation with exactly this method, template and query condition (null for none), or null. */
+    public String operationFor(String method, String template, Condition query) {
         for (Operation op : operations) {
-            if (op.method().equals(method) && op.template().equals(template)) {
+            if (op.method().equals(method) && op.template().equals(template) && Objects.equals(op.query(), query)) {
                 return op.name();
             }
         }
         return null;
+    }
+
+    /**
+     * Whether the query lets {@code op} match: its condition holds, or it has none and the call does not repeat the
+     * parameter that the conditions of its entrance name.
+     */
+    private boolean queryAllows(Operation op, String rawQuery) {
+        String parameter = op.query() != null ? op.query().parameter() : null;
+        for (Operation other : operations) {
+            if (parameter == null && other.query() != null && other.method().equals(op.method())
+                    && other.template().equals(op.template())) {
+                parameter = other.query().parameter();
+            }
+        }
+        if (parameter == null) {
+            return true;
+        }
+        int count = 0;
+        String value = null;
+        if (rawQuery != null) {
+            for (String pair : rawQuery.split("&", -1)) {
+                int eq = pair.indexOf('=');
+                if ((eq < 0 ? pair : pair.substring(0, eq)).equals(parameter)) {
+                    count++;
+                    value = eq < 0 ? "" : pair.substring(eq + 1);
+                }
+            }
+        }
+        if (count > 1) {
+            return false;
+        }
+        return op.query() == null || (count == 1 && op.query().value().equals(value));
     }
 
     /**
@@ -214,6 +292,14 @@ public record OperationTable(String service, List<Operation> operations) {
     private static void requireMethod(String method) {
         if (method.isEmpty() || !method.chars().allMatch(c -> c >= 'A' && c <= 'Z')) {
             throw new IllegalArgumentException("method must be one or more of the characters A to Z");
+        }
+    }
+
+    private static void requireQueryToken(String token, String what) {
+        if (token.isEmpty() || !token.chars().allMatch(c -> (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')
+                || (c >= '0' && c <= '9') || "-._~".indexOf(c) >= 0)) {
+            throw new IllegalArgumentException(what
+                    + " must be one or more of the characters A-Z a-z 0-9 - . _ ~");
         }
     }
 

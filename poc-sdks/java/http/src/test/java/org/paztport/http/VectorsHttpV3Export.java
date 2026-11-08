@@ -89,8 +89,10 @@ class VectorsHttpV3Export {
             + " does not replay it. The last responses case runs on the `ops` policy: the chain names the"
             + " operation each hop invokes (`orders#createOrder`, then `payment#charge`) and the proof is for that"
             + " route. `operations` holds `table`, an operation table as a `file` (its text) and `value`, with its"
-            + " `opsHash` and the `route` a root covers it as; `refused`, table files a reader refuses; `match`, a"
-            + " method and a raw path against a table `file` and the operation name it gives, null for none; and"
+            + " `opsHash` and the `route` a root covers it as; `shared`, payment's table, an entrance with two operations"
+            + " told apart by a query condition, in the same form; `refused`, table files a reader refuses; `match`,"
+            + " a method, a raw path and a raw query (null for none) against a table `file` and the operation name"
+            + " it gives, null for none; and"
             + " `receive`, a request entered at `orders` through the HTTP receiver under enforce, whose chain's"
             + " first stamp names `orders` or an operation of it, with the `operation` the framework dispatches to"
             + " (null for none) and the `refusal` it expects (null when the request is served). Every `receive`"
@@ -371,6 +373,19 @@ class VectorsHttpV3Export {
         return "{\"method\":\"" + method + "\",\"name\":\"" + name + "\",\"template\":\"" + template + "\"}";
     }
 
+    private static String tableOpQuery(String name, String template, String query) {
+        return "{\"method\":\"POST\",\"name\":\"" + name + "\",\"query\":" + query + ",\"template\":\""
+                + template + "\"}";
+    }
+
+    private static OperationTable paymentTable() {
+        return new OperationTable("payment", List.of(
+                new OperationTable.Operation("charge", "POST", "/charge"),
+                new OperationTable.Operation("refund", "POST", "/charge",
+                        new OperationTable.Condition("mode", "refund")),
+                new OperationTable.Operation("pay", "POST", "/pay")));
+    }
+
     private static ObjectNode operations(JsonNode core, PrivateKey gatewayKey) {
         ObjectNode o = JsonNodeFactory.instance.objectNode();
         OperationTable orders = ordersTable();
@@ -381,7 +396,16 @@ class VectorsHttpV3Export {
         ArrayNode route = table.putArray("route");
         orders.route().forEach(route::add);
 
+        OperationTable payment = paymentTable();
+        ObjectNode shared = o.putObject("shared");
+        shared.put("file", payment.toFile());
+        shared.set("value", tree(payment.toFile()));
+        shared.put("opsHash", payment.hash());
+        ArrayNode sharedRoute = shared.putArray("route");
+        payment.route().forEach(sharedRoute::add);
+
         String create = tableOp("POST", "createOrder", "/orders");
+        String charge = tableOp("POST", "charge", "/charge");
         ArrayNode refused = o.putArray("refused");
         String[][] refusals = {
             {"an operation name holding #", tableFile("orders", "1", tableOp("POST", "create#Order", "/orders"))},
@@ -401,7 +425,21 @@ class VectorsHttpV3Export {
             {"an extra member on the table",
                 "{\"extra\":1,\"operations\":[" + create + "],\"service\":\"orders\",\"v\":1}"},
             {"an extra member on an operation", tableFile("orders", "1",
-                "{\"extra\":1,\"method\":\"POST\",\"name\":\"x\",\"template\":\"/\"}")}};
+                "{\"extra\":1,\"method\":\"POST\",\"name\":\"x\",\"template\":\"/\"}")},
+            {"a query with two members", tableFile("payment", "1", charge,
+                tableOpQuery("refund", "/charge", "{\"mode\":\"refund\",\"kind\":\"x\"}"))},
+            {"a query value with a reserved character", tableFile("payment", "1", charge,
+                tableOpQuery("refund", "/charge", "{\"mode\":\"re/fund\"}"))},
+            {"an empty query value", tableFile("payment", "1", charge,
+                tableOpQuery("refund", "/charge", "{\"mode\":\"\"}"))},
+            {"a query that is not an object", tableFile("payment", "1", charge,
+                tableOpQuery("refund", "/charge", "\"mode=refund\""))},
+            {"conditions on one entrance naming different parameters", tableFile("payment", "1",
+                tableOpQuery("refund", "/charge", "{\"mode\":\"refund\"}"),
+                tableOpQuery("cancel", "/charge", "{\"kind\":\"x\"}"))},
+            {"two operations of one entrance with one condition", tableFile("payment", "1",
+                tableOpQuery("refund", "/charge", "{\"mode\":\"refund\"}"),
+                tableOpQuery("cancel", "/charge", "{\"mode\":\"refund\"}"))}};
         for (String[] r : refusals) {
             ObjectNode c = refused.addObject();
             c.put("name", r[0]);
@@ -414,25 +452,37 @@ class VectorsHttpV3Export {
                 new OperationTable.Operation("y", "GET", "/a/b/{}"))).toFile();
         ArrayNode match = o.putArray("match");
         String[][] matches = {
-            {orders.toFile(), "GET", "/orders/search", "search"},
-            {orders.toFile(), "GET", "/orders/123", "getOrder"},
-            {orders.toFile(), "GET", "/orders", "findOrders"},
-            {orders.toFile(), "POST", "/orders", "createOrder"},
-            {orders.toFile(), "GET", "/orders/a%2Fb", "getOrder"},
-            {orders.toFile(), "GET", "/orders/", null},
-            {orders.toFile(), "GET", "/orders/123/items", null},
-            {orders.toFile(), "get", "/orders", null},
-            {orders.toFile(), "DELETE", "/orders", null},
-            {two, "GET", "/a/b/c", "y"}};
+            {orders.toFile(), "GET", "/orders/search", null, "search"},
+            {orders.toFile(), "GET", "/orders/123", null, "getOrder"},
+            {orders.toFile(), "GET", "/orders", null, "findOrders"},
+            {orders.toFile(), "POST", "/orders", null, "createOrder"},
+            {orders.toFile(), "GET", "/orders/a%2Fb", null, "getOrder"},
+            {orders.toFile(), "GET", "/orders/", null, null},
+            {orders.toFile(), "GET", "/orders/123/items", null, null},
+            {orders.toFile(), "get", "/orders", null, null},
+            {orders.toFile(), "DELETE", "/orders", null, null},
+            {two, "GET", "/a/b/c", null, "y"},
+            {payment.toFile(), "POST", "/charge", "mode=refund", "refund"},
+            {payment.toFile(), "POST", "/charge", null, "charge"},
+            {payment.toFile(), "POST", "/charge", "mode=x", "charge"},
+            {payment.toFile(), "POST", "/charge", "other=1", "charge"},
+            {payment.toFile(), "POST", "/charge", "other=1&mode=refund", "refund"},
+            {payment.toFile(), "POST", "/charge", "mode=refund&mode=refund", null},
+            {payment.toFile(), "POST", "/charge", "mode=%72efund", "charge"}};
         for (String[] m : matches) {
             ObjectNode c = match.addObject();
             c.put("table", m[0]);
             c.put("method", m[1]);
             c.put("path", m[2]);
             if (m[3] == null) {
+                c.putNull("query");
+            } else {
+                c.put("query", m[3]);
+            }
+            if (m[4] == null) {
                 c.putNull("expected");
             } else {
-                c.put("expected", m[3]);
+                c.put("expected", m[4]);
             }
         }
 
@@ -504,6 +554,13 @@ class VectorsHttpV3Export {
                 t.route().stream().map(JsonNodeFactory.instance::textNode).toList()), "table route");
         assertEquals(table.get("value"), tree(t.toFile()), "table value");
         assertEquals(table.get("file").asText(), t.toFile(), "table file");
+        JsonNode shared = o.get("shared");
+        OperationTable sharedTable = OperationTable.read(shared.get("file").asText());
+        assertEquals(shared.get("opsHash").asText(), sharedTable.hash(), "shared hash");
+        assertEquals(shared.get("route"), JsonNodeFactory.instance.arrayNode().addAll(
+                sharedTable.route().stream().map(JsonNodeFactory.instance::textNode).toList()), "shared route");
+        assertEquals(shared.get("value"), tree(sharedTable.toFile()), "shared value");
+        assertEquals(shared.get("file").asText(), sharedTable.toFile(), "shared file");
         for (JsonNode c : o.get("refused")) {
             assertEquals("refused", c.get("expected").asText());
             assertThrows(IllegalArgumentException.class, () -> OperationTable.read(c.get("file").asText()),
@@ -511,9 +568,9 @@ class VectorsHttpV3Export {
         }
         for (JsonNode c : o.get("match")) {
             String got = OperationTable.read(c.get("table").asText()).match(c.get("method").asText(),
-                    c.get("path").asText());
+                    c.get("path").asText(), c.get("query").isNull() ? null : c.get("query").asText());
             assertEquals(c.get("expected").isNull() ? null : c.get("expected").asText(), got,
-                    c.get("method").asText() + " " + c.get("path").asText());
+                    c.get("method").asText() + " " + c.get("path").asText() + " " + c.get("query"));
         }
     }
 

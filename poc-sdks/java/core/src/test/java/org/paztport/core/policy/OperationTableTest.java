@@ -43,11 +43,28 @@ class OperationTableTest {
         return "{\"method\":\"" + method + "\",\"name\":\"" + name + "\",\"template\":\"" + template + "\"}";
     }
 
+    private static OperationTable payment() {
+        return new OperationTable("payment", List.of(
+                new OperationTable.Operation("charge", "POST", "/charge"),
+                new OperationTable.Operation("refund", "POST", "/charge",
+                        new OperationTable.Condition("mode", "refund")),
+                new OperationTable.Operation("pay", "POST", "/pay")));
+    }
+
+    /** An operation member with a {@code query} written as given, JSON text. */
+    private static String opq(String name, String template, String query) {
+        return "{\"method\":\"POST\",\"name\":\"" + name + "\",\"query\":" + query + ",\"template\":\""
+                + template + "\"}";
+    }
+
     private static JsonValue json(OperationTable t) {
         List<JsonValue> ops = t.operations().stream().map(o -> {
             Map<String, JsonValue> m = new LinkedHashMap<>();
             m.put("method", new JsonValue.Str(o.method()));
             m.put("name", new JsonValue.Str(o.name()));
+            if (o.query() != null) {
+                m.put("query", new JsonValue.Obj(Map.of(o.query().parameter(), new JsonValue.Str(o.query().value()))));
+            }
             m.put("template", new JsonValue.Str(o.template()));
             return (JsonValue) new JsonValue.Obj(m);
         }).toList();
@@ -72,9 +89,32 @@ class OperationTableTest {
         assertEquals(t, OperationTable.read(t.toFile()));
     }
 
+    @Test
+    void readsAQuery() {
+        OperationTable t = payment();
+        byte[] domain = "operations\n".getBytes(StandardCharsets.UTF_8);
+        byte[] body = JsonWriter.text(json(t)).getBytes(StandardCharsets.UTF_8);
+        byte[] all = new byte[domain.length + body.length];
+        System.arraycopy(domain, 0, all, 0, domain.length);
+        System.arraycopy(body, 0, all, domain.length, body.length);
+
+        assertTrue(t.toFile().contains("\"query\""));
+        assertEquals(t, OperationTable.read(t.toFile()));
+        assertEquals(Base64Url.encode(Crypto.sha256(all)), t.hash());
+    }
+
     static List<String> refused() {
         String create = op("POST", "createOrder", "/orders");
+        String plain = op("POST", "charge", "/charge");
         return List.of(
+                file("payment", "1", plain, opq("refund", "/charge", "{\"mode\":\"refund\",\"kind\":\"x\"}")),
+                file("payment", "1", plain, opq("refund", "/charge", "{\"mode\":\"re/fund\"}")),
+                file("payment", "1", plain, opq("refund", "/charge", "{\"mode\":\"\"}")),
+                file("payment", "1", plain, opq("refund", "/charge", "\"mode=refund\"")),
+                file("payment", "1", opq("refund", "/charge", "{\"mode\":\"refund\"}"),
+                        opq("cancel", "/charge", "{\"kind\":\"x\"}")),
+                file("payment", "1", opq("refund", "/charge", "{\"mode\":\"refund\"}"),
+                        opq("cancel", "/charge", "{\"mode\":\"refund\"}")),
                 file("orders", "1", op("POST", "create#Order", "/orders")),
                 file("orders", "1", create, op("GET", "createOrder", "/orders/{}")),
                 file("orders", "1", create, op("POST", "other", "/orders")),
@@ -100,26 +140,43 @@ class OperationTableTest {
     @Test
     void matches() {
         OperationTable t = orders();
-        assertEquals("search", t.match("GET", "/orders/search"));
-        assertEquals("getOrder", t.match("GET", "/orders/123"));
-        assertEquals("findOrders", t.match("GET", "/orders"));
-        assertEquals("createOrder", t.match("POST", "/orders"));
-        assertEquals("getOrder", t.match("GET", "/orders/a%2Fb"));
-        assertNull(t.match("GET", "/orders/"));
-        assertNull(t.match("GET", "/orders/123/items"));
-        assertNull(t.match("get", "/orders"));
-        assertNull(t.match("DELETE", "/orders"));
+        assertEquals("search", t.match("GET", "/orders/search", null));
+        assertEquals("getOrder", t.match("GET", "/orders/123", null));
+        assertEquals("findOrders", t.match("GET", "/orders", null));
+        assertEquals("createOrder", t.match("POST", "/orders", null));
+        assertEquals("getOrder", t.match("GET", "/orders/a%2Fb", null));
+        assertNull(t.match("GET", "/orders/", null));
+        assertNull(t.match("GET", "/orders/123/items", null));
+        assertNull(t.match("get", "/orders", null));
+        assertNull(t.match("DELETE", "/orders", null));
 
         OperationTable two = new OperationTable("orders", List.of(
                 new OperationTable.Operation("x", "GET", "/a/{}/c"),
                 new OperationTable.Operation("y", "GET", "/a/b/{}")));
-        assertEquals("y", two.match("GET", "/a/b/c"));
+        assertEquals("y", two.match("GET", "/a/b/c", null));
+    }
+
+    @Test
+    void matchesAQuery() {
+        OperationTable t = payment();
+        assertEquals("refund", t.match("POST", "/charge", "mode=refund"));
+        assertEquals("charge", t.match("POST", "/charge", null));
+        assertEquals("charge", t.match("POST", "/charge", "mode=x"));
+        assertEquals("charge", t.match("POST", "/charge", "other=1"));
+        assertEquals("charge", t.match("POST", "/charge", "mode=%72efund"));
+        assertEquals("refund", t.match("POST", "/charge", "other=1&mode=refund"));
+        assertNull(t.match("POST", "/charge", "mode=refund&mode=refund"));
+        assertEquals("pay", t.match("POST", "/pay", "mode=refund&mode=refund"));
     }
 
     @Test
     void operationForIsExact() {
-        assertEquals("getOrder", orders().operationFor("GET", "/orders/{}"));
-        assertNull(orders().operationFor("GET", "/orders/{x}"));
+        assertEquals("charge", payment().operationFor("POST", "/charge", null));
+        assertEquals("refund", payment().operationFor("POST", "/charge",
+                new OperationTable.Condition("mode", "refund")));
+        assertNull(payment().operationFor("POST", "/charge", new OperationTable.Condition("mode", "x")));
+        assertEquals("getOrder", orders().operationFor("GET", "/orders/{}", null));
+        assertNull(orders().operationFor("GET", "/orders/{x}", null));
     }
 
     @Test

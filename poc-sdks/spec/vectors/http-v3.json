@@ -1,5 +1,5 @@
 {
-  "about" : "Paztport v3-over-HTTP conformance vectors. The keys, the `mesh` policy and its proofs are the ones in v3.json, by name; only the `payment` key is new, derived by v3.json's rule (seed = SHA-256(utf8(\"paztport-v3-vector-key:payment\")), the same PKCS#8 and SPKI encodings, both base64url). resultHash maps a status and body (hex) to the result hash. requestBinding maps a method, a target (the raw path plus `?` and the raw query when there is one) and a body (hex) to the request binding. headerNames maps a header name to whether it is Paztport's: it begins with `X-Path-`, compared case-insensitively over ASCII. A responses case is a request chain `sent` from gateway to orders to payment and the `responseHeader` payment returned; the caller `orders` checks it against `status` and `body` (hex) with the proof the mesh policy holds for `proofRoute`, as a verifier whose policy window ends at `policyNotAfter` and whose clock reads `now`, running the check `uses` times against one nonce cache of nonceTtlMs, and expects the last result, with `labels` empty unless the reason is OK. boundaryInfluence is the influence an egress sends to another organisation: under the boundary `key` (SHA-256(utf8(\"paztport-http-v3-vector-boundary-key\")), base64url), for `rid`, the partner entry `rcv` and the `egress`, the `input` entries reduce to `reduced`, with one salt (base64url) per (cls, owner) group in `salts`; each `openings` case is a `sent` entry and an `opening`, with its JCS bytes in `body` (hex), which the replay reads, and `opens` says whether it opens. Ed25519 is deterministic, so the file is reproduced byte for byte. Java writes and replays this file; Go replays every section but `operations`; the TypeScript SDK does not speak v3 over HTTP, so it does not replay it. The last responses case runs on the `ops` policy: the chain names the operation each hop invokes (`orders#createOrder`, then `payment#charge`) and the proof is for that route. `operations` holds `table`, an operation table as a `file` (its text) and `value`, with its `opsHash` and the `route` a root covers it as; `refused`, table files a reader refuses; `match`, a method and a raw path against a table `file` and the operation name it gives, null for none; and `receive`, a request entered at `orders` through the HTTP receiver under enforce, whose chain's first stamp names `orders` or an operation of it, with the `operation` the framework dispatches to (null for none) and the `refusal` it expects (null when the request is served). Every `receive` case carries the proof of `gateway/orders#createOrder`, whatever its chain names.",
+  "about" : "Paztport v3-over-HTTP conformance vectors. The keys, the `mesh` policy and its proofs are the ones in v3.json, by name; only the `payment` key is new, derived by v3.json's rule (seed = SHA-256(utf8(\"paztport-v3-vector-key:payment\")), the same PKCS#8 and SPKI encodings, both base64url). resultHash maps a status and body (hex) to the result hash. requestBinding maps a method, a target (the raw path plus `?` and the raw query when there is one) and a body (hex) to the request binding. headerNames maps a header name to whether it is Paztport's: it begins with `X-Path-`, compared case-insensitively over ASCII. A responses case is a request chain `sent` from gateway to orders to payment and the `responseHeader` payment returned; the caller `orders` checks it against `status` and `body` (hex) with the proof the mesh policy holds for `proofRoute`, as a verifier whose policy window ends at `policyNotAfter` and whose clock reads `now`, running the check `uses` times against one nonce cache of nonceTtlMs, and expects the last result, with `labels` empty unless the reason is OK. boundaryInfluence is the influence an egress sends to another organisation: under the boundary `key` (SHA-256(utf8(\"paztport-http-v3-vector-boundary-key\")), base64url), for `rid`, the partner entry `rcv` and the `egress`, the `input` entries reduce to `reduced`, with one salt (base64url) per (cls, owner) group in `salts`; each `openings` case is a `sent` entry and an `opening`, with its JCS bytes in `body` (hex), which the replay reads, and `opens` says whether it opens. Ed25519 is deterministic, so the file is reproduced byte for byte. Java writes and replays this file; Go replays every section but `operations`; the TypeScript SDK does not speak v3 over HTTP, so it does not replay it. The last responses case runs on the `ops` policy: the chain names the operation each hop invokes (`orders#createOrder`, then `payment#charge`) and the proof is for that route. `operations` holds `table`, an operation table as a `file` (its text) and `value`, with its `opsHash` and the `route` a root covers it as; `shared`, payment's table, an entrance with two operations told apart by a query condition, in the same form; `refused`, table files a reader refuses; `match`, a method, a raw path and a raw query (null for none) against a table `file` and the operation name it gives, null for none; and `receive`, a request entered at `orders` through the HTTP receiver under enforce, whose chain's first stamp names `orders` or an operation of it, with the `operation` the framework dispatches to (null for none) and the `refusal` it expects (null when the request is served). Every `receive` case carries the proof of `gateway/orders#createOrder`, whatever its chain names.",
   "keys" : {
     "payment" : {
       "pub" : "MCowBQYDK2VwAyEA-9XrNUMkH7TjAfIFt7KwMmnpapG3g1u6a6E0Q5swRO0",
@@ -7793,6 +7793,31 @@
       "opsHash" : "LcR_csw-F8l5ZDZG-tft6v0enkIsOopOnYDoQgE8DtM",
       "route" : [ "orders", "ops:LcR_csw-F8l5ZDZG-tft6v0enkIsOopOnYDoQgE8DtM" ]
     },
+    "shared" : {
+      "file" : "{\n  \"operations\": [\n    {\n      \"method\": \"POST\",\n      \"name\": \"charge\",\n      \"template\": \"/charge\"\n    },\n    {\n      \"method\": \"POST\",\n      \"name\": \"refund\",\n      \"query\": {\n        \"mode\": \"refund\"\n      },\n      \"template\": \"/charge\"\n    },\n    {\n      \"method\": \"POST\",\n      \"name\": \"pay\",\n      \"template\": \"/pay\"\n    }\n  ],\n  \"service\": \"payment\",\n  \"v\": 1\n}\n",
+      "value" : {
+        "operations" : [ {
+          "method" : "POST",
+          "name" : "charge",
+          "template" : "/charge"
+        }, {
+          "method" : "POST",
+          "name" : "refund",
+          "query" : {
+            "mode" : "refund"
+          },
+          "template" : "/charge"
+        }, {
+          "method" : "POST",
+          "name" : "pay",
+          "template" : "/pay"
+        } ],
+        "service" : "payment",
+        "v" : 1
+      },
+      "opsHash" : "ng68_V-yE_QyE2y-_RwTHxvSUGbo81WsJhOKo3Itovs",
+      "route" : [ "payment", "ops:ng68_V-yE_QyE2y-_RwTHxvSUGbo81WsJhOKo3Itovs" ]
+    },
     "refused" : [ {
       "name" : "an operation name holding #",
       "file" : "{\"operations\":[{\"method\":\"POST\",\"name\":\"create#Order\",\"template\":\"/orders\"}],\"service\":\"orders\",\"v\":1}",
@@ -7849,57 +7874,133 @@
       "name" : "an extra member on an operation",
       "file" : "{\"operations\":[{\"extra\":1,\"method\":\"POST\",\"name\":\"x\",\"template\":\"/\"}],\"service\":\"orders\",\"v\":1}",
       "expected" : "refused"
+    }, {
+      "name" : "a query with two members",
+      "file" : "{\"operations\":[{\"method\":\"POST\",\"name\":\"charge\",\"template\":\"/charge\"},{\"method\":\"POST\",\"name\":\"refund\",\"query\":{\"mode\":\"refund\",\"kind\":\"x\"},\"template\":\"/charge\"}],\"service\":\"payment\",\"v\":1}",
+      "expected" : "refused"
+    }, {
+      "name" : "a query value with a reserved character",
+      "file" : "{\"operations\":[{\"method\":\"POST\",\"name\":\"charge\",\"template\":\"/charge\"},{\"method\":\"POST\",\"name\":\"refund\",\"query\":{\"mode\":\"re/fund\"},\"template\":\"/charge\"}],\"service\":\"payment\",\"v\":1}",
+      "expected" : "refused"
+    }, {
+      "name" : "an empty query value",
+      "file" : "{\"operations\":[{\"method\":\"POST\",\"name\":\"charge\",\"template\":\"/charge\"},{\"method\":\"POST\",\"name\":\"refund\",\"query\":{\"mode\":\"\"},\"template\":\"/charge\"}],\"service\":\"payment\",\"v\":1}",
+      "expected" : "refused"
+    }, {
+      "name" : "a query that is not an object",
+      "file" : "{\"operations\":[{\"method\":\"POST\",\"name\":\"charge\",\"template\":\"/charge\"},{\"method\":\"POST\",\"name\":\"refund\",\"query\":\"mode=refund\",\"template\":\"/charge\"}],\"service\":\"payment\",\"v\":1}",
+      "expected" : "refused"
+    }, {
+      "name" : "conditions on one entrance naming different parameters",
+      "file" : "{\"operations\":[{\"method\":\"POST\",\"name\":\"refund\",\"query\":{\"mode\":\"refund\"},\"template\":\"/charge\"},{\"method\":\"POST\",\"name\":\"cancel\",\"query\":{\"kind\":\"x\"},\"template\":\"/charge\"}],\"service\":\"payment\",\"v\":1}",
+      "expected" : "refused"
+    }, {
+      "name" : "two operations of one entrance with one condition",
+      "file" : "{\"operations\":[{\"method\":\"POST\",\"name\":\"refund\",\"query\":{\"mode\":\"refund\"},\"template\":\"/charge\"},{\"method\":\"POST\",\"name\":\"cancel\",\"query\":{\"mode\":\"refund\"},\"template\":\"/charge\"}],\"service\":\"payment\",\"v\":1}",
+      "expected" : "refused"
     } ],
     "match" : [ {
       "table" : "{\n  \"operations\": [\n    {\n      \"method\": \"POST\",\n      \"name\": \"createOrder\",\n      \"template\": \"/orders\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"findOrders\",\n      \"template\": \"/orders\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"getOrder\",\n      \"template\": \"/orders/{}\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"search\",\n      \"template\": \"/orders/search\"\n    }\n  ],\n  \"service\": \"orders\",\n  \"v\": 1\n}\n",
       "method" : "GET",
       "path" : "/orders/search",
+      "query" : null,
       "expected" : "search"
     }, {
       "table" : "{\n  \"operations\": [\n    {\n      \"method\": \"POST\",\n      \"name\": \"createOrder\",\n      \"template\": \"/orders\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"findOrders\",\n      \"template\": \"/orders\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"getOrder\",\n      \"template\": \"/orders/{}\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"search\",\n      \"template\": \"/orders/search\"\n    }\n  ],\n  \"service\": \"orders\",\n  \"v\": 1\n}\n",
       "method" : "GET",
       "path" : "/orders/123",
+      "query" : null,
       "expected" : "getOrder"
     }, {
       "table" : "{\n  \"operations\": [\n    {\n      \"method\": \"POST\",\n      \"name\": \"createOrder\",\n      \"template\": \"/orders\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"findOrders\",\n      \"template\": \"/orders\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"getOrder\",\n      \"template\": \"/orders/{}\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"search\",\n      \"template\": \"/orders/search\"\n    }\n  ],\n  \"service\": \"orders\",\n  \"v\": 1\n}\n",
       "method" : "GET",
       "path" : "/orders",
+      "query" : null,
       "expected" : "findOrders"
     }, {
       "table" : "{\n  \"operations\": [\n    {\n      \"method\": \"POST\",\n      \"name\": \"createOrder\",\n      \"template\": \"/orders\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"findOrders\",\n      \"template\": \"/orders\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"getOrder\",\n      \"template\": \"/orders/{}\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"search\",\n      \"template\": \"/orders/search\"\n    }\n  ],\n  \"service\": \"orders\",\n  \"v\": 1\n}\n",
       "method" : "POST",
       "path" : "/orders",
+      "query" : null,
       "expected" : "createOrder"
     }, {
       "table" : "{\n  \"operations\": [\n    {\n      \"method\": \"POST\",\n      \"name\": \"createOrder\",\n      \"template\": \"/orders\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"findOrders\",\n      \"template\": \"/orders\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"getOrder\",\n      \"template\": \"/orders/{}\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"search\",\n      \"template\": \"/orders/search\"\n    }\n  ],\n  \"service\": \"orders\",\n  \"v\": 1\n}\n",
       "method" : "GET",
       "path" : "/orders/a%2Fb",
+      "query" : null,
       "expected" : "getOrder"
     }, {
       "table" : "{\n  \"operations\": [\n    {\n      \"method\": \"POST\",\n      \"name\": \"createOrder\",\n      \"template\": \"/orders\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"findOrders\",\n      \"template\": \"/orders\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"getOrder\",\n      \"template\": \"/orders/{}\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"search\",\n      \"template\": \"/orders/search\"\n    }\n  ],\n  \"service\": \"orders\",\n  \"v\": 1\n}\n",
       "method" : "GET",
       "path" : "/orders/",
+      "query" : null,
       "expected" : null
     }, {
       "table" : "{\n  \"operations\": [\n    {\n      \"method\": \"POST\",\n      \"name\": \"createOrder\",\n      \"template\": \"/orders\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"findOrders\",\n      \"template\": \"/orders\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"getOrder\",\n      \"template\": \"/orders/{}\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"search\",\n      \"template\": \"/orders/search\"\n    }\n  ],\n  \"service\": \"orders\",\n  \"v\": 1\n}\n",
       "method" : "GET",
       "path" : "/orders/123/items",
+      "query" : null,
       "expected" : null
     }, {
       "table" : "{\n  \"operations\": [\n    {\n      \"method\": \"POST\",\n      \"name\": \"createOrder\",\n      \"template\": \"/orders\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"findOrders\",\n      \"template\": \"/orders\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"getOrder\",\n      \"template\": \"/orders/{}\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"search\",\n      \"template\": \"/orders/search\"\n    }\n  ],\n  \"service\": \"orders\",\n  \"v\": 1\n}\n",
       "method" : "get",
       "path" : "/orders",
+      "query" : null,
       "expected" : null
     }, {
       "table" : "{\n  \"operations\": [\n    {\n      \"method\": \"POST\",\n      \"name\": \"createOrder\",\n      \"template\": \"/orders\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"findOrders\",\n      \"template\": \"/orders\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"getOrder\",\n      \"template\": \"/orders/{}\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"search\",\n      \"template\": \"/orders/search\"\n    }\n  ],\n  \"service\": \"orders\",\n  \"v\": 1\n}\n",
       "method" : "DELETE",
       "path" : "/orders",
+      "query" : null,
       "expected" : null
     }, {
       "table" : "{\n  \"operations\": [\n    {\n      \"method\": \"GET\",\n      \"name\": \"x\",\n      \"template\": \"/a/{}/c\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"y\",\n      \"template\": \"/a/b/{}\"\n    }\n  ],\n  \"service\": \"orders\",\n  \"v\": 1\n}\n",
       "method" : "GET",
       "path" : "/a/b/c",
+      "query" : null,
       "expected" : "y"
+    }, {
+      "table" : "{\n  \"operations\": [\n    {\n      \"method\": \"POST\",\n      \"name\": \"charge\",\n      \"template\": \"/charge\"\n    },\n    {\n      \"method\": \"POST\",\n      \"name\": \"refund\",\n      \"query\": {\n        \"mode\": \"refund\"\n      },\n      \"template\": \"/charge\"\n    },\n    {\n      \"method\": \"POST\",\n      \"name\": \"pay\",\n      \"template\": \"/pay\"\n    }\n  ],\n  \"service\": \"payment\",\n  \"v\": 1\n}\n",
+      "method" : "POST",
+      "path" : "/charge",
+      "query" : "mode=refund",
+      "expected" : "refund"
+    }, {
+      "table" : "{\n  \"operations\": [\n    {\n      \"method\": \"POST\",\n      \"name\": \"charge\",\n      \"template\": \"/charge\"\n    },\n    {\n      \"method\": \"POST\",\n      \"name\": \"refund\",\n      \"query\": {\n        \"mode\": \"refund\"\n      },\n      \"template\": \"/charge\"\n    },\n    {\n      \"method\": \"POST\",\n      \"name\": \"pay\",\n      \"template\": \"/pay\"\n    }\n  ],\n  \"service\": \"payment\",\n  \"v\": 1\n}\n",
+      "method" : "POST",
+      "path" : "/charge",
+      "query" : null,
+      "expected" : "charge"
+    }, {
+      "table" : "{\n  \"operations\": [\n    {\n      \"method\": \"POST\",\n      \"name\": \"charge\",\n      \"template\": \"/charge\"\n    },\n    {\n      \"method\": \"POST\",\n      \"name\": \"refund\",\n      \"query\": {\n        \"mode\": \"refund\"\n      },\n      \"template\": \"/charge\"\n    },\n    {\n      \"method\": \"POST\",\n      \"name\": \"pay\",\n      \"template\": \"/pay\"\n    }\n  ],\n  \"service\": \"payment\",\n  \"v\": 1\n}\n",
+      "method" : "POST",
+      "path" : "/charge",
+      "query" : "mode=x",
+      "expected" : "charge"
+    }, {
+      "table" : "{\n  \"operations\": [\n    {\n      \"method\": \"POST\",\n      \"name\": \"charge\",\n      \"template\": \"/charge\"\n    },\n    {\n      \"method\": \"POST\",\n      \"name\": \"refund\",\n      \"query\": {\n        \"mode\": \"refund\"\n      },\n      \"template\": \"/charge\"\n    },\n    {\n      \"method\": \"POST\",\n      \"name\": \"pay\",\n      \"template\": \"/pay\"\n    }\n  ],\n  \"service\": \"payment\",\n  \"v\": 1\n}\n",
+      "method" : "POST",
+      "path" : "/charge",
+      "query" : "other=1",
+      "expected" : "charge"
+    }, {
+      "table" : "{\n  \"operations\": [\n    {\n      \"method\": \"POST\",\n      \"name\": \"charge\",\n      \"template\": \"/charge\"\n    },\n    {\n      \"method\": \"POST\",\n      \"name\": \"refund\",\n      \"query\": {\n        \"mode\": \"refund\"\n      },\n      \"template\": \"/charge\"\n    },\n    {\n      \"method\": \"POST\",\n      \"name\": \"pay\",\n      \"template\": \"/pay\"\n    }\n  ],\n  \"service\": \"payment\",\n  \"v\": 1\n}\n",
+      "method" : "POST",
+      "path" : "/charge",
+      "query" : "other=1&mode=refund",
+      "expected" : "refund"
+    }, {
+      "table" : "{\n  \"operations\": [\n    {\n      \"method\": \"POST\",\n      \"name\": \"charge\",\n      \"template\": \"/charge\"\n    },\n    {\n      \"method\": \"POST\",\n      \"name\": \"refund\",\n      \"query\": {\n        \"mode\": \"refund\"\n      },\n      \"template\": \"/charge\"\n    },\n    {\n      \"method\": \"POST\",\n      \"name\": \"pay\",\n      \"template\": \"/pay\"\n    }\n  ],\n  \"service\": \"payment\",\n  \"v\": 1\n}\n",
+      "method" : "POST",
+      "path" : "/charge",
+      "query" : "mode=refund&mode=refund",
+      "expected" : null
+    }, {
+      "table" : "{\n  \"operations\": [\n    {\n      \"method\": \"POST\",\n      \"name\": \"charge\",\n      \"template\": \"/charge\"\n    },\n    {\n      \"method\": \"POST\",\n      \"name\": \"refund\",\n      \"query\": {\n        \"mode\": \"refund\"\n      },\n      \"template\": \"/charge\"\n    },\n    {\n      \"method\": \"POST\",\n      \"name\": \"pay\",\n      \"template\": \"/pay\"\n    }\n  ],\n  \"service\": \"payment\",\n  \"v\": 1\n}\n",
+      "method" : "POST",
+      "path" : "/charge",
+      "query" : "mode=%72efund",
+      "expected" : "charge"
     } ],
     "receive" : [ {
       "name" : "the operation the chain names",

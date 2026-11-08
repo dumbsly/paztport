@@ -102,7 +102,7 @@ public final class OperationResolver implements SmartInitializingSingleton {
      */
     String operationAt(String method, String pattern) {
         String template = template(pattern);
-        return template == null ? null : table.operationFor(method, template);
+        return template == null ? null : table.operationFor(method, template, null);
     }
 
     /**

@@ -112,6 +112,22 @@ class PolicyToolMainTest {
     }
 
     @Test
+    void rebuildAcceptsATableWithAQuery(@TempDir Path dir) throws Exception {
+        Path keys = dir.resolve("keys");
+        Path pathsYaml = dir.resolve("paths.yaml");
+        Path out = dir.resolve("out");
+        OperationTable table = new OperationTable("payment", List.of(
+                new OperationTable.Operation("charge", "POST", "/charge"),
+                new OperationTable.Operation("refund", "POST", "/charge",
+                        new OperationTable.Condition("mode", "refund"))));
+        writeOpsWorld(keys, pathsYaml, "[orders, payment#refund]", "ops-payment.json", table);
+
+        PolicyToolMain.run(pathsYaml, keys, out, 8);
+
+        assertEquals(table, OperationTable.load(out.resolve("ops-payment.json")));
+    }
+
+    @Test
     void refusesAnOperationNoTableNames(@TempDir Path dir) throws Exception {
         Path keys = dir.resolve("keys");
         Path pathsYaml = dir.resolve("paths.yaml");
