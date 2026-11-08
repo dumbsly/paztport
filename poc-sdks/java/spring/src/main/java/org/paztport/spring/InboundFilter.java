@@ -195,13 +195,14 @@ public final class InboundFilter extends OncePerRequestFilter {
             }
             ContentCachingResponseWrapper cached = new ContentCachingResponseWrapper(response);
             chain.doFilter(wrapped, cached);
+            // Written before an async start returns, so an include a filter then follows with async work is refused.
+            writeOwedRefusal(verified, cached);
             if (request.isAsyncStarted()) {
                 // The handler returned before writing its body, so there is nothing yet to attest. The body is
                 // written into the wrapper later, on another thread, and must still reach the caller whole.
                 request.getAsyncContext().addListener(new CopyWhenComplete(cached));
                 return;
             }
-            writeOwedRefusal(verified, cached);
             // Committed means the container has sent something the handler did not finish with: leave it alone. A
             // handler that is not the operation verified answered for another, so its answer is not attested.
             if (!cached.isCommitted() && (verified == null || !verified.contradicted())) {

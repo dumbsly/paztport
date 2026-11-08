@@ -222,6 +222,22 @@ class DispatchCheckTest {
         }
     }
 
+    /**
+     * A filter after Paztport's that includes another operation and then starts async work and dispatches it to the
+     * request's own: the refusal the include owes is written before the async work goes on, and no handler runs.
+     */
+    @Test
+    void dispatchCheckRefusesAnIncludeThenAnAsyncDispatch(@TempDir Path dir) throws Exception {
+        try (Service payment = startPayment(dir, "enforce")) {
+            HttpResponse<String> answer = payment.send("POST", "/charge", "payment#charge", "include-then-async");
+            assertThat(answer.statusCode()).isEqualTo(403);
+            assertThat(answer.body()).isEqualTo("{\"reason\":\"BINDING_MISMATCH\"}");
+            assertThat(RAN).as("neither the confirmed handler nor the other one ran").isEmpty();
+            assertThat(attestation(answer)).as("the refusal is not attested").isNull();
+            assertOneWarning("payment#charge", "payment#refund");
+        }
+    }
+
     /** A filter after Paztport's that starts async work and dispatches it to another operation. */
     @Test
     void dispatchCheckRefusesAnAsyncDispatch(@TempDir Path dir) throws Exception {
@@ -458,7 +474,8 @@ class DispatchCheckTest {
      * Changes the request as the test's header asks: {@code method} turns {@code POST /orders} into
      * {@code DELETE /orders}, {@code path} turns any path into {@code /orders/123}, and {@code forward} forwards the
      * request there. On payment, {@code include} includes {@code POST /charge?mode=refund} in place of the request's
-     * own dispatch, {@code include-twice} does so twice, {@code async} starts async work and dispatches it there, and
+     * own dispatch, {@code include-twice} does so twice, {@code async} starts async work and dispatches it there,
+     * {@code include-then-async} includes it and then starts async work and dispatches it to {@code /charge}, and
      * {@code error} sends an error before any handler runs.
      */
     static final class Rewrite extends OncePerRequestFilter {
@@ -488,6 +505,9 @@ class DispatchCheckTest {
                 request.getRequestDispatcher(REFUND).include(request, response);
             } else if ("async".equals(rewrite)) {
                 request.startAsync().dispatch(REFUND);
+            } else if ("include-then-async".equals(rewrite)) {
+                request.getRequestDispatcher(REFUND).include(request, response);
+                request.startAsync().dispatch("/charge");
             } else if ("error".equals(rewrite)) {
                 response.sendError(HttpServletResponse.SC_SERVICE_UNAVAILABLE);
             } else if ("path".equals(rewrite)) {
