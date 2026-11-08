@@ -9,6 +9,7 @@ import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -18,6 +19,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.TreeSet;
 import org.paztport.core.policy.OperationTable;
 import org.springframework.beans.factory.BeanFactoryUtils;
 import org.springframework.beans.factory.ListableBeanFactory;
@@ -72,12 +74,13 @@ import org.springframework.web.util.ServletRequestPathUtils;
  * {@code name=value}, or the operation with none where the mapping has no {@code params} condition. The context does
  * not start where a mapping on a table entrance has a {@code params} condition that is none of the entrance's, or
  * where an operation is no handler or more than one, as two handlers that the entrance tells apart by headers, media
- * types or a regex are. A mapping that is on no table entrance is allowed: it is reachable only by routes that name
- * no operation. Any other handler, a router function's or a URL-mapped one's, is no operation. Nor does the context
- * start beside a {@link HiddenHttpMethodFilter}, which changes the request's method after the inbound filter has
- * confirmed the operation for the method sent. Any other filter that changes the method, the path or the parameters
- * after the inbound filter is caught as the handler is about to run ({@link DispatchCheck}), which asks this for the
- * operation of the handler the DispatcherServlet chose.
+ * types or a regex are, or where one handler is more than one of an entrance's operations. Two beans that inherit one
+ * handler method are two handlers. A mapping that is on no table entrance is allowed: it is reachable only by routes
+ * that name no operation. Any other handler, a router function's or a URL-mapped one's, is no operation. Nor does
+ * the context start beside a {@link HiddenHttpMethodFilter}, which changes the request's method after the inbound
+ * filter has confirmed the operation for the method sent. Any other filter that changes the method, the path or the
+ * parameters after the inbound filter is caught as the handler is about to run ({@link DispatchCheck}), which asks
+ * this for the operation of the handler the DispatcherServlet chose.
  */
 public final class OperationResolver implements SmartInitializingSingleton {
 
@@ -87,10 +90,19 @@ public final class OperationResolver implements SmartInitializingSingleton {
     private volatile Map<Served, String> operations = Map.of();
 
     /**
-     * Where a handler is served: its Java method, which stays the same in the copy of the handler a mapping answers
-     * for each request with its bean resolved, an HTTP method and a template.
+     * Where a handler is served: its bean's type and its Java method, which both stay the same in the copy of the
+     * handler a mapping answers for each request with its bean resolved, an HTTP method and a template.
      */
-    record Served(Method handler, String method, String template) {
+    record Served(Class<?> beanType, Method handler, String method, String template) {
+
+        /** {@code beanType#name}, the handler as a refusal names it. */
+        String describe() {
+            return beanType.getName() + "#" + handler.getName();
+        }
+    }
+
+    /** A handler as it is told apart from another: its bean's type and its Java method. */
+    private record Handler(Class<?> beanType, Method method) {
     }
 
     /** The handler a request will be dispatched to, and the pattern its mapping sets, either null for none. */
@@ -142,7 +154,7 @@ public final class OperationResolver implements SmartInitializingSingleton {
         if (!(handler instanceof HandlerMethod annotated) || template == null) {
             return null;
         }
-        return operations.get(new Served(annotated.getMethod(), method, template));
+        return operations.get(new Served(annotated.getBeanType(), annotated.getMethod(), method, template));
     }
 
     /**
@@ -243,13 +255,15 @@ public final class OperationResolver implements SmartInitializingSingleton {
 
     /**
      * The operation each annotated handler of {@code mappings} is where it serves one of {@code table}'s entrances,
-     * by its Java method, the HTTP method and the template; refusing a mapping on a table entrance whose
-     * {@code params} condition is none of the entrance's query conditions, and an operation that no handler is, or
-     * more than one. A mapping with no method condition serves each of the table's methods at its templates; one whose
-     * pattern normalises to no template, or that is on no table entrance, is no operation. Handlers are told apart by
-     * their Java method, so two beans that inherit one handler method from a base class are one handler: the same
-     * code runs for either, so it is the same operation. Where more than one refusal applies, the one reported is the
-     * same on every start: the entrances and operations are checked in table order, and handlers by name.
+     * by its bean's type, its Java method, the HTTP method and the template; refusing a mapping on a table entrance
+     * whose {@code params} condition is none of the entrance's query conditions, a handler that is more than one
+     * operation of an entrance, and an operation that no handler is, or more than one. A mapping with no method
+     * condition serves each of the table's methods at its templates; one whose pattern normalises to no template, or
+     * that is on no table entrance, is no operation. Handlers are told apart by their bean's type as well as their
+     * Java method, so two beans that inherit one handler method from a base class are two handlers, as each class's
+     * own mapping conditions may route a request to one and not the other. Where more than one refusal applies, the
+     * one reported is the same on every start: the entrances and operations are checked in table order, and handlers
+     * by name.
      */
     static Map<Served, String> operationsOf(OperationTable table, List<HandlerMapping> mappings) {
         Map<String, List<OperationTable.Operation>> entrances = new LinkedHashMap<>();
@@ -259,7 +273,8 @@ public final class OperationResolver implements SmartInitializingSingleton {
             methodsAt.computeIfAbsent(op.template(), k -> new LinkedHashSet<>()).add(op.method());
         }
         Map<Served, String> operations = new HashMap<>();
-        Map<OperationTable.Operation, Map<Method, HandlerMethod>> handlers = new HashMap<>();
+        Map<Served, Set<String>> named = new HashMap<>();
+        Map<OperationTable.Operation, Map<Handler, HandlerMethod>> handlers = new HashMap<>();
         Map<String, TreeMap<String, String>> unheld = new HashMap<>();
         for (HandlerMapping mapping : mappings) {
             if (!(mapping instanceof RequestMappingInfoHandlerMapping annotated)) {
@@ -288,8 +303,11 @@ public final class OperationResolver implements SmartInitializingSingleton {
                                     unheldCondition(of, info, handler, entrance));
                             continue;
                         }
-                        handlers.computeIfAbsent(op, k -> new LinkedHashMap<>()).put(handler.getMethod(), handler);
-                        operations.put(new Served(handler.getMethod(), method, template), op.name());
+                        handlers.computeIfAbsent(op, k -> new LinkedHashMap<>())
+                                .put(new Handler(handler.getBeanType(), handler.getMethod()), handler);
+                        Served served = new Served(handler.getBeanType(), handler.getMethod(), method, template);
+                        named.computeIfAbsent(served, k -> new TreeSet<>()).add(op.name());
+                        operations.put(served, op.name());
                     }
                 }
             }
@@ -299,6 +317,19 @@ public final class OperationResolver implements SmartInitializingSingleton {
             if (refusals != null) {
                 throw new IllegalStateException(refusals.firstEntry().getValue());
             }
+        }
+        for (String entrance : entrances.keySet()) {
+            named.entrySet().stream()
+                    .filter(e -> e.getValue().size() > 1
+                            && entrance.equals(e.getKey().method() + " " + e.getKey().template()))
+                    .min(Comparator.comparing((Map.Entry<Served, Set<String>> e) -> e.getKey().describe())
+                            .thenComparing(e -> e.getKey().handler().toString()))
+                    .ifPresent(e -> {
+                        throw new IllegalStateException("paztport.operations.table-path: the handler "
+                                + e.getKey().describe() + " is more than one operation of the entrance " + entrance
+                                + ", " + String.join(", ", e.getValue()) + ", so the handler that runs cannot tell "
+                                + "which one a request has; map each of them to a handler of its own");
+                    });
         }
         for (OperationTable.Operation op : table.operations()) {
             List<String> of = new ArrayList<>();

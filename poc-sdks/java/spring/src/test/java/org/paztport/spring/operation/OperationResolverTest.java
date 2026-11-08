@@ -4,7 +4,9 @@
 package org.paztport.spring.operation;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.lang.reflect.Method;
 import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -32,8 +34,11 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.HandlerMapping;
+import org.springframework.web.servlet.mvc.method.RequestMappingInfo;
+import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 
 /**
  * The receiver's operation is the one its framework will dispatch the request to, worked out from Spring's own
@@ -331,6 +336,40 @@ class OperationResolverTest {
                 .run(context -> assertThat(context).getFailure()
                         .hasMessageContaining("paztport.operations.table-path")
                         .hasMessageContaining("getItem").hasMessageContaining("GET /items/{}"));
+    }
+
+    /**
+     * Two beans that inherit one handler method, told apart only by their class-level media types, are two handlers
+     * of {@code pay}: a caller's table cannot tell them apart.
+     */
+    @Test
+    void startRefusesInheritedHandlersToldApartByConsumes(@TempDir Path dir) throws Exception {
+        OperationWorld world = new OperationWorld(dir);
+        world.write(OperationWorld.routes());
+        runPayment(world, List.of(PaymentHandlers.Charges.class, PaymentHandlers.PayJsonSide.class,
+                PaymentHandlers.PayTextSide.class), context -> assertThat(context).getFailure()
+                .hasMessageContaining("paztport.operations.table-path")
+                .hasMessageContaining("the operation pay, POST /pay").hasMessageContaining("more than one handler")
+                .hasMessageContaining("PayJsonSide").hasMessageContaining("PayTextSide"));
+    }
+
+    /** One handler mapped on an entrance under two of its query conditions would be two operations at once. */
+    @Test
+    void startRefusesAHandlerThatIsTwoOperations() throws Exception {
+        RequestMappingHandlerMapping mapping = new RequestMappingHandlerMapping();
+        ChargeOnly bean = new ChargeOnly();
+        Method charge = ChargeOnly.class.getDeclaredMethod("charge");
+        mapping.registerMapping(RequestMappingInfo.paths("/charge").methods(RequestMethod.POST).build(), bean, charge);
+        mapping.registerMapping(RequestMappingInfo.paths("/charge").methods(RequestMethod.POST)
+                .params("mode=refund").build(), bean, charge);
+        OperationTable table = new OperationTable("payment", List.of(
+                new Operation("charge", "POST", "/charge"),
+                new Operation("refund", "POST", "/charge", new OperationTable.Condition("mode", "refund"))));
+        assertThatThrownBy(() -> OperationResolver.operationsOf(table, List.of(mapping)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("paztport.operations.table-path")
+                .hasMessageContaining("ChargeOnly#charge").hasMessageContaining("POST /charge")
+                .hasMessageContaining("charge").hasMessageContaining("refund");
     }
 
     /** Only {@code charge} on {@code POST /charge}: no handler has {@code refund}'s condition. */

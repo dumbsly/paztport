@@ -62,6 +62,66 @@ final class PaymentHandlers {
         }
     }
 
+    /**
+     * {@code POST /charge} and {@code PUT /charge} served by one handler method that two beans inherit, which a
+     * class-level {@code params} condition tells apart: {@link ChargeSide} is {@code charge} and {@code amend}, and
+     * {@link RefundSide} is {@code refund} and {@code amendRefund}. Each answers its own side's name.
+     */
+    abstract static class ChargeBase {
+
+        @PostMapping("/charge")
+        String post() {
+            return ran(side());
+        }
+
+        @PutMapping("/charge")
+        String put() {
+            return ran(side());
+        }
+
+        abstract String side();
+    }
+
+    @RestController
+    static class ChargeSide extends ChargeBase {
+
+        @Override
+        String side() {
+            return "charge side";
+        }
+    }
+
+    @RestController
+    @RequestMapping(params = "mode=refund")
+    static class RefundSide extends ChargeBase {
+
+        @Override
+        String side() {
+            return "refund side";
+        }
+    }
+
+    /** {@code pay} mapped on {@code POST /pay} by one handler method that two beans inherit. */
+    abstract static class PayBase {
+
+        @PostMapping("/pay")
+        String pay() {
+            return ran("pay");
+        }
+    }
+
+    /** {@code pay} for a JSON body, which only its class-level media type tells apart from {@link PayTextSide}. */
+    @RestController
+    @RequestMapping(consumes = "application/json")
+    static class PayJsonSide extends PayBase {
+    }
+
+    /** {@code pay} for a text body, which only its class-level media type tells apart from {@link PayJsonSide}. */
+    @RestController
+    @RequestMapping(consumes = "text/plain")
+    static class PayTextSide extends PayBase {
+    }
+
     /** {@code pay} mapped with no method, so for every method, the table's {@code POST} included. */
     @RestController
     static class PayAnyMethod {

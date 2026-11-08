@@ -318,6 +318,41 @@ class OperationConfigurationTest {
     }
 
     /**
+     * Two beans that inherit one handler method, told apart by a class-level {@code params} condition, are each
+     * their own operation: a chain naming either on the other's request is refused before any handler runs, and one
+     * naming the operation the request has runs that bean.
+     */
+    @Test
+    void inheritedHandlersAreEachTheirOwnOperation(@TempDir Path dir) throws Exception {
+        OperationWorld world = new OperationWorld(dir);
+        PolicyBuilder.Result built = world.write(OperationWorld.routes());
+        PaymentHandlers.RAN.clear();
+        runService(new WebApplicationContextRunner()
+                .withConfiguration(AutoConfigurations.of(WebMvcAutoConfiguration.class,
+                        PaztportAutoConfiguration.class))
+                .withUserConfiguration(PaymentHandlers.ChargeSide.class, PaymentHandlers.RefundSide.class,
+                        PaymentHandlers.PayJson.class),
+                world, "payment", (mvc, context) -> {
+                    int rid = 0;
+                    for (String[] wrong : List.of(new String[] {"/charge", "payment#refund"},
+                            new String[] {"/charge?mode=refund", "payment#charge"})) {
+                        post(mvc, wrong[0], null, null, firstHop(world, built, wrong[1], "POST", wrong[0],
+                                new byte[0], "rid-" + rid++))
+                                .andExpect(status().isForbidden())
+                                .andExpect(content().json("{\"reason\":\"BINDING_MISMATCH\"}", true));
+                    }
+                    assertThat(PaymentHandlers.RAN).as("no handler ran").isEmpty();
+                    for (String[] right : List.of(new String[] {"/charge", "payment#charge", "charge side"},
+                            new String[] {"/charge?mode=refund", "payment#refund", "refund side"})) {
+                        post(mvc, right[0], null, null, firstHop(world, built, right[1], "POST", right[0],
+                                new byte[0], "rid-" + rid++))
+                                .andExpect(status().isOk()).andExpect(content().string(right[2]));
+                    }
+                    assertThat(PaymentHandlers.RAN).containsExactly("charge side", "refund side");
+                });
+    }
+
+    /**
      * A caller matches the raw query, which holds no {@code mode=refund}, so it names {@code charge}; Spring reads the
      * decoded parameter and runs {@code refund}, so the chain is refused.
      */
