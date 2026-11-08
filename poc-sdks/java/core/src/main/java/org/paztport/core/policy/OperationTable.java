@@ -22,7 +22,8 @@ import org.paztport.core.internal.JsonWriter;
 /**
  * A service's operation table, {@code ops-<service>.json}: the operations an HTTP service names, each a method and
  * a path template. A caller that holds the table names the operation each call invokes in its stamp's
- * {@code rcv} ({@code orders#createOrder}), and the receiver confirms it from its own routing with {@link #match}.
+ * {@code rcv} ({@code orders#createOrder}), using {@link #match} to find it. The receiver does not use {@code match}:
+ * it confirms its operation from its own routing, the handler its framework dispatches to.
  *
  * <p>The signed root covers a table as the route {@code <service>/ops:<hash>}, see {@link #route()}, and a service
  * and its callers must not use a table the root does not cover, see {@link #coveredBy}. The service's own bundle

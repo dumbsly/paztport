@@ -252,6 +252,11 @@ names another operation than the one the request will reach fails check 4, `BIND
 for another receiver does, and spends no nonce key. A receiver whose chain names no operation supplies its own
 name alone, and the policy says whether a route that names no operation is allowed.
 
+Only the receiver can confirm its operation: a later verifier sees the operation a chain names, not the handler that
+ran. So where a hop serves a request it does not refuse (in `audit` mode, or without verifying), a chain that names
+another operation than the one that hop dispatched to travels on, and later hops accept it, where a chain signed for
+another receiver fails check 4 at every later hop.
+
 **At a partner, in an attested session.** The verifier is the session's own: its config is the keyring and root
 the client presented in the handshake, pinned under the client policy key the partner pinned, with `sess` = the
 session id, the client's allowed origins, and the partner's own windows and nonce cache. A keyring or root past
