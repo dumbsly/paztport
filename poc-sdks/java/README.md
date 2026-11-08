@@ -380,10 +380,13 @@ hands a session request's body to `HttpSessions.serve`.
   other URL-mapped handlers have no operation. A partner's entry names none.
 
   A filter that changes the request's method or path after Paztport's filter has
-  run defeats this confirmation, as the handler that then runs is not the one
-  confirmed. For this reason a service with its own table does not start beside
-  Spring's method-override filter, `HiddenHttpMethodFilter`
-  (`spring.mvc.hiddenmethod.filter.enabled`).
+  run makes another handler run than the one confirmed. Such a filter is caught
+  when the handler is about to run: the operation is worked out again from that
+  handler's pattern, and where it differs the request is refused
+  `403 {"reason":"BINDING_MISMATCH"}` (in `audit`, served), with one warning
+  naming both operations. Spring's method-override filter,
+  `HiddenHttpMethodFilter` (`spring.mvc.hiddenmethod.filter.enabled`), is also
+  refused at start: a service with its own table does not start beside it.
 
   Under `server.servlet.context-path` no operation matches: callers match the
   full raw path, context path included, so such calls are refused at the source.

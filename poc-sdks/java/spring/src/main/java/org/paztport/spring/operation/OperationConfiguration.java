@@ -21,6 +21,9 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.Ordered;
+import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
+import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
 /**
  * Reads {@code paztport.operations.*}: this service's own operation table and its receivers' tables, each used only
@@ -29,7 +32,9 @@ import org.springframework.context.annotation.Configuration;
  *
  * <ul>
  *   <li>The service's own table must be this service's and covered, or the context does not start. Once the handler
- *       mappings are known, each of its operations must be one of them ({@link OperationResolver}).
+ *       mappings are known, each of its operations must be one of them ({@link OperationResolver}). Each request's
+ *       handler is checked, as it is about to run, against the operation the request was verified for
+ *       ({@link DispatchCheck}).
  *   <li>A receiver's table the bundle holds no proof for is set aside, with one line naming the receiver, and calls
  *       to that receiver name no operation: the receiver then needs a route that names none, so this fails closed.
  *       The receivers' tables are read where the caller is built, so on a service that makes calls
@@ -72,6 +77,24 @@ public class OperationConfiguration {
         }
         requireVerified(own, proofs, trust.getObject().roots(), OWN, file);
         return new OperationResolver(own, beans);
+    }
+
+    /**
+     * The check, as each handler is about to run, that it is the operation the inbound filter verified the request
+     * for ({@link DispatchCheck}), on a service that names its own operations. It is an interceptor so
+     * that it sees the handler the DispatcherServlet chose after every filter has run, and it comes before the
+     * application's interceptors, so that none of them acts on a request it refuses.
+     */
+    @Bean
+    @ConditionalOnProperty("paztport.operations.table-path")
+    WebMvcConfigurer paztportDispatchCheck(OperationResolver operations, PaztportProperties props) {
+        DispatchCheck check = new DispatchCheck(operations, props.getServiceName());
+        return new WebMvcConfigurer() {
+            @Override
+            public void addInterceptors(InterceptorRegistry registry) {
+                registry.addInterceptor(check).order(Ordered.HIGHEST_PRECEDENCE);
+            }
+        };
     }
 
     /**

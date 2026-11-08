@@ -52,7 +52,9 @@ import org.springframework.web.util.ServletRequestPathUtils;
  * must be an annotated handler mapping, a method (or none, which takes every method) and a pattern that normalises
  * to the operation's template, or the context does not start. A mapping that is in no table is allowed: it is
  * reachable only by routes that name no operation. Nor does the context start beside a {@link HiddenHttpMethodFilter},
- * which changes the request's method after the inbound filter has confirmed the operation for the method sent.
+ * which changes the request's method after the inbound filter has confirmed the operation for the method sent. Any
+ * other filter that changes the method or the path after the inbound filter is caught as the handler is about to run
+ * ({@link DispatchCheck}), which asks this for the operation of the handler the DispatcherServlet chose.
  */
 public final class OperationResolver implements SmartInitializingSingleton {
 
@@ -90,8 +92,17 @@ public final class OperationResolver implements SmartInitializingSingleton {
      * were afterwards.
      */
     public String operationFor(HttpServletRequest request) {
-        String template = template(patternFor(request));
-        return template == null ? null : table.operationFor(request.getMethod(), template);
+        return operationAt(request.getMethod(), patternFor(request));
+    }
+
+    /**
+     * The name of the operation in this service's table for {@code method} and a handler's {@code pattern}, or null
+     * when the pattern is null, normalises to no template, or is at a template the table has no operation at for
+     * that method.
+     */
+    String operationAt(String method, String pattern) {
+        String template = template(pattern);
+        return template == null ? null : table.operationFor(method, template);
     }
 
     /**

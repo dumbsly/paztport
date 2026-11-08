@@ -7,6 +7,7 @@ import io.micrometer.observation.Observation;
 import io.micrometer.observation.ObservationRegistry;
 import jakarta.servlet.AsyncEvent;
 import jakarta.servlet.AsyncListener;
+import jakarta.servlet.DispatcherType;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -32,6 +33,7 @@ import org.paztport.http.wire.PaztportHeaders;
 import org.paztport.spring.internal.ObservedValues;
 import org.paztport.spring.internal.PeerIdentity;
 import org.paztport.spring.internal.Refusals;
+import org.paztport.spring.internal.VerifiedOperation;
 import org.paztport.spring.observation.PaztportObservation;
 import org.paztport.spring.operation.OperationResolver;
 import org.springframework.web.filter.OncePerRequestFilter;
@@ -66,6 +68,9 @@ import org.springframework.web.util.ContentCachingResponseWrapper;
  * <p>On a service that names its operations, the filter hands the receiver the operation the request will be
  * dispatched to, which {@link OperationResolver} works out from Spring's handler mappings before the receiver
  * verifies and before the handler runs. A chain naming another operation is then refused {@code BINDING_MISMATCH}.
+ * Where it verified the request under {@code audit} or {@code enforce}, it records that operation on the request
+ * ({@link VerifiedOperation}), so that a later filter which changes the method or the path, and so the handler, is
+ * caught as the handler is about to run.
  *
  * <p>The control plane ({@link #controlPlane}) is not filtered, so it is not observed.
  */
@@ -173,6 +178,12 @@ public final class InboundFilter extends OncePerRequestFilter {
             if (accepted.refusal() != null) {
                 Refusals.write(response, accepted.refusal());
                 return;
+            }
+            if (operations != null && mode != VerificationMode.OFF
+                    && request.getDispatcherType() == DispatcherType.REQUEST) {
+                // Read as the handler is about to run, which catches a later filter that changes the handler.
+                request.setAttribute(VerifiedOperation.ATTRIBUTE,
+                        new VerifiedOperation(operation, mode == VerificationMode.ENFORCE));
             }
             if (!accepted.attests()) {
                 chain.doFilter(wrapped, response);
