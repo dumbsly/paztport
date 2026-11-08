@@ -95,4 +95,26 @@ class CachedBodyHttpServletRequestTest {
         assertThat(new String(view.getInputStream().readAllBytes(), StandardCharsets.UTF_8))
                 .isEqualTo("field=hello");
     }
+
+    @Test
+    void unknownCharsetFallsBackToIso88591() {
+        for (String label : new String[] {"bogus", "not a charset!"}) {
+            CachedBodyHttpServletRequest request =
+                    cached(container("POST", FORM + "; charset=" + label), "n=caf%C3%A9");
+            assertThat(request.getParameter("n")).as(label).isEqualTo("caf\u00c3\u00a9");
+        }
+    }
+
+    @Test
+    void readerWithUnknownCharsetFallsBackToUtf8() throws Exception {
+        CachedBodyHttpServletRequest request = cached(container("POST", "text/plain; charset=bogus"), "caf\u00e9");
+        assertThat(request.getReader().readLine()).isEqualTo("caf\u00e9");
+    }
+
+    @Test
+    void malformedEscapeDropsOnlyThatField() {
+        CachedBodyHttpServletRequest request = cached(container("POST", FORM), "a=%zz&b=1");
+        assertThat(request.getParameter("a")).isNull();
+        assertThat(request.getParameter("b")).isEqualTo("1");
+    }
 }

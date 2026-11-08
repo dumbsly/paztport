@@ -119,9 +119,7 @@ final class CachedBodyHttpServletRequest extends HttpServletRequestWrapper {
         if (!"POST".equals(getMethod()) || !isForm(getContentType())) {
             return Map.of();
         }
-        Charset charset = getCharacterEncoding() != null
-                ? Charset.forName(getCharacterEncoding())
-                : StandardCharsets.ISO_8859_1;
+        Charset charset = encoding(StandardCharsets.ISO_8859_1);
         if (form == null || !charset.equals(formCharset)) {
             Map<String, List<String>> fields = new LinkedHashMap<>();
             for (String pair : new String(body, charset).split("&")) {
@@ -136,13 +134,26 @@ final class CachedBodyHttpServletRequest extends HttpServletRequestWrapper {
                     String decodedValue = URLDecoder.decode(value, charset);
                     fields.computeIfAbsent(decodedName, n -> new ArrayList<>()).add(decodedValue);
                 } catch (IllegalArgumentException malformedEscape) {
-                    // As the container does, leaves out a field whose escape is malformed.
+                    // Leaves out a field whose escape is malformed rather than failing the whole request.
                 }
             }
             form = fields;
             formCharset = charset;
         }
         return form;
+    }
+
+    /** The request's character encoding, or {@code fallback} when it sets none or names one this JVM lacks. */
+    private Charset encoding(Charset fallback) {
+        String label = getCharacterEncoding();
+        if (label == null) {
+            return fallback;
+        }
+        try {
+            return Charset.forName(label);
+        } catch (IllegalArgumentException unknown) {
+            return fallback;
+        }
     }
 
     private static boolean isForm(String contentType) {
@@ -182,9 +193,7 @@ final class CachedBodyHttpServletRequest extends HttpServletRequestWrapper {
 
     @Override
     public BufferedReader getReader() {
-        Charset charset = getCharacterEncoding() != null
-                ? Charset.forName(getCharacterEncoding())
-                : StandardCharsets.UTF_8;
+        Charset charset = encoding(StandardCharsets.UTF_8);
         return new BufferedReader(new InputStreamReader(new ByteArrayInputStream(body), charset));
     }
 
