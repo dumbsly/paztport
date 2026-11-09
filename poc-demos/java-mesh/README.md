@@ -790,7 +790,7 @@ What the numbers say:
 - **The proof of legitimacy is effectively free.** Its walk costs about 1% of one
   Ed25519 verify. Of the primitives, nearly all the cost is Ed25519: a verify per
   stamp, and a signature per stamp a hop adds.
-- **Stock JDK Ed25519 is the slow part.** Optimized native implementations, which
+- **Stock JDK Ed25519 is the slow part.** Optimised native implementations, which
   this repository doesn't benchmark, do tens of microseconds, about 5–10× faster.
   A hot-path deployment would swap the signature implementation; the Merkle
   machinery wouldn't change.

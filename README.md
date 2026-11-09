@@ -46,7 +46,7 @@ the signed events the rejection produces.
   the search service gets the search service, not the payment system behind it.
 - **It keeps your blueprint private.** How your systems connect is exactly the map
   an attacker wants. Paztport checks routes without ever publishing them. The same
-  design is meant to let two organizations trust each other's calls without
+  design is meant to let two organisations trust each other's calls without
   swapping architecture diagrams.
 - **It makes an automatic response possible and keeps the evidence.** The signed
   events name the offending machine, so a responder can act on them. The demo's
@@ -565,8 +565,8 @@ These are design directions, except where a bullet says what is built.
   handshake, influence tracking and response attestation are built in the
   TypeScript SDK and [the agents demo](poc-demos/agents-mcp/README.md), against a
   mock MCP server. Still open: running it in a production agent runtime.
-- **Async boundaries.** Treat a queue like another organization: attest and
-  summarize at enqueue, carry a compact signed commitment plus the broker's message
+- **Async boundaries.** Treat a queue like another organisation: attest and
+  summarise at enqueue, carry a compact signed commitment plus the broker's message
   ID, and let the message ID replace the timestamp as the anti-replay key. Fan-in
   (joins) is the open frontier and likely needs its own commitment structure.
 - **Scale.** A forest of sub-roots partitioned by destination keeps every proof at
@@ -580,7 +580,7 @@ These are design directions, except where a bullet says what is built.
   the signed bytes and the nonce key) that a replayer can't forge. The same
   verifiable `rid` could own leases on declared intent keys, giving path-scoped
   concurrency control at the attested boundary.
-- **Cross-organization trust.** Publish signed roots, never trees. An egress
+- **Cross-organisation trust.** Publish signed roots, never trees. An egress
   gateway verifies the internal chain and emits one boundary attestation. The
   boundary attestation is implemented in the Java demo (see
   [the storyline](poc-demos/java-mesh/README.md#the-support-assistant-storyline)).
@@ -615,8 +615,8 @@ its own; its README has the commands.
 ```
 paztport/
 ├── LICENSE, NOTICE           Apache-2.0, copyright
-├── THIRD-PARTY.txt           runtime dependencies and their licenses (generated)
-├── licenses/                 licence texts the bundling jars carry, and the license plugin's shared settings
+├── THIRD-PARTY.txt           runtime dependencies and their licences (generated)
+├── licenses/                 licence texts the bundling jars carry, and the licence plugin's shared settings
 ├── run                       front door: java-mesh, envoy-gateway, agents-mcp, test, bench
 ├── poc-sdks/
 │   ├── spec/                 the protocol spec, and vectors/: v3.json, which every SDK replays (Java and Go all of it but the MCP profile); http-v3.json, Java's and Go's; events.json and json.json, all three's
@@ -653,7 +653,7 @@ paztport/
     an Envoy Gateway, its chart, and the checks on a local kind cluster.
   - [poc-demos/agents-mcp](poc-demos/agents-mcp/README.md): the agent and MCP demo.
 
-## License and third-party software
+## Licence and third-party software
 
 Copyright 2026 The Paztport Authors. Licensed under Apache-2.0 (see
 [LICENSE](LICENSE) and [NOTICE](NOTICE)). Its explicit patent grant protects
@@ -684,7 +684,7 @@ Regenerate the list after changing dependencies:
 poc-sdks/scripts/third-party.sh
 ```
 
-The script runs the license plugin in both Java trees, the SDK and the mesh demo
+The script runs the licence plugin in both Java trees, the SDK and the mesh demo
 (which adds docker-java and its dependencies, Spring Boot's loader, and Spring Boot's
 Actuator and Micrometer's Prometheus registry with their dependencies), and merges
 the two lists into `THIRD-PARTY.txt`, sorted by name without duplicates.
