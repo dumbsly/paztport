@@ -181,9 +181,10 @@ Why it's built this way:
   recomputes `bind` from the request it got and compares it to the **last** stamp.
   A chain copied from a real request and spliced onto a malicious body no longer
   matches.
-- **Receiver binding, request binding and, with mTLS, the peer check** stop anyone but the signer using a
-  stamp; a nonce cache refuses the signer's second sending on the replica that saw the first, and the 5 s window
-  bounds how long it remembers.
+- **Receiver binding, request binding and, with mTLS, the peer check** stop anyone
+  but the signer using a stamp; a nonce cache refuses the signer's second sending on
+  the replica that saw the first, and forgets a key after 15 s, at least twice the
+  5 s window.
 
 The Java and Go SDKs sign them over HTTP (the Java mesh, the Envoy Gateway edge), and the TypeScript SDK
 over MCP (the agents demo).
@@ -619,7 +620,7 @@ paztport/
 ├── licenses/                 licence texts the bundling jars carry, and the licence plugin's shared settings
 ├── run                       front door: java-mesh, envoy-gateway, agents-mcp, test, bench
 ├── poc-sdks/
-│   ├── spec/                 the protocol spec, and vectors/: v3.json, which every SDK replays (Java and Go all of it but the MCP profile); http-v3.json, Java's and Go's; events.json, all three's; json.json, TypeScript's in full, Java's and Go's but the MCP profile's sections
+│   ├── spec/                 the protocol spec, and vectors/: v3.json, which every SDK replays (Java and Go all of it but the MCP profile); http-v3.json, Java's and Go's; events.json, all three's; json.json, TypeScript's but its http bindings, Java's and Go's but the MCP profile's sections
 │   ├── scripts/              name check, link check, jar check, tests for ./run, THIRD-PARTY.txt regeneration
 │   ├── java/                 core, http, spring (paztport-core, paztport-http, paztport-spring), tools/keygen, tools/policy-tool, tools/bench
 │   ├── typescript/           core, mcp (@paztport/core, @paztport/mcp), policy-tool
