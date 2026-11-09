@@ -131,7 +131,7 @@ class PartnerSessionsBuilderTest {
     }
 
     @Test
-    void theOperationsSwitchedOffAreTheOnesTheRepliesList() {
+    void theEndpointsSwitchedOffAreTheOnesTheRepliesList() {
         PartnerSessions sessions = sound().unsafeDisabled(List.of("POST /refund")).build();
 
         assertEquals(List.of("POST /refund"), sessions.unsafeEndpoints().disabled());

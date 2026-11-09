@@ -63,7 +63,7 @@ import org.slf4j.LoggerFactory;
  *
  * <p>A session is attested only when {@link Sessions#status} says so: the client's root and keyring verify under a
  * policy key this side has pinned out of band, and they and this side's own root and keyring are current. So a
- * partner left running past its own material degrades to unsafe sessions, disabled operations refused and the rest
+ * partner left running past its own material degrades to unsafe sessions, disabled endpoints refused and the rest
  * served as for any unattested caller, rather than stopping. An attested session gets its own verifier, pinned to the
  * client's keyring and root from the handshake, with the session id as its {@code sess}, so a stamp made in one
  * session never verifies in another, and with their earlier window, so every call in it is refused
@@ -329,13 +329,13 @@ public final class PartnerSessions {
         }
     }
 
-    /** The operations an unsafe session may not perform, as the reply lists them. */
+    /** The endpoints an unsafe session may not perform, as the reply lists them. */
     List<String> unsafeDisabled() {
         return unsafeDisabled;
     }
 
     /**
-     * The rule over the operations an unsafe session may not perform: the same list the replies name, so that what
+     * The rule over the endpoints an unsafe session may not perform: the same list the replies name, so that what
      * a client is told it may not do and what is refused are one list.
      */
     public UnsafeEndpoints unsafeEndpoints() {
@@ -459,8 +459,8 @@ public final class PartnerSessions {
         }
 
         /** What an unsafe session may not do, as {@code <METHOD> <path pattern>}; the reply tells the client. */
-        public Builder unsafeDisabled(List<String> operations) {
-            this.unsafeDisabled = List.copyOf(operations);
+        public Builder unsafeDisabled(List<String> endpoints) {
+            this.unsafeDisabled = List.copyOf(endpoints);
             return this;
         }
 

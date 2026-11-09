@@ -14,28 +14,28 @@ import org.junit.jupiter.api.Test;
 /** Which requests an unsafe session may not make: by method and dispatched path pattern. */
 class UnsafeEndpointsTest {
 
-    private final UnsafeEndpoints ops = new UnsafeEndpoints(List.of("POST /refund", "GET /cards/{id}"));
+    private final UnsafeEndpoints endpoints = new UnsafeEndpoints(List.of("POST /refund", "GET /cards/{id}"));
 
     @Test
     void anEndpointIsTheMethodAndThePathPattern() {
-        assertTrue(ops.refuses("POST", "/refund"));
-        assertTrue(ops.refuses("GET", "/cards/{id}"));
-        assertFalse(ops.refuses("GET", "/refund"), "another method on the same path pattern");
-        assertFalse(ops.refuses("POST", "/cards/{id}"));
-        assertFalse(ops.refuses("POST", "/refunds"));
+        assertTrue(endpoints.refuses("POST", "/refund"));
+        assertTrue(endpoints.refuses("GET", "/cards/{id}"));
+        assertFalse(endpoints.refuses("GET", "/refund"), "another method on the same path pattern");
+        assertFalse(endpoints.refuses("POST", "/cards/{id}"));
+        assertFalse(endpoints.refuses("POST", "/refunds"));
     }
 
     // The pattern is the dispatched handler's, so a path the caller wrote that is not the pattern is not matched.
     @Test
     void thePatternIsMatchedAsWrittenNotAsAPath() {
-        assertFalse(ops.refuses("GET", "/cards/7"));
-        assertFalse(ops.refuses("POST", "/refund;x=1"));
+        assertFalse(endpoints.refuses("GET", "/cards/7"));
+        assertFalse(endpoints.refuses("POST", "/refund;x=1"));
     }
 
     @Test
     void aHeadIsRefusedWhereItsGetIs() {
-        assertTrue(ops.refuses("HEAD", "/cards/{id}"));
-        assertFalse(ops.refuses("HEAD", "/refund"), "no GET /refund is switched off");
+        assertTrue(endpoints.refuses("HEAD", "/cards/{id}"));
+        assertFalse(endpoints.refuses("HEAD", "/refund"), "no GET /refund is switched off");
     }
 
     @Test
