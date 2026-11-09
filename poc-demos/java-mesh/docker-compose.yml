@@ -79,7 +79,7 @@ services:
         JAR: poc-sdks/java/tools/keygen/target/keygen.jar
     volumes:
       - ./out/keys:/out/keys
-    command: ["/out/keys", "gateway", "orders", "payment", "search", "tickets", "assistant", "mailer", "--org", "shop"]
+    command: ["/out/keys", "gateway", "orders", "payment", "search", "tickets", "assistant", "mailer", "--tls-only", "operator", "responder", "--org", "shop"]
 
   keygen-psp:
     profiles: ["tools"]

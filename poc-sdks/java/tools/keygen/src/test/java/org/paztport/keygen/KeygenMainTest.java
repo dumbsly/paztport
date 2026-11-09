@@ -165,8 +165,7 @@ class KeygenMainTest {
 
     @Test
     void tlsOnlyMeansTheSameWhicheverSideOfOrgItIsOn() {
-        assertEquals(List.of("operator", "responder"),
-                KeygenMain.parse(new String[] {"out", "a", "--org", "x"}).tlsOnly());
+        assertEquals(List.of(), KeygenMain.parse(new String[] {"out", "a", "--org", "x"}).tlsOnly());
         assertEquals(List.of(), KeygenMain.parse(new String[] {"out", "--org", "x", "a", "--tls-only"}).tlsOnly());
         assertEquals(List.of(), KeygenMain.parse(new String[] {"out", "a", "--tls-only", "--org", "x"}).tlsOnly());
         assertEquals(

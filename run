@@ -260,7 +260,7 @@ cmd_test() {
   # skipping.
   test_keys="$(mktemp -d)"
   trap 'rm -rf "$test_keys"' EXIT
-  "$maven_java" -jar poc-sdks/java/tools/keygen/target/keygen.jar "$test_keys" gateway orders payment search --org shop >/dev/null
+  "$maven_java" -jar poc-sdks/java/tools/keygen/target/keygen.jar "$test_keys" gateway orders payment search --tls-only operator responder --org shop >/dev/null
   install_ts_sdk
   install_ts_demo
   # Type-check both workspaces first: vitest strips types, so type-level guards hold only under tsc.

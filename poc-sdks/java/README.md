@@ -756,7 +756,7 @@ One-shot job, `keygen <outDir> <service>... [--tls-only name...] --org <name>`:
   `ca/ca.key`, outside `tls/`, so it sits apart from the certificates and keys that
   services mount (each service mounts only its own files, one by one);
 - `tls/ca.crt`, and `tls/<name>.crt` and `.key` for every service and every
-  TLS-only name (default `operator` and `responder`), which get a certificate but
+  TLS-only name (those after `--tls-only`; none if it is left out), which get a certificate but
   no stamp key, so they never enter the keyring. Certificates are ECDSA P-256 with
   `CN` and a DNS `SAN` of the name, subject and authority key identifiers, and are
   valid as both server and client;

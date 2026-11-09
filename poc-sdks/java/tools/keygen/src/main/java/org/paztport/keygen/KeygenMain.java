@@ -28,9 +28,8 @@ import org.paztport.core.policy.KeyringFile;
  *
  * <pre>keygen &lt;outDir&gt; &lt;service&gt;... [--tls-only name...] --org &lt;name&gt;</pre>
  *
- * The output directory, at least one service and the organisation, which names the CA, are required. The TLS-only
- * names default to {@code operator} and {@code responder} (they speak mTLS but sign no stamps, so stay out of the
- * keyring); {@code --tls-only} with no names means none.
+ * The output directory, at least one service and the organisation, which names the CA, are required. TLS-only
+ * names, which speak mTLS but sign no stamps and so stay out of the keyring, are made only when named.
  * One CA is made per run and every certificate is issued from it. {@code tls/} holds {@code ca.crt} and the leaf
  * certificates and keys, and is what gets mounted; the CA key is written alone to {@code ca/ca.key}. {@code ca} is
  * therefore not a usable name, and names must be unique across services and TLS-only names. Only names are
@@ -44,7 +43,6 @@ import org.paztport.core.policy.KeyringFile;
  */
 public final class KeygenMain {
 
-    private static final List<String> DEFAULT_TLS_ONLY = List.of("operator", "responder");
     private static final Duration TLS_VALIDITY = Duration.ofDays(825);
     private static final long DAY_MS = 86_400_000L;
 
@@ -147,18 +145,16 @@ public final class KeygenMain {
     }
 
     /**
-     * Needs the output directory, one service or more, and {@code --org}. {@code --tls-only} with no names means
-     * none; leaving it out means the defaults, whatever the flag order.
+     * Needs the output directory, one service or more, and {@code --org}. The names after {@code --tls-only} are the
+     * TLS-only identities, whatever the flag order; without them there are none.
      */
     static Args parse(String[] args) {
         List<String> positional = new ArrayList<>();
         List<String> tlsOnly = new ArrayList<>();
         String org = null;
-        boolean sawTlsOnly = false;
         boolean inTlsOnly = false;
         for (int i = 0; i < args.length; i++) {
             if (args[i].equals("--tls-only")) {
-                sawTlsOnly = true;
                 inTlsOnly = true;
             } else if (args[i].equals("--org")) {
                 if (i + 1 >= args.length) {
@@ -179,7 +175,7 @@ public final class KeygenMain {
             throw new IllegalArgumentException("needs --org");
         }
         return new Args(Path.of(positional.get(0)), List.copyOf(positional.subList(1, positional.size())),
-                sawTlsOnly ? tlsOnly : DEFAULT_TLS_ONLY, org);
+                tlsOnly, org);
     }
 
     public static void main(String[] args) throws IOException {
