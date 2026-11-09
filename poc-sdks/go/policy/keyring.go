@@ -160,10 +160,10 @@ func (kf KeyringFile) File() ([]byte, error) {
 	return b, nil
 }
 
-// routeNodes reports whether every name in services is a route node.
+// routeNodes reports whether every name in services is a valid service name: a route node holding no '#'.
 func routeNodes(services map[string]string) bool {
 	for name := range services {
-		if ValidNode(name) != nil {
+		if ValidService(name) != nil {
 			return false
 		}
 	}

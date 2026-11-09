@@ -872,3 +872,28 @@ func TestNextLooksUpTheRouteFromRcv(t *testing.T) {
 	}
 	proofFor(t, p, "")
 }
+
+// TestStamperRefusesHashInSvc refuses to sign as a service whose name holds '#', which would imitate a
+// service and operation.
+func TestStamperRefusesHashInSvc(t *testing.T) {
+	_, _, err := stamper("orders#createOrder", ordersKey, true).Next(nil, "payment", "b1", nil, bundle())
+	if err == nil {
+		t.Fatal("Next signed as a service named with '#'")
+	}
+	if !strings.Contains(err.Error(), "svc") {
+		t.Errorf("Next = %v, want a refusal of the svc", err)
+	}
+}
+
+// TestStamperRefusesMalformedRcv refuses to sign a receiver that is not a service, or a service, '#' and an
+// operation name.
+func TestStamperRefusesMalformedRcv(t *testing.T) {
+	for _, rcv := range []string{"payment#", "a#b#c", "#pay"} {
+		_, _, err := stamper("gateway", gatewayKey, true).Next(nil, rcv, "b1", nil, bundle())
+		if err == nil {
+			t.Errorf("Next signed for the rcv %q", rcv)
+		} else if !strings.Contains(err.Error(), "rcv") {
+			t.Errorf("Next(%q) = %v, want a refusal of the rcv", rcv, err)
+		}
+	}
+}

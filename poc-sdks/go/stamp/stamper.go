@@ -135,11 +135,11 @@ func (s *Stamper) sign(rid, sess, rcv, bind string, infl []influence.Entry, prev
 	if s.Now == nil {
 		return Stamp{}, errors.New("paztport stamp: Stamper.Now must be a clock")
 	}
-	if err := policy.ValidNode(s.Svc); err != nil {
-		return Stamp{}, fmt.Errorf("paztport stamp: can't sign: the svc is not a route node: %w", err)
+	if err := policy.ValidService(s.Svc); err != nil {
+		return Stamp{}, fmt.Errorf("paztport stamp: can't sign: the svc is not a service name: %w", err)
 	}
-	if err := policy.ValidNode(rcv); err != nil {
-		return Stamp{}, fmt.Errorf("paztport stamp: can't sign: the rcv is not a route node: %w", err)
+	if err := policy.ValidReceiver(rcv); err != nil {
+		return Stamp{}, fmt.Errorf("paztport stamp: can't sign: the rcv is not a receiver: %w", err)
 	}
 	commit, err := influence.Commit(infl)
 	if err != nil {

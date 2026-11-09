@@ -805,3 +805,50 @@ func TestAddressedTo(t *testing.T) {
 		}
 	}
 }
+
+// TestKeyringRefusesHashInService refuses a keyring naming a service with '#': the character separates a
+// service from an operation in a stamp's rcv, so a service name holding it could imitate the pair.
+func TestKeyringRefusesHashInService(t *testing.T) {
+	_, pub := vectors.V3Key(t, "pi")
+	key := `"` + keys.EncodePublic(pub) + `"`
+	for _, name := range []string{"orders#createOrder", "#", "a#"} {
+		text := keyringText("1798761600000", key, `{"`+name+`": `+key+`}`, `"sig"`, "")
+		if kf, err := policy.ParseKeyringFile([]byte(text)); err == nil {
+			t.Errorf("ParseKeyringFile kept the service %q: %+v", name, kf)
+		} else if strings.Contains(err.Error(), name) {
+			t.Errorf("the refusal quotes the service: %v", err)
+		}
+	}
+}
+
+// TestValidService accepts a route node holding no '#', and refuses one that does, without quoting it.
+func TestValidService(t *testing.T) {
+	for _, name := range []string{"orders", "mcp:github.create", "\xc3\xa9"} {
+		if err := policy.ValidService(name); err != nil {
+			t.Errorf("ValidService(%q) = %v, want nil", name, err)
+		}
+	}
+	for _, name := range []string{"", "..", "a/b", "secret#node", "#", "\xff"} {
+		if err := policy.ValidService(name); err == nil {
+			t.Errorf("ValidService(%q) = nil, want an error", name)
+		} else if len(name) > 2 && strings.Contains(err.Error(), name) {
+			t.Errorf("ValidService(%q) = %v, which quotes the name", name, err)
+		}
+	}
+}
+
+// TestValidReceiver accepts a service, or a service, '#' and an operation that is a valid service name.
+func TestValidReceiver(t *testing.T) {
+	for _, rcv := range []string{"payment", "payment#charge", "orders#create.Order"} {
+		if err := policy.ValidReceiver(rcv); err != nil {
+			t.Errorf("ValidReceiver(%q) = %v, want nil", rcv, err)
+		}
+	}
+	for _, rcv := range []string{"", "payment#", "#pay", "#", "a#b#c", "a#..", "a#b/c", "a/b#c", "..#c", "\xff"} {
+		if err := policy.ValidReceiver(rcv); err == nil {
+			t.Errorf("ValidReceiver(%q) = nil, want an error", rcv)
+		} else if len(rcv) > 3 && strings.Contains(err.Error(), rcv) {
+			t.Errorf("ValidReceiver(%q) = %v, which quotes the receiver", rcv, err)
+		}
+	}
+}
