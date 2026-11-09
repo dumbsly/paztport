@@ -127,8 +127,8 @@ partner, in the session the caller names. `Accepted.result()` is the
 verification result the decision rests on, or null where none ran, for an
 adapter to report; `PartnerAccepted.result()` is the same for a partner's call.
 The caller is never told it. `Accepted.delivery()` is the request's `Delivery`
-(`rid`, the last signer's `svc` and the last stamp's `bind`), or null unless its
-chain passed the live order at this in-mesh hop; it is the key for the
+(`rid`, the last signer's `svc`, the receiver the last stamp names as `rcv`, with the operation when it names one,
+and the last stamp's `bind`), or null unless its chain passed the live order at this in-mesh hop; it is the key for the
 application's own idempotency handling, which a duplicate delivery needs (a
 proxy's retry reaches another replica with its own cache). The same key and
 `bind` is the same request sent again by that signer; the same key with another

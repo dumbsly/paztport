@@ -6,6 +6,7 @@ package org.paztport.http;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -575,10 +576,47 @@ class HttpReceiverTest {
 
         assertNull(accepted.cacheFailure());
         List<Stamp> chain = accepted.verifiedChain();
-        assertEquals(new Delivery(chain.get(0).rid(), "orders", RequestBinding.compute("POST", "/pay", TO_PAYMENT)),
+        assertEquals(new Delivery(chain.get(0).rid(), "orders", "payment",
+                RequestBinding.compute("POST", "/pay", TO_PAYMENT)),
                 accepted.delivery());
-        assertEquals(new Delivery("rid-1", chain.get(chain.size() - 1).svc(), chain.get(chain.size() - 1).bind()),
-                accepted.delivery());
+        assertEquals(new Delivery("rid-1", chain.get(chain.size() - 1).svc(), chain.get(chain.size() - 1).rcv(),
+                chain.get(chain.size() - 1).bind()), accepted.delivery());
+    }
+
+    @Test
+    void twoOperationsOfOneReceiverInOneTreeAreTwoDeliveryKeys() {
+        PolicyBuilder.Result ops = PolicyBuilder.build(
+                List.of(List.of("gateway", "orders", "payment#charge"), List.of("gateway", "orders", "payment#refund")),
+                4, NOT_AFTER, Crypto.generateEd25519KeyPair().getPrivate());
+        long notAfter = ops.signedRoot().notAfter();
+        Verifier verifier = new Verifier(new VerifierConfig(
+                List.of(new PinnedKeyring(Keyring.of(Map.of("gateway", gateway.getPublic(), "orders",
+                        orders.getPublic())), notAfter)),
+                List.of(new PinnedRoot(ops.signedRoot().rootBytes(), ops.signedRoot().rootId(), notAfter)),
+                notAfter, Set.of("gateway"), "", new InMemoryNonceCache(), () -> NOW, 5000, 5000));
+        HttpReceiver receiver = HttpReceiver.builder("payment").verifier(verifier).verifyRequests(true)
+                .publisher(events).build();
+        Stamper.Stamped gw = new Stamper("gateway", "gw-1", gateway.getPrivate(), true, () -> "rid-1", () -> NOW)
+                .next(null, "orders", RequestBinding.compute("POST", "/orders", "{}".getBytes()), List.of(),
+                        ops.bundles().get("gateway"));
+        Delivery[] deliveries = new Delivery[2];
+        String[] operations = {"payment#charge", "payment#refund"};
+        for (int i = 0; i < operations.length; i++) {
+            Stamper.Stamped ord = new Stamper("orders", "ord-1", orders.getPrivate(), false, () -> "x", () -> NOW)
+                    .next(gw.chain(), operations[i], RequestBinding.compute("POST", "/pay", TO_PAYMENT), List.of(),
+                            ops.bundles().get("orders"));
+            Headers h = new Headers(HttpWire.encodeChain(ord.chain()), HttpWire.encodeProof(ord.proof()),
+                    HttpWire.encodeInfluence(List.of()));
+            InboundRequest plain = paymentRequest(h, TO_PAYMENT);
+            Accepted accepted = receiver.accept(new InboundRequest(plain.method(), plain.target(), plain.headers(),
+                    plain.body(), operations[i].substring("payment#".length())), null, VerificationMode.ENFORCE);
+            assertNull(accepted.refusal());
+            deliveries[i] = accepted.delivery();
+            assertEquals(operations[i], deliveries[i].rcv());
+        }
+        assertEquals("rid-1", deliveries[0].rid());
+        assertEquals(deliveries[0].svc(), deliveries[1].svc());
+        assertNotEquals(deliveries[0], deliveries[1]);
     }
 
     @Test

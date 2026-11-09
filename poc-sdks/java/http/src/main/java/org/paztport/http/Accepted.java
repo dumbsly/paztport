@@ -127,14 +127,14 @@ public final class Accepted {
 
     /**
      * The delivery this request names, when {@link #verifiedChain} is not null: the first stamp's {@code rid} and the
-     * last stamp's {@code svc} and {@code bind}. Otherwise null.
+     * last stamp's {@code svc}, {@code rcv} and {@code bind}. Otherwise null.
      */
     public Delivery delivery() {
         if (!verified) {
             return null;
         }
         Stamp last = inbound.get(inbound.size() - 1);
-        return new Delivery(inbound.get(0).rid(), last.svc(), last.bind());
+        return new Delivery(inbound.get(0).rid(), last.svc(), last.rcv(), last.bind());
     }
 
     /**

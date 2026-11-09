@@ -776,14 +776,14 @@ func TestUnavailable(t *testing.T) {
 }
 
 // TestAcceptDelivery names the delivery of a request verified at this hop, from its first stamp's rid and
-// its last stamp's signer and binding, and of no other.
+// its last stamp's signer, receiver and binding, and of no other.
 func TestAcceptDelivery(t *testing.T) {
 	c := verifiedCase(t)
 	a := accept(t, c, caseRequest(t, c.Get("request")), paztporthttp.ModeEnforce)
 	d, ok := a.Delivery()
 	last := a.Inbound[len(a.Inbound)-1]
-	want := paztporthttp.Delivery{RID: a.Inbound[0].RID, Svc: last.Svc, Bind: last.Bind}
-	if !ok || d != want || d.RID == "" || d.Svc == "" || d.Bind == "" {
+	want := paztporthttp.Delivery{RID: a.Inbound[0].RID, Svc: last.Svc, Rcv: last.Rcv, Bind: last.Bind}
+	if !ok || d != want || d.RID == "" || d.Svc == "" || d.Rcv == "" || d.Bind == "" {
 		t.Fatalf("Delivery = %+v, %v; want %+v", d, ok, want)
 	}
 	// With no mode, a request verified to attest is verified at this hop too.

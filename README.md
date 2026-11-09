@@ -399,8 +399,9 @@ What Paztport needs from a deployment, and what it deliberately doesn't cover ye
   can serve a request its signer sends twice, as a proxy that retries does. That
   is duplicate delivery, and the receiving application handles it as it handles
   any retried request, by idempotency keyed on the delivery: the verified chain's
-  `rid` and last signer name it, and the last stamp's `bind` says which request it
-  was. The Java and Go in-mesh receivers hand the application that key
+  `rid`, its last signer and the receiver its last stamp names (with the operation,
+  when it names one) name it, and that stamp's `bind` says which request it was.
+  The Java and Go in-mesh receivers hand the application that key
   (`RequestContext.delivery()` and `Accepted.delivery()` in Java,
   `Accepted.Delivery()` in Go). A service that must also hold a compromised caller
   to each key once per request tree, whatever its replica count, can pass its own
