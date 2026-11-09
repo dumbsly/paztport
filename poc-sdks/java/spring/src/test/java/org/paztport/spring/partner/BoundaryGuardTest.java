@@ -136,6 +136,7 @@ class BoundaryGuardTest {
                 "paztport.keyring-path=" + dir.resolve("keyring.json"),
                 "paztport.root-path=" + dir.resolve("root.json"),
                 "paztport.policy-key-path=" + dir.resolve("policy.pub"),
+                "paztport.origins=gateway",
                 "paztport.boundary.partner=psp",
                 "paztport.boundary.url=" + stub.url(),
                 "paztport.boundary.tls-bundle=psp",

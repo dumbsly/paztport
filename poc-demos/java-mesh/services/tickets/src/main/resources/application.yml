@@ -33,6 +33,9 @@ paztport:
   keyring-path: ${PAZTPORT_KEYRING_PATH:/config/keys/keyring.json}
   root-path: ${PAZTPORT_ROOT_PATH:/config/policy/root.json}
   policy-key-path: ${PAZTPORT_POLICY_KEY_PATH:/config/keys/policy.pub}
+  # Who may start a chain, and the paths the filter leaves unverified.
+  origins: ${PAZTPORT_ORIGINS:gateway}
+  unverified-paths: ${PAZTPORT_UNVERIFIED_PATHS:/admin,/debug,/actuator}
   tls-bundle: mesh
 
 downstream:

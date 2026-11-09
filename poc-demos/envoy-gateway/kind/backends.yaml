@@ -19,7 +19,9 @@
 # SERVER_FORWARDHEADERSSTRATEGY=NONE: on Kubernetes, Spring Boot otherwise trusts X-Forwarded-For from any private
 # address, so a peer's instance, which a refusal's event names, would come from a header the client sent.
 # MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE=health,prometheus exposes /actuator/prometheus beside the default
-# /actuator/health, both behind the same mutual TLS; the inbound filter does not verify /actuator.
+# /actuator/health, both behind the same mutual TLS. PAZTPORT_UNVERIFIED_PATHS=/actuator is the only path either
+# service leaves unverified (the starter verifies every path unless one is listed): the checks and the measurement
+# runs scrape /actuator/prometheus, and the probes open a TCP connection only.
 #
 # The images are built locally and loaded into kind (imagePullPolicy: Never). orders runs two replicas, so that a
 # retry can reach another one.
@@ -52,6 +54,7 @@ spec:
             - {name: PAZTPORT_VERIFY, value: "true"}
             - {name: PAZTPORT_MODE, value: enforce}
             - {name: PAZTPORT_ORIGINS, value: edge}
+            - {name: PAZTPORT_UNVERIFIED_PATHS, value: /actuator}
             - {name: SERVER_FORWARDHEADERSSTRATEGY, value: NONE}
             - {name: MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE, value: "health,prometheus"}
           readinessProbe:
@@ -142,6 +145,7 @@ spec:
           env:
             - {name: PAZTPORT_MODE, value: enforce}
             - {name: PAZTPORT_ORIGINS, value: edge}
+            - {name: PAZTPORT_UNVERIFIED_PATHS, value: /actuator}
             - {name: PAZTPORT_KEY_PATH, value: /config/keys/payment.key}
             - {name: PAZTPORT_POLICY_KEY_PATH, value: /config/keys/policy.pub}
             # payment also defines an SSL bundle for the PSP, another organisation, which this proof of concept

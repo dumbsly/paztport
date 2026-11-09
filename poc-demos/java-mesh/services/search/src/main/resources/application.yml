@@ -22,6 +22,9 @@ paztport:
   # key-path, proofs-path, keyring-path, root-path and policy-key-path are
   # supplied by the environment in docker-compose (PAZTPORT_KEY_PATH,
   # PAZTPORT_PROOFS_PATH, ...) so the boot test can run without mounted files.
+  # Who may start a chain, and the paths the filter leaves unverified.
+  origins: ${PAZTPORT_ORIGINS:gateway}
+  unverified-paths: ${PAZTPORT_UNVERIFIED_PATHS:/admin,/debug,/actuator}
   tls-bundle: mesh
 
 downstream:

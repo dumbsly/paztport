@@ -19,14 +19,12 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * Runtime mode control for verifying services, so the demo can switch to audit
- * and back without restarting containers. {@code InboundFilter} skips
- * {@code /admin}, and every service shares one network, so a compromised peer
- * could otherwise turn verification off. Both verbs therefore need the
- * {@code X-Admin-Token} header to match {@code paztport.admin-token}, compared
- * in constant time. With no token configured every request is refused. This is a
- * demo control channel; a real deployment would keep it on a separate management
- * network.
+ * Runtime mode control for verifying services, so the mode can be switched to audit and back without a restart. The
+ * starter registers it only where {@code paztport.admin-token} is set. Both verbs need the
+ * {@code X-Admin-Token} header to match the token, compared in constant time, since a peer that reached the endpoint
+ * could otherwise turn verification off. {@code /admin} is verified like any other path unless
+ * {@code paztport.unverified-paths} lists it, and a deployment keeps the endpoint on a network only its operators
+ * reach.
  */
 @RestController
 public class AdminModeController {

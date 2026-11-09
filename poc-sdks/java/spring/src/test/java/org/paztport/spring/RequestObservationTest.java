@@ -189,14 +189,14 @@ class RequestObservationTest {
 
     private InboundFilter filter(VerificationMode mode, ReceivedRequestListener listener) {
         return new InboundFilter(paymentVerifier(), true, false, "payment", new ModeHolder(mode), event -> { },
-                listener, null, null, registry);
+                listener, null, null, registry, List.of());
     }
 
     private InboundFilter attestingFilter(boolean verifyRequests) {
         return new InboundFilter(paymentVerifier(), verifyRequests, false, "payment",
                 verifyRequests ? new ModeHolder(VerificationMode.ENFORCE) : null, verifyRequests ? event -> { } : null,
                 null, new Stamper("payment", "pay-1", payment.getPrivate(), false, () -> "x", () -> NOW), null,
-                registry);
+                registry, List.of());
     }
 
     private record Headers(String chain, String proof, String influence) {
@@ -281,7 +281,8 @@ class RequestObservationTest {
             .clientOrigins(Set.of("orders"))
             .callMaxAgeMs(5000)
             .build();
-    private final PartnerFilter partnerFilter = new PartnerFilter(sessions, "psp", registry);
+    private final PartnerFilter partnerFilter = new PartnerFilter(sessions, "psp", registry,
+            List.of("/actuator"));
 
     private static String pub(KeyPair k) {
         return Base64Url.encode(Crypto.encodePublicKey(k.getPublic()));
@@ -393,7 +394,7 @@ class RequestObservationTest {
         IllegalStateException down = new IllegalStateException("store down");
         AtomicReference<Boolean> handled = new AtomicReference<>(false);
         InboundFilter filter = new InboundFilter(paymentVerifier(unreachableCache(down)), true, false, "payment",
-                new ModeHolder(VerificationMode.ENFORCE), event -> { }, null, null, null, registry);
+                new ModeHolder(VerificationMode.ENFORCE), event -> { }, null, null, null, registry, List.of());
         MockHttpServletResponse response = new MockHttpServletResponse();
 
         filter.doFilter(paymentRequest(validHeaders()), response, (req, res) -> handled.set(true));
@@ -417,7 +418,7 @@ class RequestObservationTest {
         IllegalStateException down = new IllegalStateException("store down");
         AtomicReference<Boolean> handled = new AtomicReference<>(false);
         InboundFilter filter = new InboundFilter(paymentVerifier(unreachableCache(down)), true, false, "payment",
-                new ModeHolder(VerificationMode.AUDIT), event -> { }, null, null, null, registry);
+                new ModeHolder(VerificationMode.AUDIT), event -> { }, null, null, null, registry, List.of());
         MockHttpServletResponse response = new MockHttpServletResponse();
 
         filter.doFilter(paymentRequest(validHeaders()), response, (req, res) -> handled.set(true));
@@ -471,10 +472,13 @@ class RequestObservationTest {
     }
 
     @Test
-    void theControlPlaneIsNotObserved() throws Exception {
+    void anUnverifiedPathIsNotObserved() throws Exception {
         MockHttpServletRequest scrape = new MockHttpServletRequest("GET", "/actuator/prometheus");
+        InboundFilter unverifiedScrapes = new InboundFilter(paymentVerifier(), true, false, "payment",
+                new ModeHolder(VerificationMode.ENFORCE), event -> { }, null, null, null, registry,
+                List.of("/actuator"));
 
-        run(filter(VerificationMode.ENFORCE, null), scrape);
+        run(unverifiedScrapes, scrape);
 
         assertThat(registry).doesNotHaveAnyObservation();
     }
@@ -546,7 +550,7 @@ class RequestObservationTest {
     void aHandlerThatThrowsOnStopLeavesNoScopeOpen() {
         IllegalStateException failure = new IllegalStateException("handler failed");
         InboundFilter filter = new InboundFilter(paymentVerifier(), true, false, "payment",
-                new ModeHolder(VerificationMode.ENFORCE), event -> { }, null, null, null, throwingOnStop(failure));
+                new ModeHolder(VerificationMode.ENFORCE), event -> { }, null, null, null, throwingOnStop(failure), List.of());
 
         IllegalStateException thrown = assertThrows(IllegalStateException.class,
                 () -> run(filter, paymentRequest(validHeaders())));
@@ -565,7 +569,7 @@ class RequestObservationTest {
             throw failure;
         };
         InboundFilter filter = new InboundFilter(paymentVerifier(), true, false, "payment",
-                new ModeHolder(VerificationMode.ENFORCE), event -> { }, listener, null, null, throwingOnStop(stopping));
+                new ModeHolder(VerificationMode.ENFORCE), event -> { }, listener, null, null, throwingOnStop(stopping), List.of());
 
         IllegalStateException thrown = assertThrows(IllegalStateException.class,
                 () -> run(filter, paymentRequest(validHeaders())));
@@ -586,7 +590,7 @@ class RequestObservationTest {
         };
         TestObservationRegistry throwing = throwingOnError(erroring);
         InboundFilter filter = new InboundFilter(paymentVerifier(), true, false, "payment",
-                new ModeHolder(VerificationMode.ENFORCE), event -> { }, listener, null, null, throwing);
+                new ModeHolder(VerificationMode.ENFORCE), event -> { }, listener, null, null, throwing, List.of());
 
         IllegalStateException thrown = assertThrows(IllegalStateException.class,
                 () -> run(filter, paymentRequest(validHeaders())));
@@ -619,7 +623,7 @@ class RequestObservationTest {
             }
         });
         InboundFilter filter = new InboundFilter(paymentVerifier(), true, false, "payment",
-                new ModeHolder(VerificationMode.ENFORCE), event -> { }, listener, null, null, rethrowing);
+                new ModeHolder(VerificationMode.ENFORCE), event -> { }, listener, null, null, rethrowing, List.of());
 
         IllegalStateException thrown = assertThrows(IllegalStateException.class,
                 () -> run(filter, paymentRequest(validHeaders())));
@@ -689,7 +693,7 @@ class RequestObservationTest {
     @Test
     void aHandlerThatThrowsOnStopLeavesNoPartnerScopeOpen() throws Exception {
         IllegalStateException failure = new IllegalStateException("handler failed");
-        PartnerFilter filter = new PartnerFilter(sessions, "psp", throwingOnStop(failure));
+        PartnerFilter filter = new PartnerFilter(sessions, "psp", throwingOnStop(failure), List.of());
         MockHttpServletRequest call = charge(handshake(true), CHARGE);
 
         IllegalStateException thrown = assertThrows(IllegalStateException.class,
@@ -707,7 +711,7 @@ class RequestObservationTest {
         IllegalStateException closing = new IllegalStateException("handler failed as the scope closed");
         IllegalStateException stopping = new IllegalStateException("handler failed as it stopped");
         ObservationRegistry throwing = throwing(closing, stopping);
-        PartnerFilter filter = new PartnerFilter(sessions, "psp", throwing);
+        PartnerFilter filter = new PartnerFilter(sessions, "psp", throwing, List.of());
         MockHttpServletRequest call = charge(handshake(true), CHARGE);
         try {
             IllegalStateException thrown = assertThrows(IllegalStateException.class,
@@ -728,7 +732,7 @@ class RequestObservationTest {
         IllegalStateException failure = new IllegalStateException("replay cache failed");
         IllegalStateException erroring = new IllegalStateException("handler failed on error");
         TestObservationRegistry throwing = throwingOnError(erroring);
-        PartnerFilter filter = new PartnerFilter(sessions, "psp", throwing);
+        PartnerFilter filter = new PartnerFilter(sessions, "psp", throwing, List.of());
         MockHttpServletRequest call = charge(handshake(true), CHARGE);
         nonceFailure.set(failure);
 
@@ -744,7 +748,7 @@ class RequestObservationTest {
     }
 
     @Test
-    void thePartnersControlPlaneAndHandshakeAreNotObserved() throws Exception {
+    void thePartnersUnverifiedPathsAndHandshakeAreNotObserved() throws Exception {
         for (String path : List.of("/actuator/prometheus", HttpSessions.PATH)) {
             serve(new MockHttpServletRequest("GET", path));
         }

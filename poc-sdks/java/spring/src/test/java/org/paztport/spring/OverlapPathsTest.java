@@ -90,7 +90,8 @@ class OverlapPathsTest {
         return java.util.stream.Stream.concat(java.util.stream.Stream.of(
                 "paztport.keyring-path=" + dir.resolve("keyring.json"),
                 "paztport.root-path=" + dir.resolve("root.json"),
-                "paztport.policy-key-path=" + dir.resolve("policy.pub")),
+                "paztport.policy-key-path=" + dir.resolve("policy.pub"),
+                "paztport.origins=gateway"),
                 java.util.stream.Stream.of(more)).toArray(String[]::new);
     }
 

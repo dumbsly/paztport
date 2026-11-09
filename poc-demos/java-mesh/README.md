@@ -693,18 +693,20 @@ when the whole mesh runs:
   fails. So `demo.sh` recreates every service that pins a root or holds proofs
   after each build: policy rollout is atomic across its holders, a miniature of
   the "policy drift" problem real deployments face.
-- **The control plane is outside the data-plane check.** The inbound filter
-  skips `/admin`, `/debug` and `/actuator`, matched as a whole first path segment,
-  and verifies everything else. A filter that verified every path would refuse
-  the admin and debug endpoints for lacking a chain: attestation applies to the
+- **The control plane is outside the data-plane check, by configuration.** The
+  starter verifies every path unless `paztport.unverified-paths` lists it, and
+  matches a listed prefix as a whole first path segment. The demo's services list
+  `/admin`, `/debug` and `/actuator` (`PAZTPORT_UNVERIFIED_PATHS`; the PSP lists
+  `/debug` and `/actuator`). A filter that verified those paths would refuse the
+  admin and debug endpoints for lacking a chain: attestation applies to the
   attested data path, not to the control plane. `/admin/mode` checks its own
   token instead. `orders` and `payment` carry Spring Boot Actuator, so
   `/actuator/health` is there by Boot's default: it answers the status alone,
   behind the same mutual TLS as every other path, and the filter skips it. The
   [Envoy Gateway proof of concept](../envoy-gateway/README.md) also exposes their
   Prometheus endpoint, `/actuator/prometheus`
-  (`MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE=health,prometheus`); this demo does
-  not.
+  (`MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE=health,prometheus`), and lists only
+  `/actuator` as unverified; this demo does not expose it.
 - **The starter brings its own HTTP client for an SSL bundle.** It builds one
   pooled JDK `HttpClient` per bundle and shares it across every `RestClient`
   built over it, so calls to a service reuse open mutual-TLS connections. A
@@ -962,7 +964,8 @@ the gateway port is exposed to the host.
 |---|---|---|
 | `PAZTPORT_MODE` | `enforce` | `payment` (`off`, `audit`, `enforce`) |
 | `PAZTPORT_MAX_AGE_MS` | `5000` | `payment`: both freshness windows, the last stamp's and the origin's. The callers' response checks use the same property, `paztport.max-age-ms`, with the same default |
-| `PAZTPORT_ORIGINS` | `gateway` | `payment`. The callers' response checks use the same property, `paztport.origins`, with the same default |
+| `PAZTPORT_ORIGINS` | `gateway`; `psp` for the PSP, which calls nobody | Every service that holds trust material: `paztport.origins` is required there, and the starter does not start without it. The callers' response checks use the same property |
+| `PAZTPORT_UNVERIFIED_PATHS` | `/admin,/debug,/actuator`; `/debug,/actuator` for the PSP | Every service: the path prefixes (`paztport.unverified-paths`) the filter leaves unverified, which the starter defaults to none. Here they cover `payment`'s `/admin/mode` and `/debug/*` endpoints and `/actuator` |
 | `PAZTPORT_PROOF_DEPTH` | `8`; Compose does not pass it through, so set it with `docker compose run -e` | `policy-tool`, `policy-tool-psp` |
 | `PAZTPORT_POLICY_DAYS` | `7`; Compose does not pass it through, so set it with `docker compose run -e` | `policy-tool`, `policy-tool-psp`: the lifetime, in days from the run, of the root and the keyring they sign; `keygen`, `keygen-psp`: that of the keyring they first write |
 | `PAZTPORT_RENEW` | unset, so a rebuild; Compose does not pass it through, so set it with `docker compose run -e` | `policy-tool`, `policy-tool-psp`: `true` renews the root and the keyring, keeping the tree and the bundles |

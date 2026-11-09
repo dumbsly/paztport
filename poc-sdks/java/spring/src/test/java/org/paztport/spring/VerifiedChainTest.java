@@ -88,13 +88,13 @@ class VerifiedChainTest {
 
     private InboundFilter filter(VerificationMode mode, boolean origin) {
         return new InboundFilter(verifier(orders), true, origin, "payment", new ModeHolder(mode),
-                event -> { }, null, null, null, ObservationRegistry.NOOP);
+                event -> { }, null, null, null, ObservationRegistry.NOOP, List.of());
     }
 
     private InboundFilter attestOnly() {
         return new InboundFilter(verifier(orders), false, false, "payment", null, null, null,
                 new Stamper("payment", "pay-1", payment.getPrivate(), false, () -> "x", () -> NOW),
-                null, ObservationRegistry.NOOP);
+                null, ObservationRegistry.NOOP, List.of());
     }
 
     /** A chain gateway to orders to payment, the last stamp signed by {@code ordersKey}. */

@@ -90,7 +90,8 @@ public class PaztportAutoConfiguration {
     FilterRegistrationBean<PartnerFilter> paztportPartnerFilterRegistration(
             PartnerSessions sessions, PaztportProperties props, ObjectProvider<ObservationRegistry> observations) {
         FilterRegistrationBean<PartnerFilter> registration = new FilterRegistrationBean<>(new PartnerFilter(sessions,
-                props.getServiceName(), observations.getIfAvailable(() -> ObservationRegistry.NOOP)));
+                props.getServiceName(), observations.getIfAvailable(() -> ObservationRegistry.NOOP),
+                props.getUnverifiedPaths()));
         registration.setOrder(Ordered.HIGHEST_PRECEDENCE);
         registration.addUrlPatterns("/*");
         return registration;
@@ -127,7 +128,8 @@ public class PaztportAutoConfiguration {
         InboundFilter filter = new InboundFilter(
                 shared, props.isVerify(), props.isOrigin(), props.getServiceName(), modeHolder.getIfAvailable(),
                 publisher.getIfAvailable(), listener.getIfAvailable(), stamper.getIfAvailable(),
-                operations.getIfAvailable(), observations.getIfAvailable(() -> ObservationRegistry.NOOP));
+                operations.getIfAvailable(), observations.getIfAvailable(() -> ObservationRegistry.NOOP),
+                props.getUnverifiedPaths());
         FilterRegistrationBean<InboundFilter> registration = new FilterRegistrationBean<>(filter);
         registration.setOrder(Ordered.HIGHEST_PRECEDENCE);
         registration.addUrlPatterns("/*");

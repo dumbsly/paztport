@@ -81,6 +81,7 @@ import org.paztport.http.wire.HttpWire;
 import org.paztport.http.wire.PaztportHeaders;
 import org.paztport.spring.internal.OwnMaterial;
 import org.paztport.spring.outbound.PooledTlsClient;
+import org.paztport.spring.trust.AdminModeController;
 import org.paztport.spring.trust.ResponseVerifier;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.AnnotatedBeanDefinition;
@@ -138,7 +139,8 @@ class PaztportAutoConfigurationTest {
         return new String[] {
             "paztport.keyring-path=" + dir.resolve("keyring.json"),
             "paztport.root-path=" + dir.resolve("root.json"),
-            "paztport.policy-key-path=" + dir.resolve("policy.pub")};
+            "paztport.policy-key-path=" + dir.resolve("policy.pub"),
+            "paztport.origins=gateway"};
     }
 
     private static final String[] VERIFIER_PROPS = {
@@ -329,9 +331,9 @@ class PaztportAutoConfigurationTest {
     @Test
     void theVerifierNeedsAllThreeTrustPaths(@TempDir Path dir) throws Exception {
         writeWorld(dir);
-        String[] all = trust(dir);
+        String[] all = trust(dir); // the three paths, then paztport.origins
         runner.withPropertyValues(all).run(context -> assertThat(context).hasSingleBean(Verifier.class));
-        for (int left = 0; left < all.length; left++) {
+        for (int left = 0; left < 3; left++) {
             List<String> some = new ArrayList<>(List.of(all));
             some.remove(left);
             runner.withPropertyValues(some.toArray(String[]::new))
@@ -346,6 +348,26 @@ class PaztportAutoConfigurationTest {
                 .withPropertyValues("paztport.keyring-path=" + dir.resolve("keyring.json"),
                         "paztport.root-path=" + dir.resolve("root.json"))
                 .run(context -> assertThat(context).hasFailed());
+    }
+
+    @Test
+    void trustMaterialWithoutOriginsFailsStartup(@TempDir Path dir) throws Exception {
+        writeWorld(dir);
+        String[] withoutOrigins = java.util.Arrays.stream(trust(dir))
+                .filter(property -> !property.startsWith("paztport.origins=")).toArray(String[]::new);
+        runner.withPropertyValues(VERIFIER_PROPS).withPropertyValues(withoutOrigins)
+                .run(context -> assertThat(context).hasFailed().getFailure()
+                        .hasStackTraceContaining("paztport.origins"));
+    }
+
+    @Test
+    void adminModeControllerNeedsAToken(@TempDir Path dir) throws Exception {
+        writeWorld(dir);
+        runner.withPropertyValues(VERIFIER_PROPS).withPropertyValues(trust(dir))
+                .run(context -> assertThat(context).doesNotHaveBean(AdminModeController.class));
+        runner.withPropertyValues(VERIFIER_PROPS).withPropertyValues(trust(dir))
+                .withPropertyValues("paztport.admin-token=s3cret")
+                .run(context -> assertThat(context).hasSingleBean(AdminModeController.class));
     }
 
     @Test
@@ -687,6 +709,7 @@ class PaztportAutoConfigurationTest {
             "paztport.keyring-path=" + dir.resolve("keyring.json"),
             "paztport.root-path=" + dir.resolve("root.json"),
             "paztport.policy-key-path=" + dir.resolve("policy.pub"),
+            "paztport.origins=gateway",
             "paztport.key-path=" + dir.resolve("psp.key"),
             "paztport.partner.enabled=true",
             "paztport.partner.reply-cert-path=" + dir.resolve("reply-cert.json"),
@@ -1115,7 +1138,6 @@ class PaztportAutoConfigurationTest {
         assertStarterBeans(runner.withPropertyValues(VERIFIER_PROPS).withPropertyValues(trust(dir))
                         .withPropertyValues("paztport.key-path=" + dir.resolve("gateway.key")),
                 "paztport-org.paztport.spring.PaztportProperties",
-                "paztportAdminModeController",
                 "paztportEventPublisher",
                 "paztportInboundFilterRegistration",
                 "paztportModeHolder",
@@ -1129,7 +1151,6 @@ class PaztportAutoConfigurationTest {
         assertStarterBeans(withClients.withPropertyValues(stampingVerifier(dir, "http://127.0.0.1:1"))
                         .withPropertyValues(MESH_BUNDLE),
                 "paztport-org.paztport.spring.PaztportProperties",
-                "paztportAdminModeController",
                 "paztportEventPublisher",
                 "paztportInboundFilterRegistration",
                 "paztportModeHolder",

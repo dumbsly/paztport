@@ -160,8 +160,18 @@ public class PaztportProperties implements InitializingBean {
      */
     private Long runMaxAgeMs;
 
-    /** Allowed origin service names. */
-    private List<String> origins = List.of("gateway");
+    /**
+     * Allowed origin service names. Required wherever the trust material ({@code keyring-path}, {@code root-path} and
+     * {@code policy-key-path}) is set: a service must say which entry points it accepts.
+     */
+    private List<String> origins = List.of();
+
+    /**
+     * Path prefixes that are neither verified nor attested, each starting with {@code /} and matched as a whole first
+     * segment. Empty by default, so every path is verified, actuator included; a service whose probes or scrapes
+     * reach the application port lists their paths here, or serves them on Boot's management port.
+     */
+    private List<String> unverifiedPaths = List.of();
 
     /**
      * The policy names of the services this one calls, by the host it calls them at, where that host is not the
@@ -535,6 +545,14 @@ public class PaztportProperties implements InitializingBean {
 
     public void setOrigins(List<String> origins) {
         this.origins = origins;
+    }
+
+    public List<String> getUnverifiedPaths() {
+        return unverifiedPaths;
+    }
+
+    public void setUnverifiedPaths(List<String> unverifiedPaths) {
+        this.unverifiedPaths = unverifiedPaths;
     }
 
     public Map<String, String> getReceiverNames() {

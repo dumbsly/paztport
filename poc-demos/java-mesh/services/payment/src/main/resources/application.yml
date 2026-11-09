@@ -42,5 +42,7 @@ paztport:
   root-path: ${PAZTPORT_ROOT_PATH:/config/policy/root.json}
   max-age-ms: ${PAZTPORT_MAX_AGE_MS:5000}
   origins: ${PAZTPORT_ORIGINS:gateway}
+  # The control plane and the demo harness: the mode switch, the capture and opening endpoints, actuator.
+  unverified-paths: ${PAZTPORT_UNVERIFIED_PATHS:/admin,/debug,/actuator}
   responder-url: ${RESPONDER_URL:}
   tls-bundle: mesh

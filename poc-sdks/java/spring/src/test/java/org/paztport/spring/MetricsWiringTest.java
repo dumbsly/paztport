@@ -102,7 +102,8 @@ class MetricsWiringTest {
             "paztport.key-path=" + dir.resolve("payment.key"),
             "paztport.keyring-path=" + dir.resolve("keyring.json"),
             "paztport.root-path=" + dir.resolve("root.json"),
-            "paztport.policy-key-path=" + dir.resolve("policy.pub")};
+            "paztport.policy-key-path=" + dir.resolve("policy.pub"),
+            "paztport.origins=gateway"};
     }
 
     /**
@@ -130,6 +131,7 @@ class MetricsWiringTest {
             "paztport.keyring-path=" + dir.resolve("keyring.json"),
             "paztport.root-path=" + dir.resolve("root.json"),
             "paztport.policy-key-path=" + dir.resolve("policy.pub"),
+            "paztport.origins=gateway",
             "paztport.partner.reply-cert-path=" + dir.resolve("reply-cert.json"),
             "paztport.partner.client-policy-key-paths[0]=" + dir.resolve("shop-policy.pub"),
             "paztport.partner.client-origins[0]=orders"};

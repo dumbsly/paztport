@@ -85,12 +85,10 @@ import org.springframework.web.util.ContentCachingResponseWrapper;
  * A handler reached by an include cannot set the status, so where the check refuses one, this filter writes the refusal
  * once the chain returns, in place of anything written before it, unless the response is already committed.
  *
- * <p>The control plane ({@link #controlPlane}) is not filtered, so it is not observed.
+ * <p>A path listed in {@code paztport.unverified-paths} ({@link #unverified}) is not filtered, so it is not observed.
+ * None is listed unless the application lists it.
  */
 public final class InboundFilter extends OncePerRequestFilter {
-
-    /** The first path segments of the control plane, which is not part of the attested data path. */
-    private static final List<String> CONTROL_PLANE = List.of("/admin", "/debug", "/actuator");
 
     /** The headers a receiver reads, which are the only ones it is handed. */
     private static final List<String> RECEIVED = List.of(PaztportHeaders.CHAIN, PaztportHeaders.PROOF,
@@ -104,6 +102,7 @@ public final class InboundFilter extends OncePerRequestFilter {
     private final ModeHolder modeHolder;
     private final OperationResolver operations;
     private final ObservationRegistry observations;
+    private final List<String> unverifiedPaths;
 
     /**
      * @param verifier this service's verifier, or null where it holds no keyring, root and pin; without one it
@@ -119,11 +118,14 @@ public final class InboundFilter extends OncePerRequestFilter {
      *     names an operation is then verified under the bare name, and so refused
      * @param observations where each request's verification result is recorded; {@link ObservationRegistry#NOOP}
      *     where the application has no {@code ObservationRegistry} bean
+     * @param unverifiedPaths the path prefixes ({@code paztport.unverified-paths}) that are neither verified nor
+     *     attested, each a first path segment starting with {@code /}; empty where every path is verified
      */
     public InboundFilter(
             Verifier verifier, boolean verifyRequests, boolean origin, String receiver, ModeHolder modeHolder,
             EventPublisher publisher, ReceivedRequestListener listener, Stamper stamper,
-            OperationResolver operations, ObservationRegistry observations) {
+            OperationResolver operations, ObservationRegistry observations,
+            List<String> unverifiedPaths) {
         if (verifyRequests && (verifier == null || modeHolder == null || publisher == null)) {
             throw new IllegalArgumentException("verifying requests needs a verifier, a mode holder and a publisher");
         }
@@ -133,30 +135,32 @@ public final class InboundFilter extends OncePerRequestFilter {
         this.modeHolder = modeHolder;
         this.operations = operations;
         this.observations = Objects.requireNonNull(observations, "observations");
+        this.unverifiedPaths = List.copyOf(unverifiedPaths);
     }
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
-        return controlPlane(request.getRequestURI());
+        return unverified(request.getRequestURI(), unverifiedPaths);
     }
 
     /**
-     * Whether {@code path}, the raw request URI, is in the control plane: one of {@link #CONTROL_PLANE} as a whole
+     * Whether {@code path}, the raw request URI, is left unverified: one of {@code prefixes} as a whole
      * first segment, alone or followed by {@code /}, with no dot segment and no encoded or backslash separator
      * anywhere in it. Matched by segment, not by text, so that a data-path handler whose name only begins the same
-     * way, such as {@code /administration}, is still verified. A dot segment ({@link #dotSegment}) is never skipped,
+     * way, such as {@code /administration} beside {@code /admin}, is still verified. A dot segment ({@link #dotSegment}) is
+     * never skipped,
      * since whatever resolves it, the container or a handler, could take {@code /admin/../pay} to a data-path handler
      * that would then run unverified; nor is {@code %2f}, {@code %5c} (in either case) or a literal {@code \}, which
      * something downstream might read as a separator and so as a dot segment's. Anything else is verified, an encoded
      * or doubled first segment ({@code /%61dmin}, {@code //admin}) and one with a path parameter ({@code /admin;x})
      * included, which fails closed.
      */
-    static boolean controlPlane(String path) {
+    static boolean unverified(String path, List<String> prefixes) {
         String lower = path.toLowerCase(Locale.ROOT);
         if (path.indexOf('\\') >= 0 || lower.contains("%2f") || lower.contains("%5c")) {
             return false;
         }
-        for (String prefix : CONTROL_PLANE) {
+        for (String prefix : prefixes) {
             if (path.equals(prefix) || path.startsWith(prefix + "/")) {
                 for (String segment : path.split("/", -1)) {
                     if (dotSegment(segment)) {

@@ -125,7 +125,8 @@ final class OperationWorld {
                 "paztport.proofs-path=" + file("proofs-" + service + ".json"),
                 "paztport.keyring-path=" + file("keyring.json"),
                 "paztport.root-path=" + file("root.json"),
-                "paztport.policy-key-path=" + file("policy.pub")), Stream.of(more)).toArray(String[]::new);
+                "paztport.policy-key-path=" + file("policy.pub"),
+                "paztport.origins=gateway"), Stream.of(more)).toArray(String[]::new);
     }
 
     private static String pub(KeyPair k) {

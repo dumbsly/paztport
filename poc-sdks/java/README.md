@@ -230,7 +230,8 @@ hands a session request's body to `HttpSessions.serve`.
   keeps the received chain and influence there for the outbound calls. Where
   `paztport.verify=true` it verifies the request in the current mode; such a
   service also needs a keyring, a root and the policy pin
-  (`paztport.policy-key-path`), or it refuses to start. Influence it can't read is
+  (`paztport.policy-key-path`) and the entry points it accepts (`paztport.origins`,
+  required wherever those three paths are set), or it refuses to start. Influence it can't read is
   answered `400 {"reason":"INFLUENCE_MISMATCH"}` in every mode, unless verification
   refused the request first. An origin (`paztport.origin=true`) starts every
   request tree afresh: it ignores the chain and the influence a request brings.
@@ -274,27 +275,31 @@ hands a session request's body to `HttpSessions.serve`.
   (`peer=<svc> (mTLS)`, or `peer=none`), not its address and not a suspect without
   a peer. A partner sends no events, so for its refusals that trace line is all
   that is kept: the peer's service, and no instance.
-- **Unverified paths.** Neither the inbound filter nor the partner filter runs on
-  the control plane: a request whose raw request URI is `/admin`, `/debug` or
-  `/actuator`, or starts with one of them followed by `/`, and has no dot segment
-  and no encoded or backslash separator. The match is by whole segment, so
-  `/admin/mode` and `/actuator/health` are skipped but `/administration` and
-  `/debugger` are verified. A dot segment is any segment that is `.` or `..` once
-  a `;` parameter is dropped and `%2e`, in either case, is read as `.`:
-  `/admin/../pay`, `/admin/%2e%2e/pay` and `/admin/..;/pay` are all verified,
-  since whatever resolves the dots could hand the request to a data-path handler.
-  A URI holding `%2f` or `%5c`, in either case, or a literal `\` is verified too,
-  since something downstream might read it as a separator. Only the plain spelling
-  is skipped: `/%61dmin/mode`, `//admin/mode`, `/admin;x`, `/admin.` and
-  `/ADMIN/mode` are all verified, as is everything under a context path, which is
-  part of the URI. So an operator must call these endpoints by their plain path.
-  They are skipped because they are operator endpoints, not steps on a request's
-  path: nothing calls them with a chain, so verifying them would refuse every one
-  in `enforce`. A handler there runs with no request scope: no influence, no
-  verified chain, no attestation, and at a partner it counts as unsafe. So keep
-  data-path handlers off these paths, and protect the endpoints themselves;
-  `/admin/mode` needs `X-Admin-Token` to match `paztport.admin-token`, and is
-  disabled without one.
+- **Unverified paths.** `paztport.unverified-paths` lists path prefixes, each a first
+  path segment starting with `/` (for example `/admin,/debug,/actuator`). It is
+  empty by default, so the inbound filter and the partner filter verify every
+  path, actuator included. A request whose raw request URI is a listed prefix, or
+  starts with one followed by `/`, and has no dot segment and no encoded or
+  backslash separator, is not filtered. The match is by whole segment, so with
+  `/admin` listed, `/admin/mode` is skipped but `/administration` is verified. A
+  dot segment is any segment that is `.` or `..` once a `;` parameter is dropped and
+  `%2e`, in either case, is read as `.`: `/admin/../pay`, `/admin/%2e%2e/pay` and
+  `/admin/..;/pay` are all verified, since whatever resolves the dots could hand
+  the request to a data-path handler. A URI holding `%2f` or `%5c`, in either case,
+  or a literal `\` is verified too, since something downstream might read it as a
+  separator. Only the plain spelling is skipped: with `/admin` listed,
+  `/%61dmin/mode`, `//admin/mode`, `/admin;x`, `/admin.` and `/ADMIN/mode` are all
+  verified, as is everything under a context path, which is part of the URI. So an
+  operator must call these endpoints by their plain path.
+  A path is listed because nothing calls it with a chain, so verifying it would
+  refuse every request in `enforce`: a probe, a scrape, an operator endpoint. A
+  handler there runs with no request scope: no influence, no verified chain, no
+  attestation, and at a partner it counts as unsafe. So keep data-path handlers off
+  these paths, and protect the endpoints themselves. For actuator, Boot's separate
+  management port (`management.server.port`) keeps it off the application port, so
+  nothing on the application port needs listing for it; `/admin/mode` is registered
+  only where `paztport.admin-token` is set, needs `X-Admin-Token` to match it, and
+  is listed here only if the service is to answer it without a chain.
 - **Response attestation.** A service attests a response only to a request whose
   chain passed the full live order there: its own verifier, itself as receiver, the
   request's proof and influence, and the peer under mutual TLS. That needs a stamp

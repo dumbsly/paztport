@@ -28,9 +28,9 @@ import org.springframework.web.bind.annotation.RestController;
  * <p>With {@code tamper=true} the first original's {@code h} is replaced by the base64url of 32 zero bytes, which
  * is how the demo shows an opening that misstates the content not opening the entry.
  *
- * <p>Present only when {@code paztport.openings=true}, under {@code /debug}, which the inbound filter skips as
- * control plane: a demo stand-in for a disclosure the shop would make by its own process, not part of the
- * attestation model.
+ * <p>Present only when {@code paztport.openings=true}, under {@code /debug}, which the demo lists in
+ * {@code paztport.unverified-paths} so the inbound filter skips it: a demo stand-in for a disclosure the shop would
+ * make by its own process, not part of the attestation model.
  */
 @RestController
 @ConditionalOnProperty(name = "paztport.openings", havingValue = "true")

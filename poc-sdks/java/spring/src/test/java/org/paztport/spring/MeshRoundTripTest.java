@@ -99,6 +99,7 @@ class MeshRoundTripTest {
         registry.add("paztport.keyring-path", () -> trust.resolve("keyring.json").toString());
         registry.add("paztport.root-path", () -> trust.resolve("root.json").toString());
         registry.add("paztport.policy-key-path", () -> trust.resolve("policy.pub").toString());
+        registry.add("paztport.unverified-paths", () -> "/admin,/debug");
         registry.add("paztport.admin-token", () -> ADMIN_TOKEN);
     }
 

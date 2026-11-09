@@ -10,6 +10,7 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
+import java.util.List;
 import java.util.Objects;
 import org.paztport.http.HttpSessions;
 import org.paztport.http.InboundRequest;
@@ -46,8 +47,9 @@ import org.springframework.web.filter.OncePerRequestFilter;
  * refused. It spans the decision and ends before the handler runs, with its error if the decision throws. Nothing
  * from the call is tagged, only fixed words and reason codes' names.
  *
- * <p>The handshake endpoint and the control plane are not filtered. A handler under those paths therefore runs
- * outside any scope, with no influence and no verified chain, and the gate counts it as unsafe.
+ * <p>The handshake endpoint and the paths in {@code paztport.unverified-paths} are not filtered. A handler under
+ * those paths therefore runs outside any scope, with no influence and no verified chain, and the gate counts it as
+ * unsafe.
  */
 public final class PartnerFilter extends OncePerRequestFilter {
 
@@ -56,22 +58,27 @@ public final class PartnerFilter extends OncePerRequestFilter {
 
     private final PartnerReceiver receiver;
     private final ObservationRegistry observations;
+    private final List<String> unverifiedPaths;
 
     /**
      * @param sessions the sessions this partner has opened
      * @param receiver this service's name, the partner's entry: every boundary stamp must be addressed to it
      * @param observations where each call's verification result is recorded; {@link ObservationRegistry#NOOP} where
      *     the application has no {@code ObservationRegistry} bean
+     * @param unverifiedPaths the path prefixes ({@code paztport.unverified-paths}) that are not verified; the
+     *     session handshake is never verified as a call
      */
-    PartnerFilter(PartnerSessions sessions, String receiver, ObservationRegistry observations) {
+    PartnerFilter(PartnerSessions sessions, String receiver, ObservationRegistry observations,
+            List<String> unverifiedPaths) {
         this.receiver = new PartnerReceiver(sessions, receiver);
         this.observations = Objects.requireNonNull(observations, "observations");
+        this.unverifiedPaths = List.copyOf(unverifiedPaths);
     }
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
         String path = request.getRequestURI();
-        return InboundFilter.controlPlane(path) || path.equals(HttpSessions.PATH);
+        return InboundFilter.unverified(path, unverifiedPaths) || path.equals(HttpSessions.PATH);
     }
 
     @Override

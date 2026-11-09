@@ -123,15 +123,21 @@ class InboundFilterTest {
                 new InMemoryNonceCache(), () -> NOW, 5000, 5000));
     }
 
+    private static final List<String> CONFIGURED = List.of("/admin", "/debug", "/actuator");
+
     private InboundFilter filter(VerificationMode mode, ReceivedRequestListener listener) {
+        return filter(mode, listener, List.of());
+    }
+
+    private InboundFilter filter(VerificationMode mode, ReceivedRequestListener listener, List<String> unverified) {
         return new InboundFilter(paymentVerifier(), true, false, "payment", new ModeHolder(mode), events, listener,
-                null, null, ObservationRegistry.NOOP);
+                null, null, ObservationRegistry.NOOP, unverified);
     }
 
     /** A hop that neither verifies requests nor holds a verifier or a stamp key. */
     private static InboundFilter plainFilter() {
         return new InboundFilter(null, false, false, "payment", null, null, null, null,
-                null, ObservationRegistry.NOOP);
+                null, ObservationRegistry.NOOP, List.of());
     }
 
     private Stamper paymentStamper() {
@@ -141,7 +147,7 @@ class InboundFilterTest {
     /** Payment verifying requests and holding a stamp key, so it attests what it answers to a verified chain. */
     private InboundFilter attestingFilter(Verifier verifier, VerificationMode mode) {
         return new InboundFilter(verifier, true, false, "payment", new ModeHolder(mode), events, null,
-                paymentStamper(), null, ObservationRegistry.NOOP);
+                paymentStamper(), null, ObservationRegistry.NOOP, List.of());
     }
 
     private record Headers(String chain, String proof, String influence) {
@@ -275,24 +281,39 @@ class InboundFilterTest {
     }
 
     @Test
-    void managementPathsBypassVerification() throws Exception {
-        // /admin and /debug are control plane: no headers, still must pass through.
+    void configuredPathsBypassVerification() throws Exception {
+        // A path listed in paztport.unverified-paths needs no headers and reaches its handler.
         MockHttpServletRequest request = new MockHttpServletRequest("POST", "/admin/mode");
+        request.setContent(new byte[0]);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        MockFilterChain chain = new MockFilterChain();
+
+        filter(VerificationMode.ENFORCE, null, CONFIGURED).doFilter(request, response, chain);
+
+        assertEquals(200, response.getStatus());
+        assertNotNull(chain.getRequest(), "an unverified path must reach its handler");
+    }
+
+    @Test
+    void unverifiedPathsAreNoneByDefault() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/actuator/health");
         request.setContent(new byte[0]);
         MockHttpServletResponse response = new MockHttpServletResponse();
         MockFilterChain chain = new MockFilterChain();
 
         filter(VerificationMode.ENFORCE, null).doFilter(request, response, chain);
 
-        assertEquals(200, response.getStatus());
-        assertNotNull(chain.getRequest(), "management path must reach the controller");
+        assertEquals(403, response.getStatus());
+        assertEquals("{\"reason\":\"CHAIN_MISSING\"}", response.getContentAsString());
+        assertNull(chain.getRequest(), "refused before the handler");
+        assertFalse(InboundFilter.unverified("/actuator/health", List.of()));
     }
 
     @Test
-    void wholeControlPlaneSegmentsAreLeftUnverified() {
+    void configuredPrefixesAreNotVerified() {
         for (String path : List.of("/admin", "/admin/", "/admin/mode", "/debug", "/debug/last-request", "/actuator",
                 "/actuator/health")) {
-            assertTrue(InboundFilter.controlPlane(path), path);
+            assertTrue(InboundFilter.unverified(path, CONFIGURED), path);
         }
     }
 
@@ -301,7 +322,7 @@ class InboundFilterTest {
     void namesThatOnlyBeginLikeTheControlPlaneAreVerified() {
         for (String path : List.of("/administration", "/admins/1", "/debugger", "/debug-report", "/actuators",
                 "/actuatorhealth", "/admin;x/mode", "/x/admin", "/", "")) {
-            assertFalse(InboundFilter.controlPlane(path), path);
+            assertFalse(InboundFilter.unverified(path, CONFIGURED), path);
         }
     }
 
@@ -311,7 +332,7 @@ class InboundFilterTest {
         for (String path : List.of("/admin/../pay", "/admin/%2e%2e/pay", "/admin/%2E%2e/pay", "/admin/.%2E/pay",
                 "/admin/..;/pay", "/admin/..;x=1/pay", "/actuator/../pay", "/debug/./../pay", "/admin/.", "/admin/..",
                 "/admin/%2e", "/admin/.;x/mode")) {
-            assertFalse(InboundFilter.controlPlane(path), path);
+            assertFalse(InboundFilter.unverified(path, CONFIGURED), path);
         }
     }
 
@@ -321,7 +342,7 @@ class InboundFilterTest {
         for (String path : List.of("/admin/..%2fpay", "/admin/..%2Fpay", "/admin%2f..%2fpay", "/admin/x%2fy",
                 "/admin/..%5cpay", "/admin/..%5Cpay", "/admin/..\\pay", "/admin\\mode", "/actuator/health%2F",
                 "/debug/%5c")) {
-            assertFalse(InboundFilter.controlPlane(path), path);
+            assertFalse(InboundFilter.unverified(path, CONFIGURED), path);
         }
     }
 
@@ -330,11 +351,11 @@ class InboundFilterTest {
     void otherSpellingsOfTheControlPlaneAreVerified() {
         for (String path : List.of("/%61dmin", "/%61dmin/mode", "//admin", "//admin/mode", "/admin.", "/admin;x",
                 "/ADMIN/mode")) {
-            assertFalse(InboundFilter.controlPlane(path), path);
+            assertFalse(InboundFilter.unverified(path, CONFIGURED), path);
         }
         // A segment that only holds dots among other text is a name, not a dot segment.
-        assertTrue(InboundFilter.controlPlane("/admin/.well-known"));
-        assertTrue(InboundFilter.controlPlane("/actuator/health..json"));
+        assertTrue(InboundFilter.unverified("/admin/.well-known", CONFIGURED));
+        assertTrue(InboundFilter.unverified("/actuator/health..json", CONFIGURED));
     }
 
     @Test
@@ -345,7 +366,7 @@ class InboundFilterTest {
             MockHttpServletResponse response = new MockHttpServletResponse();
             MockFilterChain chain = new MockFilterChain();
 
-            filter(VerificationMode.ENFORCE, null).doFilter(request, response, chain);
+            filter(VerificationMode.ENFORCE, null, CONFIGURED).doFilter(request, response, chain);
 
             assertEquals(403, response.getStatus(), path);
             assertEquals("{\"reason\":\"CHAIN_MISSING\"}", response.getContentAsString(), path);
@@ -473,7 +494,7 @@ class InboundFilterTest {
     void verifyingRequestsNeedsAVerifierAModeAndAPublisher() {
         assertThrows(IllegalArgumentException.class,
                 () -> new InboundFilter(null, true, false, "payment", new ModeHolder(VerificationMode.ENFORCE),
-                        events, null, null, null, ObservationRegistry.NOOP));
+                        events, null, null, null, ObservationRegistry.NOOP, List.of()));
     }
 
     @Test

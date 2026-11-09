@@ -100,6 +100,10 @@ public class TrustConfiguration {
     @Bean
     @ConditionalOnProperty({"paztport.keyring-path", "paztport.root-path", "paztport.policy-key-path"})
     ResponseVerifier paztportResponseVerifier(PaztportProperties props) {
+        if (props.getOrigins() == null || props.getOrigins().isEmpty()) {
+            throw new IllegalStateException("paztport.origins is not set: a service holding trust material names "
+                    + "the entry points it accepts, for example paztport.origins=gateway");
+        }
         long runMaxAgeMs = props.getRunMaxAgeMs() != null ? props.getRunMaxAgeMs() : props.getMaxAgeMs();
         KeyringFile keyring = OwnMaterial.loadKeyring(Path.of(props.getKeyringPath()));
         SignedRoot root = OwnMaterial.loadRoot(Path.of(props.getRootPath()));
@@ -152,7 +156,7 @@ public class TrustConfiguration {
     }
 
     @Bean
-    @ConditionalOnProperty(name = "paztport.verify", havingValue = "true")
+    @ConditionalOnProperty({"paztport.verify", "paztport.admin-token"})
     AdminModeController paztportAdminModeController(ModeHolder modeHolder, PaztportProperties props) {
         return new AdminModeController(modeHolder, props.getAdminToken());
     }

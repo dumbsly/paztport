@@ -117,6 +117,7 @@ class PartnerHandshakeTest {
         registry.add("paztport.keyring-path", () -> trust.resolve("keyring.json").toString());
         registry.add("paztport.root-path", () -> trust.resolve("root.json").toString());
         registry.add("paztport.policy-key-path", () -> trust.resolve("policy.pub").toString());
+        registry.add("paztport.origins", () -> "gateway");
         registry.add("paztport.partner.enabled", () -> "true");
         registry.add("paztport.key-path", () -> trust.resolve("psp.key").toString());
         registry.add("paztport.partner.reply-cert-path", () -> trust.resolve("reply-cert.json").toString());
@@ -363,6 +364,7 @@ class PartnerHandshakeTest {
                     "paztport.keyring-path=" + trust.resolve("keyring.json"),
                     "paztport.root-path=" + trust.resolve("root.json"),
                     "paztport.policy-key-path=" + trust.resolve("policy.pub"),
+                    "paztport.origins=gateway",
                     "paztport.partner.enabled=true",
                     "paztport.key-path=" + trust.resolve("psp.key"),
                     "paztport.partner.reply-cert-path=" + trust.resolve("reply-cert.json"));
