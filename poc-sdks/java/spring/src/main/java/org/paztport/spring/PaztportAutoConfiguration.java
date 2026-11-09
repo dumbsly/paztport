@@ -82,7 +82,7 @@ import org.springframework.core.Ordered;
 public class PaztportAutoConfiguration {
 
     /**
-     * The partner's filter, where the shop's would otherwise be: another organisation's calls verify in their
+     * The partner's filter, where this organisation's would otherwise be: another organisation's calls verify in their
      * session, against what that session's handshake pinned, never against this organisation's own trust.
      */
     @Bean

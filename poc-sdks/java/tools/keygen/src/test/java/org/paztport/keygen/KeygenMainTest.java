@@ -165,8 +165,8 @@ class KeygenMainTest {
 
     @Test
     void tlsOnlyMeansTheSameWhicheverSideOfOrgItIsOn() {
-        assertEquals(List.of("operator", "responder"), KeygenMain.parse(new String[] {"out"}).tlsOnly());
-        assertEquals(List.of(), KeygenMain.parse(new String[] {"out", "a", "--tls-only"}).tlsOnly());
+        assertEquals(List.of("operator", "responder"),
+                KeygenMain.parse(new String[] {"out", "a", "--org", "x"}).tlsOnly());
         assertEquals(List.of(), KeygenMain.parse(new String[] {"out", "--org", "x", "a", "--tls-only"}).tlsOnly());
         assertEquals(List.of(), KeygenMain.parse(new String[] {"out", "a", "--tls-only", "--org", "x"}).tlsOnly());
         assertEquals(
@@ -174,6 +174,27 @@ class KeygenMainTest {
         assertEquals(
                 List.of("v"), KeygenMain.parse(new String[] {"out", "a", "--tls-only", "v", "--org", "x"}).tlsOnly());
         assertEquals("x", KeygenMain.parse(new String[] {"out", "a", "--tls-only", "v", "--org", "x"}).org());
+    }
+
+    @Test
+    void noServiceIsAUsageError() {
+        assertThrows(IllegalArgumentException.class, () -> KeygenMain.parse(new String[] {"out", "--org", "x"}));
+        assertThrows(IllegalArgumentException.class, () -> KeygenMain.parse(new String[] {"--org", "x"}));
+    }
+
+    @Test
+    void noOrgIsAUsageError() {
+        assertThrows(IllegalArgumentException.class, () -> KeygenMain.parse(new String[] {"out", "a"}));
+        assertThrows(IllegalArgumentException.class,
+                () -> KeygenMain.parse(new String[] {"out", "a", "--tls-only", "v"}));
+    }
+
+    @Test
+    void parsesTheOutputDirectoryServicesAndOrganisation() {
+        KeygenMain.Args a = KeygenMain.parse(new String[] {"out", "a", "b", "--org", "x"});
+        assertEquals(Path.of("out"), a.outDir());
+        assertEquals(List.of("a", "b"), a.services());
+        assertEquals("x", a.org());
     }
 
     @Test

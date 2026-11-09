@@ -5,7 +5,7 @@ package org.paztport.http;
 
 import java.util.concurrent.atomic.AtomicReference;
 
-/** Holds the current verification mode; mutable at runtime via the admin endpoint. */
+/** Holds the current verification mode, which an adapter such as the Spring starter can change at runtime. */
 public final class ModeHolder {
 
     private final AtomicReference<VerificationMode> mode;

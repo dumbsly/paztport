@@ -10,7 +10,8 @@ import org.paztport.http.PeerCert;
 
 /**
  * The sender the TLS layer authenticated, read from the servlet request. Under mutual TLS the container has already
- * checked the client certificate against the shop's CA before any request reaches the filter; which service and
+ * checked the client certificate against the CAs it trusts before any request reaches the filter (this
+ * organisation's own in the mesh, the client organisations' at a partner); which service and
  * issuer the certificate names is {@link PeerCert}'s rule. The container gives the client's chain leaf first, and only
  * the leaf names the client.
  */

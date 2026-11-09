@@ -52,5 +52,5 @@ done
 
 [ ! -e "$out" ] || rm -rf "$out"
 
-"$java" -jar "$sdk/keygen/target/keygen.jar" "$out/keys" edge orders payment --tls-only paztport-processor operator
+"$java" -jar "$sdk/keygen/target/keygen.jar" "$out/keys" edge orders payment --tls-only paztport-processor operator --org shop
 "$java" -jar "$sdk/policy-tool/target/policy-tool.jar" "$here/paths.yaml" "$out/keys" "$out/policy"

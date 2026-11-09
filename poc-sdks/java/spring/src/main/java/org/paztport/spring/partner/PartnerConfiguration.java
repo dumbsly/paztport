@@ -147,10 +147,11 @@ public class PartnerConfiguration {
 
     /**
      * The partner's session registry. Everything it needs is checked first, and the context fails naming what is
-     * wrong: a partner that also verifies as a shop service does, no clients pinned, no origins allowed, or a session
-     * cap or idle period that is not positive. Its replies are signed by its own entry service's key, never the
-     * policy key, so it also refuses to start, in this order, unless: its keyring and root verify under its pin and
-     * are current ({@link OwnMaterial}, which names the property and the fix); the keyring holds
+     * wrong: a partner that also verifies as one of this organisation's services does, no clients pinned, no
+     * origins allowed, or a session cap or idle period that is not positive. Its replies are signed by its own
+     * entry service's key, never the policy key, so it also refuses to start, in this order, unless: its keyring and
+     * root verify under its pin and are current ({@link OwnMaterial}, which names the property and the fix); the
+     * keyring holds
      * {@code paztport.service-name}; that entry is the key at {@code paztport.key-path}; the reply certificate
      * verifies under the pin, names that service and that key, and has not expired by the wall clock.
      * The checks after the first are {@link PartnerSessions.Builder#build}'s, worded here in terms of the property

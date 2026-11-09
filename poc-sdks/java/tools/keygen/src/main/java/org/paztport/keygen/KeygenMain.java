@@ -26,10 +26,11 @@ import org.paztport.core.policy.KeyringFile;
  * is signed and vouches for its keys for {@code PAZTPORT_POLICY_DAYS} days from the run (default 7), the setting the
  * policy tool reads for the roots and keyrings it signs.
  *
- * <pre>keygen [outDir] [service...] [--tls-only name...] [--org name]</pre>
+ * <pre>keygen &lt;outDir&gt; &lt;service&gt;... [--tls-only name...] --org &lt;name&gt;</pre>
  *
- * Defaults to {@code out/keys}, the four POC services, the TLS-only names {@code operator} and
- * {@code responder} (they speak mTLS but sign no stamps, so stay out of the keyring), and org {@code shop}.
+ * The output directory, at least one service and the organisation, which names the CA, are required. The TLS-only
+ * names default to {@code operator} and {@code responder} (they speak mTLS but sign no stamps, so stay out of the
+ * keyring); {@code --tls-only} with no names means none.
  * One CA is made per run and every certificate is issued from it. {@code tls/} holds {@code ca.crt} and the leaf
  * certificates and keys, and is what gets mounted; the CA key is written alone to {@code ca/ca.key}. {@code ca} is
  * therefore not a usable name, and names must be unique across services and TLS-only names. Only names are
@@ -43,7 +44,6 @@ import org.paztport.core.policy.KeyringFile;
  */
 public final class KeygenMain {
 
-    private static final List<String> DEFAULT_SERVICES = List.of("gateway", "orders", "payment", "search");
     private static final List<String> DEFAULT_TLS_ONLY = List.of("operator", "responder");
     private static final Duration TLS_VALIDITY = Duration.ofDays(825);
     private static final long DAY_MS = 86_400_000L;
@@ -146,11 +146,14 @@ public final class KeygenMain {
     record Args(Path outDir, List<String> services, List<String> tlsOnly, String org) {
     }
 
-    /** {@code --tls-only} with no names means none; leaving it out means the defaults, whatever the flag order. */
+    /**
+     * Needs the output directory, one service or more, and {@code --org}. {@code --tls-only} with no names means
+     * none; leaving it out means the defaults, whatever the flag order.
+     */
     static Args parse(String[] args) {
         List<String> positional = new ArrayList<>();
         List<String> tlsOnly = new ArrayList<>();
-        String org = "shop";
+        String org = null;
         boolean sawTlsOnly = false;
         boolean inTlsOnly = false;
         for (int i = 0; i < args.length; i++) {
@@ -169,8 +172,13 @@ public final class KeygenMain {
                 positional.add(args[i]);
             }
         }
-        return new Args(Path.of(positional.isEmpty() ? "out/keys" : positional.get(0)),
-                positional.size() > 1 ? List.copyOf(positional.subList(1, positional.size())) : DEFAULT_SERVICES,
+        if (positional.size() < 2) {
+            throw new IllegalArgumentException("needs an output directory and at least one service");
+        }
+        if (org == null) {
+            throw new IllegalArgumentException("needs --org");
+        }
+        return new Args(Path.of(positional.get(0)), List.copyOf(positional.subList(1, positional.size())),
                 sawTlsOnly ? tlsOnly : DEFAULT_TLS_ONLY, org);
     }
 
@@ -185,7 +193,7 @@ public final class KeygenMain {
                     + " (boundary key written only if absent)");
         } catch (IllegalArgumentException e) {
             System.err.println("keygen: " + e.getMessage());
-            System.err.println("usage: keygen [outDir] [service...] [--tls-only name...] [--org name]");
+            System.err.println("usage: keygen <outDir> <service>... [--tls-only name...] --org <name>");
             System.exit(2);
         } catch (IllegalStateException e) {
             System.err.println("keygen: " + e.getMessage());

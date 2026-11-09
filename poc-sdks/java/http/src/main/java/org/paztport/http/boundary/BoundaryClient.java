@@ -100,7 +100,7 @@ import org.slf4j.LoggerFactory;
  * the owners in the influence are private, so nothing is reduced.
  *
  * <p>The {@link BoundaryListener}, if there is one, is given the originals and the list sent before the request
- * goes, in an attested session only, so the shop can keep what it needs to open any entry it sent with
+ * goes, in an attested session only, so this organisation can keep what it needs to open any entry it sent with
  * {@link #opening}. If it throws, the call stops there and nothing of the request is sent. Nothing about the
  * originals, their owners or the hashes is logged.
  *
@@ -245,7 +245,7 @@ public final class BoundaryClient implements AutoCloseable {
             // Signed first, so a call that can't be signed is never sent and never recorded.
             Stamper.Stamped stamped = stamper.boundary(verified, current.sess(), partner, bind, sent, bundle);
             if (listener != null) {
-                // Before anything of the request goes: if the shop can't keep the originals, nothing is sent.
+                // Before anything of the request goes: if this organisation can't keep the originals, nothing is sent.
                 listener.sent(rid, partner, List.copyOf(Influence.normalise(influence)), sent);
             }
             request.header(PaztportHeaders.CHAIN, HttpWire.encodeChain(stamped.chain()));

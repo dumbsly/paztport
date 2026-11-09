@@ -747,12 +747,12 @@ Boot's standard property switches an observation off by name:
 
 ## tools/keygen
 
-One-shot job, `keygen [outDir] [service...] [--tls-only name...] [--org name]`:
+One-shot job, `keygen <outDir> <service>... [--tls-only name...] --org <name>`:
 
 - a per-service Ed25519 stamp key (`<svc>.key`) and a policy key (`policy.key`);
 - `keyring.json`, signed by the policy key, valid for `PAZTPORT_POLICY_DAYS` days (default 7),
   and `policy.pub`, the pin;
-- one CA per run, named by `--org` (default `shop`), whose key is written alone to
+- one CA per run, named by `--org`, whose key is written alone to
   `ca/ca.key`, outside `tls/`, so it sits apart from the certificates and keys that
   services mount (each service mounts only its own files, one by one);
 - `tls/ca.crt`, and `tls/<name>.crt` and `.key` for every service and every

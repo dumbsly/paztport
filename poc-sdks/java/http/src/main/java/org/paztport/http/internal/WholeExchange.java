@@ -15,9 +15,9 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
 /**
- * The one bound on a JDK client's exchange that every call the SDK makes shares: the Spring starter's pooled client
- * ({@code WholeExchangeRequestFactory}), the egress's calls to the partner and the events. It holds no state and is
- * not for an application to use.
+ * The one bound on a JDK client's exchange that every call the SDK makes shares: an adapter's pooled client (the
+ * Spring starter's {@code WholeExchangeRequestFactory}), the egress's calls to the partner and the events. It holds
+ * no state and is not for an application to use.
  */
 public final class WholeExchange {
 

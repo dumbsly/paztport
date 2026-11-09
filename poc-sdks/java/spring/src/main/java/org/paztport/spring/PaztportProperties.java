@@ -214,7 +214,7 @@ public class PaztportProperties implements InitializingBean {
 
         /**
          * The Spring Boot SSL bundle presented to the partner. It is its own, apart from {@code paztport.tls-bundle},
-         * so that the partner's CA is trusted only on calls to the partner, and the shop's only inside the shop.
+         * so that the partner's CA is trusted only on calls to the partner, and this organisation's only inside it.
          */
         private String tlsBundle;
 

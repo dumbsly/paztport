@@ -133,7 +133,8 @@ public final class HttpCaller {
          * given before.
          *
          * <p>A table, not a function: the name is the deployment's configuration, which a table holds and shows, and
-         * the same table is what the starter binds, and what another language's caller is given.
+         * the same table is what an adapter such as the Spring starter binds, and what another language's caller is
+         * given.
          *
          * @throws NullPointerException when {@code byHost} is null; an empty map is no mapping
          * @throws IllegalArgumentException when a host or a name is blank, a name is not a route node (see
