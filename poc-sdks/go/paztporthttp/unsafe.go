@@ -16,10 +16,10 @@ import (
 // hands it over.
 type UnsafeEndpoints []string
 
-// Refuses reports whether a request with method that reached the handler for routePattern is switched
+// Refuses reports whether a request with method that reached the handler for pathPattern is switched
 // off. A HEAD runs the GET handler, so it is refused wherever that GET is.
-func (u UnsafeEndpoints) Refuses(method, routePattern string) bool {
-	return slices.Contains(u, method+" "+routePattern) || method == "HEAD" && slices.Contains(u, "GET "+routePattern)
+func (u UnsafeEndpoints) Refuses(method, pathPattern string) bool {
+	return slices.Contains(u, method+" "+pathPattern) || method == "HEAD" && slices.Contains(u, "GET "+pathPattern)
 }
 
 // UnsafeRefusal returns the answer to a request [UnsafeEndpoints] refuses, sent in place of its handler:

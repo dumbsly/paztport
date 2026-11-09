@@ -23,10 +23,10 @@ public final class UnsafeEndpoints {
         this.disabled = List.copyOf(disabled);
     }
 
-    /** Whether a request with {@code method} that reached the handler for {@code routePattern} is switched off. */
-    public boolean refuses(String method, String routePattern) {
-        return disabled.contains(method + " " + routePattern)
-                || ("HEAD".equals(method) && disabled.contains("GET " + routePattern));
+    /** Whether a request with {@code method} that reached the handler for {@code pathPattern} is switched off. */
+    public boolean refuses(String method, String pathPattern) {
+        return disabled.contains(method + " " + pathPattern)
+                || ("HEAD".equals(method) && disabled.contains("GET " + pathPattern));
     }
 
     /**

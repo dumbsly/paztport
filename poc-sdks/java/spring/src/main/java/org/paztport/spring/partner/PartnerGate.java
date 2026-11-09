@@ -52,9 +52,9 @@ final class PartnerGate implements HandlerInterceptor {
             return true;
         }
         // Every Spring MVC mapping sets the pattern; without one, the raw path is the closest there is.
-        String pattern = request.getAttribute(HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE) instanceof String p
+        String pathPattern = request.getAttribute(HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE) instanceof String p
                 ? p : request.getRequestURI();
-        if (!endpoints.refuses(request.getMethod(), pattern)) {
+        if (!endpoints.refuses(request.getMethod(), pathPattern)) {
             return true;
         }
         if (TRACE.isInfoEnabled()) {
