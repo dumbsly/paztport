@@ -122,7 +122,7 @@ one in `audit` serves it and records the failure.
 
 ## Receivers, the peer and attribution
 
-**The receiver checks.** In a v3 chain every stamp names the hop it was handed to (check 4). So a chain
+**The receiver checks.** Every stamp names the hop it was handed to (check 4). So a chain
 forwarded unchanged to a service it was not signed for fails `BINDING_MISMATCH`, wherever it is sent, before
 the route is looked at. A receiver MUST supply its own name as `receiver` from its configuration, never from the
 request (over HTTP, with the operation it will dispatch the request to:
@@ -353,7 +353,9 @@ the live order before it attests, and a failure there only withholds the attesta
 like a request stamp, so attesting a chain nobody checked would let anyone mint stamps under the service's key: on a
 forged one-stamp chain with an empty `sig`, the response is a valid origin stamp from the answering service. So a
 service with nothing to verify with never attests, and an origin, which starts each request tree afresh, never
-attests. Nor is a refusal attested, or a request that failed in audit mode. A service runs the live order at most
+attests. Nor is a refusal attested, or a request that failed in audit mode.
+Where a service confirms its operation a second time, it attests only an answer whose handler it confirmed
+([The receiver's operation](#http-requests-and-responses)). A service runs the live order at most
 once per request, since it spends the request's nonce key.
 
 **A response, at the caller.** The caller checks `X-Path-Response` with `stamps` = the chain it sent then the

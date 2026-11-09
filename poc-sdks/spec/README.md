@@ -8,7 +8,7 @@ The key words MUST, MUST NOT, SHOULD, SHOULD NOT and MAY are to be read as descr
 
 | File | What it holds |
 |---|---|
-| [wire.md](wire.md) | Encodings, how JSON is read and written, keys and files, stamps and their signed bytes, chains and receivers, every binding, how a chain is carried, the Merkle tree, routes, the signed root, the signed keyring, the reply certificate, events, proof bundles and who holds what. |
+| [wire.md](wire.md) | Encodings, how JSON is read and written, keys and files, stamps and their signed bytes, chains and receivers, every binding, how a chain is carried, the Merkle tree, routes, the signed root, the signed keyring, the reply certificate, events, proof bundles and who holds what, and operations. |
 | [verification.md](verification.md) | The live order of checks, freshness and nonce keys, the receiver and peer checks, attribution, the MCP wrappers, HTTP requests and responses, the two modes and what a refusal carries, offline verification, the reason codes, receiving an event, and guidance for a responder. |
 | [sessions-and-influence.md](sessions-and-influence.md) | The session handshake, the session id, status and unsafe sessions, the server's decision, influence entries and their commitment, content labels, the owner-aware rule, trusted records, and the boundary attestation between organisations. |
 | [vectors/](vectors) | The conformance vectors. |
@@ -18,11 +18,15 @@ The key words MUST, MUST NOT, SHOULD, SHOULD NOT and MAY are to be read as descr
 The protocol is v3: a stamp carries `"v": 3`, and its signed bytes begin with `3|`. It travels over MCP (the
 TypeScript SDK) and over HTTP (the Java and Go SDKs).
 
-What v3 does, deliberately:
+Design choices:
 
 - **The receiver check.** Every stamp names the hop it was handed to (`rcv`). A live call or chain stamped for a
   different receiver is `BINDING_MISMATCH`, found with the links, not a route failure later. So a chain forwarded
   unchanged does not blame its last signer.
+- **Operations.** Over HTTP a receiver may name its operations, the handlers a request can run, so a policy can
+  allow a route through one operation of a service and not another. The caller names the operation in `rcv`
+  (`payment#charge`); the receiver works out its own from its routing, never from the request, and a chain naming
+  another fails check 4, `BINDING_MISMATCH` ([wire.md](wire.md#operations)).
 - **One version.** A verifier, live or offline, takes only stamps whose `v` is 3. A chain holding any other `v`
   is `CHAIN_MISSING`.
 - **One byte form.** Every Paztport object travels as its JCS bytes, or as their base64url, its token, and is
@@ -179,7 +183,7 @@ among them, is sent with `Content-Type: application/json` and no parameters
 |---|---|---|
 | `requests` | receiver | A request at the receiver ([verification.md](verification.md#http-requests-and-responses)): the nonce key `<rid>\|<last svc>\|<last rcv>\|req`, which other directions', hops' and operations' keys do not spend, and each unreadable header: a chain (`CHAIN_MISSING`), a proof (no proof, so `PATH_NOT_ALLOWED`) and influence (`INFLUENCE_MISMATCH`). |
 | `unreadableInfluence` | receiver | Influence that does not read is never dropped: `403` where verification refuses first, otherwise `400 INFLUENCE_MISMATCH`, in audit mode too, at a service that verifies only to attest and at one with no verifier; an origin carries none, so has none to drop ([verification.md](verification.md#modes-and-refusals)). |
-| `attestation` | receiver | Who attests: only a chain that passed the live order at that service, whether or not it verifies requests under a mode; never a refusal, an audit failure, a forged or unsigned chain, a service with no verifier, a hop that is off, or an origin. |
+| `attestation` | receiver | Who attests: only a chain that passed the live order at that service, whether or not it verifies requests under a mode; never a refusal, an audit failure, a forged or unsigned chain, a service with no verifier, a hop that is off, or an origin; and, where the receiver confirms its operation again at dispatch, only an answer whose handler it confirmed. |
 | `peerCertificates` | table | The peer under mTLS: `svc` is the subject's one common name, a UTF8String or PrintableString, read as encoded and compared as it is, else `""`; `inst` is the address the connection came from. |
 | `sessionHeader` | partner | `X-Path-Session` ([sessions-and-influence.md](sessions-and-influence.md#over-http)): no header is an unsafe session that believes nothing; an id is the call's only when the same issuer and name opened it, so an unknown id, another peer's, the same name under another issuer, no certificate, one naming no single service and a stamp made in another session are `SESSION_UNKNOWN`. |
 | `sessionRegistry` | partner | Sessions by id: a handshake replaces none, a peer holds at most N and loses its least recently used, replicas sharing a certificate are one peer, another peer's handshakes evict none, a session idle for the idle period expires and a call starts that period again, and a handshake that opens no session changes none. |
@@ -240,9 +244,9 @@ A **caller** case is a call by `caller` after the chain `inbound`, with `influen
 to it (`status`, `header`, `body`). It expects the sent stamp's `rcv`, the response check's `reason` (null when
 the caller has no verifier and checks nothing) and the `influence` the response adds.
 
-Some rules are the Java SDK's own and are tested in `paztport-http` rather than pinned: the startup checks of a
-partner's and an egress's own material, the 256 KiB limit on a handshake body, clearing a session after
-`POLICY_EXPIRED`, the egress's own idle period, and the egress labelling its own response to its caller
-`local-untrusted`, since a handler may relay what the partner said.
+Some rules are not pinned by vectors and are tested in each HTTP SDK (`paztport-http`, `paztporthttp`): the startup
+checks of a partner's and an egress's own material, the [wire limit](wire.md#limits), 256 KiB, on a handshake body,
+clearing a session after `POLICY_EXPIRED`, the egress's own idle period, and the egress labelling its own response to
+its caller `local-untrusted`, since a handler may relay what the partner said.
 
 Cases may be added at any time. A recorded answer changes only with a protocol change.

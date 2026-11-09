@@ -1,7 +1,7 @@
 # Wire format
 
 This file defines the bytes: encodings, how JSON is read and written, keys, stamps, chains, bindings, the Merkle
-tree, the signed root, the signed keyring, the reply certificate, events and the proof bundles.
+tree, the signed root, the signed keyring, the reply certificate, events, the proof bundles and operations.
 [verification.md](verification.md) says how a receiver checks them, and
 [sessions-and-influence.md](sessions-and-influence.md) covers the handshake and influence.
 
@@ -9,8 +9,8 @@ The key words MUST, MUST NOT, SHOULD, SHOULD NOT and MAY are to be read as descr
 
 Contents: [Encodings](#encodings) · [JSON](#json) · [Keys and files](#keys-and-files) · [Stamps](#stamps) ·
 [Chains](#chains) · [Bindings](#bindings) · [Carrying a chain](#carrying-a-chain) ·
-[The Merkle tree](#the-merkle-tree) · [Routes](#routes) · [The signed root](#the-signed-root) ·
-[The signed keyring](#the-signed-keyring) · [The reply certificate](#the-reply-certificate) ·
+[The Merkle tree](#the-merkle-tree) · [Routes](#routes) · [Operations](#operations) ·
+[The signed root](#the-signed-root) · [The signed keyring](#the-signed-keyring) · [The reply certificate](#the-reply-certificate) ·
 [Events](#events) · [Proof bundles, and who holds what](#proof-bundles-and-who-holds-what)
 
 ## Encodings
@@ -213,7 +213,7 @@ The policy tools write these files, except the pins of the other side of a sessi
 side writes (in the agents demo, its setup script). A key file holds one value, and readers trim surrounding
 whitespace: the space, horizontal tab, line feed and carriage return of JSON (RFC 8259), and no other character. A key
 surrounded by any other character, a no-break space or a byte order mark included, is not that key and is refused. Each
-JSON file (`keyring.json`, `reply-cert.json`, `root.json` and `proofs-<svc>.json`) is written in the [file format](#files),
+JSON file (`keyring.json`, `reply-cert.json`, `root.json`, `proofs-<svc>.json` and `ops-<svc>.json`) is written in the [file format](#files),
 and read as [Files](#files) says: strictly, in any member order and spacing.
 
 | File | Holds | Secret |
@@ -224,6 +224,7 @@ and read as [Files](#files) says: strictly, in any member order and spacing.
 | `reply-cert.json` | [A reply certificate](#the-reply-certificate) for one service's key, written only when a policy tool is asked for one | no |
 | `root.json` | [The signed root](#the-signed-root), valid until its `notAfter` | no |
 | `proofs-<svc>.json` | [A proof bundle](#proof-bundles-and-who-holds-what) | no, but it reveals its own routes |
+| `ops-<svc>.json` | [An operation table](#operations), copied by the policy tool from beside `paths.yaml` | no |
 | `policy.pub` | The policy public key that a mesh's own services pin, written by the Java keygen | no |
 | `boundary.key` | An egress's [boundary key](sessions-and-influence.md#blinded-influence): 32 bytes as base64url. The Java keygen writes it only when it does not exist, since a new key makes the entries sent under the old one unopenable, and refuses an existing one that is not 32 bytes. It belongs to one egress service and its replicas, and MUST NOT be shared with another service | yes |
 | `<side>-policy.pub` | A pinned policy public key (`server-policy.pub`, `client-policy.pub`) | no |
@@ -415,7 +416,7 @@ A request carries Paztport in three headers, each a token, the base64url of the 
 
 | Header | Value |
 |---|---|
-| `X-Path-Chain` | The chain, as a JSON array of v3 stamps, origin first. The last stamp's `rcv` is the receiving service, and its `bind` the [HTTP binding](#bindings) of the request sent. |
+| `X-Path-Chain` | The chain, as a JSON array of v3 stamps, origin first. The last stamp's `rcv` is the receiving service, or the operation it is sent to as `<service>#<operation>`, and its `bind` the [HTTP binding](#bindings) of the request sent. |
 | `X-Path-Proof` | The [proof object](#proof-object) for the full route, receiving service included. |
 | `X-Path-Influence` | The influence entries the request was made under, as a JSON array ([sessions-and-influence.md](sessions-and-influence.md#entries)). An absent header means `[]`. The last stamp's `infl` commits to them. |
 | `X-Path-Session` | The [session id](sessions-and-influence.md#the-session-id), as plain text, on a call made in a session opened by [the handshake over HTTP](sessions-and-influence.md#over-http). Inside a mesh, which has no handshake, it is absent. An absent header means no session; one that names no live session opened by the peer is refused `SESSION_UNKNOWN`. |
