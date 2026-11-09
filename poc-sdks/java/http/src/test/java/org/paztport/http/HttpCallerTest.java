@@ -338,12 +338,13 @@ class HttpCallerTest {
     }
 
     @Test
-    void aBlankOrTwiceListedMappingIsRefused() {
+    void aBlankOrTwiceListedMappingOrAnOperationIsRefused() {
         HttpCaller.Builder builder = HttpCaller.builder("gateway", gatewayStamper());
 
         assertThrows(IllegalArgumentException.class, () -> builder.receivers(Map.of("orders-internal", " ")));
         assertThrows(IllegalArgumentException.class, () -> builder.receivers(Map.of("", "orders")));
-        for (String name : List.of(".", "..", "orders/x", "orders\\x", "orders|x")) {
+        // A receivers map names services: a caller names an operation only from the receiver's table.
+        for (String name : List.of(".", "..", "orders/x", "orders\\x", "orders|x", "orders#createOrder")) {
             IllegalArgumentException refused = assertThrows(IllegalArgumentException.class,
                     () -> builder.receivers(Map.of("orders-internal", name)), name);
             assertTrue(refused.getMessage().contains("route node"), refused.getMessage());

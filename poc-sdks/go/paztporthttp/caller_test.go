@@ -96,7 +96,8 @@ func TestReceiversNameRefusesNonASCII(t *testing.T) {
 
 // TestNewReceiversRefuses refuses a blank host or name, two hosts differing only in case, a host Name
 // could never match (one with a port, an unbracketed colon or a byte outside ASCII), and a name that is
-// not a route node, naming the problem but never the host or the name.
+// not a service's: one that is not a route node, or that holds '#' and so names an operation. It names
+// the problem but never the host or the name.
 func TestNewReceiversRefuses(t *testing.T) {
 	for _, m := range []map[string]string{
 		{"": "payment"},
@@ -116,6 +117,7 @@ func TestNewReceiversRefuses(t *testing.T) {
 		{"pay.internal": `payment\x`},
 		{"pay.internal": "payment|x"},
 		{"pay.internal": "pay\xffment"},
+		{"pay.internal": "payment#pay"},
 	} {
 		r, err := paztporthttp.NewReceivers(m)
 		if err == nil {

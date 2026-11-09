@@ -129,17 +129,18 @@ public final class HttpCaller {
          * load balancer's name, or a name inside another network. The host is matched as {@link URI#getHost} gives
          * it with its ASCII letters in lower case, as DNS does, and nothing else: an IPv6 host keeps its brackets,
          * and a trailing dot is kept, so {@code orders.} is not {@code orders}. A host not listed is its own name,
-         * lower-cased the same way. A host is ASCII, so a key that is not is refused. This replaces any mapping
-         * given before.
+         * lower-cased the same way. A host is ASCII, so a key that is not is refused. Each name is a service's,
+         * never an operation's: the operation a call invokes is matched per call from the receiver's table
+         * ({@link #operations}). This replaces any mapping given before.
          *
          * <p>A table, not a function: the name is the deployment's configuration, which a table holds and shows, and
          * the same table is what an adapter such as the Spring starter binds, and what another language's caller is
          * given.
          *
          * @throws NullPointerException when {@code byHost} is null; an empty map is no mapping
-         * @throws IllegalArgumentException when a host or a name is blank, a name is not a route node (see
-         *     {@link org.paztport.core.policy.Routes#requireValidNode}: a call to it could never be stamped), a host
-         *     is not ASCII, or two hosts differ only in the case of their ASCII letters
+         * @throws IllegalArgumentException when a host or a name is blank, a name is not a service name (see
+         *     {@link org.paztport.core.policy.Routes#requireValidService}: a route node holding no {@code #}), a
+         *     host is not ASCII, or two hosts differ only in the case of their ASCII letters
          */
         public Builder receivers(Map<String, String> byHost) {
             Objects.requireNonNull(byHost, "receivers");
@@ -152,10 +153,11 @@ public final class HttpCaller {
                     throw new IllegalArgumentException("a receiver's host must be ASCII");
                 }
                 try {
-                    Routes.requireValidNode(name);
+                    Routes.requireValidService(name);
                 } catch (IllegalArgumentException e) {
-                    throw new IllegalArgumentException("a receiver's policy name must be a route node: non-empty, not"
-                            + " \".\" or \"..\", and none of '/', '\\', '|' or a lone surrogate");
+                    throw new IllegalArgumentException("a receiver's policy name must be a service name, a route"
+                            + " node: non-empty, not \".\" or \"..\", and none of '/', '\\', '|', '#' or a lone"
+                            + " surrogate");
                 }
                 if (names.putIfAbsent(asciiLower(host), name) != null) {
                     throw new IllegalArgumentException("the receiver host " + LogSafe.of(host)

@@ -29,7 +29,8 @@ type Receivers struct {
 
 // NewReceivers returns the mapping byHost gives, host to policy name, as its own copy. It refuses a
 // blank host or name; a name that is not a route node ([policy.ValidNode]), since a call to it could
-// never be stamped; a host that [Receivers.Name] could never match, one with a port, a colon outside
+// never be stamped; a name holding '#', since each name is a service's and an operation is named per
+// call, not per host; a host that [Receivers.Name] could never match, one with a port, a colon outside
 // an IPv6 address's brackets, or a byte outside ASCII; and two hosts that differ only in the case of
 // their ASCII letters, since a host is matched in any case.
 func NewReceivers(byHost map[string]string) (Receivers, error) {
@@ -40,6 +41,9 @@ func NewReceivers(byHost map[string]string) (Receivers, error) {
 		}
 		if err := policy.ValidNode(name); err != nil {
 			return Receivers{}, fmt.Errorf("paztport http: a receiver's policy name: %w", err)
+		}
+		if strings.Contains(name, "#") {
+			return Receivers{}, errors.New("paztport http: a receiver's policy name is a service's and holds no '#'")
 		}
 		if !isASCII(host) {
 			return Receivers{}, errors.New("paztport http: a receiver host must be ASCII")
