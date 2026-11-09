@@ -86,19 +86,24 @@ class VectorsHttpV3Export {
             + " (cls, owner) group in `salts`; each `openings` case is a `sent` entry and an `opening`, with its"
             + " JCS bytes in `body` (hex), which the replay reads, and `opens` says whether it opens. Ed25519 is"
             + " deterministic, so the file is reproduced byte for byte. Java writes and replays this"
-            + " file; Go replays every section but `operations`; the TypeScript SDK does not speak v3 over HTTP, so it"
-            + " does not replay it. The last three responses cases run on the `ops` policy: the chain names the"
-            + " operation each hop invokes (`orders#createOrder`, then `payment#charge`) and the proof is for that"
-            + " route. `operations` holds `table`, an operation table as a `file` (its text) and `value`, with its"
-            + " `opsHash` and the `route` a root covers it as; `shared`, payment's table, an entrance with two"
-            + " operations told apart by a query condition, in the same form; `refused`, table files a reader"
-            + " refuses; `match`, a method, a raw path and a raw query (null for none) against a table `file` and the"
-            + " operation name it gives, null for none; and `receive`, a request"
+            + " file; Go replays every section; the TypeScript SDK does not speak v3 over HTTP, so it"
+            + " does not replay it. The three responses cases before the last three run on the `ops` policy: the"
+            + " chain names the operation each hop invokes (`orders#createOrder`, then `payment#charge`) and the proof"
+            + " is for that route. The last three run on `rules.material.shop-keys`, the chain naming"
+            + " `orders#reserve`, each with `key`, the key value of the target sent. `operations` holds `table`, an"
+            + " operation table as a `file` (its text) and `value`, with its `opsHash` and the `route` a root covers"
+            + " it as; `shared`, payment's table, an entrance with two operations told apart by a query condition, in"
+            + " the same form; `keyed`, a table whose operations declare keys, in the same form; `refused`, table"
+            + " files a reader refuses; `match`, a method, a raw path and a raw query (null for none) against a table"
+            + " `file` and the operation name it gives, null for none; `keys`, cases giving a call's operation in"
+            + " `keyed` and its key value, null for none; and `receive`, a request"
             + " entered at `orders` through the HTTP receiver under enforce, against a nonce cache that already holds"
             + " `spent` (none when absent), whose chain's"
             + " first stamp names `orders` or an operation of it, with the `operation` the framework dispatches to"
             + " (null for none) and the `refusal` it expects (null when the request is served). Every `receive`"
-            + " case carries the proof of `gateway/orders#createOrder`, whatever its chain names.";
+            + " case carries the proof of `gateway/orders#createOrder`, whatever its chain names; the receive and"
+            + " responses cases naming `material` run on `rules.material`, the receiver holding `keyed` as its own"
+            + " table.";
 
     private static final long GATEWAY_TS = 1_767_225_598_500L;
     private static final long ORDERS_TS = 1_767_225_599_500L;
@@ -249,10 +254,11 @@ class VectorsHttpV3Export {
                 NOW - 1, ReasonCode.POLICY_EXPIRED, "", "", List.of(), okHash));
         responses.forEach(c -> ((ObjectNode) c).put("proofRoute", ROUTE));
         operationsResponses(gatewayKey, ordersKey, payment, labels, okHash).forEach(responses::add);
+        keyedResponses(gatewayKey, ordersKey, labels, okHash).forEach(responses::add);
         out.set("rules", VectorsHttpRules.build(out, core));
 
         out.set("boundaryInfluence", boundaryInfluence());
-        out.set("operations", operations(core, gatewayKey));
+        out.set("operations", operations(core, out.get("rules"), gatewayKey));
 
         // Replay what was just built, read back from the text it is written as, so an export can never record a
         // wrong answer.
@@ -371,6 +377,42 @@ class VectorsHttpV3Export {
         return cases;
     }
 
+    /** The route through orders' keyed operation {@code reserve}, which {@code rules.material.shop-keys} covers. */
+    static final String KEYED_ROUTE = "gateway/orders#reserve";
+    private static final String KEYED_TARGET = "/items/A1/reserve";
+
+    /**
+     * Responses from the item {@code A1} of orders' keyed operation {@code reserve} to the gateway, on
+     * {@code rules.material.shop-keys}. The response's nonce key holds the key value of the target sent, so another
+     * item's spent key does not refuse it and its own does.
+     */
+    private static List<ObjectNode> keyedResponses(PrivateKey gatewayKey, PrivateKey ordersKey,
+            List<ContentLabel> labels, String okHash) {
+        List<Stamp> sent = new Stamper("gateway", "gw-1", gatewayKey, true, () -> RID, () -> GATEWAY_TS)
+                .next(List.of(), "orders#reserve", RequestBinding.compute("POST", KEYED_TARGET, REQUEST_BODY),
+                        List.of(), null).chain();
+        Stamp ok = new Stamper("orders", "ord-1", ordersKey, false, () -> RID, () -> RESPONSE_TS)
+                .respond(sent, okHash, RID, labels);
+        String header = HttpWire.encodeResponse(ok, labels);
+        ObjectNode c = keyedResponse("a response from an item of a keyed operation", sent, header, ReasonCode.OK,
+                "orders", "ord-1", labels, okHash);
+        ObjectNode other = keyedResponse("another item's response key spent", sent, header, ReasonCode.OK, "orders",
+                "ord-1", labels, okHash);
+        other.set("spent", JsonNodeFactory.instance.arrayNode().add(RID + "|orders#reserve|B2|resp"));
+        ObjectNode own = keyedResponse("this item's response key spent", sent, header, ReasonCode.REPLAY, "", "",
+                List.of(), okHash);
+        own.set("spent", JsonNodeFactory.instance.arrayNode().add(RID + "|orders#reserve|A1|resp"));
+        List<ObjectNode> cases = List.of(c, other, own);
+        cases.forEach(o -> o.put("proofRoute", KEYED_ROUTE));
+        return cases;
+    }
+
+    private static ObjectNode keyedResponse(String name, List<Stamp> sent, String header, ReasonCode reason,
+            String suspectSvc, String suspectInst, List<ContentLabel> labels, String okHash) {
+        return responseCase(name, "material", "shop-keys", sent, "gateway", "A1", header, 200, RESPONSE_BODY, 1,
+                MESH_NOT_AFTER, reason, suspectSvc, suspectInst, labels, okHash);
+    }
+
     private static OperationTable ordersTable() {
         return new OperationTable("orders", List.of(
                 new OperationTable.Operation("createOrder", "POST", "/orders"),
@@ -402,23 +444,58 @@ class VectorsHttpV3Export {
                 new OperationTable.Operation("pay", "POST", "/pay")));
     }
 
-    private static ObjectNode operations(JsonNode core, PrivateKey gatewayKey) {
+    /**
+     * orders' table, {@code operations.keyed}, whose operations declare keys: a segment, a query parameter and a
+     * segment with a longer limit, beside one with no key.
+     */
+    static OperationTable keyedTable() {
+        return new OperationTable("orders", List.of(
+                new OperationTable.Operation("reserve", "POST", "/items/{}/reserve", null,
+                        OperationTable.Key.segment(1)),
+                new OperationTable.Operation("getLine", "GET", "/lines", null, OperationTable.Key.query("line")),
+                new OperationTable.Operation("getRecord", "GET", "/records/{}", null,
+                        new OperationTable.Key(1, null, 256)),
+                new OperationTable.Operation("createOrder", "POST", "/orders")));
+    }
+
+    /** A table file of orders' {@code reserve} alone, with the key text {@code key}. */
+    private static String reserve(String key) {
+        return tableFile("orders", "1", tableOpKey("POST", "reserve", "/items/{}/reserve", key));
+    }
+
+    private static String tableOpKey(String method, String name, String template, String key) {
+        return "{\"key\":" + key + ",\"method\":\"" + method + "\",\"name\":\"" + name + "\",\"template\":\""
+                + template + "\"}";
+    }
+
+    /** A table in the form {@code operations} gives one: its file, its value, its hash and its route. */
+    private static ObjectNode tableJson(OperationTable t) {
+        ObjectNode o = JsonNodeFactory.instance.objectNode();
+        o.put("file", t.toFile());
+        o.set("value", tree(t.toFile()));
+        o.put("opsHash", t.hash());
+        ArrayNode route = o.putArray("route");
+        t.route().forEach(route::add);
+        return o;
+    }
+
+    private static void assertTable(JsonNode table, String name) {
+        OperationTable t = OperationTable.read(table.get("file").asText());
+        assertEquals(table.get("opsHash").asText(), t.hash(), name + " hash");
+        assertEquals(table.get("route"), JsonNodeFactory.instance.arrayNode().addAll(
+                t.route().stream().map(JsonNodeFactory.instance::textNode).toList()), name + " route");
+        assertEquals(table.get("value"), tree(t.toFile()), name + " value");
+        assertEquals(table.get("file").asText(), t.toFile(), name + " file");
+    }
+
+    private static ObjectNode operations(JsonNode core, JsonNode rules, PrivateKey gatewayKey) {
         ObjectNode o = JsonNodeFactory.instance.objectNode();
         OperationTable orders = ordersTable();
-        ObjectNode table = o.putObject("table");
-        table.put("file", orders.toFile());
-        table.set("value", tree(orders.toFile()));
-        table.put("opsHash", orders.hash());
-        ArrayNode route = table.putArray("route");
-        orders.route().forEach(route::add);
-
+        o.set("table", tableJson(orders));
         OperationTable payment = paymentTable();
-        ObjectNode shared = o.putObject("shared");
-        shared.put("file", payment.toFile());
-        shared.set("value", tree(payment.toFile()));
-        shared.put("opsHash", payment.hash());
-        ArrayNode sharedRoute = shared.putArray("route");
-        payment.route().forEach(sharedRoute::add);
+        o.set("shared", tableJson(payment));
+        OperationTable keyed = keyedTable();
+        o.set("keyed", tableJson(keyed));
 
         String create = tableOp("POST", "createOrder", "/orders");
         String charge = tableOp("POST", "charge", "/charge");
@@ -455,7 +532,26 @@ class VectorsHttpV3Export {
                 tableOpQuery("cancel", "/charge", "{\"kind\":\"x\"}"))},
             {"two operations of one entrance with one condition", tableFile("payment", "1",
                 tableOpQuery("refund", "/charge", "{\"mode\":\"refund\"}"),
-                tableOpQuery("cancel", "/charge", "{\"mode\":\"refund\"}"))}};
+                tableOpQuery("cancel", "/charge", "{\"mode\":\"refund\"}"))},
+            {"a key with a segment and a query", reserve("{\"query\":\"line\",\"segment\":1}")},
+            {"a key with neither a segment nor a query", reserve("{\"maxLength\":64}")},
+            {"an extra member on a key", reserve("{\"extra\":1,\"segment\":1}")},
+            {"a key segment of 0", reserve("{\"segment\":0}")},
+            {"a key segment past the template's parameters", reserve("{\"segment\":2}")},
+            {"a key segment on a template with no parameter",
+                tableFile("orders", "1", tableOpKey("POST", "createOrder", "/orders", "{\"segment\":1}"))},
+            {"a key segment that is not an integer", reserve("{\"segment\":\"1\"}")},
+            {"a key query name with a reserved character",
+                tableFile("orders", "1", tableOpKey("GET", "getLine", "/lines", "{\"query\":\"li/ne\"}"))},
+            {"an empty key query name",
+                tableFile("orders", "1", tableOpKey("GET", "getLine", "/lines", "{\"query\":\"\"}"))},
+            {"a key query naming its entrance's condition parameter", tableFile("payment", "1",
+                tableOpKey("POST", "charge", "/charge", "{\"query\":\"mode\"}"),
+                tableOpQuery("refund", "/charge", "{\"mode\":\"refund\"}"))},
+            {"a key maxLength of 0", reserve("{\"maxLength\":0,\"segment\":1}")},
+            {"a key maxLength of 1025", reserve("{\"maxLength\":1025,\"segment\":1}")},
+            {"a key maxLength that is not an integer", reserve("{\"maxLength\":\"128\",\"segment\":1}")},
+            {"a key that is not an object", reserve("1")}};
         for (String[] r : refusals) {
             ObjectNode c = refused.addObject();
             c.put("name", r[0]);
@@ -502,6 +598,43 @@ class VectorsHttpV3Export {
             }
         }
 
+        ArrayNode keys = o.putArray("keys");
+        String longest = "k".repeat(OperationTable.Key.DEFAULT_MAX_LENGTH);
+        String longer = "k".repeat(200);
+        String[][] keyCases = {
+            {"a segment key", "POST", KEYED_TARGET, null, "reserve", "A1"},
+            {"a query key", "GET", "/lines", "line=L7", "getLine", "L7"},
+            {"a percent-encoded segment", "POST", "/items/%41/reserve", null, "reserve", null},
+            {"a percent-encoded query value", "GET", "/lines", "line=%4C7", "getLine", null},
+            {"a dot segment", "POST", "/items/./reserve", null, "reserve", null},
+            {"a dot-dot segment", "POST", "/items/../reserve", null, "reserve", null},
+            {"a key of 128 characters", "POST", "/items/" + longest + "/reserve", null, "reserve", longest},
+            {"a key of 129 characters", "POST", "/items/" + longest + "k/reserve", null, "reserve", null},
+            {"a key of 200 characters under maxLength 256", "GET", "/records/" + longer, null, "getRecord", longer},
+            {"a query key absent", "GET", "/lines", null, "getLine", null},
+            {"a query key repeated", "GET", "/lines", "line=L7&line=L8", "getLine", null},
+            {"a query key with no value", "GET", "/lines", "line", "getLine", null},
+            {"an operation with no key", "POST", "/orders", null, "createOrder", null}};
+        for (String[] k : keyCases) {
+            ObjectNode c = keys.addObject();
+            c.put("name", k[0]);
+            c.put("table", keyed.toFile());
+            c.put("method", k[1]);
+            c.put("path", k[2]);
+            if (k[3] == null) {
+                c.putNull("query");
+            } else {
+                c.put("query", k[3]);
+            }
+            ObjectNode e = c.putObject("expected");
+            e.put("operation", k[4]);
+            if (k[5] == null) {
+                e.putNull("key");
+            } else {
+                e.put("key", k[5]);
+            }
+        }
+
         ArrayNode receive = o.putArray("receive");
         receive.add(receiveCase("the operation the chain names", core, gatewayKey, "orders#createOrder",
                 "createOrder", null));
@@ -521,6 +654,20 @@ class VectorsHttpV3Export {
         // proof is for the route that names the operation.
         receive.add(receiveCase("a chain naming no operation, where the policy names them", core, gatewayKey,
                 "orders", "createOrder", ReasonCode.PATH_NOT_ALLOWED));
+        // Requests for items of orders' keyed operation reserve: the request key holds the key value.
+        MerkleProof keyedProof = MerkleProof.parse(
+                Vectors.text(rules.get("material").get("shop-keys").get("proofs").get(KEYED_ROUTE)));
+        String reserveKey = RID + "|gateway|orders#reserve";
+        receive.add(keyedReceiveCase("an item of a keyed operation", gatewayKey, keyedProof, KEYED_TARGET, null,
+                null));
+        receive.add(keyedReceiveCase("another item's request key spent", gatewayKey, keyedProof, KEYED_TARGET,
+                reserveKey + "|B2|req", null));
+        receive.add(keyedReceiveCase("this item's request key spent", gatewayKey, keyedProof, KEYED_TARGET,
+                reserveKey + "|A1|req", ReasonCode.REPLAY));
+        receive.add(keyedReceiveCase("the operation's unkeyed request key spent", gatewayKey, keyedProof,
+                KEYED_TARGET, reserveKey + "|req", null));
+        receive.add(keyedReceiveCase("a keyed operation with no key value", gatewayKey, keyedProof,
+                "/items/%41/reserve", null, ReasonCode.BINDING_MISMATCH));
         return o;
     }
 
@@ -530,19 +677,42 @@ class VectorsHttpV3Export {
      */
     private static ObjectNode receiveCase(String name, JsonNode core, PrivateKey gatewayKey, String rcv,
             String operation, ReasonCode refusal) {
-        byte[] body = REQUEST_BODY;
-        List<Stamp> chain = new Stamper("gateway", "gw-1", gatewayKey, true, () -> RID, () -> GATEWAY_TS)
-                .next(List.of(), rcv, RequestBinding.compute("POST", "/orders", body), List.of(), null).chain();
         MerkleProof proof = MerkleProof.parse(
                 Vectors.text(core.get("policies").get("ops").get("proofs").get("gateway/orders#createOrder")));
+        return receiveCase(name, "policy", "ops", gatewayKey, proof, "/orders", rcv, operation, refusal);
+    }
+
+    /**
+     * A request from gateway to {@code orders#reserve} at {@code target}, dispatched to {@code reserve}, on
+     * {@code rules.material.shop-keys} against a nonce cache holding {@code spent} (none when null).
+     */
+    private static ObjectNode keyedReceiveCase(String name, PrivateKey gatewayKey, MerkleProof proof, String target,
+            String spent, ReasonCode refusal) {
+        ObjectNode c = receiveCase(name, "material", "shop-keys", gatewayKey, proof, target, "orders#reserve",
+                "reserve", refusal);
+        if (spent != null) {
+            c.set("spent", JsonNodeFactory.instance.arrayNode().add(spent));
+        }
+        return c;
+    }
+
+    /**
+     * A {@code POST} of {@code target} from gateway to orders, its first stamp naming {@code rcv} and carrying
+     * {@code proof}, on the policy or material ({@code source}) named {@code sourceName}.
+     */
+    private static ObjectNode receiveCase(String name, String source, String sourceName, PrivateKey gatewayKey,
+            MerkleProof proof, String target, String rcv, String operation, ReasonCode refusal) {
+        byte[] body = REQUEST_BODY;
+        List<Stamp> chain = new Stamper("gateway", "gw-1", gatewayKey, true, () -> RID, () -> GATEWAY_TS)
+                .next(List.of(), rcv, RequestBinding.compute("POST", target, body), List.of(), null).chain();
         ObjectNode c = JsonNodeFactory.instance.objectNode();
         c.put("name", name);
-        c.put("policy", "ops");
+        c.put(source, sourceName);
         c.put("service", "orders");
         c.put("mode", "enforce");
         ObjectNode request = c.putObject("request");
         request.put("method", "POST");
-        request.put("target", "/orders");
+        request.put("target", target);
         ObjectNode headers = request.putObject("headers");
         headers.put(PaztportHeaders.CHAIN, HttpWire.encodeChain(chain));
         headers.put(PaztportHeaders.PROOF, HttpWire.encodeProof(proof));
@@ -571,20 +741,9 @@ class VectorsHttpV3Export {
     }
 
     private static void assertOperations(JsonNode o) {
-        JsonNode table = o.get("table");
-        OperationTable t = OperationTable.read(table.get("file").asText());
-        assertEquals(table.get("opsHash").asText(), t.hash(), "table hash");
-        assertEquals(table.get("route"), JsonNodeFactory.instance.arrayNode().addAll(
-                t.route().stream().map(JsonNodeFactory.instance::textNode).toList()), "table route");
-        assertEquals(table.get("value"), tree(t.toFile()), "table value");
-        assertEquals(table.get("file").asText(), t.toFile(), "table file");
-        JsonNode shared = o.get("shared");
-        OperationTable sharedTable = OperationTable.read(shared.get("file").asText());
-        assertEquals(shared.get("opsHash").asText(), sharedTable.hash(), "shared hash");
-        assertEquals(shared.get("route"), JsonNodeFactory.instance.arrayNode().addAll(
-                sharedTable.route().stream().map(JsonNodeFactory.instance::textNode).toList()), "shared route");
-        assertEquals(shared.get("value"), tree(sharedTable.toFile()), "shared value");
-        assertEquals(shared.get("file").asText(), sharedTable.toFile(), "shared file");
+        for (String name : List.of("table", "shared", "keyed")) {
+            assertTable(o.get(name), name);
+        }
         for (JsonNode c : o.get("refused")) {
             assertEquals("refused", c.get("expected").asText());
             assertThrows(IllegalArgumentException.class, () -> OperationTable.read(c.get("file").asText()),
@@ -596,12 +755,27 @@ class VectorsHttpV3Export {
             assertEquals(c.get("expected").isNull() ? null : c.get("expected").asText(), got,
                     c.get("method").asText() + " " + c.get("path").asText() + " " + c.get("query"));
         }
+        for (JsonNode c : o.get("keys")) {
+            OperationTable t = OperationTable.read(c.get("table").asText());
+            String path = c.get("path").asText();
+            String query = c.get("query").isNull() ? null : c.get("query").asText();
+            String operation = t.match(c.get("method").asText(), path, query);
+            JsonNode want = c.get("expected");
+            String name = "keys: " + c.get("name").asText();
+            assertEquals(want.get("operation").isNull() ? null : want.get("operation").asText(), operation, name);
+            assertEquals(want.get("key").isNull() ? null : want.get("key").asText(),
+                    operation == null ? null : t.keyValue(operation, path, query), name);
+        }
     }
 
     private static void assertReceive(JsonNode c, JsonNode http, JsonNode core) {
         String name = c.get("name").asText();
-        HttpReceiver receiver = HttpReceiver.builder(c.get("service").asText()).verifyRequests(true)
-                .publisher(event -> { }).verifier(verifier(c, http, core)).build();
+        HttpReceiver.Builder b = HttpReceiver.builder(c.get("service").asText()).verifyRequests(true)
+                .publisher(event -> { }).verifier(verifier(c, http, core));
+        if (c.has("material")) {
+            b.operations(OperationTable.read(http.get("operations").get("keyed").get("file").asText()));
+        }
+        HttpReceiver receiver = b.build();
         JsonNode r = c.get("request");
         Map<String, String> headers = new LinkedHashMap<>();
         r.get("headers").properties().forEach(e -> headers.put(e.getKey(), e.getValue().asText()));
@@ -625,11 +799,25 @@ class VectorsHttpV3Export {
     private static ObjectNode responseCase(String name, List<Stamp> sent, String header, int status, byte[] body,
             int uses, long policyNotAfter, ReasonCode reason, String suspectSvc, String suspectInst,
             List<ContentLabel> labels, String resultHash) {
+        return responseCase(name, "policy", "mesh", sent, "orders", null, header, status, body, uses, policyNotAfter,
+                reason, suspectSvc, suspectInst, labels, resultHash);
+    }
+
+    /**
+     * A responses case on the policy or material ({@code source}) named {@code sourceName}, checked by
+     * {@code caller}; {@code key}, the key value of the target sent, is left out when null.
+     */
+    private static ObjectNode responseCase(String name, String source, String sourceName, List<Stamp> sent,
+            String caller, String key, String header, int status, byte[] body, int uses, long policyNotAfter,
+            ReasonCode reason, String suspectSvc, String suspectInst, List<ContentLabel> labels, String resultHash) {
         ObjectNode c = JsonNodeFactory.instance.objectNode();
         c.put("name", name);
-        c.put("policy", "mesh");
+        c.put(source, sourceName);
         c.set("sent", stampsJson(sent));
-        c.put("caller", "orders");
+        c.put("caller", caller);
+        if (key != null) {
+            c.put("key", key);
+        }
         c.put("responseHeader", header);
         c.put("status", status);
         c.put("body", hex(body));
@@ -693,9 +881,26 @@ class VectorsHttpV3Export {
         return Crypto.decodePublicKey(Base64Url.decode(k.get("pub").asText()));
     }
 
+    /**
+     * The root, root id and proofs a case runs on: those of the v3.json policy it names, or of the
+     * {@code rules.material} it names.
+     */
+    private record Policy(String root, String rootId, JsonNode proofs) {
+
+        static Policy of(JsonNode c, JsonNode http, JsonNode core) {
+            if (c.has("material")) {
+                JsonNode m = http.get("rules").get("material").get(c.get("material").asText());
+                return new Policy(m.get("root").get("root").asText(), m.get("root").get("rootId").asText(),
+                        m.get("proofs"));
+            }
+            JsonNode p = core.get("policies").get(c.get("policy").asText());
+            return new Policy(p.get("root").asText(), p.get("rootId").asText(), p.get("proofs"));
+        }
+    }
+
     /** The verifier a case describes: one keyring and one root, each with the case's window. */
     private static Verifier verifier(JsonNode c, JsonNode http, JsonNode core) {
-        JsonNode policy = core.get("policies").get(c.get("policy").asText());
+        Policy policy = Policy.of(c, http, core);
         Map<String, PublicKey> ring = new LinkedHashMap<>();
         c.get("keyring").properties().forEach(e -> ring.put(e.getKey(), publicKey(e.getValue().asText(), http, core)));
         Set<String> origins = new LinkedHashSet<>();
@@ -708,25 +913,26 @@ class VectorsHttpV3Export {
         }
         return new Verifier(new VerifierConfig(
                 List.of(new PinnedKeyring(Keyring.of(ring), policyNotAfter)),
-                List.of(new PinnedRoot(Base64Url.decode(policy.get("root").asText()), policy.get("rootId").asText(),
-                        policyNotAfter)), policyNotAfter, origins, c.get("sess").asText(),
+                List.of(new PinnedRoot(Base64Url.decode(policy.root()), policy.rootId(), policyNotAfter)),
+                policyNotAfter, origins, c.get("sess").asText(),
                 nonces, () -> now,
                 c.get("callMaxAgeMs").asLong(), c.get("runMaxAgeMs").asLong()));
     }
 
     private static void assertResponse(JsonNode c, JsonNode http, JsonNode core) {
         String name = c.get("name").asText();
-        JsonNode policy = core.get("policies").get(c.get("policy").asText());
         Verifier verifier = verifier(c, http, core);
         List<Stamp> sent = new ArrayList<>();
         c.get("sent").forEach(s -> sent.add(stamp(s)));
-        MerkleProof proof = MerkleProof.parse(Vectors.text(policy.get("proofs").get(c.get("proofRoute").asText())));
+        MerkleProof proof = MerkleProof.parse(
+                Vectors.text(Policy.of(c, http, core).proofs().get(c.get("proofRoute").asText())));
         JsonNode header = c.get("responseHeader");
+        String key = c.has("key") ? c.get("key").asText() : null;
         HttpWire.ResponseCheck check = null;
         for (int i = 0; i < c.get("uses").asInt(); i++) {
             check = HttpWire.verifyResponse(verifier, sent, proof, header.isNull() ? null : header.asText(),
                     c.get("status").asInt(), HexFormat.of().parseHex(c.get("body").asText()), c.get("caller").asText(),
-                    null);
+                    key);
         }
         JsonNode want = c.get("expected");
         assertEquals(ReasonCode.valueOf(want.get("reason").asText()), check.result().reason(), name);

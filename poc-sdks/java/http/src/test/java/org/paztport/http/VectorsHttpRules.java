@@ -396,6 +396,9 @@ final class VectorsHttpRules {
         material.set("shop-operations", material("shop-operations", List.of(OPERATION_ROUTE,
                 String.join("/", VectorsHttpV3Export.paymentTable().route())), "shop-policy",
                 made.get("shop-policy"), shopServices, NOT_AFTER));
+        material.set("shop-keys", material("shop-keys", List.of(VectorsHttpV3Export.KEYED_ROUTE,
+                String.join("/", VectorsHttpV3Export.keyedTable().route())), "shop-policy",
+                made.get("shop-policy"), shopServices, NOT_AFTER));
         material.set("psp", partnerMaterial(made.get("psp-policy"), made.get("psp"), NOT_AFTER));
         material.set("psp-expiring", partnerMaterial(made.get("psp-policy"), made.get("psp"), EXPIRES));
         rules.set("handshakes", handshakes(new Fixtures(reread(rules), http, core)));
