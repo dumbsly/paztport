@@ -24,7 +24,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 public class EventController {
 
-    private static final Logger log = LoggerFactory.getLogger(EventController.class);
+    private static final Logger LOG = LoggerFactory.getLogger(EventController.class);
 
     private final ResponderService service;
     private final EventVerifier verifier;
@@ -38,7 +38,7 @@ public class EventController {
     public ResponseEntity<Map<String, String>> events(@RequestBody(required = false) String body) {
         EventVerifier.Outcome outcome = verifier.accept(body);
         if (!outcome.accepted()) {
-            log.warn("refused event: {}", why(outcome));
+            LOG.warn("refused event: {}", why(outcome));
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "event refused"));
         }
         return ResponseEntity.ok(Map.of("decision", service.handle(outcome.event()).name()));

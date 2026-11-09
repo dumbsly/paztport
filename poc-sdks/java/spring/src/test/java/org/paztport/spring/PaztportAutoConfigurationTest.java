@@ -631,6 +631,18 @@ class PaztportAutoConfigurationTest {
                                 sent.proof().toJson(), "orders", true, "rid-" + maxAge + "|gateway|orders|req", null);
                         assertThat(verifier.verify(input).reason()).isEqualTo(ReasonCode.OK);
                         assertThat(verifier.verify(input).reason()).isEqualTo(ReasonCode.REPLAY);
+
+                        // The property is the call window: a stamp ten seconds old is expired under 5000 ms
+                        // and current under 20000 ms.
+                        Stamper.Stamped aged = new Stamper("gateway", "gw-1", gateway.getPrivate(), true,
+                                () -> "rid-aged-" + maxAge, () -> System.currentTimeMillis() - 10_000)
+                                .next(null, "orders", "b", List.of(),
+                                        ProofBundle.load(dir.resolve("proofs-gateway.json")));
+                        VerifyInput agedInput = new VerifyInput(Chains.toJson(aged.chain()), "b", "[]",
+                                aged.proof().toJson(), "orders", true,
+                                "rid-aged-" + maxAge + "|gateway|orders|req", null);
+                        assertThat(verifier.verify(agedInput).reason())
+                                .isEqualTo(maxAge == 5000 ? ReasonCode.EXPIRED : ReasonCode.OK);
                     });
         }
     }

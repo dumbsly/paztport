@@ -102,8 +102,8 @@ public final class PolicyToolMain {
      */
     public static void run(Path pathsYaml, Path keysDir, Path outDir, int depth, String replyCertSvc,
             long replyCertNotAfter) throws IOException {
-        run(pathsYaml, keysDir, outDir, depth, System.currentTimeMillis() + OwnMaterial.DEFAULT_LIFETIME_MS, replyCertSvc,
-                replyCertNotAfter);
+        long notAfter = System.currentTimeMillis() + OwnMaterial.DEFAULT_LIFETIME_MS;
+        run(pathsYaml, keysDir, outDir, depth, notAfter, replyCertSvc, replyCertNotAfter);
     }
 
     /**

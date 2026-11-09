@@ -99,11 +99,12 @@ public class PartnerConfiguration {
             throw new IllegalStateException(
                     "paztport.boundary.tls-bundle is set but no SSL bundles are configured (spring.ssl.bundle.*)");
         }
-        SignedRoot ownRoot = StartupMaterial.loadRoot(Path.of(props.getRootPath()));
-        KeyringFile ownKeyring = StartupMaterial.loadKeyring(Path.of(props.getKeyringPath()));
+        Path rootFile = Path.of(props.getRootPath());
+        Path keyringFile = Path.of(props.getKeyringPath());
+        SignedRoot ownRoot = StartupMaterial.loadRoot(rootFile);
+        KeyringFile ownKeyring = StartupMaterial.loadKeyring(keyringFile);
         String ownPin = KeyFiles.loadPolicyPin(Path.of(props.getPolicyKeyPath()));
-        StartupMaterial.require(ownKeyring, Path.of(props.getKeyringPath()), ownRoot, Path.of(props.getRootPath()),
-                ownPin, System.currentTimeMillis());
+        StartupMaterial.require(ownKeyring, keyringFile, ownRoot, rootFile, ownPin, System.currentTimeMillis());
         Stamper stamping = stamper.getObject();
         ProofBundle proofs = bundle.getObject();
         String partnerPin = KeyFiles.loadPolicyPin(Path.of(b.getPartnerPolicyKeyPath()));
@@ -212,10 +213,11 @@ public class PartnerConfiguration {
         }
         String service = props.getServiceName();
         String pin = KeyFiles.loadPolicyPin(Path.of(props.getPolicyKeyPath()));
-        KeyringFile keyring = StartupMaterial.loadKeyring(Path.of(props.getKeyringPath()));
-        SignedRoot ownRoot = StartupMaterial.loadRoot(Path.of(props.getRootPath()));
-        StartupMaterial.require(keyring, Path.of(props.getKeyringPath()), ownRoot, Path.of(props.getRootPath()), pin,
-                clock.getAsLong());
+        Path keyringFile = Path.of(props.getKeyringPath());
+        Path rootFile = Path.of(props.getRootPath());
+        KeyringFile keyring = StartupMaterial.loadKeyring(keyringFile);
+        SignedRoot ownRoot = StartupMaterial.loadRoot(rootFile);
+        StartupMaterial.require(keyring, keyringFile, ownRoot, rootFile, pin, clock.getAsLong());
         PrivateKey serviceKey = KeyFiles.loadPrivateKey(Path.of(props.getKeyPath()));
         ReplyCert cert;
         try {

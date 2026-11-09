@@ -20,7 +20,7 @@ import org.slf4j.LoggerFactory;
  */
 public final class ResponderService {
 
-    private static final Logger log = LoggerFactory.getLogger(ResponderService.class);
+    private static final Logger LOG = LoggerFactory.getLogger(ResponderService.class);
 
     private final QuarantineDecider decider;
     private final Quarantiner quarantiner;
@@ -36,11 +36,11 @@ public final class ResponderService {
         QuarantineDecision decision = decider.observe(event);
         switch (decision) {
             case QUARANTINE -> {
-                log.warn("QUARANTINE svc={} inst={} reason={}",
+                LOG.warn("QUARANTINE svc={} inst={} reason={}",
                         LogSafe.of(event.suspectSvc()), LogSafe.of(event.suspectInst()), LogSafe.of(event.reason()));
                 executor.execute(() -> quarantiner.quarantine(event.suspectSvc(), event.suspectInst()));
             }
-            case ESCALATE -> log.error("ESCALATE svc={} inst={} — per-service quarantine limit exceeded, paging a human",
+            case ESCALATE -> LOG.error("ESCALATE svc={} inst={} — per-service quarantine limit exceeded, paging a human",
                     LogSafe.of(event.suspectSvc()), LogSafe.of(event.suspectInst()));
             case NONE -> {
                 // below threshold, audit, or unattributable: nothing to do

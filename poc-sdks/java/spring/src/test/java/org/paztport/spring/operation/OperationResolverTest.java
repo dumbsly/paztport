@@ -135,8 +135,8 @@ class OperationResolverTest {
         runOrders(world, world.file("ops-orders.json"), context -> {
             OperationResolver resolver = context.getBean(OperationResolver.class);
             MockMvc mvc = MockMvcBuilders.webAppContextSetup(context).build();
-            String[][] served = {{"/orders/123", "/orders/{}", "getOrder"}, {"/orders/search", "/orders/search", "search"},
-                    {"/items/42", "/items/{}", "getItem"}};
+            String[][] served = {{"/orders/123", "/orders/{}", "getOrder"},
+                    {"/orders/search", "/orders/search", "search"}, {"/items/42", "/items/{}", "getItem"}};
             for (String[] s : served) {
                 assertThat(OperationResolver.template((String) dispatchedPattern(mvc, s[0]))).as(s[0]).isEqualTo(s[1]);
                 assertThat(resolver.operationFor(request(context, "GET", s[0]))).as(s[0]).isEqualTo(s[2]);

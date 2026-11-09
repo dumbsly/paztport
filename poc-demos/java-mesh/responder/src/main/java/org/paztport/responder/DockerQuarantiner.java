@@ -31,7 +31,7 @@ import org.slf4j.LoggerFactory;
  */
 public final class DockerQuarantiner implements Quarantiner {
 
-    private static final Logger log = LoggerFactory.getLogger(DockerQuarantiner.class);
+    private static final Logger LOG = LoggerFactory.getLogger(DockerQuarantiner.class);
 
     /** Let the triggering request drain before we cut the suspect off the mesh. */
     private static final long GRACE_MILLIS = 750;
@@ -60,7 +60,7 @@ public final class DockerQuarantiner implements Quarantiner {
                 .anyMatch(n -> quarantineNetwork.equals(n.getName()));
         if (!present) {
             docker.createNetworkCmd().withName(quarantineNetwork).withDriver("bridge").withInternal(true).exec();
-            log.info("created quarantine network {}", quarantineNetwork);
+            LOG.info("created quarantine network {}", quarantineNetwork);
         }
     }
 
@@ -68,19 +68,19 @@ public final class DockerQuarantiner implements Quarantiner {
     public void quarantine(String suspectSvc, String suspectInst) {
         String container = resolve(suspectInst);
         if (container == null) {
-            log.warn("suspect container {} not found; nothing to quarantine", LogSafe.of(suspectInst));
+            LOG.warn("suspect container {} not found; nothing to quarantine", LogSafe.of(suspectInst));
             return;
         }
         InspectContainerResponse suspect;
         try {
             suspect = docker.inspectContainerCmd(container).exec();
         } catch (NotFoundException e) {
-            log.warn("suspect container {} not found; nothing to quarantine", LogSafe.of(suspectInst));
+            LOG.warn("suspect container {} not found; nothing to quarantine", LogSafe.of(suspectInst));
             return;
         }
         Map<String, String> labels = suspect.getConfig() == null ? null : suspect.getConfig().getLabels();
         if (!runsService(labels, suspectSvc)) {
-            log.warn("refusing to quarantine {}: that container does not run {}",
+            LOG.warn("refusing to quarantine {}: that container does not run {}",
                     LogSafe.of(suspectInst), LogSafe.of(suspectSvc));
             return;
         }
@@ -96,7 +96,7 @@ public final class DockerQuarantiner implements Quarantiner {
         // Isolate: off the mesh, onto the quarantine network, still running.
         docker.disconnectFromNetworkCmd().withContainerId(id).withNetworkId(meshNetwork).exec();
         docker.connectToNetworkCmd().withContainerId(id).withNetworkId(quarantineNetwork).exec();
-        log.warn("isolated {} ({}) onto {}", LogSafe.of(suspectSvc), LogSafe.of(suspectInst), quarantineNetwork);
+        LOG.warn("isolated {} ({}) onto {}", LogSafe.of(suspectSvc), LogSafe.of(suspectInst), quarantineNetwork);
 
         // Replace: clone image/env/labels/binds straight onto the mesh under the
         // service alias (one step — a "none"-mode container cannot also join a
@@ -111,7 +111,7 @@ public final class DockerQuarantiner implements Quarantiner {
                 .withName(suspectSvc + "-repl-" + (System.nanoTime() % 1_000_000))
                 .exec();
         docker.startContainerCmd(replacement.getId()).exec();
-        log.warn("started replacement {} on {} as {}", shortId(replacement.getId()), meshNetwork, LogSafe.of(suspectSvc));
+        LOG.warn("started replacement {} on {} as {}", shortId(replacement.getId()), meshNetwork, LogSafe.of(suspectSvc));
     }
 
     /**
