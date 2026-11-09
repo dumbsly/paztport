@@ -43,17 +43,17 @@ func TestReceiverRulesVectors(t *testing.T) {
 	}
 }
 
-// TestUnsafeOperationsVectors replays the rules' unsafeOperations: whether an operation is switched off
+// TestUnsafeEndpointsVectors replays the rules' unsafeEndpoints: whether an endpoint is switched off
 // for unsafe sessions, a HEAD wherever its GET is.
-func TestUnsafeOperationsVectors(t *testing.T) {
-	cases := vectors.Rules(t).Get("unsafeOperations")
+func TestUnsafeEndpointsVectors(t *testing.T) {
+	cases := vectors.Rules(t).Get("unsafeEndpoints")
 	if cases.Len() == 0 {
-		t.Fatal("the rules have no unsafeOperations case")
+		t.Fatal("the rules have no unsafeEndpoints case")
 	}
 	cases.Each(func(name string, c vectors.Node) {
 		t.Run(name, func(t *testing.T) {
 			c := c.With(t)
-			disabled := paztporthttp.UnsafeOperations(c.Get("disabled").Strs())
+			disabled := paztporthttp.UnsafeEndpoints(c.Get("disabled").Strs())
 			got := disabled.Refuses(c.Get("method").Str(), c.Get("routePattern").Str())
 			if want := c.Get("refused").Bool(); got != want {
 				t.Fatalf("Refuses = %v, want %v", got, want)

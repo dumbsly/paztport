@@ -238,7 +238,7 @@ func mode(t testing.TB, n vectors.Node) paztporthttp.Mode {
 	}
 }
 
-// The operations the scripted partner's unsafe replies list as switched off.
+// The endpoints the scripted partner's unsafe replies list as switched off.
 var unsafeDisabled = []string{"POST /refund", "GET /statements/{id}"}
 
 // scriptedPartner is a partner reduced to a script, answering the steps an egress hands its embedder.

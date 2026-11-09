@@ -141,7 +141,7 @@ unavailable (`HttpAnswer.unavailable()`, 503) in `ENFORCE`, with
 owns its own timeouts. `PeerCert.of(certificate, address)` reads the peer
 and its issuer from a client certificate. `PartnerSessions` keeps a partner's
 sessions; its `builder()` refuses own material no client could accept, naming
-each `Fault`. `HttpSessions.serve` answers one handshake, and `UnsafeOperations`
+each `Fault`. `HttpSessions.serve` answers one handshake, and `UnsafeEndpoints`
 says what an unsafe session may not do. The starter's filters, gate and
 handshake endpoint are adapters over these, and another framework would adapt
 the same functions.

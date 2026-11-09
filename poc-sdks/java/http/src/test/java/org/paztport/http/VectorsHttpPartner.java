@@ -521,7 +521,7 @@ final class VectorsHttpPartner {
         ObjectNode call = twice.charge(NOW + 1_000, "shop", of("s1"));
         a.add(twice.call(NOW + 1_000, call, attested(OWNED, true))
                 .call(NOW + 1_500, call, refused(ReasonCode.REPLAY)).c);
-        Script gated = new Script("operations switched off for unsafe sessions", partner(), shop)
+        Script gated = new Script("endpoints switched off for unsafe sessions", partner(), shop)
                 .handshake(NOW, "shop", "no-root", "u1", opened("unsafe"))
                 .handshake(NOW, "shop", "shop", "s1", opened("attested"));
         gated.call(NOW + 1_000, gated.call("shop", of("u1"), "POST", "/refund", "/refund", CHARGE, null, null, null),
@@ -639,10 +639,10 @@ final class VectorsHttpPartner {
                 fx.peer(call.get("peer")))) {
             PartnerAccepted a = entered.result();
             HttpAnswer refusal = a.refusal();
-            // As an adapter does: an unsafe session's switched-off operations are refused before the handler runs.
+            // As an adapter does: an unsafe session's switched-off endpoints are refused before the handler runs.
             if (refusal == null && !a.attested()
-                    && sessions.unsafeOperations().refuses(method, call.get("routePattern").asText())) {
-                refusal = UnsafeOperations.refusal();
+                    && sessions.unsafeEndpoints().refuses(method, call.get("routePattern").asText())) {
+                refusal = UnsafeEndpoints.refusal();
             }
             if (refusal == null) {
                 e.putNull("refusal");

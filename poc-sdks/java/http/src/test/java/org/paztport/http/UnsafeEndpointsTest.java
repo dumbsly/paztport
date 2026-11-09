@@ -11,16 +11,16 @@ import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
-/** Which requests an unsafe session may not make: by method and dispatched route pattern. */
-class UnsafeOperationsTest {
+/** Which requests an unsafe session may not make: by method and dispatched path pattern. */
+class UnsafeEndpointsTest {
 
-    private final UnsafeOperations ops = new UnsafeOperations(List.of("POST /refund", "GET /cards/{id}"));
+    private final UnsafeEndpoints ops = new UnsafeEndpoints(List.of("POST /refund", "GET /cards/{id}"));
 
     @Test
-    void anOperationIsTheMethodAndTheRoutePattern() {
+    void anEndpointIsTheMethodAndThePathPattern() {
         assertTrue(ops.refuses("POST", "/refund"));
         assertTrue(ops.refuses("GET", "/cards/{id}"));
-        assertFalse(ops.refuses("GET", "/refund"), "another method on the same route");
+        assertFalse(ops.refuses("GET", "/refund"), "another method on the same path pattern");
         assertFalse(ops.refuses("POST", "/cards/{id}"));
         assertFalse(ops.refuses("POST", "/refunds"));
     }
@@ -41,7 +41,7 @@ class UnsafeOperationsTest {
     @Test
     void theListIsFixedWhenMade() {
         List<String> disabled = new ArrayList<>(List.of("POST /refund"));
-        UnsafeOperations fixed = new UnsafeOperations(disabled);
+        UnsafeEndpoints fixed = new UnsafeEndpoints(disabled);
         disabled.clear();
 
         assertTrue(fixed.refuses("POST", "/refund"));

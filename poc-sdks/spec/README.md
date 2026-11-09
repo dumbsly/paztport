@@ -183,13 +183,13 @@ among them, is sent with `Content-Type: application/json` and no parameters
 | `peerCertificates` | table | The peer under mTLS: `svc` is the subject's one common name, a UTF8String or PrintableString, read as encoded and compared as it is, else `""`; `inst` is the address the connection came from. |
 | `sessionHeader` | partner | `X-Path-Session` ([sessions-and-influence.md](sessions-and-influence.md#over-http)): no header is an unsafe session that believes nothing; an id is the call's only when the same issuer and name opened it, so an unknown id, another peer's, the same name under another issuer, no certificate, one naming no single service and a stamp made in another session are `SESSION_UNKNOWN`. |
 | `sessionRegistry` | partner | Sessions by id: a handshake replaces none, a peer holds at most N and loses its least recently used, replicas sharing a certificate are one peer, another peer's handshakes evict none, a session idle for the idle period expires and a call starts that period again, and a handshake that opens no session changes none. |
-| `unsafeOperations` | table | An operation is `<METHOD> <route pattern>` by the dispatched handler's pattern, and a `HEAD` is refused wherever its `GET` is. |
+| `unsafeEndpoints` | table | An endpoint is `<METHOD> <path pattern>` by the dispatched handler's pattern, and a `HEAD` is refused wherever its `GET` is. |
 | `handshakeErrors` | partner | The handshake endpoint: `INVALID_PARAMS` for a body that is not JSON or not a readable request (a `null` or missing keyring window, a client root with no window, a keyring naming a service that is not a route node and a missing `clientKeyringSig` included, each body otherwise in JCS member order), `NO_SESSION` for one that opens none (a 15-byte nonce, a 63-byte root signature) and for no client certificate or one naming no single service; and a request that opens an attested and an unsafe session. |
 | `egress` | egress | The egress's steps 1 to 7 ([sessions-and-influence.md](sessions-and-influence.md#between-organisations)): nothing sent, the handshake included, unless the chain passed the live order there; one boundary stamp and no internal one; blinded influence and the boundary route's proof; nothing but the session id in an unsafe session; the replacement after a 404 or a reply under another key, unsafe whatever it says, and a call that fails when the replacement is answered 404 too; each reply recorded as one `local-untrusted` entry; and a session dropped after `SESSION_UNKNOWN`. |
 | `callerInfluence` | caller | A response at the caller: each label of a response that verifies becomes an entry with `src` `http:<target>` and `h` the result hash, the target the receiver's policy name; any other response adds exactly one `local-untrusted` entry. |
 | `sessionExpiry` | partner | A session's calls are `POLICY_EXPIRED` once the client's root or keyring passes its `notAfter`, and verify at it; a handshake after it is unsafe; and a partner whose own material lapses opens new sessions unsafe and keeps verifying the earlier ones ([sessions-and-influence.md](sessions-and-influence.md#status)). |
 | `refusals` | receiver | What a refusal carries, in a mesh: the code alone, even where the result names a suspect. |
-| `boundaryRefusals` | partner | The same at the boundary: the partner's refusals, unreadable influence included (a partner has no audit mode), and an unsafe session's switched-off operations refused `UNSAFE_SESSION`, with no session header too. |
+| `boundaryRefusals` | partner | The same at the boundary: the partner's refusals, unreadable influence included (a partner has no audit mode), and an unsafe session's switched-off endpoints refused `UNSAFE_SESSION`, with no session header too. |
 | `trustedRecord` | receiver | Trusted records ([sessions-and-influence.md](sessions-and-influence.md#trusted-records)): a verified chain and no `third-party` or `local-untrusted` content, counting what the handler reads; `private`, `public` and owners do not count. The partner kinds' `trustedRecord` covers a call in an unsafe session, and `partnerTrustedRecord` the same rule at the boundary. |
 | `partnerTrustedRecord` | partner | The same rule at the boundary: an attested call qualifies only with no `third-party` or `local-untrusted` content, counting what the handler reads; `private`, `public` and owners do not count. |
 
@@ -204,7 +204,7 @@ starts from; whether the answer `attests`; and whether a `trustedRecord` may be 
 is work outside any request.
 
 A **partner** case runs `steps` against one partner (`partner`: its `material`, the client policy keys it has
-`pinned`, `clientOrigins`, the operations it has switched off for unsafe sessions, `maxSessionsPerPeer`,
+`pinned`, `clientOrigins`, the endpoints it has switched off for unsafe sessions, `maxSessionsPerPeer`,
 `sessionIdleMs`, its windows and the clock's `start`), its clock at each step's `at`. A peer is one of `peers`, a
 client `certificate` and the `remoteAddr` it connected from, read as `peerCertificates` reads one, with its issuer
 for the session's binding; null is no client certificate. A `handshake` posts the request `handshakes` names, as its
@@ -214,7 +214,7 @@ names its session as `{"of": <as>}`, `{"id": <literal id>}`, or null for no `X-P
 present, is a boundary stamp signed with `key` as the step runs, in the session its `sess` names, binding the call's
 method, its target and the stamp's own `body`, and committing to the stamp's `influence`; `proofHeader` and
 `influenceHeader` go as given. `routePattern` is the pattern of the handler the call reaches, which an unsafe
-session's switched-off operations are matched against. It expects the `refusal`, whether the call is `attested`, the
+session's switched-off endpoints are matched against. It expects the `refusal`, whether the call is `attested`, the
 `influence` the handler starts from, and `trustedRecord`. A `call` may carry `read`, what the handler reads after
 the call is accepted, in a receiver case's form; `trustedRecord` counts it after the call's influence, and no `read`
 is the empty list.

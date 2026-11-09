@@ -73,7 +73,7 @@ import org.springframework.web.client.RestClient;
 /**
  * The partner's request path through the real container under mutual TLS: a boundary chain verifies only in the
  * attested session of the peer that sent it, and an unsafe session, or none, reaches the handlers with no influence
- * and no verified chain, and never reaches an operation switched off for it. The partner's entry is named
+ * and no verified chain, and never reaches an endpoint switched off for it. The partner's entry is named
  * {@code localhost}, after the fixture certificate it serves; the shop's egress is the fixture {@code orders}.
  */
 @SpringBootTest(classes = PartnerRequestTest.App.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,

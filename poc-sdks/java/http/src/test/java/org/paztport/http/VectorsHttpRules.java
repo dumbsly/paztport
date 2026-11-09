@@ -4,6 +4,7 @@
 package org.paztport.http;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -62,7 +63,7 @@ import org.paztport.http.wire.RequestBinding;
  * of a receiver, a caller, a partner and an egress, each case an input and the answer the spec gives for it. A case
  * is replayed through the framework-neutral functions a binding adapts ({@link HttpReceiver} and
  * {@link PartnerReceiver} entered through {@link RequestContext#accept}, {@link HttpCaller#stamp} and
- * {@link HttpCaller#check}, {@link HttpSessions#serve}, {@link PeerCert#of}, {@link UnsafeOperations} and
+ * {@link HttpCaller#check}, {@link HttpSessions#serve}, {@link PeerCert#of}, {@link UnsafeEndpoints} and
  * {@link BoundaryClient}), so the file holds nothing a framework decides. The partner and egress kinds are
  * {@link VectorsHttpPartner}'s.
  *
@@ -404,7 +405,7 @@ final class VectorsHttpRules {
         rules.set("peerCertificates", peerCertificates(made.get("shop-ca")));
         rules.set("sessionHeader", VectorsHttpPartner.sessionHeader(fx));
         rules.set("sessionRegistry", VectorsHttpPartner.sessionRegistry(fx));
-        rules.set("unsafeOperations", unsafeOperations());
+        rules.set("unsafeEndpoints", unsafeEndpoints());
         rules.set("handshakeErrors", VectorsHttpPartner.handshakeErrors(fx));
         rules.set("egress", VectorsHttpPartner.egress(fx, chains));
         rules.set("callerInfluence", callerInfluence(chains));
@@ -1009,9 +1010,9 @@ final class VectorsHttpRules {
         return e;
     }
 
-    // --- Unsafe operations ---
+    // --- Unsafe endpoints ---
 
-    private static ObjectNode operationCase(List<String> disabled, String method, String pattern, boolean refused) {
+    private static ObjectNode endpointCase(List<String> disabled, String method, String pattern, boolean refused) {
         ObjectNode c = obj();
         c.put("name", method + " " + pattern);
         c.set("disabled", texts(disabled.toArray(String[]::new)));
@@ -1021,18 +1022,18 @@ final class VectorsHttpRules {
         return c;
     }
 
-    /** sessions-and-influence.md, over HTTP: an operation is the method and the dispatched handler's pattern. */
-    private static ArrayNode unsafeOperations() {
+    /** sessions-and-influence.md, over HTTP: an endpoint is the method and the dispatched handler's pattern. */
+    private static ArrayNode unsafeEndpoints() {
         List<String> disabled = List.of("POST /refund", "GET /statements/{id}");
         ArrayNode a = arr();
-        a.add(operationCase(disabled, "POST", "/refund", true));
-        a.add(operationCase(disabled, "GET", "/refund", false));
-        a.add(operationCase(disabled, "HEAD", "/refund", false));
-        a.add(operationCase(disabled, "POST", "/refund/{id}", false));
-        a.add(operationCase(disabled, "GET", "/statements/{id}", true));
-        a.add(operationCase(disabled, "HEAD", "/statements/{id}", true));
-        a.add(operationCase(disabled, "POST", "/statements/{id}", false));
-        a.add(operationCase(disabled, "GET", "/statements", false));
+        a.add(endpointCase(disabled, "POST", "/refund", true));
+        a.add(endpointCase(disabled, "GET", "/refund", false));
+        a.add(endpointCase(disabled, "HEAD", "/refund", false));
+        a.add(endpointCase(disabled, "POST", "/refund/{id}", false));
+        a.add(endpointCase(disabled, "GET", "/statements/{id}", true));
+        a.add(endpointCase(disabled, "HEAD", "/statements/{id}", true));
+        a.add(endpointCase(disabled, "POST", "/statements/{id}", false));
+        a.add(endpointCase(disabled, "GET", "/statements", false));
         return a;
     }
 
@@ -1191,10 +1192,12 @@ final class VectorsHttpRules {
         for (JsonNode c : rules.get("peerCertificates")) {
             assertEquals(c.get("expected"), runCertificate(c), "peerCertificates: " + c.get("name").asText());
         }
-        for (JsonNode c : rules.get("unsafeOperations")) {
-            assertEquals(c.get("refused").asBoolean(), new UnsafeOperations(textList(c.get("disabled")))
+        assertTrue(rules.get("unsafeEndpoints") != null && !rules.get("unsafeEndpoints").isEmpty(),
+                "the rules have an unsafeEndpoints section");
+        for (JsonNode c : rules.get("unsafeEndpoints")) {
+            assertEquals(c.get("refused").asBoolean(), new UnsafeEndpoints(textList(c.get("disabled")))
                     .refuses(c.get("method").asText(), c.get("routePattern").asText()),
-                    "unsafeOperations: " + c.get("name").asText());
+                    "unsafeEndpoints: " + c.get("name").asText());
         }
         for (JsonNode c : rules.get("callerInfluence")) {
             assertEquals(c.get("expected"), runCaller(c, fx), "callerInfluence: " + c.get("name").asText());

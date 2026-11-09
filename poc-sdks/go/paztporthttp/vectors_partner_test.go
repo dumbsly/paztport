@@ -20,7 +20,7 @@ import (
 
 // TestPartnerRulesVectors replays the partner kinds of http-v3.json's rules: each case runs its steps against
 // one partner, its clock set to each step's at. A handshake is served by Sessions.ServeHandshake; a call is
-// decided by Sessions.Accept, and then, as an adapter does, an unsafe session's switched-off operations are
+// decided by Sessions.Accept, and then, as an adapter does, an unsafe session's switched-off endpoints are
 // refused before the handler runs.
 func TestPartnerRulesVectors(t *testing.T) {
 	kinds := []struct {
@@ -49,7 +49,7 @@ func TestPartnerRulesVectors(t *testing.T) {
 // opened, by the names the case gives them.
 type partnerScript struct {
 	sessions *paztporthttp.Sessions
-	disabled paztporthttp.UnsafeOperations
+	disabled paztporthttp.UnsafeEndpoints
 	now      int64
 	opened   map[string]string
 }
@@ -61,7 +61,7 @@ func runPartnerScript(t *testing.T, c vectors.Node) {
 	p := c.Get("partner")
 	sc := &partnerScript{now: p.Get("start").Int(), opened: map[string]string{}}
 	cfg := partnerConfig(t, p, func() int64 { return sc.now })
-	sc.disabled = paztporthttp.UnsafeOperations(cfg.UnsafeDisabled)
+	sc.disabled = paztporthttp.UnsafeEndpoints(cfg.UnsafeDisabled)
 	s, err := paztporthttp.NewSessions(cfg)
 	if err != nil {
 		t.Fatalf("NewSessions: %v", err)
@@ -200,7 +200,7 @@ func (sc *partnerScript) call(t *testing.T, c vectors.Node) string {
 		t.Fatalf("Accept: %v", err)
 	}
 	refusal := a.Refusal
-	// As an adapter does: an unsafe session's switched-off operations are refused before the handler runs.
+	// As an adapter does: an unsafe session's switched-off endpoints are refused before the handler runs.
 	if refusal == nil && !a.Attested && sc.disabled.Refuses(req.Method, c.Get("routePattern").Str()) {
 		r := paztporthttp.UnsafeRefusal()
 		refusal = &r

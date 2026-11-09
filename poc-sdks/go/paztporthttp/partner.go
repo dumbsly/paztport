@@ -56,9 +56,9 @@ type PartnerAccepted struct {
 //     refused 403 {"reason":"INFLUENCE_MISMATCH"} too. On OK the call is Attested, with the chain and the
 //     influence its boundary stamp committed to.
 //
-// Accept does not refuse the operations switched off for unsafe sessions, since only the framework knows
-// which handler a request reaches. An adapter refuses one served and not Attested whose method and route
-// pattern UnsafeOperations(SessionsConfig.UnsafeDisabled).Refuses, with [UnsafeRefusal], before its
+// Accept does not refuse the endpoints switched off for unsafe sessions, since only the framework knows
+// which handler a request reaches. An adapter refuses one served and not Attested whose method and path
+// pattern UnsafeEndpoints(SessionsConfig.UnsafeDisabled).Refuses, with [UnsafeRefusal], before its
 // handler runs: so a call with no session header, too.
 //
 // Accept never panics on any request, and a call that does not verify is answered, never an error. ctx

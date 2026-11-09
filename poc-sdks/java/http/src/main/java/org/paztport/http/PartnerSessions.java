@@ -69,7 +69,7 @@ import org.slf4j.LoggerFactory;
  * session never verifies in another, and with their earlier window, so every call in it is refused
  * {@code POLICY_EXPIRED} once either has passed. Should that verifier not be buildable, the session is unsafe rather
  * than the handshake failing, because the client still has to be told. An unsafe session has no verifier, and its
- * reply lists the operations this side has switched off for it.
+ * reply lists the endpoints this side has switched off for it.
  */
 public final class PartnerSessions {
 
@@ -338,8 +338,8 @@ public final class PartnerSessions {
      * The rule over the operations an unsafe session may not perform: the same list the replies name, so that what
      * a client is told it may not do and what is refused are one list.
      */
-    public UnsafeOperations unsafeOperations() {
-        return new UnsafeOperations(unsafeDisabled);
+    public UnsafeEndpoints unsafeEndpoints() {
+        return new UnsafeEndpoints(unsafeDisabled);
     }
 
     /** A registry to build; see {@link Builder}. */
@@ -385,7 +385,7 @@ public final class PartnerSessions {
 
     /**
      * Builds a registry once its material is checked. The partner's own material is required, as are at least one
-     * pinned client policy key and one client origin; the rest have defaults: no operations switched off in unsafe
+     * pinned client policy key and one client origin; the rest have defaults: no endpoints switched off in unsafe
      * sessions, {@link #DEFAULT_MAX_SESSIONS_PER_PEER}, {@link #DEFAULT_SESSION_IDLE_MS}, the system clock, a run
      * age equal to the call age, and a replay cache that remembers for {@link VerifierConfig#nonceTtlFor}.
      */
@@ -458,7 +458,7 @@ public final class PartnerSessions {
             return this;
         }
 
-        /** What an unsafe session may not do, as {@code <METHOD> <route pattern>}; the reply tells the client. */
+        /** What an unsafe session may not do, as {@code <METHOD> <path pattern>}; the reply tells the client. */
         public Builder unsafeDisabled(List<String> operations) {
             this.unsafeDisabled = List.copyOf(operations);
             return this;

@@ -42,7 +42,7 @@ public final class PublicWrites {
      * The public-write rule over the influence in the context. That influence is verified only where the request's
      * chain verified at this hop. In {@code off} mode, after a chain failed in audit mode, or in an unsafe partner
      * session, it may be incomplete or empty, and the rule cannot refuse for content it is not shown: a partner
-     * must therefore switch its public writes off for unsafe sessions ({@link UnsafeOperations}), so that an unsafe
+     * must therefore switch its public writes off for unsafe sessions ({@link UnsafeEndpoints}), so that an unsafe
      * session never reaches them.
      *
      * @param destinationOwner the owner of the destination from trusted records, or null/empty when unknown

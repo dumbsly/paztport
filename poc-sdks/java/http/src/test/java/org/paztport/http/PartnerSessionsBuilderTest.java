@@ -71,7 +71,7 @@ class PartnerSessionsBuilderTest {
     void soundMaterialBuildsWithTheDefaults() {
         PartnerSessions sessions = sound().build();
 
-        assertEquals(List.of(), sessions.unsafeOperations().disabled());
+        assertEquals(List.of(), sessions.unsafeEndpoints().disabled());
         assertNotNull(sessions.open(SessionRequest.of(null, pub(policy), keyring, Sessions.newNonce()),
                 "CN=shop CA", "orders"));
         assertEquals(16, PartnerSessions.DEFAULT_MAX_SESSIONS_PER_PEER);
@@ -134,7 +134,7 @@ class PartnerSessionsBuilderTest {
     void theOperationsSwitchedOffAreTheOnesTheRepliesList() {
         PartnerSessions sessions = sound().unsafeDisabled(List.of("POST /refund")).build();
 
-        assertEquals(List.of("POST /refund"), sessions.unsafeOperations().disabled());
-        assertTrue(sessions.unsafeOperations().refuses("POST", "/refund"));
+        assertEquals(List.of("POST /refund"), sessions.unsafeEndpoints().disabled());
+        assertTrue(sessions.unsafeEndpoints().refuses("POST", "/refund"));
     }
 }

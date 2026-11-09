@@ -45,8 +45,8 @@ type SessionsConfig struct {
 	// ClientOrigins are the services allowed to start a chain in a client's attested session. At least one
 	// is required: with none, no call could verify.
 	ClientOrigins []string
-	// UnsafeDisabled are the operations switched off in an unsafe session, each "<METHOD> <route pattern>",
-	// as an unsafe session's reply lists them and [UnsafeOperations] refuses them. It may be empty.
+	// UnsafeDisabled are the endpoints switched off in an unsafe session, each "<METHOD> <path pattern>",
+	// as an unsafe session's reply lists them and [UnsafeEndpoints] refuses them. It may be empty.
 	UnsafeDisabled []string
 	// MaxPerPeer is how many sessions one peer may hold at once; a handshake that would give it more
 	// evicts its least recently used. It must be positive. The spec leaves its value to the partner.

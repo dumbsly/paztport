@@ -36,7 +36,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
  * on the thread and opens the call's own. It then either writes the receiver's refusal or serves the call in that
  * scope, which holds what the receiver decided: in an unsafe session, no influence and no verified chain, whatever
  * headers came; in an attested one, the verified influence, owners included, and the verified chain.
- * {@link org.paztport.spring.partner.PartnerGate} then refuses the operations switched off for unsafe sessions.
+ * {@link org.paztport.spring.partner.PartnerGate} then refuses the endpoints switched off for unsafe sessions.
  *
  * <p>Every request gets {@link #SESSION_STATUS}, {@code attested} or {@code unsafe}, for the gate; a refused one is
  * marked unsafe, so nothing downstream could take it for attested.

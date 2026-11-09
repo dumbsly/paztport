@@ -239,10 +239,11 @@ verifies in another ([verification.md](verification.md#http-requests-and-respons
 mesh there is no handshake, and `sess` stays `""`.
 
 In an unsafe session the server verifies nothing and believes nothing from the call: it starts with no
-influence and no verified chain, whatever headers came. The reply's `disabled` lists operations as
-`<METHOD> <route pattern>`, such as `POST /refund`, where the pattern is that of the handler the server
+influence and no verified chain, whatever headers came. The reply's `disabled` lists endpoints as
+`<METHOD> <path pattern>`, such as `POST /refund`, where the pattern is that of the handler the server
 dispatches the request to, not the path the caller wrote. So `/refund;x=1` and `//refund` are refused as
-`POST /refund`. A `HEAD` is refused wherever the matching `GET` is. A refusal is `403 {"reason":"UNSAFE_SESSION"}`
+`POST /refund`. A `HEAD` is refused wherever the matching `GET` is. These are not [operations](wire.md#operations): an unsafe
+session verifies nothing, so no operation is named or confirmed. A refusal is `403 {"reason":"UNSAFE_SESSION"}`
 and the handler does not run.
 
 ## The session id

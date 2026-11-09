@@ -3908,7 +3908,7 @@
         }
       } ]
     } ],
-    "unsafeOperations" : [ {
+    "unsafeEndpoints" : [ {
       "name" : "POST /refund",
       "disabled" : [ "POST /refund", "GET /statements/{id}" ],
       "method" : "POST",
@@ -6738,7 +6738,7 @@
         }
       } ]
     }, {
-      "name" : "operations switched off for unsafe sessions",
+      "name" : "endpoints switched off for unsafe sessions",
       "partner" : {
         "material" : "psp",
         "pinned" : [ "shop-policy" ],

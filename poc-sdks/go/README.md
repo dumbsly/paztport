@@ -108,13 +108,13 @@ The packages decide; the code that embeds them carries out what they decide:
   taken from its own records. It writes a trusted record only when
   `Accepted.TrustedRecord`, or at a partner `PartnerAccepted.TrustedRecord`,
   allows it.
-- **Refuses switched-off operations.** At a partner, `Sessions.Accept` does not
-  refuse the operations switched off for unsafe sessions, since only the framework
+- **Refuses switched-off endpoints.** At a partner, `Sessions.Accept` does not
+  refuse the endpoints switched off for unsafe sessions, since only the framework
   knows which handler a request reaches. For a call served and not attested, a
   call with no session header included, the adapter sends
   `paztporthttp.UnsafeRefusal()` before the handler runs when
-  `UnsafeOperations(SessionsConfig.UnsafeDisabled).Refuses` the method and the
-  handler's route pattern.
+  `UnsafeEndpoints(SessionsConfig.UnsafeDisabled).Refuses` the method and the
+  handler's path pattern.
 - **Bounds bodies, and fails closed.** A receiver binds the body whole. An adapter
   that cannot hold a body whole refuses the request itself rather than pass on
   part of it; a handshake endpoint need read at most one byte past the wire limit,

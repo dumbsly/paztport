@@ -52,7 +52,7 @@
 // signed by the entry service's key. It decides each call with [Sessions.Accept] in place of
 // [Receiver.Accept]: a call in an attested session is verified by that session's own verifier, pinned to
 // the material the client presented, and one in an unsafe session is served believing nothing it carries.
-// The adapter then refuses an unsafe session's switched-off operations with [UnsafeOperations].
+// The adapter then refuses an unsafe session's switched-off endpoints with [UnsafeEndpoints].
 //
 // Two of a partner's settings are not set by the spec, which leaves them to each partner: how many
 // sessions one peer may hold at once, SessionsConfig.MaxPerPeer, and how long a session no call uses is

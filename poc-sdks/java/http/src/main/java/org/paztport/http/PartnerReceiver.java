@@ -36,8 +36,8 @@ import org.slf4j.LoggerFactory;
  *       before a restart, or a caller with no certificate. It is never taken as unsafe, or a caller could step down
  *       from a session it was refused in by naming a wrong one.</li>
  *   <li>In an unsafe session nothing is verified, so nothing from the request is believed: the handler starts with
- *       no influence and no verified chain, whatever headers came, and the operations switched off for such sessions
- *       are refused ({@link UnsafeOperations}).</li>
+ *       no influence and no verified chain, whatever headers came, and the endpoints switched off for such sessions
+ *       are refused ({@link UnsafeEndpoints}).</li>
  *   <li>In an attested session the chain is verified in the live order by that session's own verifier, with this
  *       service as receiver and the peer as last signer, and a failure is refused {@code 403} with its code. Only
  *       on {@code OK} does the handler get the verified influence, owners included, and the verified chain.</li>

@@ -8,7 +8,7 @@
  * decides one request for a service and {@code PartnerReceiver.accept} one call for a partner, from an
  * {@code InboundRequest} and the peer the transport authenticated ({@code PeerCert}); {@code Accepted.attest}
  * attests a complete answer; {@code HttpSessions.serve} answers a session handshake from the partner's registry
- * ({@code PartnerSessions}); {@code UnsafeOperations} says what an unsafe session may not do. {@code HttpCaller.stamp}
+ * ({@code PartnerSessions}); {@code UnsafeEndpoints} says what an unsafe session may not do. {@code HttpCaller.stamp}
  * stamps one of the service's own calls, naming the receiver by the policy name its host maps to, and
  * {@code HttpCaller.check} says what its response adds to the request's influence. None of them keeps per-request
  * state, so another language mirrors these.
