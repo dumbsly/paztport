@@ -393,7 +393,8 @@ class VectorsHttpV3Export {
                 + template + "\"}";
     }
 
-    private static OperationTable paymentTable() {
+    /** payment's table, {@code operations.shared}: an entrance with two operations told apart by a query. */
+    static OperationTable paymentTable() {
         return new OperationTable("payment", List.of(
                 new OperationTable.Operation("charge", "POST", "/charge"),
                 new OperationTable.Operation("refund", "POST", "/charge",

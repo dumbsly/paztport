@@ -56,8 +56,8 @@ func TestPeerCertificatesVectors(t *testing.T) {
 // its response checked by Caller.Check, compared as {rcv, reason, influence}.
 func TestCallerInfluenceVectors(t *testing.T) {
 	cases := vectors.Rules(t).Get("callerInfluence")
-	if cases.Len() != 7 {
-		t.Fatalf("the rules have %d callerInfluence cases, want 7", cases.Len())
+	if cases.Len() != 9 {
+		t.Fatalf("the rules have %d callerInfluence cases, want 9", cases.Len())
 	}
 	cases.Each(func(name string, c vectors.Node) {
 		t.Run(name, func(t *testing.T) {
@@ -181,7 +181,9 @@ func callerCase(t *testing.T, name string) vectors.Node {
 
 // stampCallerCase builds case c's caller, its stamper's clock at ts and, when it has a verifier, one
 // pinned to its material over nonces (a fresh cache when nil), and stamps the case's call: its URI split
-// into the authority, whose host the case's receivers name, and the target as written.
+// into the authority, whose host the case's receivers name, and the target as written. Go holds no
+// operation table, so for a caller that holds the receiver's table it plays an embedder that names
+// operations: it addresses the call to the operation the case expects, svc#operation, itself.
 func stampCallerCase(
 	t *testing.T, c vectors.Node, nonces verify.NonceCache,
 ) (*paztporthttp.Caller, paztporthttp.Outbound) {
@@ -225,6 +227,9 @@ func stampCallerCase(
 	name, named := receivers.Name(authority)
 	if !named {
 		t.Fatalf("the call's host %q has no receiver name", authority)
+	}
+	if cc.Get("operations").Len() > 0 {
+		name = c.Get("expected").Get("rcv").Str()
 	}
 	o, err := caller.Stamp(call.Get("method").Str(), target, name, body,
 		chainOf(c.Get("inbound")), entries(c.Get("influence")))

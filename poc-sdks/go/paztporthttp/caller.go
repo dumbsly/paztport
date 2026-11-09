@@ -145,8 +145,8 @@ type Outbound struct {
 	// then sets each one of these, replacing and never appending. A gateway's external processor also
 	// removes every such header from the response it passes back.
 	Headers []wire.Header
-	// Sent is the chain sent, ending in this call's stamp, whose rcv is the receiver's policy name: the
-	// response's target.
+	// Sent is the chain sent, ending in this call's stamp, whose rcv is the receiver's policy name, with
+	// the operation when the call names one. The service it names is the response's target.
 	Sent stamp.Chain
 	// Proof is the proof sent with it, or nil for none.
 	Proof *policy.Proof
@@ -164,7 +164,8 @@ type Received struct {
 }
 
 // Stamp stamps a call to receiver, the receiver's policy name, after the chain inbound and committing
-// to the influence infl that shaped it, and returns the headers to send it with. method and target are
+// to the influence infl that shaped it, and returns the headers to send it with. An embedder that names
+// operations passes the name, '#' and the operation the call invokes: "payment#pay". method and target are
 // the request's as sent: target is the request target in origin form, the raw path, then "?" and the raw
 // query, exactly as the transport writes it on the wire (for net/http's client, req.URL.RequestURI(); for
 // a gateway's external processor, the :path header), never one received and then rebuilt from a parsed
@@ -222,10 +223,12 @@ func (c *Caller) Stamp(
 // Check checks the response to the call o, with responseHeader, the X-Path-Response header's first value
 // as received, "" when it is absent, status, and body whole, and returns what it contributes. With a
 // verifier it runs [wire.CheckResponse] on the chain and proof o sent, as received by this service: a
-// response that verifies adds one entry for each of its labels, with src "http:<receiver>", where the
-// receiver is the rcv of o's last stamp, and h its result hash. Any other response, unattested, failing
-// or a refusal, and any response to a caller with no verifier, adds exactly one local-untrusted entry with
-// the same src and h, so content nobody vouched for still counts against later calls.
+// response that verifies adds one entry for each of its labels, with src "http:<target>" and h its result
+// hash. The target is the service the rcv of o's last stamp names, without any operation
+// ([policy.Service]): a call to "payment#pay" adds entries from "http:payment". Any other response,
+// unattested, failing or a refusal, and any response to a caller with no verifier, adds exactly one
+// local-untrusted entry with the same src and h, so content nobody vouched for still counts against later
+// calls.
 //
 // ctx reaches only the verifier's nonce cache. The error is the cache's, when it could not answer, and
 // comes with the zero Received; the response then counts for nothing it can vouch for, and the embedder
@@ -233,11 +236,11 @@ func (c *Caller) Stamp(
 func (c *Caller) Check(
 	ctx context.Context, o Outbound, responseHeader string, status int, body []byte,
 ) (Received, error) {
-	var receiver string
+	var target string
 	if len(o.Sent) > 0 {
-		receiver = o.Sent[len(o.Sent)-1].Rcv
+		target = policy.Service(o.Sent[len(o.Sent)-1].Rcv)
 	}
-	src := "http:" + receiver
+	src := "http:" + target
 	if c.Verifier == nil {
 		return Received{Entries: untrusted(src, wire.ResultHash(status, body))}, nil
 	}

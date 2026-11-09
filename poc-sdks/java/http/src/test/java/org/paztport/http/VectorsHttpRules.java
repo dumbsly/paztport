@@ -42,6 +42,7 @@ import org.paztport.core.policy.KeyringFile;
 import org.paztport.core.policy.MerkleLeaf;
 import org.paztport.core.policy.MerkleProof;
 import org.paztport.core.policy.MerkleTree;
+import org.paztport.core.policy.OperationTable;
 import org.paztport.core.policy.ProofBundle;
 import org.paztport.core.policy.SignedRoot;
 import org.paztport.core.session.ReplyCert;
@@ -85,6 +86,8 @@ final class VectorsHttpRules {
     static final long RESPONSE_TS = NOW - 200;
     static final String RID = "rid-rules-1";
     static final String MESH_ROUTE = "gateway/orders/payment";
+    /** The mesh route with the operation orders names at payment, as a caller holding payment's table stamps it. */
+    static final String OPERATION_ROUTE = "gateway/orders/payment#pay";
     static final String BOUNDARY_ROUTE = "payment/psp";
     static final byte[] PAY = "{\"amount\":100}".getBytes(StandardCharsets.UTF_8);
     static final byte[] PAID = "{\"paid\":true}".getBytes(StandardCharsets.UTF_8);
@@ -390,6 +393,9 @@ final class VectorsHttpRules {
                 NOT_AFTER));
         material.set("shop-expiring", material("shop", shopRoutes, "shop-policy", made.get("shop-policy"),
                 shopServices, EXPIRES));
+        material.set("shop-operations", material("shop-operations", List.of(OPERATION_ROUTE,
+                String.join("/", VectorsHttpV3Export.paymentTable().route())), "shop-policy",
+                made.get("shop-policy"), shopServices, NOT_AFTER));
         material.set("psp", partnerMaterial(made.get("psp-policy"), made.get("psp"), NOT_AFTER));
         material.set("psp-expiring", partnerMaterial(made.get("psp-policy"), made.get("psp"), EXPIRES));
         rules.set("handshakes", handshakes(new Fixtures(reread(rules), http, core)));
@@ -1039,18 +1045,28 @@ final class VectorsHttpRules {
 
     // --- The caller's influence ---
 
-    /** A caller case's inputs: orders calls payment after the gateway's stamp, with what it has read so far. */
+    /**
+     * A caller case's inputs: orders calls payment after the gateway's stamp, with what it has read so far, on the
+     * shop's material and holding no operation table.
+     */
     private static ObjectNode callerCase(String name, boolean verifier, Map<String, String> receivers, String uri,
             int status, String header, byte[] body, Chains ch) {
+        return callerCase(name, "shop", List.of(), verifier, receivers, uri, status, header, body, ch);
+    }
+
+    /** The same, on {@code material}, the caller holding the tables {@code operations} names. */
+    private static ObjectNode callerCase(String name, String material, List<String> operations, boolean verifier,
+            Map<String, String> receivers, String uri, int status, String header, byte[] body, Chains ch) {
         ObjectNode c = obj();
         c.put("name", name);
-        c.put("material", "shop");
+        c.put("material", material);
         ObjectNode caller = c.putObject("caller");
         caller.put("svc", "orders");
         caller.put("inst", "ord-1");
         caller.put("verifier", verifier);
         ObjectNode map = caller.putObject("receivers");
         receivers.forEach(map::put);
+        caller.set("operations", texts(operations.toArray(String[]::new)));
         c.set("allowedOrigins", texts("gateway"));
         c.put("ts", ORDERS_TS);
         c.set("inbound", stamps(ch.toOrders));
@@ -1089,8 +1105,13 @@ final class VectorsHttpRules {
     }
 
     private static ObjectNode callerExpected(String reason, List<InfluenceEntry> influence) {
+        return callerExpected("payment", reason, influence);
+    }
+
+    /** What a caller case expects: the last stamp's {@code rcv}, the check's reason and the entries added. */
+    private static ObjectNode callerExpected(String rcv, String reason, List<InfluenceEntry> influence) {
         ObjectNode e = obj();
-        e.put("rcv", "payment");
+        e.put("rcv", rcv);
         if (reason == null) {
             e.putNull("reason");
         } else {
@@ -1102,8 +1123,13 @@ final class VectorsHttpRules {
 
     /** payment's attestation of {@code status} and {@code body} with {@code labels}, over what orders sent. */
     private static String attestation(Chains ch, int status, byte[] body, List<ContentLabel> labels) {
+        return attestation(ch, "payment", status, body, labels);
+    }
+
+    /** The same, over what orders sent addressed to {@code rcv}: payment, or one of its operations. */
+    private static String attestation(Chains ch, String rcv, int status, byte[] body, List<ContentLabel> labels) {
         List<Stamp> sent = new Stamper("orders", "ord-1", ch.fx.privateKey("orders"), false, () -> RID,
-                () -> ORDERS_TS).next(ch.toOrders, "payment", RequestBinding.compute("POST", "/pay", PAY), OWNED,
+                () -> ORDERS_TS).next(ch.toOrders, rcv, RequestBinding.compute("POST", "/pay", PAY), OWNED,
                 null).chain();
         Stamp stamp = new Stamper("payment", "pay-1", ch.fx.privateKey("payment"), false, () -> RID,
                 () -> RESPONSE_TS).respond(sent, HttpWire.resultHash(status, body), RID, labels);
@@ -1137,6 +1163,14 @@ final class VectorsHttpRules {
                 callerExpected("CHAIN_MISSING", List.of(untrusted(HttpWire.resultHash(403, refusalBody))))));
         a.add(callerCase("a caller with no verifier checks nothing", false, Map.of(), uri, 200, ok, PAID, ch)
                 .set("expected", callerExpected(null, List.of(untrusted(okHash)))));
+        // A caller that holds payment's table names the operation in its stamp; the source stays the service.
+        String pay = "payment#pay";
+        a.add(callerCase("an operation named: the source is the service", "shop-operations", List.of("shared"), true,
+                Map.of(), uri, 200, attestation(ch, pay, 200, PAID, labels), PAID, ch)
+                .set("expected", callerExpected(pay, "OK", labelled)));
+        a.add(callerCase("an operation named, unattested: the source is the service", "shop-operations",
+                List.of("shared"), true, Map.of(), uri, 200, null, PAID, ch)
+                .set("expected", callerExpected(pay, "CHAIN_MISSING", List.of(untrusted(okHash)))));
         return a;
     }
 
@@ -1154,7 +1188,11 @@ final class VectorsHttpRules {
                 () -> ts);
         Map<String, String> receivers = new LinkedHashMap<>();
         s.get("receivers").properties().forEach(e -> receivers.put(e.getKey(), e.getValue().asText()));
-        HttpCaller.Builder b = HttpCaller.builder(svc, stamper).bundle(m.bundle(svc)).receivers(receivers);
+        List<OperationTable> tables = new ArrayList<>();
+        s.get("operations").forEach(t -> tables.add(
+                OperationTable.read(fx.http.get("operations").get(t.asText()).get("file").asText())));
+        HttpCaller.Builder b = HttpCaller.builder(svc, stamper).bundle(m.bundle(svc)).receivers(receivers)
+                .operations(tables);
         if (s.get("verifier").asBoolean()) {
             b.verifier(new Verifier(VerifierConfig.pinned(List.of(m.keyring()), List.of(m.root()), m.policyKey(),
                     now, textSet(c.get("allowedOrigins")), "", new InMemoryNonceCache(c.get("nonceTtlMs").asLong()),

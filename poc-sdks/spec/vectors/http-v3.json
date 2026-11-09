@@ -683,6 +683,39 @@
           }
         }
       },
+      "shop-operations" : {
+        "policyKey" : "shop-policy",
+        "root" : {
+          "rootId" : "v98ecd7af4896",
+          "root" : "8e2cy-uRn9CGqlQwB3AJ7hINZ_tfnViKUrLjX1PeDTw",
+          "sig" : "uwbmaTTI4dkk85E2cBYgbseRzpSUWCsNtCz4fTRNguEIZPXf2Vpyq7RFv5D_LR6F9qlyba4vo7Y2VhxqUCArBQ",
+          "notAfter" : 4102444800000
+        },
+        "keyring" : {
+          "services" : {
+            "gateway" : "MCowBQYDK2VwAyEAWcBSbZAPWBNAkWRbVRvoQwl8NuRCN4XtFrbwr1Zn7sc",
+            "orders" : "MCowBQYDK2VwAyEAORwzm4PiE_STstNWWhr73Udm3vaNuaWKCjOk7Qaf_Kg",
+            "payment" : "MCowBQYDK2VwAyEA-9XrNUMkH7TjAfIFt7KwMmnpapG3g1u6a6E0Q5swRO0"
+          },
+          "policy" : "MCowBQYDK2VwAyEAkvqcFAuVpfdZRbtdb253j0G4CVyQ6CnyyQLa6hdWHTc",
+          "sig" : "bq2TdRDDppXgD-nJO6N7AjyUiIASzivCvTzeZIxfmGWsBDQ3Y7lDIC62Xn56k4B7KGmD5lQcCad88l2qVGRJCw",
+          "notAfter" : 4102444800000
+        },
+        "proofs" : {
+          "gateway/orders/payment#pay" : {
+            "leafSalt" : "FoKjLK3w24TajNOTymh-Kw",
+            "siblings" : [ "rwadLYM7T4Rm8refvM7S5zn_EsMylvzOVxpLocYeeD8" ],
+            "dirs" : "L",
+            "rootId" : "v98ecd7af4896"
+          },
+          "payment/ops:ng68_V-yE_QyE2y-_RwTHxvSUGbo81WsJhOKo3Itovs" : {
+            "leafSalt" : "06S2hRHC6NumTXsYC58ucg",
+            "siblings" : [ "x0V9pDvbIRV0gM6kz59k8snvIFQxow72P3exVtUM-Y4" ],
+            "dirs" : "R",
+            "rootId" : "v98ecd7af4896"
+          }
+        }
+      },
       "psp" : {
         "policyKey" : "psp-policy",
         "root" : {
@@ -5353,7 +5386,8 @@
         "svc" : "orders",
         "inst" : "ord-1",
         "verifier" : true,
-        "receivers" : { }
+        "receivers" : { },
+        "operations" : [ ]
       },
       "allowedOrigins" : [ "gateway" ],
       "ts" : 1767225599500,
@@ -5420,7 +5454,8 @@
         "verifier" : true,
         "receivers" : {
           "pay.internal" : "payment"
-        }
+        },
+        "operations" : [ ]
       },
       "allowedOrigins" : [ "gateway" ],
       "ts" : 1767225599500,
@@ -5485,7 +5520,8 @@
         "svc" : "orders",
         "inst" : "ord-1",
         "verifier" : true,
-        "receivers" : { }
+        "receivers" : { },
+        "operations" : [ ]
       },
       "allowedOrigins" : [ "gateway" ],
       "ts" : 1767225599500,
@@ -5539,7 +5575,8 @@
         "svc" : "orders",
         "inst" : "ord-1",
         "verifier" : true,
-        "receivers" : { }
+        "receivers" : { },
+        "operations" : [ ]
       },
       "allowedOrigins" : [ "gateway" ],
       "ts" : 1767225599500,
@@ -5597,7 +5634,8 @@
         "svc" : "orders",
         "inst" : "ord-1",
         "verifier" : true,
-        "receivers" : { }
+        "receivers" : { },
+        "operations" : [ ]
       },
       "allowedOrigins" : [ "gateway" ],
       "ts" : 1767225599500,
@@ -5655,7 +5693,8 @@
         "svc" : "orders",
         "inst" : "ord-1",
         "verifier" : true,
-        "receivers" : { }
+        "receivers" : { },
+        "operations" : [ ]
       },
       "allowedOrigins" : [ "gateway" ],
       "ts" : 1767225599500,
@@ -5713,7 +5752,8 @@
         "svc" : "orders",
         "inst" : "ord-1",
         "verifier" : false,
-        "receivers" : { }
+        "receivers" : { },
+        "operations" : [ ]
       },
       "allowedOrigins" : [ "gateway" ],
       "ts" : 1767225599500,
@@ -5758,6 +5798,131 @@
       "expected" : {
         "rcv" : "payment",
         "reason" : null,
+        "influence" : [ {
+          "cls" : "local-untrusted",
+          "src" : "http:payment",
+          "h" : "UU4OiqfyEERcK0QPyXKb9wRTpEagtkBgmP0vzFxX770"
+        } ]
+      }
+    }, {
+      "name" : "an operation named: the source is the service",
+      "material" : "shop-operations",
+      "caller" : {
+        "svc" : "orders",
+        "inst" : "ord-1",
+        "verifier" : true,
+        "receivers" : { },
+        "operations" : [ "shared" ]
+      },
+      "allowedOrigins" : [ "gateway" ],
+      "ts" : 1767225599500,
+      "inbound" : [ {
+        "v" : 3,
+        "svc" : "gateway",
+        "inst" : "gw-1",
+        "rid" : "rid-rules-1",
+        "ts" : 1767225598500,
+        "sess" : "",
+        "rcv" : "orders",
+        "bind" : "bind-gateway-to-orders",
+        "infl" : "",
+        "prev" : "",
+        "sig" : "XiTOUMubdk1QbWGZaRR16-pK9ufA2arrnB6bc8g7M1ETwUPhZ7vCxAJXB9Y32U5t90opCklrsy-0NPG1ppUWCw"
+      } ],
+      "influence" : [ {
+        "cls" : "public",
+        "src" : "http:catalogue",
+        "h" : "h-catalogue-1"
+      }, {
+        "cls" : "private",
+        "src" : "http:orders",
+        "h" : "h-order-1",
+        "cid" : "cid-order-1",
+        "owner" : "alice"
+      } ],
+      "call" : {
+        "method" : "POST",
+        "uri" : "https://payment/pay",
+        "body" : "7b22616d6f756e74223a3130307d"
+      },
+      "response" : {
+        "status" : 200,
+        "header" : "eyJsYWJlbHMiOlt7ImNpZCI6ImNpZC1yZWNlaXB0LTEiLCJjbHMiOiJwcml2YXRlIiwib3duZXIiOiJhbGljZSJ9LHsiY2lkIjoiY2lkLXRlcm1zLTEiLCJjbHMiOiJwdWJsaWMifV0sInN0YW1wIjp7ImJpbmQiOiJiUzA5MVo5LUJzMTlzS3ZFMUdOMFYxNjJfcEZmdVhLSU5kYnNGZE1BZThzIiwiaW5mbCI6IiIsImluc3QiOiJwYXktMSIsInByZXYiOiJ4Nk1tVlY1V0owTmp4YW0ydkJRTlFrMWw1dXk2NHZPejItMC0zN3JCdFY1cmRmcm4yZEtKbmRzQWc1TzAwbUdsRVhvTkRWMmdBdWcyanVyMG4yQWZBQSIsInJjdiI6Im9yZGVycyIsInJpZCI6InJpZC1ydWxlcy0xIiwic2VzcyI6IiIsInNpZyI6IjNDLTZieFJpSXBMV3MxM25MZFBGQXc2eGZJRWNZQlBTZzVnalk4UV9hbDlBOE5BMmY5SkhWMnB1ZFNScVg0QTFzS3VMaWRRbElxNDk1T3VER193ZURnIiwic3ZjIjoicGF5bWVudCIsInRzIjoxNzY3MjI1NTk5ODAwLCJ2IjozfX0",
+        "body" : "7b2270616964223a747275657d"
+      },
+      "now" : 1767225600000,
+      "callMaxAgeMs" : 5000,
+      "runMaxAgeMs" : 1800000,
+      "nonceTtlMs" : 15000,
+      "expected" : {
+        "rcv" : "payment#pay",
+        "reason" : "OK",
+        "influence" : [ {
+          "cls" : "private",
+          "src" : "http:payment",
+          "h" : "UU4OiqfyEERcK0QPyXKb9wRTpEagtkBgmP0vzFxX770",
+          "cid" : "cid-receipt-1",
+          "owner" : "alice"
+        }, {
+          "cls" : "public",
+          "src" : "http:payment",
+          "h" : "UU4OiqfyEERcK0QPyXKb9wRTpEagtkBgmP0vzFxX770",
+          "cid" : "cid-terms-1"
+        } ]
+      }
+    }, {
+      "name" : "an operation named, unattested: the source is the service",
+      "material" : "shop-operations",
+      "caller" : {
+        "svc" : "orders",
+        "inst" : "ord-1",
+        "verifier" : true,
+        "receivers" : { },
+        "operations" : [ "shared" ]
+      },
+      "allowedOrigins" : [ "gateway" ],
+      "ts" : 1767225599500,
+      "inbound" : [ {
+        "v" : 3,
+        "svc" : "gateway",
+        "inst" : "gw-1",
+        "rid" : "rid-rules-1",
+        "ts" : 1767225598500,
+        "sess" : "",
+        "rcv" : "orders",
+        "bind" : "bind-gateway-to-orders",
+        "infl" : "",
+        "prev" : "",
+        "sig" : "XiTOUMubdk1QbWGZaRR16-pK9ufA2arrnB6bc8g7M1ETwUPhZ7vCxAJXB9Y32U5t90opCklrsy-0NPG1ppUWCw"
+      } ],
+      "influence" : [ {
+        "cls" : "public",
+        "src" : "http:catalogue",
+        "h" : "h-catalogue-1"
+      }, {
+        "cls" : "private",
+        "src" : "http:orders",
+        "h" : "h-order-1",
+        "cid" : "cid-order-1",
+        "owner" : "alice"
+      } ],
+      "call" : {
+        "method" : "POST",
+        "uri" : "https://payment/pay",
+        "body" : "7b22616d6f756e74223a3130307d"
+      },
+      "response" : {
+        "status" : 200,
+        "header" : null,
+        "body" : "7b2270616964223a747275657d"
+      },
+      "now" : 1767225600000,
+      "callMaxAgeMs" : 5000,
+      "runMaxAgeMs" : 1800000,
+      "nonceTtlMs" : 15000,
+      "expected" : {
+        "rcv" : "payment#pay",
+        "reason" : "CHAIN_MISSING",
         "influence" : [ {
           "cls" : "local-untrusted",
           "src" : "http:payment",

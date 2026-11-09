@@ -18,7 +18,9 @@ import (
 //
 // A Receiver never changes itself, so it is safe for concurrent use when its Verifier and Stamper are.
 type Receiver struct {
-	// Name is this service's policy name, which each request's last stamp must be addressed to.
+	// Name is the receiver each request's last stamp must be addressed to: this service's policy name or,
+	// for an embedder that names operations, that name, '#' and the operation the embedder's own routing
+	// will run for the request: "payment#pay".
 	Name string
 	// Verifier is this service's verifier, pinned to its own policy material; nil for a service that
 	// holds none, which neither verifies nor attests.
