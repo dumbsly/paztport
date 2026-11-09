@@ -138,6 +138,13 @@ type Caller struct {
 	// this caller sent, so only the replica that sent the call can check its answer, and there is nothing
 	// to share. [Caller.Check] returns the cache's error, when it could not answer.
 	Verifier *verify.Verifier
+	// Operations are the operation tables of the receivers this service calls, by service name, or nil for
+	// none. For a receiver whose table it holds, [Caller.Stamp] names the operation the call matches in the
+	// stamp's rcv and, where that operation declares a key, reads the call's key value from the target, so
+	// that the call is made once per request tree for each item. A receiver it holds no table for is named
+	// by its service alone, and called once per request tree. Each table must be covered by the signed root
+	// ([policy.OperationTable.CoveredBy]): a caller must not use a table the root does not cover.
+	Operations map[string]policy.OperationTable
 }
 
 // Outbound is one call, stamped: the headers to send with it and what was stamped, which [Caller.Check]
@@ -154,6 +161,10 @@ type Outbound struct {
 	Sent stamp.Chain
 	// Proof is the proof sent with it, or nil for none.
 	Proof *policy.Proof
+	// Key is the call's key value, "" for none: the one the receiver's operation table gave for the call
+	// when the stamp names an operation that declares a key. [Caller.Check] keeps it in the response's
+	// nonce key, <rid>|<last rcv>|<key>|resp.
+	Key string
 }
 
 // Received is what a response contributes to the request that made the call.
@@ -185,9 +196,19 @@ type Received struct {
 // carries that [wire.IsPaztport] names, all values, then sets each header Stamp returns, replacing and
 // never appending; a gateway's external processor also removes them from the response it passes back.
 //
+// Where the caller holds the table of the receiver's service (see [Caller.Operations]), the call is
+// matched against it on method and the raw path and raw query of target, nothing decoded. A receiver
+// named by its service alone is addressed to the operation matched, "payment#pay"; one that names an
+// operation must name the one matched; and the key value of a keyed operation, read from the target, is
+// kept in [Outbound.Key].
+//
 // Stamp refuses an empty method or target, which no request has, a method or target that is not valid
-// UTF-8, which has no binding (see [wire.Bind]), and whatever the stamper refuses: a stamper whose svc, or
-// a receiver, is not a route node (see [policy.ValidNode]).
+// UTF-8, which has no binding (see [wire.Bind]), a receiver that is no [policy.ValidReceiver], and whatever
+// the stamper refuses: a stamper whose svc is not a route node (see [policy.ValidNode]). Where the caller
+// holds the table, it refuses a call no operation matches, a receiver naming another operation than the
+// call matches, and a call to a keyed operation that gives no key value, such as a percent-encoded
+// segment. Nothing is signed in any of these cases, and the error of the last two names the receiver and
+// operation, never the target or any value of the call.
 func (c *Caller) Stamp(
 	method, target, receiver string, body []byte, inbound stamp.Chain, infl []influence.Entry,
 ) (Outbound, error) {
@@ -195,6 +216,10 @@ func (c *Caller) Stamp(
 		return Outbound{}, errors.New("paztport http: can't stamp a call with an empty method or target")
 	}
 	bind, err := wire.Bind(method, target, body)
+	if err != nil {
+		return Outbound{}, err
+	}
+	receiver, key, err := c.operate(method, target, receiver)
 	if err != nil {
 		return Outbound{}, err
 	}
@@ -221,7 +246,33 @@ func (c *Caller) Stamp(
 	if inflTok != "" {
 		headers = append(headers, wire.Header{Name: wire.Influence, Value: inflTok})
 	}
-	return Outbound{Headers: headers, Sent: chain, Proof: proof}, nil
+	return Outbound{Headers: headers, Sent: chain, Proof: proof, Key: key}, nil
+}
+
+// operate names the receiver a call is stamped to and returns its key value, "" for none, from the table the
+// caller holds for the receiver's service: receiver unchanged, and no key, where it holds none.
+func (c *Caller) operate(method, target, receiver string) (named, key string, err error) {
+	service, asked, hasOperation := strings.Cut(receiver, "#")
+	table, ok := c.Operations[service]
+	if !ok {
+		return receiver, "", nil
+	}
+	path, query, _ := strings.Cut(target, "?")
+	operation, matched := table.Match(method, path, query)
+	if !matched {
+		return "", "", fmt.Errorf("paztport http: no operation of %s matches the call; nothing is sent", service)
+	}
+	named = service + "#" + operation
+	if hasOperation && asked != operation {
+		return "", "", fmt.Errorf("paztport http: the call to %s is not the operation of %s its method and target match; "+
+			"nothing is sent", receiver, service)
+	}
+	if table.Keyed(operation) {
+		if key, ok = table.KeyValue(operation, path, query); !ok {
+			return "", "", fmt.Errorf("paztport http: the call to %s has no key value; nothing is sent", named)
+		}
+	}
+	return named, key, nil
 }
 
 // Check checks the response to the call o, with responseHeader, the X-Path-Response header's first value
@@ -233,6 +284,8 @@ func (c *Caller) Stamp(
 // unattested, failing or a refusal, and any response to a caller with no verifier, adds exactly one
 // local-untrusted entry with the same src and h, so content nobody vouched for still counts against later
 // calls.
+//
+// The response's nonce key is <rid>|<last rcv>|resp, or <rid>|<last rcv>|<key>|resp where o has a key.
 //
 // ctx reaches only the verifier's nonce cache. The error is the cache's, when it could not answer, and
 // comes with the zero Received; the response then counts for nothing it can vouch for, and the embedder
@@ -248,7 +301,7 @@ func (c *Caller) Check(
 	if c.Verifier == nil {
 		return Received{Entries: untrusted(src, wire.ResultHash(status, body))}, nil
 	}
-	rc, err := wire.CheckResponse(ctx, c.Verifier, o.Sent, o.Proof, responseHeader, status, body, c.Stamper.Svc)
+	rc, err := wire.CheckResponse(ctx, c.Verifier, o.Sent, o.Proof, responseHeader, status, body, c.Stamper.Svc, o.Key)
 	if err != nil {
 		return Received{}, err
 	}

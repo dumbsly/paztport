@@ -17,8 +17,9 @@
 //
 // The receiver follows the spec. Under [ModeEnforce] or [ModeAudit] it runs the live order once on each
 // request, with itself as receiver, the request's own binding, the tokens of its headers, the nonce key
-// <rid>|<last svc>|<last rcv>|req and the peer; enforce refuses a request whose result is not OK with
-// 403 {"reason":"<code>"}, and audit serves it, unverified. Influence that does not read is never
+// <rid>|<last svc>|<last rcv>|req and the peer (the key value of a keyed operation joins the nonce key:
+// <rid>|<last svc>|<last rcv>|<key value>|req, see [Receiver.Operations]); enforce refuses a request whose
+// result is not OK with 403 {"reason":"<code>"}, and audit serves it, unverified. Influence that does not read is never
 // dropped: in every mode, at every service but an origin, a request carrying it is refused with
 // 400 {"reason":"INFLUENCE_MISMATCH"} wherever verification has not refused it first. An origin starts
 // each request tree afresh, so it carries neither the chain nor the influence a request brings, never

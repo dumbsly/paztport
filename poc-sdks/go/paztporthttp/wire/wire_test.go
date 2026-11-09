@@ -431,7 +431,7 @@ func TestCheckResponseProof(t *testing.T) {
 	for name, proof := range map[string]*policy.Proof{"none": nil, "unwritable": &unwritable} {
 		t.Run(name, func(t *testing.T) {
 			got, err := wire.CheckResponse(t.Context(), rc.verifier(), rc.sent, proof, rc.header, rc.status, rc.body,
-				rc.caller)
+				rc.caller, "")
 			if err != nil {
 				t.Fatalf("CheckResponse: %v", err)
 			}
@@ -467,7 +467,7 @@ func TestCheckResponseCacheError(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	got, err := wire.CheckResponse(ctx, rc.verifier(), rc.sent, &rc.proof, rc.header, rc.status, rc.body,
-		rc.caller)
+		rc.caller, "")
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v, want the cache's context.Canceled", err)
 	}
@@ -619,7 +619,7 @@ func okCase(t testing.TB) responseCase {
 func check(t testing.TB, rc responseCase, header string) wire.ResponseCheck {
 	t.Helper()
 	got, err := wire.CheckResponse(t.Context(), rc.verifier(), rc.sent, &rc.proof, header, rc.status, rc.body,
-		rc.caller)
+		rc.caller, "")
 	if err != nil {
 		t.Fatalf("CheckResponse: %v", err)
 	}
@@ -729,11 +729,11 @@ func TestCheckResponseNonceKeyKeepsTheOperation(t *testing.T) {
 	rc.cfg.Nonces = cache
 	v := rc.verifier()
 
-	got, err := wire.CheckResponse(t.Context(), v, sent, &proof, header, 200, []byte("ok"), "gateway")
+	got, err := wire.CheckResponse(t.Context(), v, sent, &proof, header, 200, []byte("ok"), "gateway", "")
 	if err != nil || got.Result.Reason != reason.OK {
 		t.Fatalf("CheckResponse = %+v, %v, want OK", got.Result, err)
 	}
-	got, err = wire.CheckResponse(t.Context(), v, sent, &proof, header, 200, []byte("ok"), "gateway")
+	got, err = wire.CheckResponse(t.Context(), v, sent, &proof, header, 200, []byte("ok"), "gateway", "")
 	if err != nil || got.Result.Reason != reason.Replay {
 		t.Fatalf("a second CheckResponse = %+v, %v, want REPLAY", got.Result, err)
 	}

@@ -22,5 +22,6 @@
 // value of nothing else is absent. Values that do not read are left to the verifier, which answers each
 // with the spec's reason code. Nonce keys are <rid>|<last svc>|<last rcv>|req for a request and
 // <rid>|<last rcv>|resp for a response, last rcv being the receiver the request chain's last stamp names,
-// with the operation when it names one.
+// with the operation when it names one. Where that operation declares a key, the key value joins them:
+// <rid>|<last svc>|<last rcv>|<key>|req and <rid>|<last rcv>|<key>|resp.
 package wire

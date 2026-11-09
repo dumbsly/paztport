@@ -5,8 +5,11 @@ package paztporthttp
 
 import (
 	"context"
+	"fmt"
 	"slices"
+	"strings"
 
+	"github.com/dumbsly/paztport/poc-sdks/go/policy"
 	"github.com/dumbsly/paztport/poc-sdks/go/reason"
 	"github.com/dumbsly/paztport/poc-sdks/go/stamp"
 	"github.com/dumbsly/paztport/poc-sdks/go/verify"
@@ -32,6 +35,13 @@ type Receiver struct {
 	Origin bool
 	// Stamper is this service's stamper; nil for a service with no stamp key, which never attests.
 	Stamper *stamp.Stamper
+	// Operations is this service's own operation table, or nil for a service that holds none. When Name
+	// names an operation of it that declares a key, and the chain's last stamp names an operation too,
+	// [Receiver.Accept] reads the request's key value from its target and verifies under the nonce key
+	// <rid>|<last svc>|<last rcv>|<key value>|req: a request tree may call the operation once for each
+	// item. The table must be covered by the signed root ([policy.OperationTable.CoveredBy]): a service
+	// must not use a table the root does not cover. Its Service must be this receiver's, or Accept panics.
+	Operations *policy.OperationTable
 }
 
 // Accept decides the request req, which the transport authenticated as sent by peer, or nil when it
@@ -53,13 +63,23 @@ type Receiver struct {
 // mode: it is to verify requests with nothing to verify them with, which is a fault in the program, and
 // serving them unverified would fail open. It panics, too, on a receiver whose Origin differs from its
 // Stamper's: one would carry what a request brings while the other starts a new request tree, which is a
-// fault in the program.
+// fault in the program. So does a receiver whose Operations table is not for the service Name names.
+//
+// A request to a keyed operation that gives no key value (the target does not hold it exactly as
+// [policy.OperationTable.KeyValue] reads it, a percent-encoded segment among them) is verified under the
+// service alone, so the chain that names the operation fails the receiver check, BINDING_MISMATCH, before
+// any nonce key is spent.
 func (r *Receiver) Accept(ctx context.Context, req InboundRequest, peer *verify.Peer, mode Mode) Accepted {
 	if r.Stamper != nil && r.Stamper.Origin != r.Origin {
 		panic("paztport http: a receiver's Origin and its Stamper's Origin must agree")
 	}
+	if r.Operations != nil && r.Operations.Service != policy.Service(r.Name) {
+		panic(fmt.Sprintf("paztport http: the operation table is for %s, but the receiver is named for %s",
+			r.Operations.Service, policy.Service(r.Name)))
+	}
 	in, chain := requestInput(req, r.Name, peer)
-	a := Accepted{Inbound: chain}
+	key := r.readKey(req, chain, &in)
+	a := Accepted{Inbound: chain, key: key}
 	if mode != ModeOff && mode != ModeNone {
 		if r.Verifier == nil {
 			panic("paztport http: a receiver that verifies requests under a mode needs a Verifier")
@@ -106,6 +126,31 @@ func (r *Receiver) Accept(ctx context.Context, req InboundRequest, peer *verify.
 		a.attest = &attester{stamper: r.Stamper, chain: slices.Clone(chain)}
 	}
 	return a
+}
+
+// readKey reads the key value of req, for a request whose chain names an operation that r.Name names and
+// r.Operations declares a key for, and makes in the live order's input for it: the nonce key then holds the
+// value. It returns the value, or "" for none. A keyed operation with no key value in the target is
+// verified under the service alone, which the chain naming the operation fails at check 4, before any nonce
+// key is spent; a chain that names no operation never carries a key value.
+func (r *Receiver) readKey(req InboundRequest, chain stamp.Chain, in *verify.Input) string {
+	if r.Operations == nil || chain == nil {
+		return ""
+	}
+	last := chain[len(chain)-1]
+	_, operation, named := strings.Cut(r.Name, "#")
+	if !named || !strings.Contains(last.Rcv, "#") || !r.Operations.Keyed(operation) {
+		return ""
+	}
+	path, query, _ := strings.Cut(req.Target, "?")
+	value, ok := r.Operations.KeyValue(operation, path, query)
+	if !ok {
+		in.Receiver = policy.Service(r.Name)
+		return ""
+	}
+	nonceKey := chain[0].RID + "|" + last.Svc + "|" + last.Rcv + "|" + value + "|req"
+	in.NonceKey = &nonceKey
+	return value
 }
 
 // cacheFailed returns the refusal [Unavailable] of a request whose nonce cache could not answer with

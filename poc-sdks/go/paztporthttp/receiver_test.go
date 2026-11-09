@@ -366,7 +366,7 @@ func TestAttestRoundTrip(t *testing.T) {
 		CallMaxAgeMs:   verify.CallMaxAgeMs,
 		RunMaxAgeMs:    verify.RunMaxAgeMs,
 	})
-	check, err := wire.CheckResponse(t.Context(), caller, sent, &proof, h, 201, body, "orders")
+	check, err := wire.CheckResponse(t.Context(), caller, sent, &proof, h, 201, body, "orders", "")
 	if err != nil {
 		t.Fatalf("CheckResponse: %v", err)
 	}
@@ -380,7 +380,7 @@ func TestAttestRoundTrip(t *testing.T) {
 		status int
 		body   string
 	}{{200, `{"paid":true}`}, {201, `{"paid":false}`}} {
-		check, err := wire.CheckResponse(t.Context(), caller, sent, &proof, h, other.status, []byte(other.body), "orders")
+		check, err := wire.CheckResponse(t.Context(), caller, sent, &proof, h, other.status, []byte(other.body), "orders", "")
 		if err != nil || check.Result.Reason != reason.BindingMismatch {
 			t.Fatalf("another answer (%d %s) checks as %+v, %v", other.status, other.body, check.Result, err)
 		}

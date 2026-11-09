@@ -32,8 +32,9 @@ type ResponseCheck struct {
 
 // CheckResponse checks a response's [Response] header, at the caller that sent the request. sent is the
 // chain the caller sent and sentProof the proof it sent with it, nil for none; header is the response
-// header's value, "" when absent; status and body are the response's; caller is the caller's own name.
-// In order:
+// header's value, "" when absent; status and body are the response's; caller is the caller's own name; key
+// is the call's key value, "" for none: the one [policy.OperationTable.KeyValue] read from the target sent
+// when the call named an operation that declares a key (the parent package's Outbound.Key). In order:
 //
 //  1. CHAIN_MISSING, unless sent has a stamp and the header, without its optional whitespace (see
 //     [HeaderValue]), reads from its token as an object of exactly labels and stamp, whose labels are
@@ -43,7 +44,8 @@ type ResponseCheck struct {
 //  3. the live order, run by v on the chain sent then the response stamp, as received by caller, with no
 //     influence, the proof sent, no peer, that binding as the one expected and the nonce key
 //     <rid>|<last rcv>|resp, where last rcv is sent's last rcv whole, with the operation when it names
-//     one. The route is the request's own, so the proof the caller sent proves it, and the response stamp
+//     one, or <rid>|<last rcv>|<key>|resp when key is not empty, so that a call is made once per request
+//     tree for each item of a keyed operation. The route is the request's own, so the proof the caller sent proves it, and the response stamp
 //     must be by the service that rcv names, signed for the caller.
 //
 // The response stamp is read only by the verifier, so its live order answers for it, from its policy
@@ -55,7 +57,7 @@ type ResponseCheck struct {
 // ctx's cancellation or deadline included; ctx reaches only the cache, and the check then is not OK. v
 // must not be nil.
 func CheckResponse(ctx context.Context, v *verify.Verifier, sent stamp.Chain, sentProof *policy.Proof, header string,
-	status int, body []byte, caller string) (ResponseCheck, error) {
+	status int, body []byte, caller, key string) (ResponseCheck, error) {
 	hash := ResultHash(status, body)
 	refused := func(code reason.Code) (ResponseCheck, error) {
 		return ResponseCheck{Result: verify.Result{Reason: code}, ResultHash: hash}, nil
@@ -73,6 +75,9 @@ func CheckResponse(ctx context.Context, v *verify.Verifier, sent stamp.Chain, se
 		return refused(reason.BindingMismatch)
 	}
 	nonceKey := rid + "|" + sent[len(sent)-1].Rcv + "|resp"
+	if key != "" {
+		nonceKey = rid + "|" + sent[len(sent)-1].Rcv + "|" + key + "|resp"
+	}
 	in := verify.Input{
 		Chain:           responseChain(sent, resp),
 		ExpectedBind:    &bind,

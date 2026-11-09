@@ -181,9 +181,8 @@ func callerCase(t *testing.T, name string) vectors.Node {
 
 // stampCallerCase builds case c's caller, its stamper's clock at ts and, when it has a verifier, one
 // pinned to its material over nonces (a fresh cache when nil), and stamps the case's call: its URI split
-// into the authority, whose host the case's receivers name, and the target as written. Go holds no
-// operation table, so for a caller that holds the receiver's table it plays an embedder that names
-// operations: it addresses the call to the operation the case expects, svc#operation, itself.
+// into the authority, whose host the case's receivers name, and the target as written. The tables the
+// case's caller holds are the operations section's, by name.
 func stampCallerCase(
 	t *testing.T, c vectors.Node, nonces verify.NonceCache,
 ) (*paztporthttp.Caller, paztporthttp.Outbound) {
@@ -209,6 +208,17 @@ func stampCallerCase(
 			RunMaxAgeMs:    c.Get("runMaxAgeMs").Int(),
 		})
 	}
+	if tables := cc.Get("operations"); tables.Len() > 0 {
+		caller.Operations = map[string]policy.OperationTable{}
+		for _, name := range tables.Strs() {
+			text := vectors.Load(t, "http-v3.json").Get("operations").Get(name).Get("file").Str()
+			table, err := policy.ReadOperationTable([]byte(text))
+			if err != nil {
+				t.Fatalf("ReadOperationTable(%s): %v", name, err)
+			}
+			caller.Operations[table.Service] = table
+		}
+	}
 	byHost := map[string]string{}
 	rs := cc.Get("receivers")
 	for _, host := range rs.Names() {
@@ -227,9 +237,6 @@ func stampCallerCase(
 	name, named := receivers.Name(authority)
 	if !named {
 		t.Fatalf("the call's host %q has no receiver name", authority)
-	}
-	if cc.Get("operations").Len() > 0 {
-		name = c.Get("expected").Get("rcv").Str()
 	}
 	o, err := caller.Stamp(call.Get("method").Str(), target, name, body,
 		chainOf(c.Get("inbound")), entries(c.Get("influence")))

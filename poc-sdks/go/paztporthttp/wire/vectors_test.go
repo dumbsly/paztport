@@ -4,6 +4,7 @@
 package wire_test
 
 import (
+	"bytes"
 	"slices"
 	"testing"
 
@@ -94,7 +95,7 @@ func TestResponseVectors(t *testing.T) {
 			for range uses {
 				var err error
 				got, err = wire.CheckResponse(t.Context(), v, rc.sent, &rc.proof, rc.header, rc.status, rc.body,
-					rc.caller)
+					rc.caller, rc.key)
 				if err != nil {
 					t.Fatalf("CheckResponse: %v", err)
 				}
@@ -155,6 +156,37 @@ type responseCase struct {
 	status   int
 	body     []byte
 	caller   string
+	key      string
+}
+
+// responseMaterial returns the root (base64url), root id and proof a responses case runs on: those of the
+// rules material it names, or of the v3.json policy it names.
+func responseMaterial(t testing.TB, c vectors.Node) (root, rootID string, proof policy.Proof) {
+	t.Helper()
+	var err error
+	if c.Has("material") {
+		m := vectors.Rules(t).Get("material").Get(c.Get("material").Str())
+		// The material's proofs are in the file's own text, which the bundle reader takes.
+		file := bytes.Join([][]byte{
+			[]byte(`{"service":"gateway","rootId":`), m.Get("root").Get("rootId").Raw(),
+			[]byte(`,"proofs":`), m.Get("proofs").Raw(), []byte(`}`),
+		}, nil)
+		bundle, berr := policy.ParseProofBundleFile(file)
+		if berr != nil {
+			t.Fatalf("ParseProofBundleFile: %v", berr)
+		}
+		var ok bool
+		if proof, ok = bundle.ProofFor(c.Get("proofRoute").Str()); !ok {
+			t.Fatalf("the material has no proof for %s", c.Get("proofRoute").Str())
+		}
+		return m.Get("root").Get("root").Str(), m.Get("root").Get("rootId").Str(), proof
+	}
+	p := vectors.Load(t, "v3.json").Get("policies").Get(c.Get("policy").Str())
+	proof, err = policy.ReadProof(p.Get("proofTokens").Get(c.Get("proofRoute").Str()).Str())
+	if err != nil {
+		t.Fatalf("the proof: %v", err)
+	}
+	return p.Get("root").Str(), p.Get("rootId").Str(), proof
 }
 
 // readResponseCase reads responses case c, with a clock fixed at its now. A case with spent keys gets a
@@ -162,14 +194,10 @@ type responseCase struct {
 func readResponseCase(t testing.TB, c vectors.Node) responseCase {
 	t.Helper()
 	c = c.With(t)
-	p := vectors.Load(t, "v3.json").Get("policies").Get(c.Get("policy").Str())
-	root, err := b64.Decode(p.Get("root").Str())
+	rootText, rootID, proof := responseMaterial(t, c)
+	root, err := b64.Decode(rootText)
 	if err != nil {
 		t.Fatalf("the policy's root: %v", err)
-	}
-	proof, err := policy.ReadProof(p.Get("proofTokens").Get(c.Get("proofRoute").Str()).Str())
-	if err != nil {
-		t.Fatalf("the proof: %v", err)
 	}
 	keyring := policy.Keyring{}
 	ring := c.Get("keyring")
@@ -210,7 +238,7 @@ func readResponseCase(t testing.TB, c vectors.Node) responseCase {
 		cfg: verify.Config{
 			// The case gives one window, its policyNotAfter, so each member has that one.
 			Keyrings:       []verify.PinnedKeyring{{Keys: keyring, NotAfter: policyNotAfter}},
-			Roots:          []verify.PinnedRoot{{Root: root, RootID: p.Get("rootId").Str(), NotAfter: policyNotAfter}},
+			Roots:          []verify.PinnedRoot{{Root: root, RootID: rootID, NotAfter: policyNotAfter}},
 			PolicyNotAfter: policyNotAfter,
 			AllowedOrigins: allowed,
 			Sess:           c.Get("sess").Str(),
@@ -226,6 +254,7 @@ func readResponseCase(t testing.TB, c vectors.Node) responseCase {
 		status:   int(c.Get("status").Int()),
 		body:     c.Get("body").With(t).Hex(),
 		caller:   c.Get("caller").Str(),
+		key:      responseKey(c),
 	}
 }
 
@@ -249,4 +278,12 @@ func labels(n vectors.Node) []influence.Label {
 		}
 	}
 	return ls
+}
+
+// responseKey returns the key value the case's call gave, "" when it gave none.
+func responseKey(c vectors.Node) string {
+	if c.Has("key") {
+		return c.Get("key").Str()
+	}
+	return ""
 }
