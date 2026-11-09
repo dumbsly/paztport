@@ -365,9 +365,9 @@ response stamp, `receiver` = its own name, `receiverInRoute = false`, `proof` = 
    and an array of well-formed `labels` (`CHAIN_MISSING`).
 2. The response binding of `resultHash`, the request's `rid` and the labels can be computed
    (`BINDING_MISMATCH`).
-3. The live order, 0 to 11, with `expectedBind` = that binding. The sent chain's last `rcv` is the target, so
-   check 4 requires the response stamp to be the target's; the route is the request's own, so the proof the
-   caller sent proves it.
+3. The live order, 0 to 11, with `expectedBind` = that binding. The sent chain's last `rcv` is the target, or an
+   operation of it, so check 4 requires the response stamp to be the target's; the route is the request's own, so
+   the proof the caller sent proves it.
 
 No peer is passed, because TLS hostname verification already authenticated the server as the target, and the
 receiver check ties the stamp to it. The labels count as influence only when the whole response verifies: each

@@ -1,16 +1,17 @@
 # Wire format
 
 This file defines the bytes: encodings, how JSON is read and written, keys, stamps, chains, bindings, the Merkle
-tree, the signed root, the signed keyring, the reply certificate, events, the proof bundles and operations.
+tree, operations, the signed root, the signed keyring, the reply certificate, events and the proof bundles.
 [verification.md](verification.md) says how a receiver checks them, and
 [sessions-and-influence.md](sessions-and-influence.md) covers the handshake and influence.
 
 The key words MUST, MUST NOT, SHOULD, SHOULD NOT and MAY are to be read as described in RFC 2119.
 
 Contents: [Encodings](#encodings) · [JSON](#json) · [Keys and files](#keys-and-files) · [Stamps](#stamps) ·
-[Chains](#chains) · [Bindings](#bindings) · [Carrying a chain](#carrying-a-chain) · [The Merkle tree](#the-merkle-tree)
-· [Routes](#routes) · [Operations](#operations) · [The signed root](#the-signed-root) ·
-[The signed keyring](#the-signed-keyring) · [The reply certificate](#the-reply-certificate) · [Events](#events) ·
+[Chains](#chains) · [Bindings](#bindings) · [Carrying a chain](#carrying-a-chain) ·
+[The Merkle tree](#the-merkle-tree) · [Routes](#routes) · [Operations](#operations) ·
+[The signed root](#the-signed-root) · [The signed keyring](#the-signed-keyring) ·
+[The reply certificate](#the-reply-certificate) · [Events](#events) ·
 [Proof bundles, and who holds what](#proof-bundles-and-who-holds-what)
 
 ## Encodings

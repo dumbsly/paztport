@@ -329,13 +329,13 @@ public final class PartnerSessions {
         }
     }
 
-    /** The endpoints an unsafe session may not perform, as the reply lists them. */
+    /** The endpoints refused in an unsafe session, as the reply lists them. */
     List<String> unsafeDisabled() {
         return unsafeDisabled;
     }
 
     /**
-     * The rule over the endpoints an unsafe session may not perform: the same list the replies name, so that what
+     * The rule over the endpoints refused in an unsafe session: the same list the replies name, so that what
      * a client is told it may not do and what is refused are one list.
      */
     public UnsafeEndpoints unsafeEndpoints() {

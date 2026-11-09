@@ -403,7 +403,7 @@ flowchart TD
     S8 -->|no| R8["403 BINDING_MISMATCH"]
     S8 -->|yes| S9["9. influence parses and the<br/>last stamp commits to it?"]
     S9 -->|no| R9["403 INFLUENCE_MISMATCH"]
-    S9 -->|yes| S10["10. rid, last svc<br/>never seen before?"]
+    S9 -->|yes| S10["10. rid, last svc, rcv<br/>never seen before?"]
     S10 -->|seen| R10["403 REPLAY"]
     S10 -->|new| S11["11. route rebuilt from stamps + payment<br/>walks the proof to the pinned root?"]
     S11 -->|no| R11["403 PATH_NOT_ALLOWED"]

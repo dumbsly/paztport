@@ -172,7 +172,7 @@ Why it's built this way:
   recomputes `bind` from the request it got and compares it to the **last** stamp.
   A chain copied from a real request and spliced onto a malicious body no longer
   matches.
-- **`rid` + `ts` + a nonce cache** stop replays. The `(rid, last svc)` pair can be
+- **`rid` + `ts` + a nonce cache** stop replays. The `(rid, last svc, last rcv)` triple can be
   accepted once per nonce cache, and the 5 s freshness window bounds how long
   anything needs to be remembered.
 

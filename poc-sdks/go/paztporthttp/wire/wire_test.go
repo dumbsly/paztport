@@ -447,7 +447,7 @@ func TestCheckResponseProof(t *testing.T) {
 }
 
 // TestCheckResponseNonceKey spends the key <rid>|<last rcv>|resp, last rcv being the sent chain's last
-// rcv.
+// stamp's rcv, whole (operation included).
 func TestCheckResponseNonceKey(t *testing.T) {
 	rc := okCase(t)
 	cache := &recordingCache{}

@@ -601,7 +601,7 @@ hands a session request's body to `HttpSessions.serve`.
   | `paztport.partner.reply-cert-path` | `reply-cert.json`: the policy key's [reply certificate](../spec/wire.md#the-reply-certificate) for the key at `paztport.key-path`. Required. |
   | `paztport.partner.client-policy-key-paths` | The `policy.pub` of each organisation whose sessions may be attested. Required. |
   | `paztport.partner.client-origins` | The service names allowed to start a chain in a client's attested session. Required. |
-  | `paztport.partner.unsafe-disabled` | Endpoints an unsafe session may not perform, as `METHOD /pattern`; the reply's `disabled`. |
+  | `paztport.partner.unsafe-disabled` | Endpoints refused in an unsafe session, as `METHOD /pattern`; the reply's `disabled`. |
   | `paztport.partner.max-sessions-per-peer` | How many sessions one client certificate (issuer and common name) may hold; its least recently used is evicted when it opens one more. Default `16`. |
   | `paztport.partner.session-idle-ms` | How long a session no call has used is kept, in milliseconds. Default `900000` (15 minutes). |
 
