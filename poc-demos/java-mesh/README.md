@@ -394,7 +394,7 @@ flowchart TD
     S5 -->|no| R5["403 RID_MISMATCH"]
     S5 -->|yes| S6["6. every stamp in the session<br/>(empty inside the mesh)?"]
     S6 -->|no| R6["403 SESSION_UNKNOWN"]
-    S6 -->|yes| S7["7. last stamp and origin<br/>within 5 s of now?"]
+    S6 -->|yes| S7["7. last stamp within 5 s of now,<br/>origin within 30 s?"]
     S7 -->|no| R7["403 EXPIRED"]
     S7 -->|yes| S8["8. last stamp's bind matches the received<br/>method, path and query, and body?"]
     S8 -->|no| R8["403 BINDING_MISMATCH"]

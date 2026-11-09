@@ -6,11 +6,12 @@ cryptographic primitive comes from the standard JDK; `keygen` uses Bouncy Castle
 only to build its X.509 certificates, which the JDK signs.
 
 It implements protocol v3 as the [spec](../spec/README.md) defines it, and carries
-it over HTTP. It replays `spec/vectors/http-v3.json`, `json.json` and `events.json`
-in full, and `v3.json` but the recorded local steps, the response attestations,
-`paztport/session`'s params and result, and the result and `tools/call` bindings
-(`recordedLocalStep`, `responseAttestation`, `sessionParams`, `sessionResult`,
-`bindResult` and `bindMcpCall`), which belong to the
+it over HTTP. It replays `spec/vectors/http-v3.json` and `events.json` in full,
+`json.json` but its `jcs` section and the MCP profile's `bindings` (`toolsCall`,
+`result` and `localTool`), and `v3.json` but the recorded local steps, the
+response attestations, `paztport/session`'s params and result, and the result and
+`tools/call` bindings (`recordedLocalStep`, `responseAttestation`, `sessionParams`,
+`sessionResult`, `bindResult` and `bindMcpCall`), which belong to the
 [MCP profile](../spec/README.md#the-mcp-profile) that an HTTP-only SDK need not
 implement.
 

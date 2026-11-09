@@ -160,7 +160,7 @@ flowchart LR
 | `svc` | Service name. The route is rebuilt from these and the `rcv` fields. |
 | `inst` | Instance (container hostname), so a response targets one replica, not a whole service. |
 | `rid` | Request ID, minted by the origin and carried unchanged. |
-| `ts` | When this stamp was signed. The last stamp must be within 5 s of the receiver's clock; the origin within a run window (30 min by default, 5 s in the Java mesh). |
+| `ts` | When this stamp was signed. The last stamp must be within 5 s of the receiver's clock; the origin within a run window (30 min by default; 30 s for the six services a ticket crosses in the Java mesh). |
 | `sess` | The session id, or empty for a chain with no session. |
 | `rcv` | The receiver this stamp was signed for: the next stamp's `svc`, or the chain's receiver. Over HTTP it may also name an operation, `service#operation`. |
 | `bind` | The binding of what *this hop sent*. Over HTTP, `SHA-256(METHOD \n PATH \n BODY)` (`PATH` with its query). |
@@ -409,8 +409,8 @@ What Paztport needs from a deployment, and what it deliberately doesn't cover ye
   receiver keeps. Without a peer (the agents demo over stdio, or any deployment
   without in-process mutual TLS), anyone holding a captured request can resend it
   to the same receiver within the 5 s window; only the cache of the replica that
-  saw the first sending refuses it, and another replica can serve it. The
-  SDKs' caches are in memory, so a service run as several replicas, or restarted,
+  saw the first sending refuses it, and over HTTP another replica can serve it.
+  The SDKs' caches are in memory, so a service run as several replicas, or restarted,
   can serve a request its signer sends twice, as a proxy that retries does. That
   is duplicate delivery, and the receiving application handles it as it handles
   any retried request, by idempotency keyed on the delivery: the verified chain's
@@ -436,7 +436,7 @@ What Paztport needs from a deployment, and what it deliberately doesn't cover ye
   an earlier one; nothing signed says which issue is newer (a version number would
   make it exact, but the format carries none). Re-pinning a new policy key ends it
   at once. Choosing the lifetime and running the renewals are the deployment's job.
-- **Async is out of scope**, for now. Queues, caches, and scheduled jobs break the
+- **Async is out of scope.** Queues, caches, and scheduled jobs break the
   linear-chain model (see the async direction in
   [section 6](#6-where-this-could-go)).
 - **The rule judges whose data shaped a write, not who may receive it.** A
@@ -521,8 +521,8 @@ Engineering shortcuts of this repository, not of the design.
   `keyring.json` as mounted, without verifying the keyring against the policy pin
   or checking its `notAfter`, both of which the mesh services do. Anyone who could
   replace that file could name their own event signer.
-- **The nonce cache is in memory, per replica,** and forgets a key once it is older
-  than twice the 5 s window. It has no size cap, so a flood within that time grows
+- **The nonce cache is in memory, per replica,** and forgets a key after 15 s, at
+  least twice the 5 s window. It has no size cap, so a flood within that time grows
   it. A shared, expiring store is optional hardening against a compromised
   caller; duplicate delivery is the receiving application's to handle (see
   "Duplicate delivery is the application's" above).
@@ -619,7 +619,7 @@ paztport/
 ├── licenses/                 licence texts the bundling jars carry, and the licence plugin's shared settings
 ├── run                       front door: java-mesh, envoy-gateway, agents-mcp, test, bench
 ├── poc-sdks/
-│   ├── spec/                 the protocol spec, and vectors/: v3.json, which every SDK replays (Java and Go all of it but the MCP profile); http-v3.json, Java's and Go's; events.json and json.json, all three's
+│   ├── spec/                 the protocol spec, and vectors/: v3.json, which every SDK replays (Java and Go all of it but the MCP profile); http-v3.json, Java's and Go's; events.json, all three's; json.json, TypeScript's in full, Java's and Go's but the MCP profile's sections
 │   ├── scripts/              name check, link check, jar check, tests for ./run, THIRD-PARTY.txt regeneration
 │   ├── java/                 core, http, spring (paztport-core, paztport-http, paztport-spring), tools/keygen, tools/policy-tool, tools/bench
 │   ├── typescript/           core, mcp (@paztport/core, @paztport/mcp), policy-tool
