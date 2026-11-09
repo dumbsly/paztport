@@ -31,8 +31,9 @@ request inside a system the same kind of passport:
 
 When a request turns up with the wrong history, it's refused. That holds even when
 its credentials are valid and its contents look perfectly normal. The machine that
-sent it is then moved into isolation and replaced with a clean copy, automatically,
-within seconds.
+sent it can then be moved into isolation and replaced with a clean copy,
+automatically, within seconds: in the demo, a responder does exactly that, acting on
+the signed events the rejection produces.
 
 ## Why it matters
 
@@ -47,17 +48,22 @@ within seconds.
   an attacker wants. Paztport checks routes without ever publishing them. The same
   design is meant to let two organizations trust each other's calls without
   swapping architecture diagrams.
-- **It responds on its own and keeps the evidence.** The offending machine is
-  isolated, not deleted, so investigators get a live specimen while a clean
-  replacement keeps the service running. If the same service keeps tripping, it
-  stops and calls a human rather than risk tearing down healthy machines after a
-  bad deploy.
+- **It makes an automatic response possible and keeps the evidence.** The signed
+  events name the offending machine, so a responder can act on them. The demo's
+  responder isolates the machine rather than deleting it, so investigators get a
+  live specimen while a clean replacement keeps the service running. If the same
+  service keeps tripping, it stops and calls a human rather than risk tearing down
+  healthy machines after a bad deploy.
 - **It fits the AI-agent problem.** An AI assistant that reads a booby-trapped
   email and then sends your files somewhere has the same failure: a trusted
   component doing something because untrusted input asked it to. Requiring proof
-  of where an action came from is a natural guardrail for agents too
-  ([§6](#6-where-this-could-go)).
-- **It's cheap.** Checking a request adds a fraction of a millisecond.
+  of where an action came from is a natural guardrail for agents too. The
+  [agents demo](poc-demos/agents-mcp/README.md) does it for MCP calls, and
+  [§6](#6-where-this-could-go) says what is still open.
+- **It's cheap.** Checking a request is a few Ed25519 verifications and SHA-256
+  hashes; the demos measure what that costs
+  ([Java mesh](poc-demos/java-mesh/README.md#measurements),
+  [Envoy Gateway](poc-demos/envoy-gateway/README.md#measurements)).
 - **It's open.** There's no vendor and no lock-in. It's Apache-2.0 code built
   entirely on standard, well-understood cryptography.
 
@@ -76,8 +82,9 @@ never reveals, the full map of valid paths.
 It works end to end. In the [Java mesh demo](poc-demos/java-mesh/README.md), a
 request with a perfectly valid body, sent by a service that is legitimately on the
 network, is **rejected purely because of where it came from**, and the offending
-container is **quarantined and replaced automatically**. All the scenarios plus a
-circuit-breaker check pass (21 rows), and the overhead has been measured.
+container is **quarantined and replaced automatically**. All the scenarios and a
+circuit-breaker check pass (`demo.sh` reports 23 checks), and the overhead has been
+measured.
 
 The demo also tells a story across two organisations. A customer's support ticket
 passes through a ticket service, which labels the text as third-party, to an
@@ -150,13 +157,13 @@ flowchart LR
 | Field | Meaning |
 |---|---|
 | `v` | Version, always `3`. |
-| `svc` | Service name. The route is rebuilt from these. |
+| `svc` | Service name. The route is rebuilt from these and the `rcv` fields. |
 | `inst` | Instance (container hostname), so a response targets one replica, not a whole service. |
 | `rid` | Request ID, minted by the origin and carried unchanged. |
-| `ts` | When this stamp was signed. Stamps older than 5 s are rejected. |
+| `ts` | When this stamp was signed. The last stamp must be within 5 s of the receiver's clock; the origin within a run window (30 min by default, 5 s in the Java mesh). |
 | `sess` | The session id, or empty for a chain with no session. |
-| `rcv` | The receiver this stamp was signed for: the next stamp's `svc`, or the chain's receiver. |
-| `bind` | `SHA-256(METHOD \n PATH \n BODY)` of the request *this hop sent* (`PATH` with its query). |
+| `rcv` | The receiver this stamp was signed for: the next stamp's `svc`, or the chain's receiver. Over HTTP it may also name an operation, `service#operation`. |
+| `bind` | The binding of what *this hop sent*. Over HTTP, `SHA-256(METHOD \n PATH \n BODY)` (`PATH` with its query). |
 | `infl` | The influence commitment, empty for no influence. |
 | `prev` | The previous stamp's `sig`; empty at the origin. |
 | `sig` | Ed25519 signature over the canonical bytes `3\|svc\|inst\|rid\|ts\|sess\|rcv\|bind\|infl\|prev`. |
@@ -168,15 +175,18 @@ Why it's built this way:
   or some signature stops verifying.
 - **Ed25519 rather than an HMAC** means verifiers need only *public* keys. No
   shared secret is ever distributed, and a compromised verifier can't forge stamps.
+- **The receiver binding**, `rcv`, names the hop each stamp was handed to. A chain
+  forwarded unchanged to any other service fails `BINDING_MISMATCH`.
 - **The request binding** ties the chain to the actual payload. The receiver
   recomputes `bind` from the request it got and compares it to the **last** stamp.
   A chain copied from a real request and spliced onto a malicious body no longer
   matches.
-- **`rid` + `ts` + a nonce cache** stop replays. The `(rid, last svc, last rcv)` triple can be
-  accepted once per nonce cache, and the 5 s freshness window bounds how long
-  anything needs to be remembered.
+- **Receiver binding, request binding and, with mTLS, the peer check** stop anyone but the signer using a
+  stamp; a nonce cache refuses the signer's second sending on the replica that saw the first, and the 5 s window
+  bounds how long it remembers.
 
-The Java mesh signs these stamps over HTTP, and the TypeScript SDK and the agents demo sign them over MCP.
+The Java and Go SDKs sign them over HTTP (the Java mesh, the Envoy Gateway edge), and the TypeScript SDK
+over MCP (the agents demo).
 Binding the receiver changes who a rejection names. A chain forwarded unchanged to another service fails
 `BINDING_MISMATCH` and names no one, instead of reaching the route check and naming its last signer. And
 when the transport authenticates the sender, as mTLS does in the Java mesh, the verifier checks that the
@@ -275,11 +285,12 @@ The proof hides the policy, not the request's own route (see §5.2, Inherent).
   proof for it.
 
 The binding between the two is one rule: **the verifier rebuilds the route from the
-authenticated `svc` fields in the stamps, never from any claimed field.** It
-appends its own name, then checks *that* route against the root. You can't claim a
+authenticated fields in the stamps, never from any claimed field:** the origin's
+`svc`, then the receiver each stamp names in `rcv`. It checks *that* route against
+the root, and checks that the last `rcv` names itself. You can't claim a
 route you didn't travel, and you can't travel a route that isn't in the tree.
 
-The exact format of every version is in the [protocol spec](poc-sdks/spec/README.md), and
+The exact format is in the [protocol spec](poc-sdks/spec/README.md), and
 [poc-sdks](poc-sdks/README.md#on-the-wire) has a summary.
 
 ## 3. Security principles
@@ -361,7 +372,7 @@ takes.
 
 What Paztport needs from a deployment, and what it deliberately doesn't cover yet.
 
-- **An authenticated transport.** A v3 verifier checks that the last signer is the
+- **An authenticated transport.** A verifier checks that the last signer is the
   transport's authenticated sender (`PEER_MISMATCH`) only when it is given one. The
   Java mesh gives it one: every hop is mutual TLS, and `payment` takes the service
   named in the client certificate as the sender
@@ -391,10 +402,14 @@ What Paztport needs from a deployment, and what it deliberately doesn't cover ye
   service-account token in pods that don't call the API, encryption at rest, and
   admission control over what may run. What a stolen key can and cannot do is in "A
   service is whoever holds its keys" below.
-- **Replay protection is per nonce cache.** A stamp is good only for its receiver
-  and its request, and where the transport supplies a peer, as the Java mesh does
-  with mutual TLS, only on the last signer's own connections: a captured request
-  can't be sent again from anywhere else, whatever cache a receiver keeps. The
+- **Duplicate delivery is the application's.** A stamp is good only for its
+  receiver and its request. Where the transport supplies a peer, as the Java mesh
+  does with mutual TLS, it is good only on the last signer's own connections: a
+  captured request can't be sent again from anywhere else, whatever cache a
+  receiver keeps. Without a peer (the agents demo over stdio, or any deployment
+  without in-process mutual TLS), anyone holding a captured request can resend it
+  to the same receiver within the 5 s window; only the cache of the replica that
+  saw the first sending refuses it, and another replica can serve it. The
   SDKs' caches are in memory, so a service run as several replicas, or restarted,
   can serve a request its signer sends twice, as a proxy that retries does. That
   is duplicate delivery, and the receiving application handles it as it handles
@@ -432,9 +447,9 @@ What Paztport needs from a deployment, and what it deliberately doesn't cover ye
   content shaped. A service whose destinations are not its own records needs a
   check of its own.
 - **The rule judges only the influence the request carries.** `PublicWrites` sees
-  that influence only where the request's chain verified at that hop. In `off`
-  mode, after an audit-mode failure, or in an unsafe partner session it may be
-  incomplete or empty, and the rule passes what it cannot see. A partner must
+  that influence only where the request's chain verified at that hop. On a hop
+  where Paztport is off, after an audit-mode failure, or in an unsafe partner
+  session it may be incomplete or empty, and the rule passes what it cannot see. A partner must
   therefore list its public writes in `paztport.partner.unsafe-disabled`.
 
 ### 5.2 Limits of the concept
@@ -506,13 +521,13 @@ Engineering shortcuts of this repository, not of the design.
   `keyring.json` as mounted, without verifying the keyring against the policy pin
   or checking its `notAfter`, both of which the mesh services do. Anyone who could
   replace that file could name their own event signer.
-- **The nonce cache is in-memory and unbounded** in this POC. The freshness window
-  means it only *needs* to remember twice the 5 s window, so a deployment would
-  bound it. A shared, expiring store is optional hardening against a compromised
+- **The nonce cache is in memory, per replica,** and forgets a key once it is older
+  than twice the 5 s window. It has no size cap, so a flood within that time grows
+  it. A shared, expiring store is optional hardening against a compromised
   caller; duplicate delivery is the receiving application's to handle (see
-  "Replay protection is per nonce cache" above).
+  "Duplicate delivery is the application's" above).
 - **The admin endpoint is a demo control channel.** `/admin/mode` switches a
-  verifier between `off`, `audit` and `enforce`. It is protected only by a shared
+  verifier between `audit` and `enforce`, or turns it off. It is protected only by a shared
   token (`X-Admin-Token`, set with `PAZTPORT_ADMIN_TOKEN`), and refuses everything
   when no token is set. A real deployment would put it on a separate management
   network.
@@ -531,7 +546,7 @@ Engineering shortcuts of this repository, not of the design.
 
 ## 6. Where this could go
 
-These are design directions, not implementations.
+These are design directions, except where a bullet says what is built.
 
 - **Post-quantum.** Keep the Merkle tree and swap Ed25519 stamps for hash-based
   signatures. SLH-DSA (FIPS 205) is stateless, but at ~8–50 KB per signature it's
@@ -544,9 +559,12 @@ These are design directions, not implementations.
 - **AI agents and MCP.** Prompt injection *is* the confused-deputy problem. A path
   becomes a sequence of steps (`user → orchestrator → subagent → tool`, or
   `read_inbox → summarize → send_email`), and the agent *runtime*, not the model,
-  holds the keys and stamps each step. A sensitive MCP server could require a chain
+  holds the keys and stamps each step. A sensitive MCP server can require a chain
   proving a call began in a user session and went only through approved agents,
-  without the client revealing its agent architecture.
+  without the client revealing its agent architecture. The MCP chain, the session
+  handshake, influence tracking and response attestation are built in the
+  TypeScript SDK and [the agents demo](poc-demos/agents-mcp/README.md), against a
+  mock MCP server. Still open: running it in a production agent runtime.
 - **Async boundaries.** Treat a queue like another organization: attest and
   summarize at enqueue, carry a compact signed commitment plus the broker's message
   ID, and let the message ID replace the timestamp as the anti-replay key. Fan-in
@@ -558,7 +576,8 @@ These are design directions, not implementations.
   with polynomial commitments for constant-size proofs.
 - **Interrupted work and race conditions.** A quarantined node can't be trusted to
   hand off its own work. The trusted party is the origin, which can mint a
-  retry (same `rid`, `attempt + 1`) that a replayer can't forge. The same
+  retry (the same `rid` and an `attempt` counter, which would need a new field in
+  the signed bytes and the nonce key) that a replayer can't forge. The same
   verifiable `rid` could own leases on declared intent keys, giving path-scoped
   concurrency control at the attested boundary.
 - **Cross-organization trust.** Publish signed roots, never trees. An egress
@@ -576,12 +595,13 @@ for the mesh demo, Node 22.19 or newer with npm for the TypeScript side, Go 1.27
 newer for the Go SDK, staticcheck 2026.2.2 or newer for `./run test`'s checks of the
 Envoy Gateway processor, and unzip for its jar check; for the Envoy Gateway proof of
 concept, Maven running on Java 25 or newer (as `mvn -v` reports it), Docker, Go, kind
-0.33, kubectl 1.36 and Helm 4.3 or newer. macOS and Linux; on Windows use WSL.
+0.33, kubectl 1.36 and Helm 4.3 or newer, and python3 for its measurements. macOS and Linux; on Windows use WSL.
 
 ```bash
 ./run test        # the name and link checks, the TypeScript type checks, gofmt, go vet and staticcheck, every suite, a check of the built jars and of the processor's third-party list; no Docker and no model
 ./run java-mesh   # build the Java SDK and the mesh demo, then run every scenario
 ./run envoy-gateway  # the edge processor on Envoy Gateway in a local kind cluster, and its checks; the cluster stays up
+./run envoy-gateway measure  # the measurement suites, on a cluster of their own; needs python3
 ./run agents-mcp  # install the TypeScript SDK and the agents demo, set up demo keys, start the demo page
 ./run bench       # time the primitives a verifying hop pays for (JMH, a few minutes); not part of test
 ```
@@ -599,17 +619,19 @@ paztport/
 ├── licenses/                 licence texts the bundling jars carry, and the license plugin's shared settings
 ├── run                       front door: java-mesh, envoy-gateway, agents-mcp, test, bench
 ├── poc-sdks/
-│   ├── spec/                 the protocol spec, and shared conformance vectors: v3, which every SDK replays (Java and Go all of it but the MCP profile); http-v3, Java's and Go's
+│   ├── spec/                 the protocol spec, and vectors/: v3.json, which every SDK replays (Java and Go all of it but the MCP profile); http-v3.json, Java's and Go's; events.json and json.json, all three's
 │   ├── scripts/              name check, link check, jar check, tests for ./run, THIRD-PARTY.txt regeneration
-│   ├── java/                 paztport-core, paztport-http, paztport-spring, tools/keygen, tools/policy-tool, tools/bench
-│   ├── typescript/           @paztport/core, @paztport/mcp, policy-tool
+│   ├── java/                 core, http, spring (paztport-core, paztport-http, paztport-spring), tools/keygen, tools/policy-tool, tools/bench
+│   ├── typescript/           core, mcp (@paztport/core, @paztport/mcp), policy-tool
 │   └── go/                   one module: the protocol's packages, and paztporthttp with wire and boundary
 └── poc-demos/
-    ├── java-mesh/            gateway, orders, payment, search, tickets, assistant, mailer, psp, responder; Compose, demo.sh, measure.sh, policy/paths.yaml
+    ├── java-mesh/            services/ (gateway, orders, payment, search, tickets, assistant, mailer), psp, responder; Compose, demo.sh, measure.sh, load.js, policy/ (paths.yaml, ops-*.json), psp-policy/
     ├── envoy-gateway/        the edge at Envoy Gateway: the Go ext_proc processor, its Helm chart, a kind cluster and its checks
     └── agents-mcp/           agent/MCP demo
         ├── mock-github-mcp/  mock GitHub MCP server (+ docs server), stdio, demo agent target
         ├── pi-extension/     pi extension: stamps MCP calls, verifies responses, tracks influence
+        ├── policies/         the client and server route policies that setup-demo signs
+        ├── scripts/          setup-demo: throwaway demo keys and policies
         ├── eval/             runs the agent many times per setting, scores from the outcome log, verify
         ├── demo-ui/          local web page: one run at a time, evidence per call, results folders
         └── scenarios/        scenario folders: repositories, planted text, scoring data
