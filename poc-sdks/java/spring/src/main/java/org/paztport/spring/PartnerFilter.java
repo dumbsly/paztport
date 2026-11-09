@@ -67,13 +67,13 @@ public final class PartnerFilter extends OncePerRequestFilter {
      * @param observations where each call's verification result is recorded; {@link ObservationRegistry#NOOP} where
      *     the application has no {@code ObservationRegistry} bean
      * @param unverifiedPaths the path prefixes ({@code paztport.unverified-paths}) that are not verified; the
-     *     session handshake is never verified as a call
+     *     session handshake is never verified as a call; each must be well formed
      */
     PartnerFilter(PartnerSessions sessions, String receiver, ObservationRegistry observations,
             List<String> unverifiedPaths) {
         this.receiver = new PartnerReceiver(sessions, receiver);
         this.observations = Objects.requireNonNull(observations, "observations");
-        this.unverifiedPaths = List.copyOf(unverifiedPaths);
+        this.unverifiedPaths = InboundFilter.requireWellFormed(unverifiedPaths);
     }
 
     @Override

@@ -231,8 +231,8 @@ class OverlapPathsTest {
         Path overlapFile = dir.resolve("rotated.json");
 
         // The own root, standing in for the overlap keyring's other half, has lapsed: the own root is named.
-        assertThatThrownBy(() -> StartupMaterial.requireOverlap(List.of(overlapKeyring), List.of(overlapFile), List.of(),
-                List.of(), ownKeyring, keyringFile, lapsedRoot, rootFile, pub(policy), now))
+        assertThatThrownBy(() -> StartupMaterial.requireOverlap(List.of(overlapKeyring), List.of(overlapFile),
+                List.of(), List.of(), ownKeyring, keyringFile, lapsedRoot, rootFile, pub(policy), now))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageStartingWith("paztport.root-path has expired").hasMessageEndingWith(rootFile.toString())
                 .hasMessageNotContaining("paztport.overlap").hasMessageNotContaining(overlapFile.toString());

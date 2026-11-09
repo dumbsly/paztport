@@ -40,7 +40,8 @@ public final class ResponderService {
                         LogSafe.of(event.suspectSvc()), LogSafe.of(event.suspectInst()), LogSafe.of(event.reason()));
                 executor.execute(() -> quarantiner.quarantine(event.suspectSvc(), event.suspectInst()));
             }
-            case ESCALATE -> LOG.error("ESCALATE svc={} inst={} — per-service quarantine limit exceeded, paging a human",
+            case ESCALATE -> LOG.error("ESCALATE svc={} inst={} — per-service quarantine limit exceeded, "
+                    + "paging a human",
                     LogSafe.of(event.suspectSvc()), LogSafe.of(event.suspectInst()));
             case NONE -> {
                 // below threshold, audit, or unattributable: nothing to do

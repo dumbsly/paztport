@@ -122,7 +122,7 @@ public final class InboundFilter extends OncePerRequestFilter {
      * @param unverifiedPaths the path prefixes ({@code paztport.unverified-paths}) that are neither verified nor
      *     attested, each a first path segment starting with {@code /}; empty where every path is verified
      */
-    public InboundFilter(
+    InboundFilter(
             Verifier verifier, boolean verifyRequests, boolean origin, String receiver, ModeHolder modeHolder,
             EventPublisher publisher, ReceivedRequestListener listener, Stamper stamper,
             OperationResolver operations, ObservationRegistry observations,
@@ -136,7 +136,26 @@ public final class InboundFilter extends OncePerRequestFilter {
         this.modeHolder = modeHolder;
         this.operations = operations;
         this.observations = Objects.requireNonNull(observations, "observations");
-        this.unverifiedPaths = List.copyOf(unverifiedPaths);
+        this.unverifiedPaths = requireWellFormed(unverifiedPaths);
+    }
+
+    /**
+     * Returns a copy of {@code paths} after checking that each is one first path segment: a slash and then letters,
+     * digits or {@code . _ ~ -}, with no second slash, dot segment, semicolon, percent sign or backslash. An empty
+     * entry, which Boot binds from a trailing comma, would leave every path unverified, and {@code /} would leave
+     * {@code /} and {@code //x} so.
+     *
+     * @throws IllegalStateException naming {@code paztport.unverified-paths} and the first bad entry
+     */
+    static List<String> requireWellFormed(List<String> paths) {
+        for (String entry : paths) {
+            if (entry == null || !entry.matches("/[A-Za-z0-9._~-]+") || entry.equals("/.") || entry.equals("/..")) {
+                throw new IllegalStateException("paztport.unverified-paths has the entry \"" + entry + "\", which is "
+                        + "not one first path segment such as /actuator: a slash and then letters, digits or "
+                        + ". _ ~ -, with no second slash, dot segment, semicolon, percent sign or backslash");
+            }
+        }
+        return List.copyOf(paths);
     }
 
     @Override
@@ -154,7 +173,7 @@ public final class InboundFilter extends OncePerRequestFilter {
      * {@code \}, which something downstream might read as a separator and so as a dot segment's. Anything else is
      * verified, an encoded or doubled first segment ({@code /%61dmin}, {@code //admin}) and one with a path parameter
      * ({@code /admin;x}) included, which fails closed. The prefixes are well formed
-     * ({@code PaztportProperties} refuses a malformed entry), so none is empty.
+     * ({@link #requireWellFormed}, which both filters apply to theirs), so none is empty.
      */
     static boolean unverified(String path, List<String> prefixes) {
         String lower = path.toLowerCase(Locale.ROOT);

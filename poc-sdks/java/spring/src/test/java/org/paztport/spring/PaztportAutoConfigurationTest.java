@@ -35,6 +35,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -58,7 +59,6 @@ import org.paztport.core.event.AttestationEvent;
 import org.paztport.core.policy.KeyringFile;
 import org.paztport.core.policy.PolicyBuilder;
 import org.paztport.core.policy.ProofBundle;
-import org.paztport.core.policy.SignedRoot;
 import org.paztport.core.session.ReplyCert;
 import org.paztport.core.stamp.Chains;
 import org.paztport.core.stamp.Stamp;
@@ -333,7 +333,7 @@ class PaztportAutoConfigurationTest {
         String[] all = trust(dir);
         runner.withPropertyValues(all).run(context -> assertThat(context).hasSingleBean(Verifier.class));
         for (String path : List.of("paztport.keyring-path=", "paztport.root-path=", "paztport.policy-key-path=")) {
-            String[] some = java.util.Arrays.stream(all).filter(property -> !property.startsWith(path))
+            String[] some = Arrays.stream(all).filter(property -> !property.startsWith(path))
                     .toArray(String[]::new);
             assertThat(some).as(path).hasSize(all.length - 1);
             runner.withPropertyValues(some)
@@ -353,7 +353,7 @@ class PaztportAutoConfigurationTest {
     @Test
     void trustMaterialWithoutOriginsFailsStartup(@TempDir Path dir) throws Exception {
         writeWorld(dir);
-        String[] withoutOrigins = java.util.Arrays.stream(trust(dir))
+        String[] withoutOrigins = Arrays.stream(trust(dir))
                 .filter(property -> !property.startsWith("paztport.origins=")).toArray(String[]::new);
         runner.withPropertyValues(VERIFIER_PROPS).withPropertyValues(withoutOrigins)
                 .run(context -> assertThat(context).hasFailed().getFailure()
@@ -373,7 +373,7 @@ class PaztportAutoConfigurationTest {
     @Test
     void aServiceThatOnlyChecksResponsesStillNeedsOrigins(@TempDir Path dir) throws Exception {
         writeWorld(dir);
-        String[] withoutOrigins = java.util.Arrays.stream(trust(dir))
+        String[] withoutOrigins = Arrays.stream(trust(dir))
                 .filter(property -> !property.startsWith("paztport.origins=")).toArray(String[]::new);
         runner.withPropertyValues("paztport.service-name=gateway", "paztport.origin=true",
                         "paztport.key-path=" + dir.resolve("gateway.key"))
@@ -395,11 +395,15 @@ class PaztportAutoConfigurationTest {
     @Test
     void malformedUnverifiedPathsFailStartupNamingTheEntry() {
         // Boot binds "/actuator," to [/actuator, ""], and an empty entry would leave every path unverified.
-        for (String value : new String[] {"/actuator,", ",", "/admin,,/debug", "/", "admin", "/admin/", "/admin/x",
-                "/a//b", "//", "/admin;x", "/%61dmin", "/ad\\min", "/..", "/admin/../pay"}) {
-            runner.withPropertyValues("paztport.unverified-paths=" + value)
-                    .run(context -> assertThat(context).as(value).hasFailed().getFailure()
-                            .hasStackTraceContaining("paztport.unverified-paths"));
+        // Each pair is the property value and the entry the message names.
+        for (String[] pair : new String[][] {{"/actuator,", ""}, {",", ""}, {"/admin,,/debug", ""}, {"/", "/"},
+                {"admin", "admin"}, {"/admin/", "/admin/"}, {"/admin/x", "/admin/x"}, {"/a//b", "/a//b"},
+                {"//", "//"}, {"/admin;x", "/admin;x"}, {"/%61dmin", "/%61dmin"}, {"/ad\\min", "/ad\\min"},
+                {"/..", "/.."}, {"/admin/../pay", "/admin/../pay"}}) {
+            runner.withPropertyValues("paztport.unverified-paths=" + pair[0])
+                    .run(context -> assertThat(context).as(pair[0]).hasFailed().getFailure()
+                            .hasStackTraceContaining("paztport.unverified-paths")
+                            .hasStackTraceContaining("the entry \"" + pair[1] + "\""));
         }
     }
 

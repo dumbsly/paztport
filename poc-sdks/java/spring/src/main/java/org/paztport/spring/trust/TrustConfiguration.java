@@ -23,7 +23,6 @@ import org.paztport.http.ModeHolder;
 import org.paztport.http.VerificationMode;
 import org.paztport.spring.PaztportAutoConfiguration;
 import org.paztport.spring.PaztportProperties;
-import org.paztport.spring.internal.Durations;
 import org.paztport.spring.internal.StartupMaterial;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

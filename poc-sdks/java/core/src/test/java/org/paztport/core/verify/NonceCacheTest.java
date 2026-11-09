@@ -7,6 +7,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.lang.reflect.Field;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 class NonceCacheTest {
@@ -65,9 +67,9 @@ class NonceCacheTest {
         for (long t = 0; t <= 20_000; t += 10) {
             assertFalse(cache.seenBefore("k" + t, t));
         }
-        java.lang.reflect.Field field = InMemoryNonceCache.class.getDeclaredField("seen");
+        Field field = InMemoryNonceCache.class.getDeclaredField("seen");
         field.setAccessible(true);
         // Steady-clock bound is about ttl / step = 100 live keys, plus "far".
-        assertTrue(((java.util.Map<?, ?>) field.get(cache)).size() < 200);
+        assertTrue(((Map<?, ?>) field.get(cache)).size() < 200);
     }
 }

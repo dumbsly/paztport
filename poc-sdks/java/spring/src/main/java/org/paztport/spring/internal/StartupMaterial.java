@@ -20,8 +20,8 @@ import org.slf4j.LoggerFactory;
 /**
  * The startup check every bean that loads {@code paztport.keyring-path} and {@code paztport.root-path} runs on them,
  * so that one place decides what a service may start with, and the message always names the property at fault and
- * the fix. The checks themselves are core's, {@link OwnMaterial}; this words their findings
- * in terms of the {@code paztport.*} properties.
+ * the fix. The checks themselves are core's, {@link OwnMaterial}; this words their findings in
+ * terms of the {@code paztport.*} properties.
  *
  * <p>It refuses, rather than degrades, because a service that loads its own material already expired is
  * misconfigured: nothing about it can be trusted to improve while it runs, and the operator is at the keyboard to
@@ -155,8 +155,7 @@ public final class StartupMaterial {
             List<Path> rootFiles, KeyringFile ownKeyring, Path ownKeyringFile, SignedRoot ownRoot, Path ownRootFile,
             String policyPin, long nowMs) {
         for (int i = 0; i < keyrings.size(); i++) {
-            List<Problem> problems = OwnMaterial.check(keyrings.get(i), ownRoot, policyPin,
-                    nowMs);
+            List<Problem> problems = OwnMaterial.check(keyrings.get(i), ownRoot, policyPin, nowMs);
             if (!problems.isEmpty()) {
                 Problem p = problems.get(0);
                 throw new IllegalStateException(p.subject() == Subject.KEYRING
@@ -169,8 +168,7 @@ public final class StartupMaterial {
             }
         }
         for (int i = 0; i < roots.size(); i++) {
-            List<Problem> problems = OwnMaterial.check(ownKeyring, roots.get(i), policyPin,
-                    nowMs);
+            List<Problem> problems = OwnMaterial.check(ownKeyring, roots.get(i), policyPin, nowMs);
             if (!problems.isEmpty()) {
                 Problem p = problems.get(0);
                 throw new IllegalStateException(p.subject() == Subject.ROOT

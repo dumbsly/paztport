@@ -284,6 +284,16 @@ class RequestObservationTest {
     private final PartnerFilter partnerFilter = new PartnerFilter(sessions, "psp", registry,
             List.of("/actuator"));
 
+    @Test
+    void thePartnerFilterRefusesAMalformedUnverifiedPath() {
+        for (String entry : new String[] {"", "/", "admin", "/admin/", "/a//b"}) {
+            IllegalStateException refusal = assertThrows(IllegalStateException.class,
+                    () -> new PartnerFilter(sessions, "psp", registry, List.of(entry)), entry);
+            assertTrue(refusal.getMessage().contains("paztport.unverified-paths"), refusal.getMessage());
+            assertTrue(refusal.getMessage().contains("\"" + entry + "\""), refusal.getMessage());
+        }
+    }
+
     private static String pub(KeyPair k) {
         return Base64Url.encode(Crypto.encodePublicKey(k.getPublic()));
     }
@@ -550,7 +560,8 @@ class RequestObservationTest {
     void aHandlerThatThrowsOnStopLeavesNoScopeOpen() {
         IllegalStateException failure = new IllegalStateException("handler failed");
         InboundFilter filter = new InboundFilter(paymentVerifier(), true, false, "payment",
-                new ModeHolder(VerificationMode.ENFORCE), event -> { }, null, null, null, throwingOnStop(failure), List.of());
+                new ModeHolder(VerificationMode.ENFORCE), event -> { }, null, null, null,
+                throwingOnStop(failure), List.of());
 
         IllegalStateException thrown = assertThrows(IllegalStateException.class,
                 () -> run(filter, paymentRequest(validHeaders())));
@@ -569,7 +580,8 @@ class RequestObservationTest {
             throw failure;
         };
         InboundFilter filter = new InboundFilter(paymentVerifier(), true, false, "payment",
-                new ModeHolder(VerificationMode.ENFORCE), event -> { }, listener, null, null, throwingOnStop(stopping), List.of());
+                new ModeHolder(VerificationMode.ENFORCE), event -> { }, listener, null, null,
+                throwingOnStop(stopping), List.of());
 
         IllegalStateException thrown = assertThrows(IllegalStateException.class,
                 () -> run(filter, paymentRequest(validHeaders())));

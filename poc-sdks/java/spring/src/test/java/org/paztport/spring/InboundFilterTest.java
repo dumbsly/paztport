@@ -498,6 +498,16 @@ class InboundFilterTest {
     }
 
     @Test
+    void aMalformedUnverifiedPathIsRefusedByTheFilterItself() {
+        for (String entry : new String[] {"", "/", "admin", "/admin/", "/a//b", "/admin;x", "/..", "/ad\\min"}) {
+            IllegalStateException refusal = assertThrows(IllegalStateException.class,
+                    () -> filter(VerificationMode.ENFORCE, null, List.of(entry)), entry);
+            assertTrue(refusal.getMessage().contains("paztport.unverified-paths"), refusal.getMessage());
+            assertTrue(refusal.getMessage().contains("\"" + entry + "\""), refusal.getMessage());
+        }
+    }
+
+    @Test
     void theHandlerRunsInsideAScopeThatClosesAfterIt() throws Exception {
         Seen seen = new Seen();
 

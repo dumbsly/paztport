@@ -460,17 +460,12 @@ public class PaztportProperties implements InitializingBean {
      * Overlap files are pinned by the verifier, which exists only where all three of its own paths are set; asked for
      * without it they would be ignored without a word, on a partner's entry as on any other service, so the context
      * refuses to start instead. An operation table is likewise refused without the proofs and the pinned trust it is
-     * checked against.
+     * checked against. An unverified path that is not one first path segment is refused too, as the filters refuse it
+     * themselves.
      */
     @Override
     public void afterPropertiesSet() {
-        for (String entry : unverifiedPaths) {
-            if (entry == null || !entry.matches("/[A-Za-z0-9._~-]+") || entry.equals("/.") || entry.equals("/..")) {
-                throw new IllegalStateException("paztport.unverified-paths has the entry \"" + entry + "\", which is "
-                        + "not one first path segment such as /actuator: a slash and then letters, digits or "
-                        + ". _ ~ -, with no second slash, dot segment, semicolon, percent sign or backslash");
-            }
-        }
+        InboundFilter.requireWellFormed(unverifiedPaths);
         boolean overlapping = !overlap.getKeyringPaths().isEmpty() || !overlap.getRootPaths().isEmpty();
         if (overlapping && (keyringPath == null || rootPath == null || policyKeyPath == null)) {
             throw new IllegalStateException("paztport.overlap.keyring-paths or paztport.overlap.root-paths is set "

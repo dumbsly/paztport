@@ -111,7 +111,8 @@ public final class DockerQuarantiner implements Quarantiner {
                 .withName(suspectSvc + "-repl-" + (System.nanoTime() % 1_000_000))
                 .exec();
         docker.startContainerCmd(replacement.getId()).exec();
-        LOG.warn("started replacement {} on {} as {}", shortId(replacement.getId()), meshNetwork, LogSafe.of(suspectSvc));
+        LOG.warn("started replacement {} on {} as {}", shortId(replacement.getId()), meshNetwork,
+                LogSafe.of(suspectSvc));
     }
 
     /**

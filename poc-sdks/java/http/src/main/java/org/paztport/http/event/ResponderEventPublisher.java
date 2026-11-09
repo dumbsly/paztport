@@ -32,10 +32,11 @@ import org.slf4j.LoggerFactory;
  * thread, before a refusal is answered, so a responder that is slow or silent
  * would otherwise hold every refusal for as long as it liked. So the whole POST,
  * connecting, sending and reading the answer to its end, is bounded by the event
- * timeout (2 s unless set) on every JDK; past it the POST is cancelled, logged as any other failure, and the
- * refusal goes ahead. A refusal therefore waits at most that long for its event. That caps the
- * wait per refusal, no more: forged requests sent fast enough can still keep
- * request threads busy, each for up to that long, while the responder is slow.
+ * timeout it is given on every JDK; past it the POST is cancelled, logged as any other
+ * failure, and the refusal goes ahead. A refusal therefore waits at most that long
+ * for its event. That caps the wait per refusal, no more: forged requests sent fast
+ * enough can still keep request threads busy, each for up to that long, while the
+ * responder is slow.
  *
  * <p>The JDK client is given, not built here, so that it can carry this service's
  * TLS certificate. Being the bare JDK client, it never stamps: an event reports on a
