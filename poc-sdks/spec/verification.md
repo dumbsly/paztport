@@ -108,17 +108,17 @@ operation when it names one; at the caller, the chain is the one it sent. An HTT
 name the caller and the receiver instead: a service calls a given receiver, or a given operation of it, at most
 once per request tree, and a second such call is `REPLAY`. Calls to two operations of one receiver spend two keys.
 
-**Replicas and duplicates.** A stamp is good only for its receiver and its request, and with a peer (check 12) only
-on the last signer's own connections; these hold whatever cache a receiver keeps. The nonce cache adds one thing:
-it refuses the last signer's second sending of a request within the window, but only where the cache saw the first.
-A service run as several replicas, each with its own cache, or whose cache is lost when it restarts, can serve a
-second sending. That is duplicate delivery, as a proxy's retry is, and the receiving application handles it as it
-handles any retried request, by idempotency keyed on the delivery: the verified chain's `rid` and its last signer
-name it, the last stamp's `bind` says which request it was, and, with a peer, no one but that signer can send it. A
-service that must also hold a compromised caller to each key once per request tree, whatever its replica count,
-shares one expiring cache across its replicas. A session's cache is not shared: a session lives on one replica. A
-cache that cannot answer gives no verdict: a receiver in `enforce` refuses the request as unavailable (HTTP 503), and
-one in `audit` serves it and records the failure.
+**Replicas and duplicates.** A stamp is good only for its receiver and its request, and with a peer (check 12) only on
+the last signer's own connections; these hold whatever cache a receiver keeps. The nonce cache adds one thing: it
+refuses the last signer's second sending of a request within the window, but only where the cache saw the first. A
+service run as several replicas, each with its own cache, or whose cache is lost when it restarts, can serve a second
+sending. That is duplicate delivery, as a proxy's retry is, and the receiving application handles it as it handles any
+retried request, by idempotency keyed on the delivery: the verified chain's `rid`, its last signer and the receiver its
+last stamp names, with the operation when it names one, name it, the last stamp's `bind` says which request it was, and,
+with a peer, no one but that signer can send it. A service that must also hold a compromised caller to each key once per
+request tree, whatever its replica count, shares one expiring cache across its replicas. A session's cache is not
+shared: a session lives on one replica. A cache that cannot answer gives no verdict: a receiver in `enforce` refuses the
+request as unavailable (HTTP 503), and one in `audit` serves it and records the failure.
 
 ## Receivers, the peer and attribution
 
