@@ -40,8 +40,8 @@ class NonceCacheTest {
     void expiredKeyIsNotSeenBetweenSweeps() {
         NonceCache cache = new InMemoryNonceCache(1000);
         assertFalse(cache.seenBefore("a", 0));
-        // 100 is inside the sweep interval, so "a" is still stored at 1001, past its ttl.
-        assertFalse(cache.seenBefore("b", 100));
+        // The sweep at 600 keeps "a"; the next is not due until 1100, so "a" is still stored at 1001, past its ttl.
+        assertFalse(cache.seenBefore("x", 600));
         assertFalse(cache.seenBefore("a", 1001));
     }
 
@@ -56,5 +56,18 @@ class NonceCacheTest {
         assertFalse(cache.seenBefore("c", 1400));
         assertTrue(cache.seenBefore("b", 1400));
         assertFalse(cache.seenBefore("a", 1400));
+    }
+
+    @Test
+    void sweepsAgainAfterTheClockStepsBack() throws Exception {
+        InMemoryNonceCache cache = new InMemoryNonceCache(1000);
+        assertFalse(cache.seenBefore("far", 1_000_000));
+        for (long t = 0; t <= 20_000; t += 10) {
+            assertFalse(cache.seenBefore("k" + t, t));
+        }
+        java.lang.reflect.Field field = InMemoryNonceCache.class.getDeclaredField("seen");
+        field.setAccessible(true);
+        // Steady-clock bound is about ttl / step = 100 live keys, plus "far".
+        assertTrue(((java.util.Map<?, ?>) field.get(cache)).size() < 200);
     }
 }

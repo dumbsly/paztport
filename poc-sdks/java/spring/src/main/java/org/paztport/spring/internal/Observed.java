@@ -64,8 +64,11 @@ public final class Observed {
                 throw t;
             } finally {
                 try {
-                    tags.accept(observation, result);
-                    observation.stop();
+                    try {
+                        tags.accept(observation, result);
+                    } finally {
+                        observation.stop();
+                    }
                 } catch (Throwable stopping) {
                     if (failure == null) {
                         throw stopping;

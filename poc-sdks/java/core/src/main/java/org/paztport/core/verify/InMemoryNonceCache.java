@@ -54,7 +54,9 @@ public final class InMemoryNonceCache implements NonceCache {
         if (last == UNSWEPT) {
             // The first call has nothing to sweep: start the interval.
             sweptAt.compareAndSet(UNSWEPT, now);
-        } else if (now - last >= sweepIntervalMs && sweptAt.compareAndSet(last, now)) {
+        } else if ((now - last >= sweepIntervalMs || last - now >= sweepIntervalMs)
+                && sweptAt.compareAndSet(last, now)) {
+            // Also sweep when the clock reads an interval behind the last sweep, so a step back cannot stall sweeping.
             seen.values().removeIf(recorded -> now - recorded > ttlMs);
         }
     }
