@@ -331,12 +331,13 @@ class PaztportAutoConfigurationTest {
     @Test
     void theVerifierNeedsAllThreeTrustPaths(@TempDir Path dir) throws Exception {
         writeWorld(dir);
-        String[] all = trust(dir); // the three paths, then paztport.origins
+        String[] all = trust(dir);
         runner.withPropertyValues(all).run(context -> assertThat(context).hasSingleBean(Verifier.class));
-        for (int left = 0; left < 3; left++) {
-            List<String> some = new ArrayList<>(List.of(all));
-            some.remove(left);
-            runner.withPropertyValues(some.toArray(String[]::new))
+        for (String path : List.of("paztport.keyring-path=", "paztport.root-path=", "paztport.policy-key-path=")) {
+            String[] some = java.util.Arrays.stream(all).filter(property -> !property.startsWith(path))
+                    .toArray(String[]::new);
+            assertThat(some).as(path).hasSize(all.length - 1);
+            runner.withPropertyValues(some)
                     .run(context -> assertThat(context).hasNotFailed().doesNotHaveBean(Verifier.class));
         }
     }
@@ -368,6 +369,46 @@ class PaztportAutoConfigurationTest {
         runner.withPropertyValues(VERIFIER_PROPS).withPropertyValues(trust(dir))
                 .withPropertyValues("paztport.admin-token=s3cret")
                 .run(context -> assertThat(context).hasSingleBean(AdminModeController.class));
+    }
+
+    @Test
+    void aServiceThatOnlyChecksResponsesStillNeedsOrigins(@TempDir Path dir) throws Exception {
+        writeWorld(dir);
+        String[] withoutOrigins = java.util.Arrays.stream(trust(dir))
+                .filter(property -> !property.startsWith("paztport.origins=")).toArray(String[]::new);
+        runner.withPropertyValues("paztport.service-name=gateway", "paztport.origin=true",
+                        "paztport.key-path=" + dir.resolve("gateway.key"))
+                .withPropertyValues(withoutOrigins)
+                .run(context -> assertThat(context).hasFailed().getFailure()
+                        .hasStackTraceContaining("paztport.origins"));
+    }
+
+    @Test
+    void aBlankAdminTokenRegistersNoAdminModeController(@TempDir Path dir) throws Exception {
+        writeWorld(dir);
+        for (String blank : new String[] {"", "  "}) {
+            runner.withPropertyValues(VERIFIER_PROPS).withPropertyValues(trust(dir))
+                    .withPropertyValues("paztport.admin-token=" + blank)
+                    .run(context -> assertThat(context).doesNotHaveBean(AdminModeController.class));
+        }
+    }
+
+    @Test
+    void malformedUnverifiedPathsFailStartupNamingTheEntry() {
+        // Boot binds "/actuator," to [/actuator, ""], and an empty entry would leave every path unverified.
+        for (String value : new String[] {"/actuator,", ",", "/admin,,/debug", "/", "admin", "/admin/", "/admin/x",
+                "/a//b", "//", "/admin;x", "/%61dmin", "/ad\\min", "/..", "/admin/../pay"}) {
+            runner.withPropertyValues("paztport.unverified-paths=" + value)
+                    .run(context -> assertThat(context).as(value).hasFailed().getFailure()
+                            .hasStackTraceContaining("paztport.unverified-paths"));
+        }
+    }
+
+    @Test
+    void wellFormedUnverifiedPathsStart() {
+        runner.withPropertyValues("paztport.unverified-paths=/admin,/debug,/actuator")
+                .run(context -> assertThat(context).hasNotFailed());
+        runner.run(context -> assertThat(context).hasNotFailed());
     }
 
     @Test

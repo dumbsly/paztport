@@ -8,8 +8,6 @@ import java.security.MessageDigest;
 import java.util.Map;
 import org.paztport.http.ModeHolder;
 import org.paztport.http.VerificationMode;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -29,18 +27,19 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 public class AdminModeController {
 
-    private static final Logger log = LoggerFactory.getLogger(AdminModeController.class);
-
     private final ModeHolder modeHolder;
     private final byte[] token;
 
+    /**
+     * @param adminToken the token the {@code X-Admin-Token} header must match; not blank, since the switch exists
+     *     only where a token is configured
+     */
     public AdminModeController(ModeHolder modeHolder, String adminToken) {
-        this.modeHolder = modeHolder;
-        boolean disabled = adminToken == null || adminToken.isBlank();
-        this.token = disabled ? null : adminToken.getBytes(StandardCharsets.UTF_8);
-        if (disabled) {
-            log.warn("paztport.admin-token is not set; /admin/mode is disabled");
+        if (adminToken == null || adminToken.isBlank()) {
+            throw new IllegalArgumentException("the admin mode switch needs a token (paztport.admin-token)");
         }
+        this.modeHolder = modeHolder;
+        this.token = adminToken.getBytes(StandardCharsets.UTF_8);
     }
 
     @GetMapping("/admin/mode")
@@ -64,7 +63,7 @@ public class AdminModeController {
     }
 
     private boolean authorised(String presented) {
-        if (token == null || presented == null) {
+        if (presented == null) {
             return false;
         }
         return MessageDigest.isEqual(token, presented.getBytes(StandardCharsets.UTF_8));

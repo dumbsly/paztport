@@ -275,8 +275,11 @@ hands a session request's body to `HttpSessions.serve`.
   (`peer=<svc> (mTLS)`, or `peer=none`), not its address and not a suspect without
   a peer. A partner sends no events, so for its refusals that trace line is all
   that is kept: the peer's service, and no instance.
-- **Unverified paths.** `paztport.unverified-paths` lists path prefixes, each a first
-  path segment starting with `/` (for example `/admin,/debug,/actuator`). It is
+- **Unverified paths.** `paztport.unverified-paths` lists path prefixes, each one first
+  path segment: a `/` and then letters, digits or `.` `_` `~` `-`, such as
+  `/admin,/debug,/actuator`. An entry that is blank, is `/` alone, or has a second
+  `/`, a dot segment, a `;`, a `%` or a `\` stops the service starting, so a
+  trailing comma cannot leave an empty entry and so every path unverified. The list is
   empty by default, so the inbound filter and the partner filter verify every
   path, actuator included. A request whose raw request URI is a listed prefix, or
   starts with one followed by `/`, and has no dot segment and no encoded or
@@ -298,7 +301,7 @@ hands a session request's body to `HttpSessions.serve`.
   these paths, and protect the endpoints themselves. For actuator, Boot's separate
   management port (`management.server.port`) keeps it off the application port, so
   nothing on the application port needs listing for it; `/admin/mode` is registered
-  only where `paztport.admin-token` is set, needs `X-Admin-Token` to match it, and
+  only where `paztport.admin-token` has text, needs `X-Admin-Token` to match it, and
   is listed here only if the service is to answer it without a chain.
 - **Response attestation.** A service attests a response only to a request whose
   chain passed the full live order there: its own verifier, itself as receiver, the

@@ -37,7 +37,7 @@ paztport:
   policy-key-path: ${PAZTPORT_POLICY_KEY_PATH:/config/keys/policy.pub}
   # Who may start a chain, and the paths the filter leaves unverified.
   origins: ${PAZTPORT_ORIGINS:gateway}
-  unverified-paths: ${PAZTPORT_UNVERIFIED_PATHS:/admin,/debug,/actuator}
+  unverified-paths: ${PAZTPORT_UNVERIFIED_PATHS:/admin}
   tls-bundle: mesh
 
 downstream:

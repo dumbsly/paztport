@@ -167,9 +167,12 @@ public class PaztportProperties implements InitializingBean {
     private List<String> origins = List.of();
 
     /**
-     * Path prefixes that are neither verified nor attested, each starting with {@code /} and matched as a whole first
-     * segment. Empty by default, so every path is verified, actuator included; a service whose probes or scrapes
-     * reach the application port lists their paths here, or serves them on Boot's management port.
+     * Path prefixes that are neither verified nor attested, each one first path segment: {@code /} and then letters,
+     * digits, {@code . _ ~ -}, and not {@code .} or {@code ..}. An entry that is blank, or has a second {@code /},
+     * a {@code ;}, a {@code %} or a {@code \}, fails start-up, since a trailing comma would otherwise leave an empty
+     * entry and so every path unverified. Empty by default, so every path is verified, actuator included; a service
+     * whose probes or scrapes reach the application port lists their paths here, or serves them on Boot's
+     * management port.
      */
     private List<String> unverifiedPaths = List.of();
 
@@ -461,6 +464,13 @@ public class PaztportProperties implements InitializingBean {
      */
     @Override
     public void afterPropertiesSet() {
+        for (String entry : unverifiedPaths) {
+            if (entry == null || !entry.matches("/[A-Za-z0-9._~-]+") || entry.equals("/.") || entry.equals("/..")) {
+                throw new IllegalStateException("paztport.unverified-paths has the entry \"" + entry + "\", which is "
+                        + "not one first path segment such as /actuator: a slash and then letters, digits or "
+                        + ". _ ~ -, with no second slash, dot segment, semicolon, percent sign or backslash");
+            }
+        }
         boolean overlapping = !overlap.getKeyringPaths().isEmpty() || !overlap.getRootPaths().isEmpty();
         if (overlapping && (keyringPath == null || rootPath == null || policyKeyPath == null)) {
             throw new IllegalStateException("paztport.overlap.keyring-paths or paztport.overlap.root-paths is set "

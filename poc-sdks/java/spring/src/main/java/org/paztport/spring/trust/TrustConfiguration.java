@@ -30,7 +30,11 @@ import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Condition;
+import org.springframework.context.annotation.ConditionContext;
+import org.springframework.context.annotation.Conditional;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.type.AnnotatedTypeMetadata;
 
 /**
  * Builds what this service signs and verifies with from its {@code paztport.*} files and settings: its stamper and
@@ -156,9 +160,19 @@ public class TrustConfiguration {
     }
 
     @Bean
-    @ConditionalOnProperty({"paztport.verify", "paztport.admin-token"})
+    @ConditionalOnProperty(name = "paztport.verify", havingValue = "true")
+    @Conditional(AdminTokenSet.class)
     AdminModeController paztportAdminModeController(ModeHolder modeHolder, PaztportProperties props) {
         return new AdminModeController(modeHolder, props.getAdminToken());
+    }
+
+    /** Holds where {@code paztport.admin-token} has text: a blank value, as an unset variable gives, is no token. */
+    static final class AdminTokenSet implements Condition {
+        @Override
+        public boolean matches(ConditionContext context, AnnotatedTypeMetadata metadata) {
+            String token = context.getEnvironment().getProperty("paztport.admin-token");
+            return token != null && !token.isBlank();
+        }
     }
 
     private static String instance(PaztportProperties props) {

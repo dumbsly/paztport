@@ -27,7 +27,7 @@ paztport:
   # required wherever the trust material is set, and names the PSP itself.
   origins: ${PAZTPORT_ORIGINS:psp}
   # The demo's opening check, under /debug, is not a call in a session.
-  unverified-paths: ${PAZTPORT_UNVERIFIED_PATHS:/debug,/actuator}
+  unverified-paths: ${PAZTPORT_UNVERIFIED_PATHS:/debug}
   # The demo's record of what each call carried, and its check of the shop's
   # openings against it (PAZTPORT_OPENINGS).
   openings: ${PAZTPORT_OPENINGS:false}

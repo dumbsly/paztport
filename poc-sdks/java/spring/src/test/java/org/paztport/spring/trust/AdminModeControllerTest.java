@@ -4,6 +4,7 @@
 package org.paztport.spring.trust;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -16,16 +17,11 @@ class AdminModeControllerTest {
     private static final String TOKEN = "s3cret-token";
 
     @Test
-    void noTokenConfiguredRefusesEvenWithAHeader() {
+    void aMissingOrBlankTokenIsRefusedAtConstruction() {
         ModeHolder holder = new ModeHolder(VerificationMode.ENFORCE);
         for (String configured : new String[] {null, "", "  "}) {
-            AdminModeController controller = new AdminModeController(holder, configured);
-            assertEquals(403, controller.get(configured).getStatusCode().value());
-            assertEquals(403, controller.get("anything").getStatusCode().value());
-            assertEquals(403, controller.set("off", configured).getStatusCode().value());
-            assertEquals(403, controller.set("off", "anything").getStatusCode().value());
+            assertThrows(IllegalArgumentException.class, () -> new AdminModeController(holder, configured));
         }
-        assertEquals(VerificationMode.ENFORCE, holder.get());
     }
 
     @Test

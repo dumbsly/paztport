@@ -144,16 +144,16 @@ public final class InboundFilter extends OncePerRequestFilter {
     }
 
     /**
-     * Whether {@code path}, the raw request URI, is left unverified: one of {@code prefixes} as a whole
-     * first segment, alone or followed by {@code /}, with no dot segment and no encoded or backslash separator
-     * anywhere in it. Matched by segment, not by text, so that a data-path handler whose name only begins the same
-     * way, such as {@code /administration} beside {@code /admin}, is still verified. A dot segment ({@link #dotSegment}) is
-     * never skipped,
-     * since whatever resolves it, the container or a handler, could take {@code /admin/../pay} to a data-path handler
-     * that would then run unverified; nor is {@code %2f}, {@code %5c} (in either case) or a literal {@code \}, which
-     * something downstream might read as a separator and so as a dot segment's. Anything else is verified, an encoded
-     * or doubled first segment ({@code /%61dmin}, {@code //admin}) and one with a path parameter ({@code /admin;x})
-     * included, which fails closed.
+     * Whether {@code path}, the raw request URI, is left unverified: one of {@code prefixes} as a whole first
+     * segment, alone or followed by {@code /}, with no dot segment and no encoded or backslash separator anywhere in
+     * it. Matched by segment, not by text, so that a data-path handler whose name only begins the same way, such as
+     * {@code /administration} beside {@code /admin}, is still verified. A dot segment ({@link #dotSegment}) is never
+     * skipped, since whatever resolves it, the container or a handler, could take {@code /admin/../pay} to a
+     * data-path handler that would then run unverified; nor is {@code %2f}, {@code %5c} (in either case) or a literal
+     * {@code \}, which something downstream might read as a separator and so as a dot segment's. Anything else is
+     * verified, an encoded or doubled first segment ({@code /%61dmin}, {@code //admin}) and one with a path parameter
+     * ({@code /admin;x}) included, which fails closed. The prefixes are well formed
+     * ({@code PaztportProperties} refuses a malformed entry), so none is empty.
      */
     static boolean unverified(String path, List<String> prefixes) {
         String lower = path.toLowerCase(Locale.ROOT);

@@ -24,7 +24,7 @@ paztport:
   # PAZTPORT_PROOFS_PATH, ...) so the boot test can run without mounted files.
   # Who may start a chain, and the paths the filter leaves unverified.
   origins: ${PAZTPORT_ORIGINS:gateway}
-  unverified-paths: ${PAZTPORT_UNVERIFIED_PATHS:/admin,/debug,/actuator}
+  unverified-paths: ${PAZTPORT_UNVERIFIED_PATHS:}
   tls-bundle: mesh
 
 downstream:

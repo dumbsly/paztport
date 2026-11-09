@@ -72,7 +72,7 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * The servlet half of the inbound path: the body cached and passed on, the raw target the receiver is handed, the
  * receiver's refusals written as JSON before any handler, the scope the handler runs in and what it holds, the wrapper
- * that holds an attested answer whole, and the control plane left unfiltered. What the receiver decides is
+ * that holds an attested answer whole, and the listed paths left unfiltered. What the receiver decides is
  * {@code HttpReceiverTest}'s, in {@code paztport-http}; the cases here that overlap it check that the servlet carries
  * the decision through.
  */
@@ -317,18 +317,18 @@ class InboundFilterTest {
         }
     }
 
-    // Matched by segment, not by text: a data-path name that only begins like a control-plane one is verified.
+    // Matched by segment, not by text: a data-path name that only begins like a listed one is verified.
     @Test
-    void namesThatOnlyBeginLikeTheControlPlaneAreVerified() {
+    void namesThatOnlyBeginLikeAnUnverifiedPathAreVerified() {
         for (String path : List.of("/administration", "/admins/1", "/debugger", "/debug-report", "/actuators",
                 "/actuatorhealth", "/admin;x/mode", "/x/admin", "/", "")) {
             assertFalse(InboundFilter.unverified(path, CONFIGURED), path);
         }
     }
 
-    // Whatever resolves a dot segment could take it off the control plane, so a path holding one is verified.
+    // Whatever resolves a dot segment could take it off a listed path, so a path holding one is verified.
     @Test
-    void controlPlanePathsWithADotSegmentAreVerified() {
+    void unverifiedPathsWithADotSegmentAreVerified() {
         for (String path : List.of("/admin/../pay", "/admin/%2e%2e/pay", "/admin/%2E%2e/pay", "/admin/.%2E/pay",
                 "/admin/..;/pay", "/admin/..;x=1/pay", "/actuator/../pay", "/debug/./../pay", "/admin/.", "/admin/..",
                 "/admin/%2e", "/admin/.;x/mode")) {
@@ -338,7 +338,7 @@ class InboundFilterTest {
 
     // Something downstream might read an encoded slash or a backslash as a separator, so a path with one is verified.
     @Test
-    void controlPlanePathsWithAnEncodedOrBackslashSeparatorAreVerified() {
+    void unverifiedPathsWithAnEncodedOrBackslashSeparatorAreVerified() {
         for (String path : List.of("/admin/..%2fpay", "/admin/..%2Fpay", "/admin%2f..%2fpay", "/admin/x%2fy",
                 "/admin/..%5cpay", "/admin/..%5Cpay", "/admin/..\\pay", "/admin\\mode", "/actuator/health%2F",
                 "/debug/%5c")) {
@@ -346,9 +346,9 @@ class InboundFilterTest {
         }
     }
 
-    // Only the plain spelling is the control plane: an encoded, doubled or extended first segment is verified.
+    // Only the plain spelling is a listed path: an encoded, doubled or extended first segment is verified.
     @Test
-    void otherSpellingsOfTheControlPlaneAreVerified() {
+    void otherSpellingsOfAnUnverifiedPathAreVerified() {
         for (String path : List.of("/%61dmin", "/%61dmin/mode", "//admin", "//admin/mode", "/admin.", "/admin;x",
                 "/ADMIN/mode")) {
             assertFalse(InboundFilter.unverified(path, CONFIGURED), path);
@@ -359,7 +359,7 @@ class InboundFilterTest {
     }
 
     @Test
-    void aDataPathThatBeginsLikeTheControlPlaneIsRefusedWithoutAChain() throws Exception {
+    void aDataPathThatBeginsLikeAnUnverifiedPathIsRefusedWithoutAChain() throws Exception {
         for (String path : List.of("/administration", "/admin/../pay")) {
             MockHttpServletRequest request = new MockHttpServletRequest("POST", path);
             request.setContent(new byte[0]);

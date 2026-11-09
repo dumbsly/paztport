@@ -695,9 +695,10 @@ when the whole mesh runs:
   the "policy drift" problem real deployments face.
 - **The control plane is outside the data-plane check, by configuration.** The
   starter verifies every path unless `paztport.unverified-paths` lists it, and
-  matches a listed prefix as a whole first path segment. The demo's services list
-  `/admin`, `/debug` and `/actuator` (`PAZTPORT_UNVERIFIED_PATHS`; the PSP lists
-  `/debug` and `/actuator`). A filter that verified those paths would refuse the
+  matches a listed prefix as a whole first path segment. Each demo service lists
+  what it serves outside the data path (`PAZTPORT_UNVERIFIED_PATHS`): `payment`
+  `/admin`, `/debug` and `/actuator`, `orders` `/actuator`, `tickets`, `assistant`
+  and `mailer` `/admin`, the PSP `/debug`, and `gateway` and `search` nothing. A filter that verified those paths would refuse the
   admin and debug endpoints for lacking a chain: attestation applies to the
   attested data path, not to the control plane. `/admin/mode` checks its own
   token instead. `orders` and `payment` carry Spring Boot Actuator, so
@@ -965,7 +966,7 @@ the gateway port is exposed to the host.
 | `PAZTPORT_MODE` | `enforce` | `payment` (`off`, `audit`, `enforce`) |
 | `PAZTPORT_MAX_AGE_MS` | `5000` | `payment`: both freshness windows, the last stamp's and the origin's. The callers' response checks use the same property, `paztport.max-age-ms`, with the same default |
 | `PAZTPORT_ORIGINS` | `gateway`; `psp` for the PSP, which calls nobody | Every service that holds trust material: `paztport.origins` is required there, and the starter does not start without it. The callers' response checks use the same property |
-| `PAZTPORT_UNVERIFIED_PATHS` | `/admin,/debug,/actuator`; `/debug,/actuator` for the PSP | Every service: the path prefixes (`paztport.unverified-paths`) the filter leaves unverified, which the starter defaults to none. Here they cover `payment`'s `/admin/mode` and `/debug/*` endpoints and `/actuator` |
+| `PAZTPORT_UNVERIFIED_PATHS` | what the service serves outside the data path: `/admin,/debug,/actuator` for `payment`, `/actuator` for `orders`, `/admin` for `tickets`, `assistant` and `mailer`, `/debug` for the PSP, none for `gateway` and `search` | Every service: the path prefixes (`paztport.unverified-paths`) the filter leaves unverified, which the starter defaults to none. Each is one first path segment; a malformed entry, a trailing comma included, stops the service starting |
 | `PAZTPORT_PROOF_DEPTH` | `8`; Compose does not pass it through, so set it with `docker compose run -e` | `policy-tool`, `policy-tool-psp` |
 | `PAZTPORT_POLICY_DAYS` | `7`; Compose does not pass it through, so set it with `docker compose run -e` | `policy-tool`, `policy-tool-psp`: the lifetime, in days from the run, of the root and the keyring they sign; `keygen`, `keygen-psp`: that of the keyring they first write |
 | `PAZTPORT_RENEW` | unset, so a rebuild; Compose does not pass it through, so set it with `docker compose run -e` | `policy-tool`, `policy-tool-psp`: `true` renews the root and the keyring, keeping the tree and the bundles |
@@ -974,7 +975,7 @@ the gateway port is exposed to the host.
 | `ATTACK_ENABLED` | unset, so off; Compose sets `true` | `orders`: its `/attack/*` endpoints, for rows 15a and 15b |
 | `PAZTPORT_OPERATIONS_TABLEPATH` | unset; Compose sets `/config/policy/ops-<svc>.json` | `orders`, `payment`: the service's own [operation table](#operations), whose operation each request it gets must name, if it names one |
 | `PAZTPORT_OPERATIONS_RECEIVERTABLES` | unset; Compose sets the tables of the receivers each calls | `gateway` (orders'), `assistant` (orders', payment's), `orders` (payment's), `search` (payment's, used only once the policy is widened) |
-| `PAZTPORT_ADMIN_TOKEN` | empty, so `/admin/mode` refuses every request | `payment`, `tickets`, `assistant`, `mailer` (the demo generates one per run) |
+| `PAZTPORT_ADMIN_TOKEN` | empty, so `/admin/mode` is not registered | `payment`, `tickets`, `assistant`, `mailer` (the demo generates one per run) |
 | `PAZTPORT_CAPTURE` | `false`; `true` for `payment` in Compose | `payment` (the replay harness) |
 | `PAZTPORT_OPENINGS` | `false`; `true` for `payment` and `psp` in Compose | `payment` (keeps the originals of what it sends the PSP, `/debug/boundary-opening`) and `psp` (records what each call carried, `/debug/check-opening`), for row 13c |
 | `RESPONDER_URL` | empty, so events are only logged | `payment` (the demo sets `https://responder:8080` for scenario 9) |
