@@ -725,7 +725,8 @@ class VectorsHttpV3Export {
         HttpWire.ResponseCheck check = null;
         for (int i = 0; i < c.get("uses").asInt(); i++) {
             check = HttpWire.verifyResponse(verifier, sent, proof, header.isNull() ? null : header.asText(),
-                    c.get("status").asInt(), HexFormat.of().parseHex(c.get("body").asText()), c.get("caller").asText());
+                    c.get("status").asInt(), HexFormat.of().parseHex(c.get("body").asText()), c.get("caller").asText(),
+                    null);
         }
         JsonNode want = c.get("expected");
         assertEquals(ReasonCode.valueOf(want.get("reason").asText()), check.result().reason(), name);

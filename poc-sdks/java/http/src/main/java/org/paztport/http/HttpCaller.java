@@ -42,7 +42,8 @@ import org.slf4j.LoggerFactory;
  *
  * <p>What a response says becomes part of the request that made the call. A response whose attestation verifies, by
  * the live order on the chain that was sent (nonce key {@code <rid>|<last rcv>|resp}, {@code <last rcv>} the
- * receiver the sent chain's last stamp names, with the operation when it names one), contributes its labels, each as
+ * receiver the sent chain's last stamp names, with the operation when it names one, or
+ * {@code <rid>|<last rcv>|<key value>|resp} where that operation declares a key), contributes its labels, each as
  * an entry with {@code src} {@code http:<target>} and {@code h} the result hash. Any other, unattested, failing, a
  * refusal, or one received where no verifier is configured, contributes exactly one {@code local-untrusted} entry
  * with the same {@code src} and {@code h}, so content nobody vouched for still counts against later calls; it is
@@ -53,7 +54,12 @@ import org.slf4j.LoggerFactory;
  * the call invokes, {@code <receiver>#<operation>}, found by matching the call's method and raw path (without its
  * query, and not percent-decoded) to the table; a call no operation matches is refused before anything is signed. The
  * route proof attached is then the one for the chain ending at that operation. Everything that names the receiver as
- * a service keeps the bare name: {@link Outbound#receiver}, the response's target and its {@code src}.
+ * a service keeps the bare name: {@link Outbound#receiver}, the response's target and its {@code src}. Where that
+ * operation declares a key, the call's key value is read from its raw target as the match reads it
+ * ({@link OperationTable#keyValue}) and kept as {@link Outbound#key}, for the response's nonce key: the call is made
+ * once per request tree for each item. A call to a keyed operation that gives no key value (a percent-encoded,
+ * over-long or absent value) is refused before anything is signed. A caller holding no table for the receiver names
+ * it alone and reads no key value, so it calls the receiver once per request tree.
  *
  * <p>The functions are {@link #stamp(String, URI, byte[], List, List)}, given the inbound chain and the influence
  * so far, and {@link #check}, which answers what a response contributes; they touch no thread-local, so another
@@ -171,8 +177,9 @@ public final class HttpCaller {
         /**
          * The operation tables of the receivers this service calls, where it names the operation a call invokes: a
          * call to a receiver with a table is stamped {@code <receiver>#<operation>}, the operation the table matches
-         * the call's method and path to. A receiver without a table is named by its service alone. This replaces any
-         * tables given before.
+         * the call's method and path to, and where that operation declares a key, the call's key value is read from
+         * its target ({@link Outbound#key}). A receiver without a table is named by its service alone. This replaces
+         * any tables given before.
          *
          * @throws NullPointerException when {@code tables} is null
          * @throws IllegalArgumentException when two tables are for one service
@@ -232,17 +239,19 @@ public final class HttpCaller {
         private final Map<String, String> headers;
         private final Stamper.Stamped sent;
         private final String receiver;
+        private final String key;
         /**
          * The scope {@link #stampFromContext} stamped this call in, or null where it was stamped outside one or by
          * the function: {@link #recordToContext} records its response only to that same scope, while it is open.
          */
         final RequestContext.Scope scope;
 
-        private Outbound(Map<String, String> headers, Stamper.Stamped sent, String receiver,
+        private Outbound(Map<String, String> headers, Stamper.Stamped sent, String receiver, String key,
                 RequestContext.Scope scope) {
             this.headers = headers;
             this.sent = sent;
             this.receiver = receiver;
+            this.key = key;
             this.scope = scope;
         }
 
@@ -262,6 +271,14 @@ public final class HttpCaller {
         /** The receiver's service name, without any operation: the response's target. */
         public String receiver() {
             return receiver;
+        }
+
+        /**
+         * The call's key value, where the stamp names an operation that declares a key, read from the target sent;
+         * otherwise null. The response's nonce key carries it.
+         */
+        public String key() {
+            return key;
         }
     }
 
@@ -290,7 +307,8 @@ public final class HttpCaller {
      * @param influence what has shaped the call so far; empty for none
      * @throws IllegalArgumentException when the method is null or empty, the URI's host has no receiver name (see
      *     {@link #receiver}), the receiver or this service is not a route node, or the receiver has an operation table
-     *     and no operation of it matches the method and path; nothing is signed
+     *     and no operation of it matches the method and path, or the operation matched declares a key and the call
+     *     gives no key value; nothing is signed
      */
     public Outbound stamp(String method, URI uri, byte[] body, List<Stamp> inbound,
             List<InfluenceEntry> influence) {
@@ -303,8 +321,8 @@ public final class HttpCaller {
      * response will not be recorded.
      *
      * @throws IllegalArgumentException when the method is null or empty, the URI's host has no receiver name, the
-     *     receiver or this service is not a route node, or no operation of the receiver's table matches; nothing is
-     *     signed
+     *     receiver or this service is not a route node, or no operation of the receiver's table matches, or the
+     *     keyed operation it matches has no key value in the call; nothing is signed
      */
     public Outbound stampFromContext(String method, URI uri, byte[] body) {
         // Outside a scope the context belongs to no unit of work, so it is neither read nor written.
@@ -328,6 +346,7 @@ public final class HttpCaller {
         String target = query == null || query.isEmpty() ? rawPath : rawPath + "?" + query;
         // The operation is matched on the raw path and raw query, as sent: nothing is percent-decoded.
         String named = receiver;
+        String key = null;
         OperationTable table = tables.get(receiver);
         if (table != null) {
             String operation = table.match(method, rawPath, query);
@@ -336,6 +355,13 @@ public final class HttpCaller {
                         + LogSafe.of(method) + " call; nothing is sent");
             }
             named = receiver + "#" + operation;
+            if (table.operation(operation).key() != null) {
+                key = table.keyValue(operation, rawPath, query);
+                if (key == null) {
+                    // Neither the target nor the value is named: they come from the call, which may carry data.
+                    throw new IllegalArgumentException("the call to " + named + " has no key value; nothing is sent");
+                }
+            }
         }
         Stamper.Stamped stamped = stamper.next(inbound, named, RequestBinding.compute(method, target, body),
                 influence, bundle);
@@ -349,7 +375,7 @@ public final class HttpCaller {
         if (influenceHeader != null) {
             headers.put(PaztportHeaders.INFLUENCE, influenceHeader);
         }
-        return new Outbound(Collections.unmodifiableMap(headers), stamped, receiver, scope);
+        return new Outbound(Collections.unmodifiableMap(headers), stamped, receiver, key, scope);
     }
 
     /**
@@ -368,7 +394,7 @@ public final class HttpCaller {
         String hash;
         if (verifier != null) {
             check = HttpWire.verifyResponse(verifier, sent.sent.chain(), sent.sent.proof(), xPathResponse, status,
-                    body, caller);
+                    body, caller, sent.key);
             hash = check.resultHash();
         } else {
             hash = HttpWire.resultHash(status, body);

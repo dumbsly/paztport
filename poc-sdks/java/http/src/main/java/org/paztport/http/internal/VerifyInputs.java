@@ -22,19 +22,22 @@ public final class VerifyInputs {
     }
 
     /**
-     * {@link HttpWire#request(String, String, String, String, String, byte[], String, Peer)} for a receiver that has
-     * already decoded the chain header to {@code chain} ({@link HttpWire#decodeChain}) and read that to {@code parsed}
-     * ({@code Chains.parse(chain)}), so that it reads one request's chain once rather than again here for the
-     * nonce key. The verifier still reads {@code chain} itself, as it must: it trusts no reading but its own.
+     * {@link HttpWire#request(String, String, String, String, String, byte[], String, String, Peer)} for a receiver
+     * that has already decoded the chain header to {@code chain} ({@link HttpWire#decodeChain}) and read that to
+     * {@code parsed} ({@code Chains.parse(chain)}), so that it reads one request's chain once rather than again here
+     * for the nonce key. The verifier still reads {@code chain} itself, as it must: it trusts no reading but its own.
      *
      * <p>Not for callers outside the SDK: the nonce key is taken from {@code parsed} without checking that it is the
      * reading of {@code chain}.
+     *
+     * @param keyValue the key value the receiver read from {@code target} for its keyed operation, which the nonce
+     *     key then carries ({@code <rid>|<last svc>|<last rcv>|<key value>|req}), or null for none
      */
     public static VerifyInput request(String chain, ParsedChain parsed, String proofHeader, String influenceHeader,
-            String method, String target, byte[] body, String receiver, Peer peer) {
+            String method, String target, byte[] body, String receiver, String keyValue, Peer peer) {
         return new VerifyInput(chain, expectedBind(method, target, body),
                 HttpWire.decodeInfluence(influenceHeader), HttpWire.decodeProof(proofHeader), receiver, true,
-                requestNonceKey(parsed), peer);
+                requestNonceKey(parsed, keyValue), peer);
     }
 
     /** The request's binding, or null when it has none: a method or target with a lone surrogate binds nothing. */
@@ -46,12 +49,13 @@ public final class VerifyInputs {
         }
     }
 
-    private static String requestNonceKey(ParsedChain parsed) {
+    private static String requestNonceKey(ParsedChain parsed, String keyValue) {
         if (!parsed.ok()) {
             return "";
         }
         List<Stamp> stamps = parsed.stamps();
         Stamp last = stamps.get(stamps.size() - 1);
-        return stamps.get(0).rid() + "|" + last.svc() + "|" + last.rcv() + "|req";
+        String key = stamps.get(0).rid() + "|" + last.svc() + "|" + last.rcv();
+        return (keyValue == null ? key : key + "|" + keyValue) + "|req";
     }
 }

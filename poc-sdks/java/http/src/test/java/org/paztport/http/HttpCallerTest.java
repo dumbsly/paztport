@@ -23,6 +23,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -44,6 +45,7 @@ import org.paztport.core.stamp.Chains;
 import org.paztport.core.stamp.Stamp;
 import org.paztport.core.stamp.Stamper;
 import org.paztport.core.verify.InMemoryNonceCache;
+import org.paztport.core.verify.NonceCache;
 import org.paztport.core.verify.PinnedKeyring;
 import org.paztport.core.verify.PinnedRoot;
 import org.paztport.core.verify.ReasonCode;
@@ -486,6 +488,97 @@ class HttpCallerTest {
         assertTrue(good.check().result().ok(), good.check().result().reason().name());
         assertEquals("http:orders", good.influence().get(0).src());
         assertEquals("http:orders", unattested.influence().get(0).src());
+    }
+
+    // --- Keyed operations ---
+
+    /** Orders' table: {@code reserve} keyed by its item segment. */
+    private static final OperationTable ORDERS_KEYED = new OperationTable("orders", List.of(
+            new OperationTable.Operation("reserve", "POST", "/items/{}/reserve", null,
+                    OperationTable.Key.segment(1))));
+
+    private final PolicyBuilder.Result keysPolicy = PolicyBuilder.build(
+            List.of(List.of("gateway", "orders#reserve"), List.of("gateway", "orders")), 4, NOT_AFTER,
+            Crypto.generateEd25519KeyPair().getPrivate());
+
+    /** A nonce cache that remembers, in order, every key it is asked about. */
+    private static final class Recording implements NonceCache {
+        final List<String> asked = new ArrayList<>();
+        private final InMemoryNonceCache cache = new InMemoryNonceCache();
+
+        @Override
+        public boolean seenBefore(String key, long now) {
+            asked.add(key);
+            return cache.seenBefore(key, now);
+        }
+
+        @Override
+        public long ttlMs() {
+            return cache.ttlMs();
+        }
+    }
+
+    /** Gateway's caller under the keys policy, checking responses with {@code nonces}. */
+    private HttpCaller.Builder gatewayKeysCaller(Stamper stamper, NonceCache nonces) {
+        long notAfter = keysPolicy.signedRoot().notAfter();
+        Verifier verifier = new Verifier(new VerifierConfig(
+                List.of(new PinnedKeyring(Keyring.of(Map.of("gateway", gateway.getPublic(), "orders",
+                        orders.getPublic())), notAfter)),
+                List.of(new PinnedRoot(keysPolicy.signedRoot().rootBytes(), keysPolicy.signedRoot().rootId(),
+                        notAfter)),
+                notAfter, Set.of("gateway"), "", nonces, () -> 2500L, 5000, 5000));
+        return HttpCaller.builder("gateway", stamper).bundle(keysPolicy.bundles().get("gateway")).verifier(verifier);
+    }
+
+    @Test
+    void keyedCallCarriesKey() {
+        Recording nonces = new Recording();
+        HttpCaller caller = gatewayKeysCaller(gatewayStamper(), nonces).operations(List.of(ORDERS_KEYED)).build();
+
+        HttpCaller.Outbound sent = caller.stamp("POST", URI.create("https://orders/items/A1/reserve"), NO_BODY, null,
+                List.of());
+        HttpCaller.Received received = caller.check(sent, 200, attestation(sent, "held", List.of()), utf8("held"));
+
+        assertEquals("A1", sent.key());
+        assertEquals("orders#reserve", chainOf(sent.headers()).get(0).rcv());
+        assertEquals(ReasonCode.OK, received.check().result().reason());
+        assertEquals(List.of("rid-1|orders#reserve|A1|resp"), nonces.asked);
+    }
+
+    @Test
+    void keyedCallWithoutValueIsRefused() {
+        AtomicInteger signed = new AtomicInteger();
+        Stamper counting = new Stamper("gateway", "gw-1", gateway.getPrivate(), true, () -> "rid-1",
+                () -> {
+                    signed.incrementAndGet();
+                    return 1000L;
+                });
+        HttpCaller caller = gatewayKeysCaller(counting, new InMemoryNonceCache()).operations(List.of(ORDERS_KEYED))
+                .build();
+
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class, () -> caller.stamp("POST",
+                URI.create("https://orders/items/%41/reserve"), NO_BODY, null, List.of()));
+
+        assertEquals(0, signed.get(), "nothing is signed");
+        assertTrue(e.getMessage().contains("orders#reserve"), e.getMessage());
+        assertTrue(!e.getMessage().contains("/items"), e.getMessage());
+        assertTrue(!e.getMessage().contains("%41"), e.getMessage());
+        assertTrue(e.getMessage().endsWith("; nothing is sent"), e.getMessage());
+    }
+
+    @Test
+    void bareCallerKeepsOncePerTree() {
+        Recording nonces = new Recording();
+        HttpCaller caller = gatewayKeysCaller(gatewayStamper(), nonces).build();
+
+        HttpCaller.Outbound sent = caller.stamp("POST", URI.create("https://orders/items/A1/reserve"), NO_BODY, null,
+                List.of());
+        HttpCaller.Received received = caller.check(sent, 200, attestation(sent, "held", List.of()), utf8("held"));
+
+        assertNull(sent.key());
+        assertEquals("orders", chainOf(sent.headers()).get(0).rcv());
+        assertEquals(ReasonCode.OK, received.check().result().reason());
+        assertEquals(List.of("rid-1|orders|resp"), nonces.asked);
     }
 
     // --- Responses ---

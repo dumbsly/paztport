@@ -22,6 +22,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -37,6 +38,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.paztport.core.policy.Keyring;
+import org.paztport.core.policy.OperationTable;
 import org.paztport.core.policy.PolicyBuilder;
 import org.paztport.core.stamp.Stamper;
 import org.paztport.core.verify.InMemoryNonceCache;
@@ -84,7 +86,8 @@ import org.springframework.web.util.ContentCachingResponseWrapper;
  * operation, nor is one that an interceptor of payment's own writes as it stops the request before the handler.
  * Whatever forwards the request, its answer is finished when the forward returns: sent whole, and attested where it
  * may be, where the forward writes into Paztport's buffer; whole and unattested behind another filter's wrapper that
- * does not buffer the body; and lost, unattested, behind one that does.
+ * does not buffer the body; and lost, unattested, behind one that does. A keyed operation's handler reached through a
+ * percent-encoded segment is refused before it runs, the raw target giving no key value.
  */
 class DispatchCheckTest {
 
@@ -213,7 +216,7 @@ class DispatchCheckTest {
             Service.Exchange exchange = orders.exchange("GET", "/orders/search?forward=yes", "orders#search", null);
             HttpWire.ResponseCheck check = HttpWire.verifyResponse(orders.gatewayVerifier(),
                     exchange.sent().chain(), exchange.sent().proof(), attestation(exchange.answer()), 200,
-                    "getOrder".getBytes(StandardCharsets.UTF_8), "gateway");
+                    "getOrder".getBytes(StandardCharsets.UTF_8), "gateway", null);
             assertThat(check.result().reason()).isEqualTo(ReasonCode.OK);
         }
     }
@@ -619,6 +622,35 @@ class DispatchCheckTest {
         }
     }
 
+    /** Payment's table where it holds items: {@code hold}, keyed by its item segment. */
+    private static final OperationTable HOLDS = new OperationTable("payment", List.of(
+            new OperationTable.Operation("hold", "POST", "/holds/{}", null, OperationTable.Key.segment(1))));
+
+    /**
+     * Spring matches a percent-encoded segment decoded, so {@code /holds/%41} reaches {@code hold}'s handler; the key
+     * value is read from the raw target, where {@code %41} is none, so a chain naming {@code payment#hold} is refused
+     * {@code BINDING_MISMATCH} and the handler never runs.
+     */
+    @Test
+    void encodedSegmentIsRefused(@TempDir Path dir) throws Exception {
+        Files.writeString(dir.resolve("ops-holds.json"), HOLDS.toFile());
+        PaymentHandlers.RAN.clear();
+        try (Service payment = capture(Service.start(dir, HoldsApp.class, "payment",
+                List.of(List.of("gateway", "payment#hold"), HOLDS.route()), Service.NO_TABLE,
+                "paztport.verify=true", "paztport.mode=enforce",
+                "paztport.operations.table-path=" + dir.resolve("ops-holds.json")))) {
+            HttpResponse<String> item = payment.send("POST", "/holds/A1", "payment#hold", null);
+            assertThat(item.statusCode()).isEqualTo(200);
+            assertThat(item.body()).isEqualTo("hold");
+
+            HttpResponse<String> encoded = payment.send("POST", "/holds/%41", "payment#hold", null);
+            assertThat(encoded.statusCode()).isEqualTo(403);
+            assertThat(encoded.body()).isEqualTo("{\"reason\":\"BINDING_MISMATCH\"}");
+            assertThat(attestation(encoded)).isNull();
+            assertThat(PaymentHandlers.RAN).as("the handler ran for A1 alone").containsExactly("hold");
+        }
+    }
+
     private static String attestation(HttpResponse<String> answer) {
         return answer.headers().firstValue(PaztportHeaders.RESPONSE).orElse(null);
     }
@@ -646,9 +678,16 @@ class DispatchCheckTest {
         static final String NO_TABLE = "no-table";
 
         static Service start(Path dir, Class<?> app, String name, String... more) throws IOException {
+            return start(dir, app, name, List.of(), more);
+        }
+
+        /** As {@link #start(Path, Class, String, String...)}, with {@code moreRoutes} in the policy too. */
+        static Service start(Path dir, Class<?> app, String name, List<List<String>> moreRoutes, String... more)
+                throws IOException {
             OperationWorld world = new OperationWorld(dir);
             List<List<String>> routes = new ArrayList<>(OperationWorld.routes());
             routes.add(List.of("gateway", name));
+            routes.addAll(moreRoutes);
             PolicyBuilder.Result built = world.write(routes);
             List<String> props = new ArrayList<>(List.of("server.port=0", "spring.main.banner-mode=off",
                     "paztport.origins=gateway"));
@@ -742,6 +781,13 @@ class DispatchCheckTest {
         FilterRegistrationBean<Rewrite> rewrite() {
             return new FilterRegistrationBean<>(new Rewrite());
         }
+    }
+
+    /** Payment holding items, with {@code hold}'s handler alone. */
+    @SpringBootConfiguration
+    @EnableAutoConfiguration
+    @Import(PaymentHandlers.Holds.class)
+    static class HoldsApp {
     }
 
     /** Payment, with its handlers and the same filter after Paztport's. */

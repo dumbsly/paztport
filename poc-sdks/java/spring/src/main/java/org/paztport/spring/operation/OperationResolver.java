@@ -118,6 +118,11 @@ public final class OperationResolver implements SmartInitializingSingleton {
         this.beans = Objects.requireNonNull(beans, "beans");
     }
 
+    /** This service's own table, which the receiver reads a keyed operation's key value by. */
+    public OperationTable table() {
+        return table;
+    }
+
     /**
      * Finds the handler mappings as the DispatcherServlet finds them, every one in the context and its ancestors,
      * in their order, learns which operation each handler is, and refuses a table its handlers do not serve one to

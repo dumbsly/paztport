@@ -10,6 +10,7 @@ import java.util.function.Consumer;
 import org.paztport.core.event.AttestationEvent;
 import org.paztport.core.influence.Influence;
 import org.paztport.core.influence.InfluenceEntry;
+import org.paztport.core.policy.OperationTable;
 import org.paztport.core.stamp.Chains;
 import org.paztport.core.stamp.ParsedChain;
 import org.paztport.core.stamp.Stamp;
@@ -62,6 +63,15 @@ import org.slf4j.LoggerFactory;
  * under the service alone, whatever is dispatched. The trace line names the receiver as it was verified, and
  * {@link Accepted#operation} the operation, if any, for an adapter that checks it again as the handler runs.
  *
+ * <p>Where the receiver holds its own table ({@link Builder#operations}) and the dispatched operation declares a key,
+ * the receiver reads the key value from the request target, by the operation's template and never from anything else
+ * the request says. A chain naming that operation is then verified with the key value in its nonce key,
+ * {@code <rid>|<last svc>|<last rcv>|<key value>|req}, so the operation is served once per request tree for each item,
+ * and {@link Accepted#delivery} carries the value. A request with no key value (a percent-encoded, over-long or absent
+ * value) is treated as dispatched to no operation, so a chain naming the operation is refused
+ * {@code BINDING_MISMATCH} before any nonce key is spent. A chain that names no operation reads no key value, and is
+ * verified with the bare key, {@code <rid>|<last svc>|<last rcv>|req}, whatever is dispatched.
+ *
  * <p>An origin starts every request tree afresh: it ignores the inbound chain and influence, so its handler starts
  * from none, and it never attests.
  *
@@ -111,6 +121,7 @@ public final class HttpReceiver {
     private final EventPublisher publisher;
     private final ReceivedRequestListener listener;
     private final Stamper stamper;
+    private final OperationTable table;
 
     private HttpReceiver(Builder b) {
         this.verifier = b.verifier;
@@ -120,6 +131,7 @@ public final class HttpReceiver {
         this.publisher = b.publisher;
         this.listener = b.listener;
         this.stamper = b.stamper;
+        this.table = b.table;
     }
 
     /**
@@ -144,6 +156,7 @@ public final class HttpReceiver {
         private EventPublisher publisher;
         private ReceivedRequestListener listener;
         private Stamper stamper;
+        private OperationTable table;
 
         private Builder(String receiver) {
             this.receiver = receiver;
@@ -191,10 +204,28 @@ public final class HttpReceiver {
             return this;
         }
 
-        /** @throws IllegalArgumentException when requests are verified with no verifier or no publisher */
+        /**
+         * This service's own operation table, covered by the signed root, where it names its operations; null for
+         * none. It is read only for the key value of the dispatched operation where that operation declares a key:
+         * the operation itself is the adapter's to say ({@link InboundRequest#operation}). Without it no key value is
+         * read, so a chain naming a keyed operation is verified with the operation's unkeyed nonce key.
+         */
+        public Builder operations(OperationTable own) {
+            this.table = own;
+            return this;
+        }
+
+        /**
+         * @throws IllegalArgumentException when requests are verified with no verifier or no publisher, or the
+         *     operation table is another service's
+         */
         public HttpReceiver build() {
             if (verifyRequests && (verifier == null || publisher == null)) {
                 throw new IllegalArgumentException("verifying requests needs a verifier and a publisher");
+            }
+            if (table != null && !table.service().equals(receiver)) {
+                throw new IllegalArgumentException("the operation table is for the service " + table.service()
+                        + ", not " + LogSafe.of(receiver));
             }
             return new HttpReceiver(this);
         }
@@ -233,7 +264,16 @@ public final class HttpReceiver {
         ParsedChain parsed = Chains.parse(chain);
         List<Stamp> received = stamps(parsed);
         List<Stamp> inbound = origin ? null : received;
-        String named = receiverFor(receiver, received, request.operation());
+        String operation = request.operation();
+        String keyValue = keyValue(operation, request.target());
+        if (keyValue == null && keyed(operation)) {
+            // A keyed operation with no key value is dispatched to as no operation, so a chain naming it fails
+            // check 4 before any nonce key is spent.
+            operation = null;
+        }
+        String named = receiverFor(receiver, received, operation);
+        // Only a chain that names the operation carries its key value; one that names none keeps the bare key.
+        String key = Objects.equals(named, receiver) ? null : keyValue;
         String rid = received != null ? received.get(0).rid() : "";
         carried.accept(inbound);
         if (listener != null) {
@@ -250,7 +290,7 @@ public final class HttpReceiver {
         NonceCacheUnavailableException cacheFailure = null;
         if (mode != VerificationMode.OFF) {
             VerifyInput input = VerifyInputs.request(chain, parsed, proofHeader, influenceHeader, request.method(),
-                    request.target(), request.body(), named, peer);
+                    request.target(), request.body(), named, key, peer);
             try {
                 checked = verifier.verify(input);
             } catch (NonceCacheUnavailableException e) {
@@ -289,7 +329,7 @@ public final class HttpReceiver {
             // published. Run at most once per request, since the live order spends the request's nonce.
             try {
                 checked = verifier.verify(VerifyInputs.request(chain, parsed, proofHeader, influenceHeader,
-                        request.method(), request.target(), request.body(), named, peer));
+                        request.method(), request.target(), request.body(), named, key, peer));
                 trace(traceLine(rid, checked, named, peer, influence));
                 verified = checked.ok();
             } catch (NonceCacheUnavailableException e) {
@@ -298,9 +338,32 @@ public final class HttpReceiver {
         }
         // The operation the request was verified with, where the chain named one and the live order ran, whether
         // or not it passed (it may have failed under audit or where it ran for attestation alone).
-        String operation = checked != null && !named.equals(receiver) ? request.operation() : null;
+        String verifiedOperation = checked != null && !named.equals(receiver) ? operation : null;
         return Accepted.served(inbound, verified, origin ? List.of() : influence,
-                attesting && checked != null && checked.ok() ? stamper : null, checked, cacheFailure, operation);
+                attesting && checked != null && checked.ok() ? stamper : null, checked, cacheFailure,
+                verifiedOperation, key);
+    }
+
+    /** Whether this receiver's own table has {@code operation}, and it declares a key. */
+    private boolean keyed(String operation) {
+        if (table == null || operation == null) {
+            return false;
+        }
+        OperationTable.Operation op = table.operation(operation);
+        return op != null && op.key() != null;
+    }
+
+    /**
+     * The key value of a request to {@code operation} at {@code target}, the raw path plus {@code ?} and the raw query
+     * as sent, read by this receiver's own table; null without a table or an operation, or where it gives none.
+     */
+    private String keyValue(String operation, String target) {
+        if (table == null || operation == null) {
+            return null;
+        }
+        int q = target.indexOf('?');
+        return q < 0 ? table.keyValue(operation, target, null)
+                : table.keyValue(operation, target.substring(0, q), target.substring(q + 1));
     }
 
     /**

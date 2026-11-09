@@ -30,9 +30,11 @@ public final class Accepted {
     private final VerifyResult result;
     private final NonceCacheUnavailableException cacheFailure;
     private final String operation;
+    private final String key;
 
     private Accepted(HttpAnswer refusal, List<Stamp> inbound, boolean verified, List<InfluenceEntry> influence,
-            Stamper attester, VerifyResult result, NonceCacheUnavailableException cacheFailure, String operation) {
+            Stamper attester, VerifyResult result, NonceCacheUnavailableException cacheFailure, String operation,
+            String key) {
         this.refusal = refusal;
         this.inbound = inbound;
         this.verified = verified;
@@ -41,16 +43,17 @@ public final class Accepted {
         this.result = result;
         this.cacheFailure = cacheFailure;
         this.operation = operation;
+        this.key = key;
     }
 
     /** @param result the result the request was refused for, or null when no verification ran */
     static Accepted refused(HttpAnswer refusal, VerifyResult result) {
-        return new Accepted(refusal, null, false, List.of(), null, result, null, null);
+        return new Accepted(refusal, null, false, List.of(), null, result, null, null, null);
     }
 
     /** The request refused as unavailable because the nonce cache could not answer: no result, and the failure. */
     static Accepted unavailable(NonceCacheUnavailableException cacheFailure) {
-        return new Accepted(HttpAnswer.unavailable(), null, false, List.of(), null, null, cacheFailure, null);
+        return new Accepted(HttpAnswer.unavailable(), null, false, List.of(), null, null, cacheFailure, null, null);
     }
 
     /**
@@ -60,11 +63,13 @@ public final class Accepted {
      *     answer
      * @param cacheFailure why the nonce cache could not answer, or null
      * @param operation the operation the request was verified as received by, or null ({@link #operation})
+     * @param key the key value the request's nonce key carried, where the chain named a keyed operation; or null
      */
     static Accepted served(List<Stamp> inbound, boolean verified, List<InfluenceEntry> influence,
-            Stamper attester, VerifyResult result, NonceCacheUnavailableException cacheFailure, String operation) {
+            Stamper attester, VerifyResult result, NonceCacheUnavailableException cacheFailure, String operation,
+            String key) {
         return new Accepted(null, inbound, verified, List.copyOf(influence), attester, result, cacheFailure,
-                operation);
+                operation, key);
     }
 
     /**
@@ -126,15 +131,16 @@ public final class Accepted {
     }
 
     /**
-     * The delivery this request names, when {@link #verifiedChain} is not null: the first stamp's {@code rid} and the
-     * last stamp's {@code svc}, {@code rcv} and {@code bind}. Otherwise null.
+     * The delivery this request names, when {@link #verifiedChain} is not null: the first stamp's {@code rid}, the
+     * last stamp's {@code svc} and {@code rcv}, the key value the request's nonce key carried where {@code rcv} names
+     * a keyed operation, and the last stamp's {@code bind}. Otherwise null.
      */
     public Delivery delivery() {
         if (!verified) {
             return null;
         }
         Stamp last = inbound.get(inbound.size() - 1);
-        return new Delivery(inbound.get(0).rid(), last.svc(), last.rcv(), last.bind());
+        return new Delivery(inbound.get(0).rid(), last.svc(), last.rcv(), key, last.bind());
     }
 
     /**

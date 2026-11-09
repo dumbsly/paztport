@@ -44,7 +44,9 @@ import org.paztport.http.internal.VerifyInputs;
  * the route's proof, so the response carries none. Nonce keys are {@code <rid>|<last svc>|<last rcv>|req} for a
  * request and {@code <rid>|<last rcv>|resp} for a response, {@code <last rcv>} being the receiver the request chain's
  * last stamp names, with the operation when it names one; a service calls a given receiver, or a given operation of
- * it, at most once per request tree.
+ * it, at most once per request tree. Where that operation declares a key, the call's key value joins both keys,
+ * {@code <rid>|<last svc>|<last rcv>|<key value>|req} and {@code <rid>|<last rcv>|<key value>|resp}, so the
+ * operation is called at most once per request tree for each item, and two items are two keys.
  */
 public final class HttpWire {
 
@@ -108,12 +110,15 @@ public final class HttpWire {
      * The verify input for a received request. {@code target} is the raw path plus {@code ?} and the raw query, as
      * {@link RequestBinding} binds it. The nonce key is read from the chain when it parses, else empty: such a
      * chain is rejected before the nonce is consulted.
+     *
+     * @param keyValue the key value read from {@code target} where {@code receiver} names a keyed operation, which
+     *     the nonce key then carries, or null for none
      */
     public static VerifyInput request(String chainHeader, String proofHeader, String influenceHeader, String method,
-            String target, byte[] body, String receiver, Peer peer) {
+            String target, byte[] body, String receiver, String keyValue, Peer peer) {
         String chain = decodeChain(chainHeader);
         return VerifyInputs.request(chain, Chains.parse(chain), proofHeader, influenceHeader, method, target,
-                body, receiver, peer);
+                body, receiver, keyValue, peer);
     }
 
     // --- Responses ---
@@ -148,9 +153,12 @@ public final class HttpWire {
      * no influence and no peer. Never throws: an unreadable header or labels are {@code CHAIN_MISSING}, and a
      * {@code rid} the binding cannot carry is {@code BINDING_MISMATCH}, as the spec asks of a verifier that cannot
      * compute a binding. Labels are returned only when the stamp commits to them.
+     *
+     * @param keyValue the key value of the target sent, where the sent chain's last stamp names a keyed operation,
+     *     which the nonce key then carries ({@code <rid>|<last rcv>|<key value>|resp}), or null for none
      */
     public static ResponseCheck verifyResponse(Verifier verifier, List<Stamp> sent, MerkleProof sentProof,
-            String responseHeader, int status, byte[] body, String caller) {
+            String responseHeader, int status, byte[] body, String caller, String keyValue) {
         String hash = resultHash(status, body);
         JsonValue.Obj attestation = sent.isEmpty() ? null : attestation(responseHeader);
         if (attestation == null) {
@@ -172,11 +180,12 @@ public final class HttpWire {
         List<String> chain = new ArrayList<>();
         sent.forEach(s -> chain.add(s.toJson()));
         chain.add(JsonWriter.text(attestation.get("stamp")));
-        // The nonce key names the receiver the sent chain's last stamp names, operation included, so calls to two
-        // operations of one receiver spend two keys.
+        // The nonce key names the receiver the sent chain's last stamp names, operation included, and the key value
+        // when it has one, so calls to two operations of one receiver, or for two items of one, spend two keys.
         String lastRcv = sent.get(sent.size() - 1).rcv();
+        String nonceKey = rid + "|" + lastRcv + (keyValue == null ? "" : "|" + keyValue) + "|resp";
         VerifyResult result = verifier.verify(new VerifyInput("[" + String.join(",", chain) + "]", bind, NONE,
-                sentProof == null ? null : sentProof.toJson(), caller, false, rid + "|" + lastRcv + "|resp", null));
+                sentProof == null ? null : sentProof.toJson(), caller, false, nonceKey, null));
         return new ResponseCheck(result, result.ok() ? List.copyOf(labels) : List.of(), hash);
     }
 

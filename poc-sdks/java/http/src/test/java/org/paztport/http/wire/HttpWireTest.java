@@ -81,7 +81,7 @@ class HttpWireTest {
                 new InfluenceEntry(InfluenceClass.THIRD_PARTY, "web:example", "h1", null, null));
         Stamper.Stamped s = sent(influence);
         var in = HttpWire.request(HttpWire.encodeChain(s.chain()), HttpWire.encodeProof(s.proof()),
-                HttpWire.encodeInfluence(influence), "POST", "/pay", BODY, "payment", null);
+                HttpWire.encodeInfluence(influence), "POST", "/pay", BODY, "payment", null, null);
         assertEquals(RID + "|orders|payment|req", in.nonceKey());
         assertEquals(ReasonCode.OK, verifier().verify(in).reason());
     }
@@ -126,7 +126,7 @@ class HttpWireTest {
         String bindA = RequestBinding.compute("GET", "/search?q=a", none);
         assertNotEquals(bindA, RequestBinding.compute("GET", "/search?q=b", none));
         assertNotEquals(bindA, RequestBinding.compute("GET", "/search", none));
-        var asked = HttpWire.request(null, null, null, "GET", "/search?q=a", none, "orders", null);
+        var asked = HttpWire.request(null, null, null, "GET", "/search?q=a", none, "orders", null, null);
         assertEquals(bindA, asked.expectedBind());
         assertNotEquals(RequestBinding.compute("GET", "/search", none), asked.expectedBind());
 
@@ -134,11 +134,11 @@ class HttpWireTest {
         String chain = HttpWire.encodeChain(s.chain());
         String proof = HttpWire.encodeProof(s.proof());
         assertEquals(ReasonCode.OK, verifier().verify(
-                HttpWire.request(chain, proof, null, "GET", "/search?q=a", none, "payment", null)).reason());
+                HttpWire.request(chain, proof, null, "GET", "/search?q=a", none, "payment", null, null)).reason());
         assertEquals(ReasonCode.BINDING_MISMATCH, verifier().verify(
-                HttpWire.request(chain, proof, null, "GET", "/search?q=b", none, "payment", null)).reason());
+                HttpWire.request(chain, proof, null, "GET", "/search?q=b", none, "payment", null, null)).reason());
         assertEquals(ReasonCode.BINDING_MISMATCH, verifier().verify(
-                HttpWire.request(chain, proof, null, "GET", "/search", none, "payment", null)).reason());
+                HttpWire.request(chain, proof, null, "GET", "/search", none, "payment", null, null)).reason());
     }
 
     @Test
@@ -147,7 +147,7 @@ class HttpWireTest {
         Stamper.Stamped s = sent(List.of(), RequestBinding.compute("GET", "/search", none));
         assertEquals(ReasonCode.BINDING_MISMATCH, verifier().verify(
                 HttpWire.request(HttpWire.encodeChain(s.chain()), HttpWire.encodeProof(s.proof()), null, "GET",
-                        "/search\ud800", none, "payment", null)).reason());
+                        "/search\ud800", none, "payment", null, null)).reason());
     }
 
     @Test
@@ -156,19 +156,19 @@ class HttpWireTest {
         String chain = HttpWire.encodeChain(s.chain());
         String proof = HttpWire.encodeProof(s.proof());
         assertEquals(ReasonCode.CHAIN_MISSING, verifier().verify(
-                HttpWire.request("%%%", proof, null, "POST", "/pay", BODY, "payment", null)).reason());
+                HttpWire.request("%%%", proof, null, "POST", "/pay", BODY, "payment", null, null)).reason());
         assertEquals(ReasonCode.CHAIN_MISSING, verifier().verify(
-                HttpWire.request(null, proof, null, "POST", "/pay", BODY, "payment", null)).reason());
+                HttpWire.request(null, proof, null, "POST", "/pay", BODY, "payment", null, null)).reason());
         assertEquals(ReasonCode.INFLUENCE_MISMATCH, verifier().verify(
-                HttpWire.request(chain, proof, "%%%", "POST", "/pay", BODY, "payment", null)).reason());
+                HttpWire.request(chain, proof, "%%%", "POST", "/pay", BODY, "payment", null, null)).reason());
         assertEquals(ReasonCode.PATH_NOT_ALLOWED, verifier().verify(
-                HttpWire.request(chain, null, null, "POST", "/pay", BODY, "payment", null)).reason());
+                HttpWire.request(chain, null, null, "POST", "/pay", BODY, "payment", null, null)).reason());
         assertEquals(ReasonCode.PATH_NOT_ALLOWED, verifier().verify(
-                HttpWire.request(chain, "%%%", null, "POST", "/pay", BODY, "payment", null)).reason());
+                HttpWire.request(chain, "%%%", null, "POST", "/pay", BODY, "payment", null, null)).reason());
         assertEquals("\"malformed\"", HttpWire.decodeChain("%%%"));
         assertNull(HttpWire.decodeChain(" "));
         assertNull(HttpWire.decodeProof("%%%"));
-        assertEquals("", HttpWire.request("%%%", null, null, "GET", "/", BODY, "payment", null).nonceKey());
+        assertEquals("", HttpWire.request("%%%", null, null, "GET", "/", BODY, "payment", null, null).nonceKey());
     }
 
     private static final List<ContentLabel> LABELS =
@@ -184,7 +184,7 @@ class HttpWireTest {
     void responseCheck() {
         Stamper.Stamped s = sent(List.of());
         var check = HttpWire.verifyResponse(verifier(), s.chain(), s.proof(), respondHeader(s, 200, LABELS), 200, BODY,
-                "orders");
+                "orders", null);
         assertEquals(ReasonCode.OK, check.result().reason());
         assertEquals("payment", check.result().suspectSvc());
         assertEquals(LABELS, check.labels());
@@ -194,7 +194,7 @@ class HttpWireTest {
     @Test
     void responseCheckMissingHeader() {
         Stamper.Stamped s = sent(List.of());
-        var check = HttpWire.verifyResponse(verifier(), s.chain(), s.proof(), null, 200, BODY, "orders");
+        var check = HttpWire.verifyResponse(verifier(), s.chain(), s.proof(), null, 200, BODY, "orders", null);
         assertEquals(ReasonCode.CHAIN_MISSING, check.result().reason());
         assertTrue(check.labels().isEmpty());
         assertEquals(HttpWire.resultHash(200, BODY), check.resultHash());
@@ -204,7 +204,7 @@ class HttpWireTest {
     void responseCheckStatus() {
         Stamper.Stamped s = sent(List.of());
         var check = HttpWire.verifyResponse(verifier(), s.chain(), s.proof(), respondHeader(s, 200, LABELS), 500, BODY,
-                "orders");
+                "orders", null);
         assertEquals(ReasonCode.BINDING_MISMATCH, check.result().reason());
         assertTrue(check.labels().isEmpty());
     }
@@ -215,7 +215,7 @@ class HttpWireTest {
         Stamp stamp = stamper("payment", paymentKey, false).respond(s.chain(), HttpWire.resultHash(200, BODY), RID,
                 LABELS);
         String header = HttpWire.encodeResponse(stamp, List.of(new ContentLabel(InfluenceClass.PUBLIC, "cid-1", null)));
-        var check = HttpWire.verifyResponse(verifier(), s.chain(), s.proof(), header, 200, BODY, "orders");
+        var check = HttpWire.verifyResponse(verifier(), s.chain(), s.proof(), header, 200, BODY, "orders", null);
         assertEquals(ReasonCode.BINDING_MISMATCH, check.result().reason());
         assertTrue(check.labels().isEmpty());
     }
@@ -226,7 +226,7 @@ class HttpWireTest {
         for (String header : new String[] {"e30", "%%%", "", Base64Url.encode("[]".getBytes(StandardCharsets.UTF_8)),
                 Base64Url.encode("{\"stamp\":{},\"labels\":[]}".getBytes(StandardCharsets.UTF_8)),
                 Base64Url.encode("{\"stamp\":1,\"labels\":\"x\"}".getBytes(StandardCharsets.UTF_8))}) {
-            var check = HttpWire.verifyResponse(verifier(), s.chain(), s.proof(), header, 200, BODY, "orders");
+            var check = HttpWire.verifyResponse(verifier(), s.chain(), s.proof(), header, 200, BODY, "orders", null);
             assertEquals(ReasonCode.CHAIN_MISSING, check.result().reason(), header);
             assertTrue(check.labels().isEmpty());
         }
@@ -241,7 +241,7 @@ class HttpWireTest {
                 ("{\"labels\":[{\"cid\":\"c\",\"cls\":\"nope\"}],\"stamp\":" + stamp.toJson() + "}")
                         .getBytes(StandardCharsets.UTF_8));
         assertEquals(ReasonCode.CHAIN_MISSING,
-                HttpWire.verifyResponse(verifier(), s.chain(), s.proof(), header, 200, BODY, "orders").result()
+                HttpWire.verifyResponse(verifier(), s.chain(), s.proof(), header, 200, BODY, "orders", null).result()
                         .reason());
     }
 
@@ -289,12 +289,14 @@ class HttpWireTest {
     }
 
     private ReasonCode check(Stamper.Stamped s, String header) {
-        return HttpWire.verifyResponse(verifier(), s.chain(), s.proof(), header, 200, BODY, "orders").result().reason();
+        return HttpWire.verifyResponse(verifier(), s.chain(), s.proof(), header, 200, BODY, "orders", null).result()
+                .reason();
     }
 
     private ReasonCode responseReason(Stamper.Stamped s, String envelope) {
         String header = Base64Url.encode(envelope.getBytes(StandardCharsets.UTF_8));
-        return HttpWire.verifyResponse(verifier(), s.chain(), s.proof(), header, 200, BODY, "orders").result().reason();
+        return HttpWire.verifyResponse(verifier(), s.chain(), s.proof(), header, 200, BODY, "orders", null).result()
+                .reason();
     }
 
     /** A character outside the Basic Multilingual Plane goes in a header as its four UTF-8 bytes. */
@@ -336,7 +338,7 @@ class HttpWireTest {
         Stamp stamp = Stamp.sign("payment", "payment-1", "a\nb", NOW, "", "orders", "x", "",
                 s.chain().get(1).sig(), paymentKey.getPrivate());
         var check = HttpWire.verifyResponse(verifier(), s.chain(), s.proof(), HttpWire.encodeResponse(stamp, List.of()),
-                200, BODY, "orders");
+                200, BODY, "orders", null);
         assertEquals(ReasonCode.BINDING_MISMATCH, check.result().reason());
         assertTrue(check.labels().isEmpty());
     }
@@ -349,7 +351,7 @@ class HttpWireTest {
         Stamp response = Stamp.sign("payment", "payment-1", RID, NOW, "", "orders", "x", "", "y",
                 paymentKey.getPrivate());
         var check = HttpWire.verifyResponse(verifier(), List.of(first, second), null,
-                HttpWire.encodeResponse(response, List.of()), 200, BODY, "orders");
+                HttpWire.encodeResponse(response, List.of()), 200, BODY, "orders", null);
         assertEquals(ReasonCode.BINDING_MISMATCH, check.result().reason());
         assertTrue(check.labels().isEmpty());
     }
@@ -385,8 +387,8 @@ class HttpWireTest {
                 RequestBinding.compute("POST", "/pay", BODY), List.of(), ops.bundles().get("orders"));
         String header = respondHeader(s, 200, LABELS);
 
-        var first1 = HttpWire.verifyResponse(opsVerifier, s.chain(), s.proof(), header, 200, BODY, "orders");
-        var again = HttpWire.verifyResponse(opsVerifier, s.chain(), s.proof(), header, 200, BODY, "orders");
+        var first1 = HttpWire.verifyResponse(opsVerifier, s.chain(), s.proof(), header, 200, BODY, "orders", null);
+        var again = HttpWire.verifyResponse(opsVerifier, s.chain(), s.proof(), header, 200, BODY, "orders", null);
 
         assertEquals(ReasonCode.OK, first1.result().reason());
         assertEquals(ReasonCode.REPLAY, again.result().reason(), "the key <rid>|payment#charge|resp was spent");

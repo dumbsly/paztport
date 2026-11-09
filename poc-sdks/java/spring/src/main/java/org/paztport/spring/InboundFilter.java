@@ -76,6 +76,9 @@ import org.springframework.web.util.ContentCachingResponseWrapper;
  * <p>On a service that names its operations, the filter hands the receiver the operation the request will be
  * dispatched to, which {@link OperationResolver} works out from Spring's handler mappings before the receiver
  * verifies and before the handler runs. A chain naming another operation is then refused {@code BINDING_MISMATCH}.
+ * The receiver holds the service's own table too, so where that operation declares a key it reads the key value from
+ * the raw request target: a chain naming it is verified with the key value in its nonce key, and one whose target
+ * gives none (a percent-encoded segment Spring decoded to reach the handler, say) is refused {@code BINDING_MISMATCH}.
  * Where the chain named an operation and the receiver verified the request with it, under a mode or for attestation
  * alone, the filter records that operation on the request ({@link VerifiedOperation}), so that a later filter which
  * changes the method or the path, and so the handler, by wrapping the request or by dispatching it elsewhere, is
@@ -115,8 +118,9 @@ public final class InboundFilter extends OncePerRequestFilter {
      *     influence and never attests
      * @param receiver this service's name
      * @param stamper this service's stamper, or null where it has no stamp key and so cannot attest
-     * @param operations what tells each request's operation, or null where this service names none; a chain that
-     *     names an operation is then verified under the bare name, and so refused
+     * @param operations what tells each request's operation, and holds this service's own table for a keyed
+     *     operation's key value, or null where this service names none; a chain that names an operation is then
+     *     verified under the bare name, and so refused
      * @param observations where each request's verification result is recorded; {@link ObservationRegistry#NOOP}
      *     where the application has no {@code ObservationRegistry} bean
      * @param unverifiedPaths the path prefixes ({@code paztport.unverified-paths}) that are neither verified nor
@@ -131,7 +135,8 @@ public final class InboundFilter extends OncePerRequestFilter {
             throw new IllegalArgumentException("verifying requests needs a verifier, a mode holder and a publisher");
         }
         this.receiver = HttpReceiver.builder(receiver).verifier(verifier).verifyRequests(verifyRequests)
-                .origin(origin).publisher(publisher).listener(listener).stamper(stamper).build();
+                .origin(origin).publisher(publisher).listener(listener).stamper(stamper)
+                .operations(operations == null ? null : operations.table()).build();
         this.verifyRequests = verifyRequests;
         this.modeHolder = modeHolder;
         this.operations = operations;

@@ -100,7 +100,7 @@ public final class PartnerReceiver {
 
         VerifyInput input = VerifyInputs.request(chain, parsed, request.header(PaztportHeaders.PROOF),
                 request.header(PaztportHeaders.INFLUENCE), request.method(), request.target(), request.body(),
-                receiver, sender);
+                receiver, null, sender);
         VerifyResult result = session.verifier().verify(input);
         // On OK these are the entries the boundary stamp committed to; otherwise what was received.
         List<InfluenceEntry> influence = HttpReceiver.parseInfluence(input.influence());

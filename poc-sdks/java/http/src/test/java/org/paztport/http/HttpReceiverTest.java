@@ -40,6 +40,7 @@ import org.paztport.core.internal.JsonFields;
 import org.paztport.core.internal.JsonReader;
 import org.paztport.core.internal.JsonWriter;
 import org.paztport.core.policy.Keyring;
+import org.paztport.core.policy.OperationTable;
 import org.paztport.core.policy.PolicyBuilder;
 import org.paztport.core.stamp.Bindings;
 import org.paztport.core.stamp.Chains;
@@ -336,6 +337,153 @@ class HttpReceiverTest {
                 + " classes=-"), traceLines());
     }
 
+    // --- Keyed operations ---
+
+    /** Orders' own table: {@code reserve} keyed by its item segment, and {@code createOrder} with no key. */
+    private static final OperationTable ORDERS_KEYED = new OperationTable("orders", List.of(
+            new OperationTable.Operation("reserve", "POST", "/items/{}/reserve", null,
+                    OperationTable.Key.segment(1)),
+            new OperationTable.Operation("createOrder", "POST", "/orders")));
+
+    private final PolicyBuilder.Result keysPolicy = PolicyBuilder.build(
+            List.of(List.of("gateway", "orders#reserve"), List.of("gateway", "orders#createOrder"),
+                    List.of("gateway", "orders")), 4, NOT_AFTER, Crypto.generateEd25519KeyPair().getPrivate());
+
+    /** A nonce cache that remembers, in order, every key it is asked about. */
+    private static final class Recording implements NonceCache {
+        final List<String> asked = new ArrayList<>();
+        private final InMemoryNonceCache cache = new InMemoryNonceCache();
+
+        @Override
+        public boolean seenBefore(String key, long now) {
+            asked.add(key);
+            return cache.seenBefore(key, now);
+        }
+
+        @Override
+        public long ttlMs() {
+            return cache.ttlMs();
+        }
+    }
+
+    /** Orders verifying requests under the keys policy, holding its own keyed table, with {@code nonces}. */
+    private HttpReceiver ordersKeyed(NonceCache nonces) {
+        long notAfter = keysPolicy.signedRoot().notAfter();
+        Verifier verifier = new Verifier(new VerifierConfig(
+                List.of(new PinnedKeyring(Keyring.of(Map.of("gateway", gateway.getPublic())), notAfter)),
+                List.of(new PinnedRoot(keysPolicy.signedRoot().rootBytes(), keysPolicy.signedRoot().rootId(),
+                        notAfter)),
+                notAfter, Set.of("gateway"), "", nonces, () -> NOW, 5000, 5000));
+        return HttpReceiver.builder("orders").verifier(verifier).verifyRequests(true).publisher(events)
+                .stamper(new Stamper("orders", "ord-1", orders.getPrivate(), false, () -> "x", () -> NOW))
+                .operations(ORDERS_KEYED).build();
+    }
+
+    /** {@code POST target} from gateway to orders, its stamp naming {@code named}, dispatched to {@code operation}. */
+    private InboundRequest toOrdersKeyed(String rid, String named, String target, String operation) {
+        Stamper.Stamped gw = new Stamper("gateway", "gw-1", gateway.getPrivate(), true, () -> rid, () -> NOW)
+                .next(null, named, RequestBinding.compute("POST", target, new byte[0]), List.of(),
+                        keysPolicy.bundles().get("gateway"));
+        Map<String, String> sent = new HashMap<>();
+        sent.put(PaztportHeaders.CHAIN, HttpWire.encodeChain(gw.chain()));
+        sent.put(PaztportHeaders.PROOF, HttpWire.encodeProof(gw.proof()));
+        return new InboundRequest("POST", target, sent, new byte[0], operation);
+    }
+
+    @Test
+    void keyedOperationSpendsItsItemKey() {
+        Recording nonces = new Recording();
+        Accepted accepted = ordersKeyed(nonces).accept(
+                toOrdersKeyed("rid-1", "orders#reserve", "/items/A1/reserve", "reserve"), null,
+                VerificationMode.ENFORCE);
+
+        assertNull(accepted.refusal());
+        assertEquals("reserve", accepted.operation());
+        assertEquals(List.of("rid-1|gateway|orders#reserve|A1|req"), nonces.asked);
+    }
+
+    @Test
+    void twoItemsBothServed() {
+        HttpReceiver receiver = ordersKeyed(new InMemoryNonceCache());
+        for (String item : List.of("A1", "B2")) {
+            Accepted accepted = receiver.accept(
+                    toOrdersKeyed("rid-1", "orders#reserve", "/items/" + item + "/reserve", "reserve"), null,
+                    VerificationMode.ENFORCE);
+            assertNull(accepted.refusal(), item);
+        }
+    }
+
+    @Test
+    void oneItemTwiceIsReplay() {
+        HttpReceiver receiver = ordersKeyed(new InMemoryNonceCache());
+        InboundRequest request = toOrdersKeyed("rid-1", "orders#reserve", "/items/A1/reserve", "reserve");
+
+        assertNull(receiver.accept(request, null, VerificationMode.ENFORCE).refusal());
+        Accepted again = receiver.accept(request, null, VerificationMode.ENFORCE);
+
+        assertEquals(403, again.refusal().status());
+        assertEquals("{\"reason\":\"REPLAY\"}", text(again.refusal()));
+    }
+
+    @Test
+    void noKeyValueIsBindingMismatch() {
+        Recording nonces = new Recording();
+        Accepted accepted = ordersKeyed(nonces).accept(
+                toOrdersKeyed("rid-1", "orders#reserve", "/items/%41/reserve", "reserve"), null,
+                VerificationMode.ENFORCE);
+
+        assertEquals(403, accepted.refusal().status());
+        assertEquals("{\"reason\":\"BINDING_MISMATCH\"}", text(accepted.refusal()));
+        assertEquals(List.of(), nonces.asked, "nothing is spent");
+    }
+
+    @Test
+    void noKeyValueIsVerifiedWithNoOperationUnderAudit() {
+        Accepted accepted = ordersKeyed(new InMemoryNonceCache()).accept(
+                toOrdersKeyed("rid-1", "orders#reserve", "/items/%41/reserve", "reserve"), null,
+                VerificationMode.AUDIT);
+
+        assertNull(accepted.refusal());
+        assertEquals("BINDING_MISMATCH", events.all.get(0).reason());
+        assertNull(accepted.operation(), "verified under the bare name, with no operation");
+        assertNull(accepted.delivery());
+    }
+
+    @Test
+    void bareChainSpendsBareKey() {
+        Recording nonces = new Recording();
+        Accepted accepted = ordersKeyed(nonces).accept(
+                toOrdersKeyed("rid-1", "orders", "/items/A1/reserve", "reserve"), null, VerificationMode.ENFORCE);
+
+        assertNull(accepted.refusal());
+        assertNull(accepted.operation());
+        assertEquals(List.of("rid-1|gateway|orders|req"), nonces.asked);
+        assertNull(accepted.delivery().key(), "a chain naming no operation carries no key value");
+    }
+
+    @Test
+    void deliveryCarriesKey() {
+        HttpReceiver receiver = ordersKeyed(new InMemoryNonceCache());
+        Accepted keyed = receiver.accept(toOrdersKeyed("rid-1", "orders#reserve", "/items/A1/reserve", "reserve"),
+                null, VerificationMode.ENFORCE);
+        Accepted unkeyed = receiver.accept(toOrdersKeyed("rid-1", "orders#createOrder", "/orders", "createOrder"),
+                null, VerificationMode.ENFORCE);
+
+        assertEquals(new Delivery("rid-1", "gateway", "orders#reserve", "A1",
+                RequestBinding.compute("POST", "/items/A1/reserve", new byte[0])), keyed.delivery());
+        assertEquals("orders#createOrder", unkeyed.delivery().rcv());
+        assertNull(unkeyed.delivery().key());
+    }
+
+    @Test
+    void aTableForAnotherServiceIsRefused() {
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
+                () -> HttpReceiver.builder("payment").operations(ORDERS_KEYED).build());
+
+        assertTrue(e.getMessage().contains("orders"), e.getMessage());
+        assertTrue(e.getMessage().contains("payment"), e.getMessage());
+    }
+
     @Test
     void enforceValidRequestPassesWithTheVerifiedInfluence() {
         Accepted accepted = verifying(null).accept(
@@ -576,11 +724,11 @@ class HttpReceiverTest {
 
         assertNull(accepted.cacheFailure());
         List<Stamp> chain = accepted.verifiedChain();
-        assertEquals(new Delivery(chain.get(0).rid(), "orders", "payment",
+        assertEquals(new Delivery(chain.get(0).rid(), "orders", "payment", null,
                 RequestBinding.compute("POST", "/pay", TO_PAYMENT)),
                 accepted.delivery());
         assertEquals(new Delivery("rid-1", chain.get(chain.size() - 1).svc(), chain.get(chain.size() - 1).rcv(),
-                chain.get(chain.size() - 1).bind()), accepted.delivery());
+                null, chain.get(chain.size() - 1).bind()), accepted.delivery());
     }
 
     @Test
