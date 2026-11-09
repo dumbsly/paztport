@@ -270,33 +270,30 @@ exist only when `PAZTPORT_OPENINGS=true`, as Compose sets for `payment` and `psp
 ### The trace
 
 After row 13, `demo.sh` prints every trace line that carries the malicious
-ticket's `rid`, from every service it reached, in time order. This is a Docker
-run from before `orders` and `payment` named their operations, with the `rid`
-shortened to `93b58365` for reading. The trace now names those two receivers with
-the operation each request was confirmed as, `receiver=orders#getOrder` for
-example, where this sample shows `receiver=orders` and `receiver=payment`:
+ticket's `rid`, from every service it reached, in time order, with the `rid` shortened to `2c0b8d26` for reading.
 
 ```
-tickets: PAZTPORT_TRACE request rid=93b58365 reason=OK receiver=tickets ✓ peer=gateway (mTLS) classes=-
-assistant: PAZTPORT_TRACE request rid=93b58365 reason=OK receiver=assistant ✓ peer=tickets (mTLS) classes=third-party
-orders: PAZTPORT_TRACE request rid=93b58365 reason=OK receiver=orders ✓ peer=assistant (mTLS) classes=third-party
-assistant: PAZTPORT_TRACE response rid=93b58365 from=orders reason=OK receiver=assistant ✓ labels=private
-payment: PAZTPORT_TRACE request rid=93b58365 reason=OK receiver=payment ✓ peer=assistant (mTLS) classes=private,third-party
-psp: PAZTPORT_TRACE request rid=93b58365 reason=OK receiver=psp ✓ peer=payment (mTLS) classes=private,third-party session=attested
-psp: PAZTPORT_TRACE decision rid=93b58365 receiver=psp rule=public-write reason=INFLUENCE_DENIED ✗ classes=private,third-party
-payment: PAZTPORT_TRACE boundary rid=93b58365 receiver=psp session=attested status=403 classes=private,third-party
-assistant: PAZTPORT_TRACE response rid=93b58365 from=payment reason=OK receiver=assistant ✓ labels=local-untrusted
-mailer: PAZTPORT_TRACE request rid=93b58365 reason=OK receiver=mailer ✓ peer=assistant (mTLS) classes=local-untrusted,private,third-party
-mailer: PAZTPORT_TRACE decision rid=93b58365 receiver=mailer rule=public-write reason=INFLUENCE_DENIED ✗ classes=local-untrusted,private,third-party
-assistant: PAZTPORT_TRACE response rid=93b58365 from=mailer reason=OK receiver=assistant ✓ labels=-
-tickets: PAZTPORT_TRACE response rid=93b58365 from=assistant reason=OK receiver=tickets ✓ labels=-
-gateway: PAZTPORT_TRACE response rid=93b58365 from=tickets reason=OK receiver=gateway ✓ labels=-
+tickets: PAZTPORT_TRACE request rid=2c0b8d26 reason=OK receiver=tickets ✓ peer=gateway (mTLS) classes=-
+assistant: PAZTPORT_TRACE request rid=2c0b8d26 reason=OK receiver=assistant ✓ peer=tickets (mTLS) classes=third-party
+orders: PAZTPORT_TRACE request rid=2c0b8d26 reason=OK receiver=orders#findOrders ✓ peer=assistant (mTLS) classes=third-party
+assistant: PAZTPORT_TRACE response rid=2c0b8d26 from=orders reason=OK receiver=assistant ✓ labels=private
+payment: PAZTPORT_TRACE request rid=2c0b8d26 reason=OK receiver=payment#refund ✓ peer=assistant (mTLS) classes=private,third-party
+psp: PAZTPORT_TRACE request rid=2c0b8d26 reason=OK receiver=psp ✓ peer=payment (mTLS) classes=private,third-party session=attested
+psp: PAZTPORT_TRACE decision rid=2c0b8d26 receiver=psp rule=public-write reason=INFLUENCE_DENIED ✗ classes=private,third-party
+payment: PAZTPORT_TRACE boundary rid=2c0b8d26 receiver=psp session=attested status=403 classes=private,third-party
+assistant: PAZTPORT_TRACE response rid=2c0b8d26 from=payment reason=OK receiver=assistant ✓ labels=local-untrusted
+mailer: PAZTPORT_TRACE request rid=2c0b8d26 reason=OK receiver=mailer ✓ peer=assistant (mTLS) classes=local-untrusted,private,third-party
+mailer: PAZTPORT_TRACE decision rid=2c0b8d26 receiver=mailer rule=public-write reason=INFLUENCE_DENIED ✗ classes=local-untrusted,private,third-party
+assistant: PAZTPORT_TRACE response rid=2c0b8d26 from=mailer reason=OK receiver=assistant ✓ labels=-
+tickets: PAZTPORT_TRACE response rid=2c0b8d26 from=assistant reason=OK receiver=tickets ✓ labels=-
+gateway: PAZTPORT_TRACE response rid=2c0b8d26 from=tickets reason=OK receiver=gateway ✓ labels=-
 ```
 
 Read it top to bottom. The `classes` column is empty at `tickets`, gains
 `third-party` at `assistant`, gains `private` once `orders` has answered, and
-reaches `payment` and `psp` as `private,third-party`. Payment relays the PSP's
-answer, which nobody attests, so its response is labelled `local-untrusted`, and
+reaches `payment` and `psp` as `private,third-party`. The two receivers that
+name an operation read `orders#findOrders` and `payment#refund`: the operation
+each request was confirmed as. Payment relays the PSP's answer, which nobody attests, so its response is labelled `local-untrusted`, and
 the `mailer` sees that too. The `rid` is the same at every service, including the
 PSP, in another organisation. The `psp` request line shows `session=attested`, and
 the two `decision … INFLUENCE_DENIED` lines are the two refusals. The chain verified at every hop: the requests were
@@ -389,7 +386,7 @@ flowchart TD
     S2 -->|yes| R2["403 BAD_SIGNATURE"]
     S2 -->|no| S3["3. first stamp is an<br/>allowed origin (gateway)?"]
     S3 -->|no| R3["403 BAD_ORIGIN"]
-    S3 -->|yes| S4["4. every signature verifies, every prev links,<br/>then each rcv names the next hop<br/>and the last names payment?"]
+    S3 -->|yes| S4["4. every signature verifies, every prev links,<br/>then each rcv names the next hop,<br/>and the last names payment#pay, the<br/>operation its handler runs?"]
     S4 -->|bad signature| R4a["403 BAD_SIGNATURE"]
     S4 -->|bad link| R4b["403 BROKEN_LINK"]
     S4 -->|wrong receiver| R4c["403 BINDING_MISMATCH"]
@@ -427,6 +424,9 @@ Notes on the ordering:
 - **A wrong receiver is a binding failure.** Each stamp signs the hop it was
   handed to, so a chain forwarded unchanged to `payment` fails at check 4, before
   the route is looked at.
+- **A wrong operation is a binding failure too.** The last stamp's `rcv` may be
+  `svc#operation`, and it must equal the operation the receiver confirms for the
+  request. A mismatch (row 15b) is check 4's `BINDING_MISMATCH`.
 - A missing or unparseable **proof** gives `PATH_NOT_ALLOWED`, not `CHAIN_MISSING`:
   without a valid proof you can't show membership. `CHAIN_MISSING` is reserved for
   the chain.

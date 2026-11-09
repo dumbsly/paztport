@@ -392,7 +392,7 @@ The loader also requires: a `payloadFile` that is a file inside the scenario fol
 
 What a scenario cannot change: the available tools are those of the mock GitHub server, and its rule is fixed. Issue text is treated as coming from a third party, content read from a private repository as private, and a public write is refused when the agent's context has both. You change the data that rule runs on, not the rule.
 
-The server name is also fixed for now. The mock server checks every signed call against the name `github`, so the loader refuses any other `serverId` with "the mock GitHub server only accepts serverId github". Keep `serverId` as `github` and `tools` as `mcp__github__*`.
+The server name is fixed. The mock server checks every signed call against the name `github`, so the loader refuses any other `serverId` with "the mock GitHub server only accepts serverId github". Keep `serverId` as `github` and `tools` as `mcp__github__*`.
 
 ### What counts as a leak
 

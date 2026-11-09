@@ -21,8 +21,8 @@ Without a config the extension does nothing.
 From `poc-demos/agents-mcp/`:
 
 ```sh
-(cd ../../poc-sdks/typescript && npm install --ignore-scripts)   # the SDK the packages here link
-npm install --ignore-scripts
+(cd ../../poc-sdks/typescript && npm ci)   # the SDK the packages here link
+npm ci
 npm run setup-demo          # keys and policies in .demo (server/ and client/)
 ```
 
