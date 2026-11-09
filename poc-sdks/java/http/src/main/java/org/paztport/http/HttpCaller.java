@@ -41,7 +41,8 @@ import org.slf4j.LoggerFactory;
  * same bytes its container hands it without decoding anything.
  *
  * <p>What a response says becomes part of the request that made the call. A response whose attestation verifies, by
- * the live order on the chain that was sent (nonce key {@code <rid>|<target>|resp}), contributes its labels, each as
+ * the live order on the chain that was sent (nonce key {@code <rid>|<last rcv>|resp}, {@code <last rcv>} the
+ * receiver the sent chain's last stamp names, with the operation when it names one), contributes its labels, each as
  * an entry with {@code src} {@code http:<target>} and {@code h} the result hash. Any other, unattested, failing, a
  * refusal, or one received where no verifier is configured, contributes exactly one {@code local-untrusted} entry
  * with the same {@code src} and {@code h}, so content nobody vouched for still counts against later calls; it is

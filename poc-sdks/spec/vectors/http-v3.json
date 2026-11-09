@@ -1,5 +1,5 @@
 {
-  "about" : "Paztport v3-over-HTTP conformance vectors. The keys, the `mesh` policy and its proofs are the ones in v3.json, by name; only the `payment` key is new, derived by v3.json's rule (seed = SHA-256(utf8(\"paztport-v3-vector-key:payment\")), the same PKCS#8 and SPKI encodings, both base64url). resultHash maps a status and body (hex) to the result hash. requestBinding maps a method, a target (the raw path plus `?` and the raw query when there is one) and a body (hex) to the request binding. headerNames maps a header name to whether it is Paztport's: it begins with `X-Path-`, compared case-insensitively over ASCII. A responses case is a request chain `sent` from gateway to orders to payment and the `responseHeader` payment returned; the caller `orders` checks it against `status` and `body` (hex) with the proof the mesh policy holds for `proofRoute`, as a verifier whose policy window ends at `policyNotAfter` and whose clock reads `now`, running the check `uses` times against one nonce cache of nonceTtlMs, and expects the last result, with `labels` empty unless the reason is OK. boundaryInfluence is the influence an egress sends to another organisation: under the boundary `key` (SHA-256(utf8(\"paztport-http-v3-vector-boundary-key\")), base64url), for `rid`, the partner entry `rcv` and the `egress`, the `input` entries reduce to `reduced`, with one salt (base64url) per (cls, owner) group in `salts`; each `openings` case is a `sent` entry and an `opening`, with its JCS bytes in `body` (hex), which the replay reads, and `opens` says whether it opens. Ed25519 is deterministic, so the file is reproduced byte for byte. Java writes and replays this file; Go replays every section but `operations`; the TypeScript SDK does not speak v3 over HTTP, so it does not replay it. The last responses case runs on the `ops` policy: the chain names the operation each hop invokes (`orders#createOrder`, then `payment#charge`) and the proof is for that route. `operations` holds `table`, an operation table as a `file` (its text) and `value`, with its `opsHash` and the `route` a root covers it as; `shared`, payment's table, an entrance with two operations told apart by a query condition, in the same form; `refused`, table files a reader refuses; `match`, a method, a raw path and a raw query (null for none) against a table `file` and the operation name it gives, null for none; and `receive`, a request entered at `orders` through the HTTP receiver under enforce, whose chain's first stamp names `orders` or an operation of it, with the `operation` the framework dispatches to (null for none) and the `refusal` it expects (null when the request is served). Every `receive` case carries the proof of `gateway/orders#createOrder`, whatever its chain names.",
+  "about" : "Paztport v3-over-HTTP conformance vectors. The keys, the `mesh` policy and its proofs are the ones in v3.json, by name; only the `payment` key is new, derived by v3.json's rule (seed = SHA-256(utf8(\"paztport-v3-vector-key:payment\")), the same PKCS#8 and SPKI encodings, both base64url). resultHash maps a status and body (hex) to the result hash. requestBinding maps a method, a target (the raw path plus `?` and the raw query when there is one) and a body (hex) to the request binding. headerNames maps a header name to whether it is Paztport's: it begins with `X-Path-`, compared case-insensitively over ASCII. A responses case is a request chain `sent` from gateway to orders to payment and the `responseHeader` payment returned; the caller `orders` checks it against `status` and `body` (hex) with the proof the mesh policy holds for `proofRoute`, as a verifier whose policy window ends at `policyNotAfter` and whose clock reads `now`, running the check `uses` times against one nonce cache of nonceTtlMs that already holds `spent` (none when absent), and expects the last result, with `labels` empty unless the reason is OK. boundaryInfluence is the influence an egress sends to another organisation: under the boundary `key` (SHA-256(utf8(\"paztport-http-v3-vector-boundary-key\")), base64url), for `rid`, the partner entry `rcv` and the `egress`, the `input` entries reduce to `reduced`, with one salt (base64url) per (cls, owner) group in `salts`; each `openings` case is a `sent` entry and an `opening`, with its JCS bytes in `body` (hex), which the replay reads, and `opens` says whether it opens. Ed25519 is deterministic, so the file is reproduced byte for byte. Java writes and replays this file; Go replays every section but `operations`; the TypeScript SDK does not speak v3 over HTTP, so it does not replay it. The last three responses cases run on the `ops` policy: the chain names the operation each hop invokes (`orders#createOrder`, then `payment#charge`) and the proof is for that route. `operations` holds `table`, an operation table as a `file` (its text) and `value`, with its `opsHash` and the `route` a root covers it as; `shared`, payment's table, an entrance with two operations told apart by a query condition, in the same form; `refused`, table files a reader refuses; `match`, a method, a raw path and a raw query (null for none) against a table `file` and the operation name it gives, null for none; and `receive`, a request entered at `orders` through the HTTP receiver under enforce, against a nonce cache that already holds `spent` (none when absent), whose chain's first stamp names `orders` or an operation of it, with the `operation` the framework dispatches to (null for none) and the `refusal` it expects (null when the request is served). Every `receive` case carries the proof of `gateway/orders#createOrder`, whatever its chain names.",
   "keys" : {
     "payment" : {
       "pub" : "MCowBQYDK2VwAyEA-9XrNUMkH7TjAfIFt7KwMmnpapG3g1u6a6E0Q5swRO0",
@@ -479,6 +479,118 @@
       "resultHash" : "UU4OiqfyEERcK0QPyXKb9wRTpEagtkBgmP0vzFxX770"
     },
     "proofRoute" : "gateway/orders#createOrder/payment#charge"
+  }, {
+    "name" : "another operation's response key spent",
+    "policy" : "ops",
+    "sent" : [ {
+      "v" : 3,
+      "svc" : "gateway",
+      "inst" : "gw-1",
+      "rid" : "rid-http-1",
+      "ts" : 1767225598500,
+      "sess" : "",
+      "rcv" : "orders#createOrder",
+      "bind" : "bind-gateway-to-orders",
+      "infl" : "",
+      "prev" : "",
+      "sig" : "6aOO5iyNbrkQRNJU77Eshyo6R6HMRsWbhsjUwEKBIOcsw-2-Xy4v2UnqlYgmz8Hlbbv5Wy_8hFBGypz-9hbUBQ"
+    }, {
+      "v" : 3,
+      "svc" : "orders",
+      "inst" : "ord-1",
+      "rid" : "rid-http-1",
+      "ts" : 1767225599500,
+      "sess" : "",
+      "rcv" : "payment#charge",
+      "bind" : "NWeIvDv4wI6iFaSevElXkiBnUMnM0qODvzaHJCrcq6g",
+      "infl" : "",
+      "prev" : "6aOO5iyNbrkQRNJU77Eshyo6R6HMRsWbhsjUwEKBIOcsw-2-Xy4v2UnqlYgmz8Hlbbv5Wy_8hFBGypz-9hbUBQ",
+      "sig" : "0zob3KskaaaZDsEh9fDF9BA86HEofGLEaZ_IJeFKdcTIzjrarK2NHeB_wAeLuviqaFvqMpLQVsoSRRrc-yLBBw"
+    } ],
+    "caller" : "orders",
+    "responseHeader" : "eyJsYWJlbHMiOlt7ImNpZCI6ImNpZC1yZWNlaXB0LTEiLCJjbHMiOiJwcml2YXRlIiwib3duZXIiOiJhbGljZSJ9XSwic3RhbXAiOnsiYmluZCI6ImEtN2V6T1VaVWhBekpQQTFvZHRvVnlwMklPNGFueS1zZ2tjMWdpd2NWQjQiLCJpbmZsIjoiIiwiaW5zdCI6InBheS0xIiwicHJldiI6IjB6b2IzS3NrYWFhWkRzRWg5ZkRGOUJBODZIRW9mR0xFYVpfSUplRktkY1RJempyYXJLMk5IZUJfd0FlTHV2aXFhRnZxTXBMUVZzb1NSUnJjLXlMQkJ3IiwicmN2Ijoib3JkZXJzIiwicmlkIjoicmlkLWh0dHAtMSIsInNlc3MiOiIiLCJzaWciOiJzREUxaFdsVjdOZTdnQkFndUFycVhUN0laeUszNGE2cnJMSExua19veUNPX3pFNGRWNFBBZ29MSHFJc05zQlE4cUl4ZEdIeGpRUkE4QUpGTU53RzJDZyIsInN2YyI6InBheW1lbnQiLCJ0cyI6MTc2NzIyNTU5OTgwMCwidiI6M319",
+    "status" : 200,
+    "body" : "7b2270616964223a747275657d",
+    "keyring" : {
+      "gateway" : "gateway",
+      "orders" : "orders",
+      "payment" : "payment"
+    },
+    "allowedOrigins" : [ "gateway" ],
+    "sess" : "",
+    "now" : 1767225600000,
+    "policyNotAfter" : 4102444800000,
+    "callMaxAgeMs" : 5000,
+    "runMaxAgeMs" : 1800000,
+    "nonceTtlMs" : 15000,
+    "uses" : 1,
+    "expected" : {
+      "reason" : "OK",
+      "suspectSvc" : "payment",
+      "suspectInst" : "pay-1",
+      "labels" : [ {
+        "cls" : "private",
+        "cid" : "cid-receipt-1",
+        "owner" : "alice"
+      } ],
+      "resultHash" : "UU4OiqfyEERcK0QPyXKb9wRTpEagtkBgmP0vzFxX770"
+    },
+    "spent" : [ "rid-http-1|payment#refund|resp" ],
+    "proofRoute" : "gateway/orders#createOrder/payment#charge"
+  }, {
+    "name" : "this operation's response key spent",
+    "policy" : "ops",
+    "sent" : [ {
+      "v" : 3,
+      "svc" : "gateway",
+      "inst" : "gw-1",
+      "rid" : "rid-http-1",
+      "ts" : 1767225598500,
+      "sess" : "",
+      "rcv" : "orders#createOrder",
+      "bind" : "bind-gateway-to-orders",
+      "infl" : "",
+      "prev" : "",
+      "sig" : "6aOO5iyNbrkQRNJU77Eshyo6R6HMRsWbhsjUwEKBIOcsw-2-Xy4v2UnqlYgmz8Hlbbv5Wy_8hFBGypz-9hbUBQ"
+    }, {
+      "v" : 3,
+      "svc" : "orders",
+      "inst" : "ord-1",
+      "rid" : "rid-http-1",
+      "ts" : 1767225599500,
+      "sess" : "",
+      "rcv" : "payment#charge",
+      "bind" : "NWeIvDv4wI6iFaSevElXkiBnUMnM0qODvzaHJCrcq6g",
+      "infl" : "",
+      "prev" : "6aOO5iyNbrkQRNJU77Eshyo6R6HMRsWbhsjUwEKBIOcsw-2-Xy4v2UnqlYgmz8Hlbbv5Wy_8hFBGypz-9hbUBQ",
+      "sig" : "0zob3KskaaaZDsEh9fDF9BA86HEofGLEaZ_IJeFKdcTIzjrarK2NHeB_wAeLuviqaFvqMpLQVsoSRRrc-yLBBw"
+    } ],
+    "caller" : "orders",
+    "responseHeader" : "eyJsYWJlbHMiOlt7ImNpZCI6ImNpZC1yZWNlaXB0LTEiLCJjbHMiOiJwcml2YXRlIiwib3duZXIiOiJhbGljZSJ9XSwic3RhbXAiOnsiYmluZCI6ImEtN2V6T1VaVWhBekpQQTFvZHRvVnlwMklPNGFueS1zZ2tjMWdpd2NWQjQiLCJpbmZsIjoiIiwiaW5zdCI6InBheS0xIiwicHJldiI6IjB6b2IzS3NrYWFhWkRzRWg5ZkRGOUJBODZIRW9mR0xFYVpfSUplRktkY1RJempyYXJLMk5IZUJfd0FlTHV2aXFhRnZxTXBMUVZzb1NSUnJjLXlMQkJ3IiwicmN2Ijoib3JkZXJzIiwicmlkIjoicmlkLWh0dHAtMSIsInNlc3MiOiIiLCJzaWciOiJzREUxaFdsVjdOZTdnQkFndUFycVhUN0laeUszNGE2cnJMSExua19veUNPX3pFNGRWNFBBZ29MSHFJc05zQlE4cUl4ZEdIeGpRUkE4QUpGTU53RzJDZyIsInN2YyI6InBheW1lbnQiLCJ0cyI6MTc2NzIyNTU5OTgwMCwidiI6M319",
+    "status" : 200,
+    "body" : "7b2270616964223a747275657d",
+    "keyring" : {
+      "gateway" : "gateway",
+      "orders" : "orders",
+      "payment" : "payment"
+    },
+    "allowedOrigins" : [ "gateway" ],
+    "sess" : "",
+    "now" : 1767225600000,
+    "policyNotAfter" : 4102444800000,
+    "callMaxAgeMs" : 5000,
+    "runMaxAgeMs" : 1800000,
+    "nonceTtlMs" : 15000,
+    "uses" : 1,
+    "expected" : {
+      "reason" : "REPLAY",
+      "suspectSvc" : "",
+      "suspectInst" : "",
+      "labels" : [ ],
+      "resultHash" : "UU4OiqfyEERcK0QPyXKb9wRTpEagtkBgmP0vzFxX770"
+    },
+    "spent" : [ "rid-http-1|payment#charge|resp" ],
+    "proofRoute" : "gateway/orders#createOrder/payment#charge"
   } ],
   "rules" : {
     "about" : "The HTTP rules the spec requires of a receiver, a caller, a partner and an egress, each case an input and the answer the spec gives. A key is looked up by name here, then in this file's top-level `keys`, then in v3.json; each new one is derived by v3.json's rule. A `material` is one organisation's policy key (by name), its signed root and signed keyring, each with its notAfter, the proofs of its routes and, for a partner, its entry service and reply certificate. Each root's tree has depth 1, its two routes filling both leaves with salts by v3.json's rule, so it has no padding; its rootId is \"v\" and the first 12 hex digits of SHA-256(utf8(\"paztport-http-v3-vector-root:\" + tree)), for the vectors only. A handshake request's nonce is the first 16 bytes (15 for `short-nonce`) of SHA-256(utf8(\"paztport-http-v3-vector-nonce:\" + name)), base64url, and `handshakeBodies` holds each request's JCS bytes, the body a step posts. Bodies and certificates are hex, and headers are their values as sent. A receiver case enters `request` at `service` `uses` times against one nonce cache that already holds `spent`, the handler then reads `read`, and `expected` is the last entry's answer. A partner case runs `steps` in order against one partner whose clock reads each step's `at`; a handshake's `as` names the session it opens, since the partner picks the id, and a call's boundary stamp is signed as the step runs, in the session it names; a call may carry `read`, what the handler reads once it is accepted. The spec's README says what each kind covers.",
@@ -881,7 +993,7 @@
         "trustedRecord" : false
       }
     }, {
-      "name" : "its nonce key <rid>|<last svc>|req already spent",
+      "name" : "its nonce key <rid>|<last svc>|<last rcv>|req already spent",
       "material" : "shop",
       "service" : {
         "svc" : "payment",
@@ -905,7 +1017,7 @@
       "callMaxAgeMs" : 5000,
       "runMaxAgeMs" : 1800000,
       "nonceTtlMs" : 15000,
-      "spent" : [ "rid-rules-1|orders|req" ],
+      "spent" : [ "rid-rules-1|orders|payment|req" ],
       "uses" : 1,
       "read" : [ ],
       "expected" : {
@@ -919,7 +1031,7 @@
         "trustedRecord" : false
       }
     }, {
-      "name" : "other directions' and hops' keys are not its own",
+      "name" : "other directions', hops' and operations' keys are not its own",
       "material" : "shop",
       "service" : {
         "svc" : "payment",
@@ -943,7 +1055,7 @@
       "callMaxAgeMs" : 5000,
       "runMaxAgeMs" : 1800000,
       "nonceTtlMs" : 15000,
-      "spent" : [ "rid-rules-1|orders|resp", "rid-rules-1|payment|req", "rid-rules-1|gateway|req", "rid-rules-1|orders", "rid-rules-1|orders|local" ],
+      "spent" : [ "rid-rules-1|orders|resp", "rid-rules-1|payment|req", "rid-rules-1|gateway|req", "rid-rules-1|orders", "rid-rules-1|orders|local", "rid-rules-1|orders|payment#pay|req", "rid-rules-1|orders|req" ],
       "uses" : 1,
       "read" : [ ],
       "expected" : {
@@ -8030,6 +8142,67 @@
       "expected" : {
         "refusal" : null
       }
+    }, {
+      "name" : "another operation's request key spent",
+      "policy" : "ops",
+      "service" : "orders",
+      "mode" : "enforce",
+      "request" : {
+        "method" : "POST",
+        "target" : "/orders",
+        "headers" : {
+          "X-Path-Chain" : "W3siYmluZCI6Ik01T1NuakJab2pUem9ldEY4djJqbjh2M1A1R29NdWlyX1YzbWxnUlQ3c0kiLCJpbmZsIjoiIiwiaW5zdCI6Imd3LTEiLCJwcmV2IjoiIiwicmN2Ijoib3JkZXJzI2NyZWF0ZU9yZGVyIiwicmlkIjoicmlkLWh0dHAtMSIsInNlc3MiOiIiLCJzaWciOiJHakFFOXpVZVoyY1VWSEdNdlo4RGIwYmNldUJBajFKMXdNU0JDZS1nenlmTVRJTS1JVDlva2JqMGlPVDFMSVlSU2pGNmdxcU85MVJWM1EycHpDbWFEQSIsInN2YyI6ImdhdGV3YXkiLCJ0cyI6MTc2NzIyNTU5ODUwMCwidiI6M31d",
+          "X-Path-Proof" : "eyJkaXJzIjoiUkxMTExMTEwiLCJsZWFmU2FsdCI6IlRzM0hXSldtMnc4alBYVlUxU3QyNEEiLCJyb290SWQiOiJ2NjAxNWNhZjI3MTYzIiwic2libGluZ3MiOlsiUW9ZbkVRbGMwWXVDYjlsZGM3ODdjemZjT0pYbjhidmVRdjZ3ZnFnSUZhQSIsIkJuY3IzLU01MGlud3EyTjN5TTVWQ1pzUUl5d0M5TVgxb3ozU0o3a2pUUWsiLCJwWVRxRGR6YWhJMDI0bkxZNkVIcVZ6MzlLbWZrYnZMNDFVRHFOTlNvUmNnIiwiYlYyWGRwX0lNYWhmbzQxVWJhVlJFYzhpVmJveTRaYWRmeGpLNWRKSzZFQSIsInNuRlNLMG9ENFd2ZGhscFZWemRPeUtzNlBmbUZfWHpDVUFnckRzNzJHa2ciLCJyYzE1RnRocjcwTmdrbHdsZkRZTU9sakd6STI5RzVzc2dlWGhacU5XaUE4IiwidGFtNEtLcUMyaGtaYTA3VThqR3lMQ29abnlud1BvNklueVJEei12M1BNRSIsImlNNFNlcnd2aXZDR1hkcEtEMkNBZmptbk9MbE9YdVdvUW9MYjU5bGVBR3MiXX0"
+        },
+        "body" : "7b22616d6f756e74223a3130307d"
+      },
+      "operation" : "createOrder",
+      "keyring" : {
+        "gateway" : "gateway"
+      },
+      "allowedOrigins" : [ "gateway" ],
+      "sess" : "",
+      "now" : 1767225600000,
+      "policyNotAfter" : 4102444800000,
+      "callMaxAgeMs" : 5000,
+      "runMaxAgeMs" : 1800000,
+      "nonceTtlMs" : 15000,
+      "expected" : {
+        "refusal" : null
+      },
+      "spent" : [ "rid-http-1|gateway|orders#getOrder|req" ]
+    }, {
+      "name" : "this operation's request key spent",
+      "policy" : "ops",
+      "service" : "orders",
+      "mode" : "enforce",
+      "request" : {
+        "method" : "POST",
+        "target" : "/orders",
+        "headers" : {
+          "X-Path-Chain" : "W3siYmluZCI6Ik01T1NuakJab2pUem9ldEY4djJqbjh2M1A1R29NdWlyX1YzbWxnUlQ3c0kiLCJpbmZsIjoiIiwiaW5zdCI6Imd3LTEiLCJwcmV2IjoiIiwicmN2Ijoib3JkZXJzI2NyZWF0ZU9yZGVyIiwicmlkIjoicmlkLWh0dHAtMSIsInNlc3MiOiIiLCJzaWciOiJHakFFOXpVZVoyY1VWSEdNdlo4RGIwYmNldUJBajFKMXdNU0JDZS1nenlmTVRJTS1JVDlva2JqMGlPVDFMSVlSU2pGNmdxcU85MVJWM1EycHpDbWFEQSIsInN2YyI6ImdhdGV3YXkiLCJ0cyI6MTc2NzIyNTU5ODUwMCwidiI6M31d",
+          "X-Path-Proof" : "eyJkaXJzIjoiUkxMTExMTEwiLCJsZWFmU2FsdCI6IlRzM0hXSldtMnc4alBYVlUxU3QyNEEiLCJyb290SWQiOiJ2NjAxNWNhZjI3MTYzIiwic2libGluZ3MiOlsiUW9ZbkVRbGMwWXVDYjlsZGM3ODdjemZjT0pYbjhidmVRdjZ3ZnFnSUZhQSIsIkJuY3IzLU01MGlud3EyTjN5TTVWQ1pzUUl5d0M5TVgxb3ozU0o3a2pUUWsiLCJwWVRxRGR6YWhJMDI0bkxZNkVIcVZ6MzlLbWZrYnZMNDFVRHFOTlNvUmNnIiwiYlYyWGRwX0lNYWhmbzQxVWJhVlJFYzhpVmJveTRaYWRmeGpLNWRKSzZFQSIsInNuRlNLMG9ENFd2ZGhscFZWemRPeUtzNlBmbUZfWHpDVUFnckRzNzJHa2ciLCJyYzE1RnRocjcwTmdrbHdsZkRZTU9sakd6STI5RzVzc2dlWGhacU5XaUE4IiwidGFtNEtLcUMyaGtaYTA3VThqR3lMQ29abnlud1BvNklueVJEei12M1BNRSIsImlNNFNlcnd2aXZDR1hkcEtEMkNBZmptbk9MbE9YdVdvUW9MYjU5bGVBR3MiXX0"
+        },
+        "body" : "7b22616d6f756e74223a3130307d"
+      },
+      "operation" : "createOrder",
+      "keyring" : {
+        "gateway" : "gateway"
+      },
+      "allowedOrigins" : [ "gateway" ],
+      "sess" : "",
+      "now" : 1767225600000,
+      "policyNotAfter" : 4102444800000,
+      "callMaxAgeMs" : 5000,
+      "runMaxAgeMs" : 1800000,
+      "nonceTtlMs" : 15000,
+      "expected" : {
+        "refusal" : {
+          "status" : 403,
+          "body" : "7b22726561736f6e223a225245504c4159227d"
+        }
+      },
+      "spent" : [ "rid-http-1|gateway|orders#createOrder|req" ]
     }, {
       "name" : "another operation",
       "policy" : "ops",

@@ -20,6 +20,7 @@
 //
 // A header's value is read by [HeaderValue]: only HTTP's optional whitespace around it is trimmed, and a
 // value of nothing else is absent. Values that do not read are left to the verifier, which answers each
-// with the spec's reason code. Nonce keys are <rid>|<last svc>|req for a request and <rid>|<target>|resp
-// for a response, the target being the receiver the request was sent to.
+// with the spec's reason code. Nonce keys are <rid>|<last svc>|<last rcv>|req for a request and
+// <rid>|<last rcv>|resp for a response, last rcv being the receiver the request chain's last stamp names,
+// with the operation when it names one.
 package wire

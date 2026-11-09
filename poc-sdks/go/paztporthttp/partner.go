@@ -51,9 +51,9 @@ type PartnerAccepted struct {
 //     no chain and no influence, and not Attested.
 //   - In an attested session the live order runs once, with the session's own verifier, the entry
 //     service as receiver, the request's own binding, the tokens of its headers, the nonce key
-//     <rid>|<last svc>|req and peer's service and address as the peer. A result that is not OK is refused
-//     403 {"reason":"<code>"}: a partner has no audit mode, so influence that does not read is refused
-//     403 {"reason":"INFLUENCE_MISMATCH"} too. On OK the call is Attested, with the chain and the
+//     <rid>|<last svc>|<last rcv>|req and peer's service and address as the peer. A result that is not OK
+//     is refused 403 {"reason":"<code>"}: a partner has no audit mode, so influence that does not read is
+//     refused 403 {"reason":"INFLUENCE_MISMATCH"} too. On OK the call is Attested, with the chain and the
 //     influence its boundary stamp committed to.
 //
 // Accept does not refuse the operations switched off for unsafe sessions, since only the framework knows

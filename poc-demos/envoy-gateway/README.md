@@ -511,8 +511,8 @@ What the checks and the measurements found, beyond the numbers.
   request the edge sends twice is duplicate delivery, which the backend's application handles by idempotency keyed on
   the delivery (the verified chain's `rid` and last signer, with the last stamp's `bind` to tell a different request
   under a reused key). A shared, expiring nonce store across replicas is optional hardening: it holds a compromised
-  caller to one call per request tree whatever the replica count, but it does not make a retry safe, as the retry is
-  then refused `REPLAY`.
+  caller to each key once per request tree whatever the replica count, but it does not make a retry safe, as the
+  retry is then refused `REPLAY`.
 - **No central server is needed:** see the fourth answer above.
 - **Spring Boot trusts `X-Forwarded-For` on Kubernetes.** Boot turns on Tomcat's `RemoteIpValve` when it detects
   Kubernetes, so the peer's instance a refusal's event names would come from a header the client sent. The backends

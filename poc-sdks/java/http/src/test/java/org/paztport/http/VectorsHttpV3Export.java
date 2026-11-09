@@ -78,7 +78,8 @@ class VectorsHttpV3Export {
             + " payment and the `responseHeader` payment returned; the caller `orders` checks it against `status` and"
             + " `body` (hex) with the proof the mesh policy holds for `proofRoute`, as a verifier whose policy window"
             + " ends at `policyNotAfter` and whose clock reads `now`, running the check `uses` times against one"
-            + " nonce cache of nonceTtlMs, and expects the last result, with `labels` empty unless the reason is OK."
+            + " nonce cache of nonceTtlMs that already holds `spent` (none when absent), and expects the last result,"
+            + " with `labels` empty unless the reason is OK."
             + " boundaryInfluence is the influence an egress sends to another organisation: under the boundary `key`"
             + " (SHA-256(utf8(\"paztport-http-v3-vector-boundary-key\")), base64url), for `rid`, the partner entry"
             + " `rcv` and the `egress`, the `input` entries reduce to `reduced`, with one salt (base64url) per"
@@ -86,14 +87,15 @@ class VectorsHttpV3Export {
             + " JCS bytes in `body` (hex), which the replay reads, and `opens` says whether it opens. Ed25519 is"
             + " deterministic, so the file is reproduced byte for byte. Java writes and replays this"
             + " file; Go replays every section but `operations`; the TypeScript SDK does not speak v3 over HTTP, so it"
-            + " does not replay it. The last responses case runs on the `ops` policy: the chain names the"
+            + " does not replay it. The last three responses cases run on the `ops` policy: the chain names the"
             + " operation each hop invokes (`orders#createOrder`, then `payment#charge`) and the proof is for that"
             + " route. `operations` holds `table`, an operation table as a `file` (its text) and `value`, with its"
             + " `opsHash` and the `route` a root covers it as; `shared`, payment's table, an entrance with two"
             + " operations told apart by a query condition, in the same form; `refused`, table files a reader"
             + " refuses; `match`, a method, a raw path and a raw query (null for none) against a table `file` and the"
             + " operation name it gives, null for none; and `receive`, a request"
-            + " entered at `orders` through the HTTP receiver under enforce, whose chain's"
+            + " entered at `orders` through the HTTP receiver under enforce, against a nonce cache that already holds"
+            + " `spent` (none when absent), whose chain's"
             + " first stamp names `orders` or an operation of it, with the `operation` the framework dispatches to"
             + " (null for none) and the `refusal` it expects (null when the request is served). Every `receive`"
             + " case carries the proof of `gateway/orders#createOrder`, whatever its chain names.";
@@ -246,7 +248,7 @@ class VectorsHttpV3Export {
         responses.add(responseCase("policy expired", sent, okHeader, 200, RESPONSE_BODY, 1,
                 NOW - 1, ReasonCode.POLICY_EXPIRED, "", "", List.of(), okHash));
         responses.forEach(c -> ((ObjectNode) c).put("proofRoute", ROUTE));
-        responses.add(operationsResponse(gatewayKey, ordersKey, payment, labels, okHash));
+        operationsResponses(gatewayKey, ordersKey, payment, labels, okHash).forEach(responses::add);
         out.set("rules", VectorsHttpRules.build(out, core));
 
         out.set("boundaryInfluence", boundaryInfluence());
@@ -337,8 +339,12 @@ class VectorsHttpV3Export {
 
     private static final String OPS_ROUTE = "gateway/orders#createOrder/payment#charge";
 
-    /** A response on the route through operations: payment's response stamp names {@code orders}, the caller. */
-    private static ObjectNode operationsResponse(PrivateKey gatewayKey, PrivateKey ordersKey, KeyPair payment,
+    /**
+     * Responses on the route through operations: payment's response stamp names {@code orders}, the caller. The
+     * response's nonce key names the operation the sent chain invokes, so another operation's spent key does not
+     * refuse it and its own does.
+     */
+    private static List<ObjectNode> operationsResponses(PrivateKey gatewayKey, PrivateKey ordersKey, KeyPair payment,
             List<ContentLabel> labels, String okHash) {
         Stamper.Stamped toOrders = new Stamper("gateway", "gw-1", gatewayKey, true, () -> RID, () -> GATEWAY_TS)
                 .next(List.of(), "orders#createOrder", "bind-gateway-to-orders", List.of(), null);
@@ -348,12 +354,21 @@ class VectorsHttpV3Export {
         List<Stamp> sent = toPayment.chain();
         Stamp ok = new Stamper("payment", "pay-1", payment.getPrivate(), false, () -> RID, () -> RESPONSE_TS)
                 .respond(sent, okHash, RID, labels);
-        ObjectNode c = responseCase("a response on a route through operations", sent,
-                HttpWire.encodeResponse(ok, labels), 200, RESPONSE_BODY, 1, MESH_NOT_AFTER, ReasonCode.OK, "payment",
-                "pay-1", labels, okHash);
-        c.put("policy", "ops");
-        c.put("proofRoute", OPS_ROUTE);
-        return c;
+        String header = HttpWire.encodeResponse(ok, labels);
+        ObjectNode c = responseCase("a response on a route through operations", sent, header, 200, RESPONSE_BODY, 1,
+                MESH_NOT_AFTER, ReasonCode.OK, "payment", "pay-1", labels, okHash);
+        ObjectNode other = responseCase("another operation's response key spent", sent, header, 200, RESPONSE_BODY,
+                1, MESH_NOT_AFTER, ReasonCode.OK, "payment", "pay-1", labels, okHash);
+        other.set("spent", JsonNodeFactory.instance.arrayNode().add(RID + "|payment#refund|resp"));
+        ObjectNode own = responseCase("this operation's response key spent", sent, header, 200, RESPONSE_BODY, 1,
+                MESH_NOT_AFTER, ReasonCode.REPLAY, "", "", List.of(), okHash);
+        own.set("spent", JsonNodeFactory.instance.arrayNode().add(RID + "|payment#charge|resp"));
+        List<ObjectNode> cases = List.of(c, other, own);
+        cases.forEach(o -> {
+            o.put("policy", "ops");
+            o.put("proofRoute", OPS_ROUTE);
+        });
+        return cases;
     }
 
     private static OperationTable ordersTable() {
@@ -489,6 +504,14 @@ class VectorsHttpV3Export {
         ArrayNode receive = o.putArray("receive");
         receive.add(receiveCase("the operation the chain names", core, gatewayKey, "orders#createOrder",
                 "createOrder", null));
+        ObjectNode otherSpent = receiveCase("another operation's request key spent", core, gatewayKey,
+                "orders#createOrder", "createOrder", null);
+        otherSpent.set("spent", JsonNodeFactory.instance.arrayNode().add(RID + "|gateway|orders#getOrder|req"));
+        receive.add(otherSpent);
+        ObjectNode ownSpent = receiveCase("this operation's request key spent", core, gatewayKey,
+                "orders#createOrder", "createOrder", ReasonCode.REPLAY);
+        ownSpent.set("spent", JsonNodeFactory.instance.arrayNode().add(RID + "|gateway|orders#createOrder|req"));
+        receive.add(ownSpent);
         receive.add(receiveCase("another operation", core, gatewayKey, "orders#createOrder", "getOrder",
                 ReasonCode.BINDING_MISMATCH));
         receive.add(receiveCase("no operation", core, gatewayKey, "orders#createOrder", null,
@@ -678,11 +701,15 @@ class VectorsHttpV3Export {
         c.get("allowedOrigins").forEach(o -> origins.add(o.asText()));
         long now = c.get("now").asLong();
         long policyNotAfter = c.get("policyNotAfter").asLong();
+        InMemoryNonceCache nonces = new InMemoryNonceCache(c.get("nonceTtlMs").asLong());
+        if (c.has("spent")) {
+            c.get("spent").forEach(k -> nonces.seenBefore(k.asText(), now));
+        }
         return new Verifier(new VerifierConfig(
                 List.of(new PinnedKeyring(Keyring.of(ring), policyNotAfter)),
                 List.of(new PinnedRoot(Base64Url.decode(policy.get("root").asText()), policy.get("rootId").asText(),
                         policyNotAfter)), policyNotAfter, origins, c.get("sess").asText(),
-                new InMemoryNonceCache(c.get("nonceTtlMs").asLong()), () -> now,
+                nonces, () -> now,
                 c.get("callMaxAgeMs").asLong(), c.get("runMaxAgeMs").asLong()));
     }
 

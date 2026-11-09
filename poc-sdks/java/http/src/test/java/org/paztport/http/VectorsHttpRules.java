@@ -616,14 +616,14 @@ final class VectorsHttpRules {
                 ch.request(ch.clean, List.of()));
         twice.put("uses", 2);
         a.add(expect(twice, refused(403, ReasonCode.REPLAY)));
-        ObjectNode spent = receiverCase("its nonce key <rid>|<last svc>|req already spent", Service.PAYMENT,
-                "enforce", ch.request(ch.clean, List.of()));
-        spent.set("spent", texts(RID + "|orders|req"));
+        ObjectNode spent = receiverCase("its nonce key <rid>|<last svc>|<last rcv>|req already spent",
+                Service.PAYMENT, "enforce", ch.request(ch.clean, List.of()));
+        spent.set("spent", texts(RID + "|orders|payment|req"));
         a.add(expect(spent, refused(403, ReasonCode.REPLAY)));
-        ObjectNode others = receiverCase("other directions' and hops' keys are not its own", Service.PAYMENT,
-                "enforce", ch.request(ch.clean, List.of()));
+        ObjectNode others = receiverCase("other directions', hops' and operations' keys are not its own",
+                Service.PAYMENT, "enforce", ch.request(ch.clean, List.of()));
         others.set("spent", texts(RID + "|orders|resp", RID + "|payment|req", RID + "|gateway|req", RID + "|orders",
-                RID + "|orders|local"));
+                RID + "|orders|local", RID + "|orders|payment#pay|req", RID + "|orders|req"));
         a.add(expect(others, served(true, List.of(), true, true)));
         a.add(expect(receiverCase("no chain header", Service.PAYMENT, "enforce",
                 Chains.request(headers(null, proof, null), PAY)), refused(403, ReasonCode.CHAIN_MISSING)));

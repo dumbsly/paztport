@@ -51,6 +51,7 @@ public final class VerifyInputs {
             return "";
         }
         List<Stamp> stamps = parsed.stamps();
-        return stamps.get(0).rid() + "|" + stamps.get(stamps.size() - 1).svc() + "|req";
+        Stamp last = stamps.get(stamps.size() - 1);
+        return stamps.get(0).rid() + "|" + last.svc() + "|" + last.rcv() + "|req";
     }
 }

@@ -273,7 +273,7 @@ class BoundaryClientTest {
                 RequestBinding.compute("POST", "/charge", call.body()), HttpWire.decodeInfluence(
                         call.header(PaztportHeaders.INFLUENCE)),
                 HttpWire.decodeProof(call.header(PaztportHeaders.PROOF)),
-                "psp", true, "rid-1|payment|req", new Peer("payment", "127.0.0.1"))).reason());
+                "psp", true, "rid-1|payment|psp|req", new Peer("payment", "127.0.0.1"))).reason());
 
         assertEquals(List.of("PAZTPORT_TRACE session partner=psp check=ATTESTED status=attested"),
                 lines("PAZTPORT_TRACE session "));

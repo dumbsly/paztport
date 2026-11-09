@@ -99,13 +99,14 @@ can't spend each other's keys:
 | MCP tool call, server side ([MCP profile](README.md#the-mcp-profile)) | `<rid>\|<callId>\|req` |
 | MCP response, client side ([MCP profile](README.md#the-mcp-profile)) | `<rid>\|<callId>\|resp` |
 | Local step ([MCP profile](README.md#the-mcp-profile)) | `<rid>\|<callId>\|local` |
-| HTTP request (receiver side) | `<rid>\|<last svc>\|req` |
-| HTTP response (caller side) | `<rid>\|<target>\|resp` |
+| HTTP request (receiver side) | `<rid>\|<last svc>\|<last rcv>\|req` |
+| HTTP response (caller side) | `<rid>\|<last rcv>\|resp` |
 
 `<rid>` is the origin's `rid` and `<callId>` the call's `paztport/callId` (for a local step, the tool call id).
-`<last svc>` is the request chain's last signer, and `<target>` the service the caller sent the request to.
-An HTTP call has no call id, so its keys name the pair of services instead: a service calls a given receiver at
-most once per request tree, and a second call is `REPLAY`.
+`<last svc>` is the request chain's last signer and `<last rcv>` the receiver its last stamp names, with the
+operation when it names one; at the caller, the chain is the one it sent. An HTTP call has no call id, so its keys
+name the caller and the receiver instead: a service calls a given receiver, or a given operation of it, at most
+once per request tree, and a second such call is `REPLAY`. Calls to two operations of one receiver spend two keys.
 
 **Replicas and duplicates.** A stamp is good only for its receiver and its request, and with a peer (check 12) only
 on the last signer's own connections; these hold whatever cache a receiver keeps. The nonce cache adds one thing:
@@ -114,10 +115,10 @@ A service run as several replicas, each with its own cache, or whose cache is lo
 second sending. That is duplicate delivery, as a proxy's retry is, and the receiving application handles it as it
 handles any retried request, by idempotency keyed on the delivery: the verified chain's `rid` and its last signer
 name it, the last stamp's `bind` says which request it was, and, with a peer, no one but that signer can send it. A
-service that must also hold a compromised caller to one call per request tree, whatever its replica count, shares
-one expiring cache across its replicas. A session's cache is not shared: a session lives on one replica. A cache
-that cannot answer gives no verdict: a receiver in `enforce` refuses the request as unavailable (HTTP 503), and one
-in `audit` serves it and records the failure.
+service that must also hold a compromised caller to each key once per request tree, whatever its replica count,
+shares one expiring cache across its replicas. A session's cache is not shared: a session lives on one replica. A
+cache that cannot answer gives no verdict: a receiver in `enforce` refuses the request as unavailable (HTTP 503), and
+one in `audit` serves it and records the failure.
 
 ## Receivers, the peer and attribution
 
@@ -136,9 +137,9 @@ names the receiver's [operation](wire.md#operations) when it holds the receiver'
 destination any other way, by an address, an alias or a port, fails check 4 at an honest receiver
 (`BINDING_MISMATCH`). How a caller maps a destination to that name is its deployment's configuration, never
 something the request or the destination says. Over HTTP that name, without any operation, is the caller's
-`<target>`: in the response's nonce key, as the service the response stamp must be by, and in the `src`
-(`http:<target>`) of what the response adds to its influence. An egress names its partner's entry service by
-configuration ([sessions-and-influence.md](sessions-and-influence.md#between-organisations)). (The Java and Go SDKs
+`<target>`: the service the response stamp must be by, and the `src` (`http:<target>`) of what the response adds
+to its influence. An egress names its partner's entry service by configuration
+([sessions-and-influence.md](sessions-and-influence.md#between-organisations)). (The Java and Go SDKs
 take the name from the URL's host by default, its ASCII letters in lower case; a host that is not ASCII gets no
 name: [Java SDK README](../java/README.md#paztport-spring).)
 
@@ -238,10 +239,10 @@ then, when the last stamp's `rcv` names an operation, `#` and the operation the 
 (its own name alone when that is none in its [table](wire.md#operations)),
 `receiverInRoute = true`, `expectedBind` = the HTTP binding of the request received, over the raw path and query,
 `influence` = `X-Path-Influence` (`[]` when absent), `proof` = `X-Path-Proof` and
-`nonceKey = <rid>|<last svc>|req`. A header that is present but does not decode is left to the check that reads
-it: an unreadable chain is `CHAIN_MISSING`, unreadable influence is `INFLUENCE_MISMATCH`, and an unreadable proof
-is no proof, so `PATH_NOT_ALLOWED`. A receiver MUST NOT drop influence it can't read, even when it does not
-verify: dropping it could hide `private` content from the rule. It is answered
+`nonceKey = <rid>|<last svc>|<last rcv>|req`. A header that is present but does not decode is left to the check
+that reads it: an unreadable chain is `CHAIN_MISSING`, unreadable influence is `INFLUENCE_MISMATCH`, and an
+unreadable proof is no proof, so `PATH_NOT_ALLOWED`. A receiver MUST NOT drop influence it can't read, even when it
+does not verify: dropping it could hide `private` content from the rule. It is answered
 `400 {"reason":"INFLUENCE_MISMATCH"}` wherever verification has not refused the request first, in audit mode too
 ([Modes and refusals](#modes-and-refusals)). An origin starts a new request tree, so it carries neither the chain
 nor the influence a request brings, and has nothing to drop.
@@ -357,7 +358,7 @@ once per request, since it spends the request's nonce key.
 
 **A response, at the caller.** The caller checks `X-Path-Response` with `stamps` = the chain it sent then the
 response stamp, `receiver` = its own name, `receiverInRoute = false`, `proof` = the proof it sent,
-`influence = []`, `nonceKey = <rid>|<target>|resp` and no peer. In order:
+`influence = []`, `nonceKey = <rid>|<last rcv>|resp` and no peer. In order:
 
 1. The header is present and reads from its token ([wire.md](wire.md#http-v3)) as an object with exactly a `stamp`
    and an array of well-formed `labels` (`CHAIN_MISSING`).

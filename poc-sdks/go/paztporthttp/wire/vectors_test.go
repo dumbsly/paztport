@@ -75,7 +75,8 @@ func TestResultHashVectors(t *testing.T) {
 
 // TestResponseVectors replays http-v3.json's responses: the caller checks the header payment returned
 // against the chain it sent, the status and the body, with the proof it sent, uses times against one
-// nonce cache, and expects the last check. Each case runs under its own policyNotAfter.
+// nonce cache that already holds the case's spent keys, and expects the last check. Each case runs under
+// its own policyNotAfter.
 func TestResponseVectors(t *testing.T) {
 	cases := vectors.Load(t, "http-v3.json").Get("responses")
 	if cases.Len() == 0 {
@@ -156,7 +157,8 @@ type responseCase struct {
 	caller   string
 }
 
-// readResponseCase reads responses case c, with a clock fixed at its now.
+// readResponseCase reads responses case c, with a clock fixed at its now. A case with spent keys gets a
+// nonce cache that already holds them; any other gets none, so verifier gives it a fresh one.
 func readResponseCase(t testing.TB, c vectors.Node) responseCase {
 	t.Helper()
 	c = c.With(t)
@@ -194,6 +196,16 @@ func readResponseCase(t testing.TB, c vectors.Node) responseCase {
 			Infl: s.Get("infl").Str(), Prev: s.Get("prev").Str(), Sig: s.Get("sig").Str(),
 		}
 	}
+	var nonces verify.NonceCache
+	if c.Has("spent") {
+		cache := verify.NewMemoryNonceCache(c.Get("nonceTtlMs").Int())
+		for _, k := range c.Get("spent").Strs() {
+			if _, err := cache.SeenBefore(t.Context(), k, now); err != nil {
+				t.Fatalf("SeenBefore: %v", err)
+			}
+		}
+		nonces = cache
+	}
 	return responseCase{
 		cfg: verify.Config{
 			// The case gives one window, its policyNotAfter, so each member has that one.
@@ -205,6 +217,7 @@ func readResponseCase(t testing.TB, c vectors.Node) responseCase {
 			Now:            func() int64 { return now },
 			CallMaxAgeMs:   c.Get("callMaxAgeMs").Int(),
 			RunMaxAgeMs:    c.Get("runMaxAgeMs").Int(),
+			Nonces:         nonces,
 		},
 		nonceTTL: c.Get("nonceTtlMs").Int(),
 		sent:     sent,

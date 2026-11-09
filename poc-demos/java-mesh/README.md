@@ -476,9 +476,11 @@ keyring, the root and the pin, so each checks every response it gets.
   and adds one `local-untrusted` influence entry, so content nobody vouched for
   still counts. Every check logs a
   `PAZTPORT_TRACE response rid=… from=… reason=… receiver=…` line.
-- The response's nonce key is `<rid>|<target>|resp`, and a request's is
-  `<rid>|<last svc>|req`, so a service calls a given receiver at most once per
-  request tree.
+- The response's nonce key is `<rid>|<last rcv>|resp`, and a request's is
+  `<rid>|<last svc>|<last rcv>|req`, `<last rcv>` being the receiver the request
+  chain's last stamp names, with the operation when it names one. So a service
+  calls a given receiver, or a given operation of it, at most once per request
+  tree, and calls to two operations of one receiver spend two keys.
 
 ## Threat model
 
@@ -494,7 +496,7 @@ the policy key or the CA key. Its goal is to get `payment` to act on a request.
 | Forge a stamp claiming to be `gateway` | Verified against gateway's public key, which the attacker can't sign for | 3: `BAD_SIGNATURE` |
 | Extend a real chain it legitimately received, with its own stamp, to `payment` | Route rebuilt from stamps (`gateway/search/payment`) is not a leaf | 4: `PATH_NOT_ALLOWED` |
 | Forward that chain unchanged | `gateway`'s stamp names `search` as its receiver, not `payment` | `BINDING_MISMATCH` (the receiver rule the spec's `wrong receiver` vector pins) |
-| Replay a captured valid request | Its nonce key, the `rid` and the last signer, already spent | 5: `REPLAY` |
+| Replay a captured valid request | Its nonce key, the `rid`, the last signer and the receiver it names, already spent | 5: `REPLAY` |
 | Keep a valid chain, swap the body | Last stamp's `bind` no longer matches | 6: `BINDING_MISMATCH` |
 | Hold a chain and use it later | Stamps older than the freshness window | 7: `EXPIRED` |
 | Send another service's fresh chain from its own connection | The last signer must be the service its client certificate names | `PEER_MISMATCH` (the SDK's mutual TLS test) |

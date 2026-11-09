@@ -212,9 +212,9 @@ class PaztportAutoConfigurationTest {
                             .next(null, "orders", "b", List.of(),
                                     ProofBundle.load(dir.resolve("proofs-gateway.json")));
                     VerifyInput input = new VerifyInput(Chains.toJson(sent.chain()), "b", "[]",
-                            sent.proof().toJson(), "orders", true, "rid-mine|gateway|req", null);
+                            sent.proof().toJson(), "orders", true, "rid-mine|gateway|orders|req", null);
                     assertThat(verifier.verify(input).reason()).isEqualTo(ReasonCode.OK);
-                    assertThat(mine.keys).contains("rid-mine|gateway|req");
+                    assertThat(mine.keys).contains("rid-mine|gateway|orders|req");
                 });
     }
 
@@ -566,7 +566,7 @@ class PaztportAutoConfigurationTest {
                                 .next(null, "orders", "b", List.of(),
                                         ProofBundle.load(dir.resolve("proofs-gateway.json")));
                         VerifyInput input = new VerifyInput(Chains.toJson(sent.chain()), "b", "[]",
-                                sent.proof().toJson(), "orders", true, "rid-" + maxAge + "|gateway|req", null);
+                                sent.proof().toJson(), "orders", true, "rid-" + maxAge + "|gateway|orders|req", null);
                         assertThat(verifier.verify(input).reason()).isEqualTo(ReasonCode.OK);
                         assertThat(verifier.verify(input).reason()).isEqualTo(ReasonCode.REPLAY);
                     });

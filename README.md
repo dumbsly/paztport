@@ -403,7 +403,7 @@ What Paztport needs from a deployment, and what it deliberately doesn't cover ye
   was. The Java and Go in-mesh receivers hand the application that key
   (`RequestContext.delivery()` and `Accepted.delivery()` in Java,
   `Accepted.Delivery()` in Go). A service that must also hold a compromised caller
-  to one call per request tree, whatever its replica count, can pass its own
+  to each key once per request tree, whatever its replica count, can pass its own
   expiring shared cache to the nonce-cache interface that the Java and Go SDKs
   expose; neither SDK ships one. A cache that cannot answer gives no verdict:
   `enforce` refuses the request 503 and `audit` serves it and records the failure

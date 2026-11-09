@@ -82,7 +82,7 @@ class HttpWireTest {
         Stamper.Stamped s = sent(influence);
         var in = HttpWire.request(HttpWire.encodeChain(s.chain()), HttpWire.encodeProof(s.proof()),
                 HttpWire.encodeInfluence(influence), "POST", "/pay", BODY, "payment", null);
-        assertEquals(RID + "|orders|req", in.nonceKey());
+        assertEquals(RID + "|orders|payment|req", in.nonceKey());
         assertEquals(ReasonCode.OK, verifier().verify(in).reason());
     }
 
@@ -355,7 +355,7 @@ class HttpWireTest {
     }
 
     @Test
-    void verifyResponseTargetIsTheServicePart() {
+    void verifyResponseKeyKeepsTheOperation() {
         PolicyBuilder.Result ops = PolicyBuilder.build(List.of(List.of("gateway", "orders", "payment#charge")), 4,
                 NOT_AFTER, Crypto.generateEd25519KeyPair().getPrivate());
         long notAfter = ops.signedRoot().notAfter();
@@ -389,8 +389,8 @@ class HttpWireTest {
         var again = HttpWire.verifyResponse(opsVerifier, s.chain(), s.proof(), header, 200, BODY, "orders");
 
         assertEquals(ReasonCode.OK, first1.result().reason());
-        assertEquals(ReasonCode.REPLAY, again.result().reason(), "the key <rid>|payment|resp was spent");
-        assertTrue(spent.contains("rid-1|payment|resp"), spent.toString());
+        assertEquals(ReasonCode.REPLAY, again.result().reason(), "the key <rid>|payment#charge|resp was spent");
+        assertEquals(List.of("rid-1|payment#charge|resp", "rid-1|payment#charge|resp"), spent);
     }
 
     @Test

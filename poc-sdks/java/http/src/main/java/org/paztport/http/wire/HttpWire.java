@@ -19,7 +19,6 @@ import org.paztport.core.internal.JsonReader;
 import org.paztport.core.internal.JsonValue;
 import org.paztport.core.internal.JsonWriter;
 import org.paztport.core.policy.MerkleProof;
-import org.paztport.core.policy.Routes;
 import org.paztport.core.stamp.Bindings;
 import org.paztport.core.stamp.Chains;
 import org.paztport.core.stamp.Stamp;
@@ -42,9 +41,10 @@ import org.paztport.http.internal.VerifyInputs;
  *
  * <p>A response is attested by one more stamp on the request chain the responder received, naming the caller as
  * receiver and binding the result hash, the request's {@code rid} and the content labels. The caller already holds
- * the route's proof, so the response carries none. Nonce keys are {@code <rid>|<last svc>|req} for a request and
- * {@code <rid>|<target>|resp} for a response; a service calls a given receiver at most once per request
- * tree.
+ * the route's proof, so the response carries none. Nonce keys are {@code <rid>|<last svc>|<last rcv>|req} for a
+ * request and {@code <rid>|<last rcv>|resp} for a response, {@code <last rcv>} being the receiver the request chain's
+ * last stamp names, with the operation when it names one; a service calls a given receiver, or a given operation of
+ * it, at most once per request tree.
  */
 public final class HttpWire {
 
@@ -172,10 +172,11 @@ public final class HttpWire {
         List<String> chain = new ArrayList<>();
         sent.forEach(s -> chain.add(s.toJson()));
         chain.add(JsonWriter.text(attestation.get("stamp")));
-        // The nonce key names the service, not the operation: a response is one per call whatever the call invoked.
-        String target = Routes.service(sent.get(sent.size() - 1).rcv());
+        // The nonce key names the receiver the sent chain's last stamp names, operation included, so calls to two
+        // operations of one receiver spend two keys.
+        String lastRcv = sent.get(sent.size() - 1).rcv();
         VerifyResult result = verifier.verify(new VerifyInput("[" + String.join(",", chain) + "]", bind, NONE,
-                sentProof == null ? null : sentProof.toJson(), caller, false, rid + "|" + target + "|resp", null));
+                sentProof == null ? null : sentProof.toJson(), caller, false, rid + "|" + lastRcv + "|resp", null));
         return new ResponseCheck(result, result.ok() ? List.copyOf(labels) : List.of(), hash);
     }
 

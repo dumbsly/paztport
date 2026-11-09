@@ -104,10 +104,12 @@ is in. `isPaztport` says whether a name is Paztport's: any that begins with
 `X-Path-`, in any ASCII case. `RequestBinding` computes `bind` over the method, the
 raw path plus `?` and the raw query when there is one, and the body. `HttpWire` encodes the headers and
 decodes them to the JSON text they carry, builds a request's verify input (nonce
-key `<rid>|<last svc>|req`), computes a response's result hash over its status and
-body, and checks a response's attestation against the chain the caller sent (nonce
-key `<rid>|<target>|resp`). A service therefore calls a given receiver at most
-once per request tree. `HttpSessions` fixes the handshake's names (`PATH`,
+key `<rid>|<last svc>|<last rcv>|req`), computes a response's result hash over its
+status and body, and checks a response's attestation against the chain the caller
+sent (nonce key `<rid>|<last rcv>|resp`), `<last rcv>` naming the operation when
+the last stamp names one. A service therefore calls a given receiver, or a given
+operation of it, at most once per request tree, and calls to two operations of one
+receiver spend two keys. `HttpSessions` fixes the handshake's names (`PATH`,
 `/paztport/session`, and the error codes `INVALID_PARAMS` and `NO_SESSION`) and
 writes `{"error":"<code>"}`; core reads the bodies, a request with
 `SessionRequest.parse(byte[])` and a reply with `Sessions.checkReply(byte[],

@@ -446,7 +446,7 @@ func TestCheckResponseProof(t *testing.T) {
 	}
 }
 
-// TestCheckResponseNonceKey spends the key <rid>|<target>|resp, the target being the sent chain's last
+// TestCheckResponseNonceKey spends the key <rid>|<last rcv>|resp, last rcv being the sent chain's last
 // rcv.
 func TestCheckResponseNonceKey(t *testing.T) {
 	rc := okCase(t)
@@ -688,9 +688,10 @@ func (c *recordingCache) SeenBefore(ctx context.Context, key string, _ int64) (b
 
 func (c *recordingCache) TTL() int64 { return verify.NonceTTLMs }
 
-// TestCheckResponseNonceKeyUsesTheBareTarget spends <rid>|<service>|resp when the sent chain's last rcv names an
-// operation, so a second check of the same response is a replay and the key holds no '#'.
-func TestCheckResponseNonceKeyUsesTheBareTarget(t *testing.T) {
+// TestCheckResponseNonceKeyKeepsTheOperation spends <rid>|<service>#<operation>|resp when the sent chain's last
+// rcv names an operation, so a second check of the same response is a replay and the service's key alone is
+// left unspent.
+func TestCheckResponseNonceKeyKeepsTheOperation(t *testing.T) {
 	rc := okCase(t)
 	now := rc.cfg.Now()
 	gwKey, _ := vectors.V3Key(t, "gateway")
@@ -736,7 +737,10 @@ func TestCheckResponseNonceKeyUsesTheBareTarget(t *testing.T) {
 	if err != nil || got.Result.Reason != reason.Replay {
 		t.Fatalf("a second CheckResponse = %+v, %v, want REPLAY", got.Result, err)
 	}
-	if seen, err := cache.SeenBefore(t.Context(), "rid-op|orders|resp", now); err != nil || !seen {
-		t.Fatalf("SeenBefore(rid-op|orders|resp) = %v, %v, want true", seen, err)
+	if seen, err := cache.SeenBefore(t.Context(), "rid-op|orders#createOrder|resp", now); err != nil || !seen {
+		t.Fatalf("SeenBefore(rid-op|orders#createOrder|resp) = %v, %v, want true", seen, err)
+	}
+	if seen, err := cache.SeenBefore(t.Context(), "rid-op|orders|resp", now); err != nil || seen {
+		t.Fatalf("SeenBefore(rid-op|orders|resp) = %v, %v, want false", seen, err)
 	}
 }

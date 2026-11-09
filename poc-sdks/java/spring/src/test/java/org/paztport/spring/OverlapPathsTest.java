@@ -99,7 +99,7 @@ class OverlapPathsTest {
         Stamper.Stamped sent = new Stamper("gateway", "gw-1", key.getPrivate(), true, () -> rid,
                 System::currentTimeMillis).next(null, "orders", "b", List.of(), root.bundles().get("gateway"));
         return verifier.verify(new VerifyInput(Chains.toJson(sent.chain()), "b", "[]", sent.proof().toJson(),
-                "orders", true, rid + "|gateway|req", null)).reason();
+                "orders", true, rid + "|gateway|orders|req", null)).reason();
     }
 
     private void runWith(Path dir, ContextConsumer<AssertableApplicationContext> then, String... more) {
