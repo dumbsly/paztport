@@ -12,7 +12,7 @@ import org.paztport.core.policy.Routes;
 import org.paztport.core.policy.SignedRoot;
 import org.paztport.spring.PaztportAutoConfiguration;
 import org.paztport.spring.PaztportProperties;
-import org.paztport.spring.internal.OwnMaterial;
+import org.paztport.spring.internal.StartupMaterial;
 import org.paztport.spring.trust.ResponseVerifier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -61,12 +61,12 @@ public class OperationConfiguration {
      * so both beans are there.
      */
     @Bean
-    @ConditionalOnProperty("paztport.operations.table-path")
+    @ConditionalOnProperty(OWN)
     OperationResolver paztportOperationResolver(PaztportProperties props, ObjectProvider<ProofBundle> bundle,
             ObjectProvider<ResponseVerifier> trust, ListableBeanFactory beans) {
         ProofBundle proofs = bundle.getObject();
         Path file = Path.of(props.getOperations().getTablePath());
-        OperationTable own = OwnMaterial.loadTable(file, OWN);
+        OperationTable own = StartupMaterial.loadTable(file, OWN);
         if (!own.service().equals(props.getServiceName())) {
             throw new IllegalStateException(OWN + " is the table of " + own.service() + ", not of this service, "
                     + props.getServiceName() + ": " + file);
@@ -89,7 +89,7 @@ public class OperationConfiguration {
      * none of those acts on a request it refuses.
      */
     @Bean
-    @ConditionalOnProperty("paztport.operations.table-path")
+    @ConditionalOnProperty(OWN)
     MappedInterceptor paztportDispatchCheck(OperationResolver operations, PaztportProperties props) {
         return new MappedInterceptor(null, new DispatchCheck(operations, props.getServiceName()));
     }
@@ -102,7 +102,7 @@ public class OperationConfiguration {
      * registers with the default order.
      */
     @Bean
-    @ConditionalOnProperty("paztport.operations.table-path")
+    @ConditionalOnProperty(OWN)
     WebMvcConfigurer paztportHandlerReached() {
         return new WebMvcConfigurer() {
             @Override
@@ -129,7 +129,7 @@ public class OperationConfiguration {
         for (int i = 0; i < files.size(); i++) {
             Path file = Path.of(files.get(i));
             String property = RECEIVERS + "[" + i + "]";
-            OperationTable table = OwnMaterial.loadTable(file, property);
+            OperationTable table = StartupMaterial.loadTable(file, property);
             if (!present(table, proofs)) {
                 LOG.info("{} {} is set aside: paztport.proofs-path holds no proof of the table of {}, so calls to "
                         + "{} name no operation", property, file, table.service(), table.service());

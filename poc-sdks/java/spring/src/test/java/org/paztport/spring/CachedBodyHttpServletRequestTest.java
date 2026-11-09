@@ -157,9 +157,11 @@ class CachedBodyHttpServletRequestTest {
     /** Only a POST form's fields become parameters here, so no other body is spent by reading parameters. */
     @Test
     void otherBodiesAreNeverSpent() throws Exception {
-        for (CachedBodyHttpServletRequest request : List.of(cached(container("PUT", FORM), "field=hello"),
-                cached(container("POST", "application/json"), "{\"field\":\"hello\"}"))) {
-            String body = new String(request.cachedBody(), StandardCharsets.UTF_8);
+        String form = "field=hello";
+        String json = "{\"field\":\"hello\"}";
+        for (CachedBodyHttpServletRequest request : List.of(cached(container("PUT", FORM), form),
+                cached(container("POST", "application/json"), json))) {
+            String body = request.getMethod().equals("PUT") ? form : json;
             request.getParameter("field");
             request.getParameterMap();
             assertThat(new String(request.getInputStream().readAllBytes(), StandardCharsets.UTF_8)).isEqualTo(body);

@@ -31,7 +31,7 @@ import org.paztport.http.boundary.BoundaryListener;
 import org.paztport.spring.PaztportAutoConfiguration;
 import org.paztport.spring.PaztportProperties;
 import org.paztport.spring.internal.Durations;
-import org.paztport.spring.internal.OwnMaterial;
+import org.paztport.spring.internal.StartupMaterial;
 import org.paztport.spring.outbound.PooledTlsClient;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -99,10 +99,10 @@ public class PartnerConfiguration {
             throw new IllegalStateException(
                     "paztport.boundary.tls-bundle is set but no SSL bundles are configured (spring.ssl.bundle.*)");
         }
-        SignedRoot ownRoot = OwnMaterial.loadRoot(Path.of(props.getRootPath()));
-        KeyringFile ownKeyring = OwnMaterial.loadKeyring(Path.of(props.getKeyringPath()));
+        SignedRoot ownRoot = StartupMaterial.loadRoot(Path.of(props.getRootPath()));
+        KeyringFile ownKeyring = StartupMaterial.loadKeyring(Path.of(props.getKeyringPath()));
         String ownPin = KeyFiles.loadPolicyPin(Path.of(props.getPolicyKeyPath()));
-        OwnMaterial.require(ownKeyring, Path.of(props.getKeyringPath()), ownRoot, Path.of(props.getRootPath()),
+        StartupMaterial.require(ownKeyring, Path.of(props.getKeyringPath()), ownRoot, Path.of(props.getRootPath()),
                 ownPin, System.currentTimeMillis());
         Stamper stamping = stamper.getObject();
         ProofBundle proofs = bundle.getObject();
@@ -150,7 +150,7 @@ public class PartnerConfiguration {
      * wrong: a partner that also verifies as one of this organisation's services does, no clients pinned, no
      * origins allowed, or a session cap or idle period that is not positive. Its replies are signed by its own
      * entry service's key, never the policy key, so it also refuses to start, in this order, unless: its keyring and
-     * root verify under its pin and are current ({@link OwnMaterial}, which names the property and the fix); the
+     * root verify under its pin and are current ({@link StartupMaterial}, which names the property and the fix); the
      * keyring holds {@code paztport.service-name}; that entry is the key at {@code paztport.key-path}; the reply
      * certificate verifies under the pin, names that service and that key, and has not expired by the wall clock.
      * The checks after the first are {@link PartnerSessions.Builder#build}'s, worded here in terms of the property
@@ -212,14 +212,14 @@ public class PartnerConfiguration {
         }
         String service = props.getServiceName();
         String pin = KeyFiles.loadPolicyPin(Path.of(props.getPolicyKeyPath()));
-        KeyringFile keyring = OwnMaterial.loadKeyring(Path.of(props.getKeyringPath()));
-        SignedRoot ownRoot = OwnMaterial.loadRoot(Path.of(props.getRootPath()));
-        OwnMaterial.require(keyring, Path.of(props.getKeyringPath()), ownRoot, Path.of(props.getRootPath()), pin,
+        KeyringFile keyring = StartupMaterial.loadKeyring(Path.of(props.getKeyringPath()));
+        SignedRoot ownRoot = StartupMaterial.loadRoot(Path.of(props.getRootPath()));
+        StartupMaterial.require(keyring, Path.of(props.getKeyringPath()), ownRoot, Path.of(props.getRootPath()), pin,
                 clock.getAsLong());
         PrivateKey serviceKey = KeyFiles.loadPrivateKey(Path.of(props.getKeyPath()));
         ReplyCert cert;
         try {
-            cert = OwnMaterial.loadReplyCert(Path.of(p.getReplyCertPath()));
+            cert = StartupMaterial.loadReplyCert(Path.of(p.getReplyCertPath()));
         } catch (UncheckedIOException e) {
             throw new IllegalStateException("paztport.partner.reply-cert-path could not be read", e);
         }
@@ -252,7 +252,7 @@ public class PartnerConfiguration {
     /** What is wrong, in terms of the {@code paztport.*} property that holds it. */
     private static String message(PartnerSessions.Fault fault) {
         return switch (fault) {
-            // Not reached: OwnMaterial.require has refused it already, with the property and the fix.
+            // Not reached: StartupMaterial.require has refused it already, with the property and the fix.
             case OWN_MATERIAL -> "paztport.keyring-path or paztport.root-path is not current under "
                     + "paztport.policy-key-path";
             case NO_ENTRY_KEY -> "paztport.keyring-path has no key for paztport.service-name";

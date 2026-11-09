@@ -23,6 +23,7 @@ import org.paztport.core.crypto.Crypto;
 import org.paztport.core.crypto.KeyFiles;
 import org.paztport.core.policy.KeyringFile;
 import org.paztport.core.policy.OperationTable;
+import org.paztport.core.policy.OwnMaterial;
 import org.paztport.core.policy.PolicyBuilder;
 import org.paztport.core.policy.PolicyOwner;
 import org.paztport.core.policy.ProofBundle;
@@ -87,9 +88,6 @@ import org.paztport.core.session.ReplyCert;
  */
 public final class PolicyToolMain {
 
-    private static final long DAY_MS = 86_400_000L;
-    private static final int DEFAULT_DAYS = 7;
-
     private PolicyToolMain() {
     }
 
@@ -104,7 +102,7 @@ public final class PolicyToolMain {
      */
     public static void run(Path pathsYaml, Path keysDir, Path outDir, int depth, String replyCertSvc,
             long replyCertNotAfter) throws IOException {
-        run(pathsYaml, keysDir, outDir, depth, System.currentTimeMillis() + DEFAULT_DAYS * DAY_MS, replyCertSvc,
+        run(pathsYaml, keysDir, outDir, depth, System.currentTimeMillis() + OwnMaterial.DEFAULT_LIFETIME_MS, replyCertSvc,
                 replyCertNotAfter);
     }
 
@@ -393,32 +391,14 @@ public final class PolicyToolMain {
         }
     }
 
-    /** The reply certificate's {@code notAfter}: see {@link #daysFromNow}. */
+    /** The reply certificate's {@code notAfter}: see {@link OwnMaterial#daysFromNow}. */
     static long replyCertNotAfter(String days, long nowMs) {
-        return daysFromNow("PAZTPORT_REPLY_CERT_DAYS", days, nowMs);
+        return OwnMaterial.daysFromNow("PAZTPORT_REPLY_CERT_DAYS", days, nowMs);
     }
 
-    /** The root's and keyring's {@code notAfter}: see {@link #daysFromNow}. */
+    /** The root's and keyring's {@code notAfter}: see {@link OwnMaterial#daysFromNow}. */
     static long policyNotAfter(String days, long nowMs) {
-        return daysFromNow("PAZTPORT_POLICY_DAYS", days, nowMs);
-    }
-
-    /**
-     * Now plus {@code days} days (default 7 when null). Refuses anything but a positive whole number of days, and a
-     * lifetime that would end past 2^53 &minus; 1 ms, which nothing this tool signs can carry.
-     */
-    private static long daysFromNow(String setting, String days, long nowMs) {
-        long d;
-        try {
-            d = days == null ? DEFAULT_DAYS : Integer.parseInt(days);
-        } catch (NumberFormatException e) {
-            d = 0;
-        }
-        if (d < 1 || d > (SignedRoot.MAX_NOT_AFTER - nowMs) / DAY_MS) {
-            throw new IllegalArgumentException(setting + " must be a positive whole number of days"
-                    + " ending before 2^53 - 1 ms");
-        }
-        return nowMs + d * DAY_MS;
+        return OwnMaterial.daysFromNow("PAZTPORT_POLICY_DAYS", days, nowMs);
     }
 
     /**

@@ -158,14 +158,6 @@ public final class OperationResolver implements SmartInitializingSingleton {
     }
 
     /**
-     * The pattern the DispatcherServlet's handler mapping sets for the request as it maps it, or null when no mapping
-     * will answer a handler, or the one that will sets no pattern as it maps ({@link #dispatch}).
-     */
-    String patternFor(HttpServletRequest request) {
-        return dispatch(request).pattern();
-    }
-
-    /**
      * The handler the DispatcherServlet's handler mappings will answer for the request, and the pattern the one that
      * answers sets as it maps it; both null when none will answer. Annotated handlers' and router functions' mappings
      * set the pattern then; a URL-mapped handler's, such as static resources', sets it only as the handler is about to

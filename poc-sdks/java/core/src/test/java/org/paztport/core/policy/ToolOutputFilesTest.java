@@ -24,7 +24,7 @@ import org.paztport.core.encoding.Base64Url;
 import org.paztport.core.internal.JsonReader;
 import org.paztport.core.internal.JsonWriter;
 
-class ConfigFilesTest {
+class ToolOutputFilesTest {
 
     /** The validity window of the fixture roots and keyrings: 2100-01-01, beyond any clock here. */
     private static final long NOT_AFTER = 4_102_444_800_000L;

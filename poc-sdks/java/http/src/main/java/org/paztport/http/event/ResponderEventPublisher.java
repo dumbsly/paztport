@@ -43,7 +43,7 @@ import org.slf4j.LoggerFactory;
  */
 public final class ResponderEventPublisher implements EventPublisher {
 
-    private static final Logger log = LoggerFactory.getLogger(ResponderEventPublisher.class);
+    private static final Logger LOG = LoggerFactory.getLogger(ResponderEventPublisher.class);
 
     private final EventPublisher logging = new LoggingEventPublisher();
     private final HttpClient http;
@@ -87,10 +87,10 @@ public final class ResponderEventPublisher implements EventPublisher {
             int status = WholeExchange.send(http, request, HttpResponse.BodyHandlers.discarding())
                     .statusCode();
             if (status >= 400) {
-                log.warn("the responder at {} refused the event: {}", responderUrl, status);
+                LOG.warn("the responder at {} refused the event: {}", responderUrl, status);
             }
         } catch (IOException | RuntimeException e) {
-            log.warn("could not reach responder at {}: {}", responderUrl, e.getMessage());
+            LOG.warn("could not reach responder at {}: {}", responderUrl, e.getMessage());
         }
     }
 

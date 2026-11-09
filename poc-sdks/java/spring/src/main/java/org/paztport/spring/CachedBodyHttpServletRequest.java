@@ -60,10 +60,6 @@ final class CachedBodyHttpServletRequest extends HttpServletRequestWrapper {
         this.body = body;
     }
 
-    byte[] cachedBody() {
-        return body;
-    }
-
     /**
      * This request, with the same body, headers, method and path, whose parameters are those its container holds,
      * the query's, and none from the body.

@@ -29,7 +29,7 @@ import org.paztport.core.stamp.Stamper;
 import org.paztport.core.verify.ReasonCode;
 import org.paztport.core.verify.Verifier;
 import org.paztport.core.verify.VerifyInput;
-import org.paztport.spring.internal.OwnMaterial;
+import org.paztport.spring.internal.StartupMaterial;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.context.properties.bind.Binder;
@@ -194,7 +194,7 @@ class OverlapPathsTest {
     void aSecondOverlapRootThatFailsOrNearsItsEndIsNamedByItsPlace(@TempDir Path dir) throws Exception {
         writeOwn(dir);
         KeyPair other = Crypto.generateEd25519KeyPair();
-        long soon = System.currentTimeMillis() + OwnMaterial.WARN_WITHIN_MS - 60_000;
+        long soon = System.currentTimeMillis() + StartupMaterial.WARN_WITHIN_MS - 60_000;
         JSON.writeValue(dir.resolve("renewed.json").toFile(), renewed.signedRoot());
         JSON.writeValue(dir.resolve("forged-root.json").toFile(),
                 PolicyBuilder.build(List.of(List.of("gateway", "orders")), 4, NOT_AFTER, other.getPrivate())
@@ -231,7 +231,7 @@ class OverlapPathsTest {
         Path overlapFile = dir.resolve("rotated.json");
 
         // The own root, standing in for the overlap keyring's other half, has lapsed: the own root is named.
-        assertThatThrownBy(() -> OwnMaterial.requireOverlap(List.of(overlapKeyring), List.of(overlapFile), List.of(),
+        assertThatThrownBy(() -> StartupMaterial.requireOverlap(List.of(overlapKeyring), List.of(overlapFile), List.of(),
                 List.of(), ownKeyring, keyringFile, lapsedRoot, rootFile, pub(policy), now))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageStartingWith("paztport.root-path has expired").hasMessageEndingWith(rootFile.toString())
@@ -316,7 +316,7 @@ class OverlapPathsTest {
     @Test
     void anOverlapFileNearItsEndIsWarnedAboutNamingItsPlace(@TempDir Path dir) throws Exception {
         writeOwn(dir);
-        long soon = System.currentTimeMillis() + OwnMaterial.WARN_WITHIN_MS - 60_000;
+        long soon = System.currentTimeMillis() + StartupMaterial.WARN_WITHIN_MS - 60_000;
         keyring(dir.resolve("far.json"), rotated, NOT_AFTER, policy);
         keyring(dir.resolve("soon.json"), rotated, soon, policy);
         JSON.writeValue(dir.resolve("soon-root.json").toFile(),
@@ -343,7 +343,7 @@ class OverlapPathsTest {
 
     /** The warning lines the starter's material check logs while {@code run} runs. */
     private static List<String> warningsDuring(Runnable run) {
-        Logger log = (Logger) LoggerFactory.getLogger(OwnMaterial.class);
+        Logger log = (Logger) LoggerFactory.getLogger(StartupMaterial.class);
         ListAppender<ILoggingEvent> lines = new ListAppender<>();
         lines.start();
         log.addAppender(lines);

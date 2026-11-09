@@ -18,9 +18,6 @@ import org.paztport.core.policy.KeyringFile;
  */
 public final class KeyGenerator {
 
-    /** How long a generated keyring vouches for its keys: seven days. */
-    public static final long DEFAULT_KEYRING_LIFETIME_MS = 7 * 86_400_000L;
-
     private KeyGenerator() {
     }
 

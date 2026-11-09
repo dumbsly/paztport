@@ -15,11 +15,11 @@ import org.slf4j.LoggerFactory;
  */
 public final class LoggingEventPublisher implements EventPublisher {
 
-    private static final Logger log = LoggerFactory.getLogger("PAZTPORT_EVENT");
+    private static final Logger LOG = LoggerFactory.getLogger("PAZTPORT_EVENT");
 
     @Override
     public void publish(AttestationEvent event) {
-        log.warn(format(event));
+        LOG.warn(format(event));
     }
 
     static String format(AttestationEvent e) {

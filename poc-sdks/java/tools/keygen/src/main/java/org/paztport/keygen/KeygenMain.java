@@ -19,7 +19,7 @@ import java.util.Set;
 import org.paztport.core.crypto.KeyFiles;
 import org.paztport.core.encoding.Base64Url;
 import org.paztport.core.influence.BoundaryInfluence;
-import org.paztport.core.policy.KeyringFile;
+import org.paztport.core.policy.OwnMaterial;
 
 /**
  * One-shot CLI: generate per-service keypairs, the signed keyring, the policy pin, and TLS certificates. The keyring
@@ -44,14 +44,13 @@ import org.paztport.core.policy.KeyringFile;
 public final class KeygenMain {
 
     private static final Duration TLS_VALIDITY = Duration.ofDays(825);
-    private static final long DAY_MS = 86_400_000L;
 
     private KeygenMain() {
     }
 
     /** As {@link #run(Path, List, List, String, long)}, the keyring vouching for its keys for seven days from now. */
     public static void run(Path outDir, List<String> services, List<String> tlsOnly, String org) throws IOException {
-        run(outDir, services, tlsOnly, org, System.currentTimeMillis() + KeyGenerator.DEFAULT_KEYRING_LIFETIME_MS);
+        run(outDir, services, tlsOnly, org, System.currentTimeMillis() + OwnMaterial.DEFAULT_LIFETIME_MS);
     }
 
     /** Writes every file, the keyring signed until {@code keyringNotAfter} (milliseconds since the epoch). */
@@ -122,22 +121,9 @@ public final class KeygenMain {
         }
     }
 
-    /**
-     * Now plus {@code days} days (default 7 when null). Refuses anything but a positive whole number of days, and a
-     * lifetime that would end past 2^53 &minus; 1 ms, which no keyring can carry.
-     */
+    /** The keyring's {@code notAfter}: see {@link OwnMaterial#daysFromNow}. */
     static long keyringNotAfter(String days, long nowMs) {
-        long d;
-        try {
-            d = days == null ? KeyGenerator.DEFAULT_KEYRING_LIFETIME_MS / DAY_MS : Integer.parseInt(days);
-        } catch (NumberFormatException e) {
-            d = 0;
-        }
-        if (d < 1 || d > (KeyringFile.MAX_NOT_AFTER - nowMs) / DAY_MS) {
-            throw new IllegalArgumentException("PAZTPORT_POLICY_DAYS must be a positive whole number of days"
-                    + " ending before 2^53 - 1 ms");
-        }
-        return nowMs + d * DAY_MS;
+        return OwnMaterial.daysFromNow("PAZTPORT_POLICY_DAYS", days, nowMs);
     }
 
     /** Parsed command line. */

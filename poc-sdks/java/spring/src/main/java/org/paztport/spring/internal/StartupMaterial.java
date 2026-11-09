@@ -7,6 +7,7 @@ import java.nio.file.Path;
 import java.util.List;
 import org.paztport.core.policy.KeyringFile;
 import org.paztport.core.policy.OperationTable;
+import org.paztport.core.policy.OwnMaterial;
 import org.paztport.core.policy.OwnMaterial.Kind;
 import org.paztport.core.policy.OwnMaterial.Problem;
 import org.paztport.core.policy.OwnMaterial.Subject;
@@ -19,7 +20,7 @@ import org.slf4j.LoggerFactory;
 /**
  * The startup check every bean that loads {@code paztport.keyring-path} and {@code paztport.root-path} runs on them,
  * so that one place decides what a service may start with, and the message always names the property at fault and
- * the fix. The checks themselves are core's, {@link org.paztport.core.policy.OwnMaterial}; this words their findings
+ * the fix. The checks themselves are core's, {@link OwnMaterial}; this words their findings
  * in terms of the {@code paztport.*} properties.
  *
  * <p>It refuses, rather than degrades, because a service that loads its own material already expired is
@@ -36,12 +37,12 @@ import org.slf4j.LoggerFactory;
  * certificate, so that a file that does not read fails the startup in one way whichever it is: one line naming the
  * property, the reader's reason and the file.
  */
-public final class OwnMaterial {
+public final class StartupMaterial {
 
     /** A warning is logged when no more than this remains: a quarter of the default lifetime, 42 hours. */
-    public static final long WARN_WITHIN_MS = org.paztport.core.policy.OwnMaterial.WARN_WITHIN_MS;
+    public static final long WARN_WITHIN_MS = OwnMaterial.WARN_WITHIN_MS;
 
-    private static final Logger LOG = LoggerFactory.getLogger(OwnMaterial.class);
+    private static final Logger LOG = LoggerFactory.getLogger(StartupMaterial.class);
 
     private static final String FIX = "re-sign with the policy tool (PAZTPORT_RENEW=true renews it without rebuilding)";
 
@@ -52,7 +53,7 @@ public final class OwnMaterial {
     private static final String PROOFS = "paztport.proofs-path";
     private static final String REPLY_CERT = "paztport.partner.reply-cert-path";
 
-    private OwnMaterial() {
+    private StartupMaterial() {
     }
 
     /**
@@ -126,8 +127,8 @@ public final class OwnMaterial {
      */
     public static void require(KeyringFile keyring, Path keyringFile, SignedRoot root, Path rootFile, String policyPin,
             long nowMs) {
-        List<Problem> problems = org.paztport.core.policy.OwnMaterial.check(keyring, root, policyPin, nowMs);
-        List<Subject> soon = org.paztport.core.policy.OwnMaterial.expiringSoon(keyring, root, nowMs);
+        List<Problem> problems = OwnMaterial.check(keyring, root, policyPin, nowMs);
+        List<Subject> soon = OwnMaterial.expiringSoon(keyring, root, nowMs);
         // A file's warning is logged as its own window is checked, which comes after both signatures and before the
         // other file's window, so a refusal over a later check still leaves the earlier file's warning behind it.
         for (Subject subject : soon) {
@@ -154,7 +155,7 @@ public final class OwnMaterial {
             List<Path> rootFiles, KeyringFile ownKeyring, Path ownKeyringFile, SignedRoot ownRoot, Path ownRootFile,
             String policyPin, long nowMs) {
         for (int i = 0; i < keyrings.size(); i++) {
-            List<Problem> problems = org.paztport.core.policy.OwnMaterial.check(keyrings.get(i), ownRoot, policyPin,
+            List<Problem> problems = OwnMaterial.check(keyrings.get(i), ownRoot, policyPin,
                     nowMs);
             if (!problems.isEmpty()) {
                 Problem p = problems.get(0);
@@ -162,13 +163,13 @@ public final class OwnMaterial {
                         ? message(p, OVERLAP_KEYRINGS + "[" + i + "]", keyringFiles.get(i))
                         : message(p, ownKeyringFile, ownRootFile));
             }
-            if (org.paztport.core.policy.OwnMaterial.expiringSoon(keyrings.get(i), ownRoot, nowMs)
+            if (OwnMaterial.expiringSoon(keyrings.get(i), ownRoot, nowMs)
                     .contains(Subject.KEYRING)) {
                 warnOverlap(OVERLAP_KEYRINGS + "[" + i + "]", keyringFiles.get(i), keyrings.get(i).notAfter());
             }
         }
         for (int i = 0; i < roots.size(); i++) {
-            List<Problem> problems = org.paztport.core.policy.OwnMaterial.check(ownKeyring, roots.get(i), policyPin,
+            List<Problem> problems = OwnMaterial.check(ownKeyring, roots.get(i), policyPin,
                     nowMs);
             if (!problems.isEmpty()) {
                 Problem p = problems.get(0);
@@ -176,7 +177,7 @@ public final class OwnMaterial {
                         ? message(p, OVERLAP_ROOTS + "[" + i + "]", rootFiles.get(i))
                         : message(p, ownKeyringFile, ownRootFile));
             }
-            if (org.paztport.core.policy.OwnMaterial.expiringSoon(ownKeyring, roots.get(i), nowMs)
+            if (OwnMaterial.expiringSoon(ownKeyring, roots.get(i), nowMs)
                     .contains(Subject.ROOT)) {
                 warnOverlap(OVERLAP_ROOTS + "[" + i + "]", rootFiles.get(i), roots.get(i).notAfter());
             }
@@ -208,7 +209,7 @@ public final class OwnMaterial {
 
     /** The integer, then its instant when there is one, so that no value however large makes the message throw. */
     public static String describe(long notAfter) {
-        return org.paztport.core.policy.OwnMaterial.describe(notAfter);
+        return OwnMaterial.describe(notAfter);
     }
 
     private static String message(Problem problem, Path keyringFile, Path rootFile) {

@@ -23,13 +23,33 @@ import org.paztport.core.encoding.Base64Url;
  */
 public final class OwnMaterial {
 
-    /** The lifetime the policy tool gives what it signs unless told otherwise: seven days. */
-    static final long DEFAULT_LIFETIME_MS = TimeUnit.DAYS.toMillis(7);
+    /** The lifetime the keygen and policy tools give what they sign unless told otherwise: seven days. */
+    public static final long DEFAULT_LIFETIME_MS = TimeUnit.DAYS.toMillis(7);
 
     /** A warning is due when no more than this remains: a quarter of the default lifetime, 42 hours. */
     public static final long WARN_WITHIN_MS = DEFAULT_LIFETIME_MS / 4;
 
     private OwnMaterial() {
+    }
+
+    /**
+     * Now plus {@code days} days, or plus {@link #DEFAULT_LIFETIME_MS} when {@code days} is null. Refuses anything but
+     * a positive whole number of days, and a lifetime that would end past 2^53 &minus; 1 ms, which no keyring, root
+     * or reply certificate can carry; the refusal names {@code setting}, the variable the days came from.
+     */
+    public static long daysFromNow(String setting, String days, long nowMs) {
+        long dayMs = TimeUnit.DAYS.toMillis(1);
+        long d;
+        try {
+            d = days == null ? DEFAULT_LIFETIME_MS / dayMs : Integer.parseInt(days);
+        } catch (NumberFormatException e) {
+            d = 0;
+        }
+        if (d < 1 || d > (KeyringFile.MAX_NOT_AFTER - nowMs) / dayMs) {
+            throw new IllegalArgumentException(setting + " must be a positive whole number of days"
+                    + " ending before 2^53 - 1 ms");
+        }
+        return nowMs + d * dayMs;
     }
 
     /** Which of a service's two files a finding is about. */

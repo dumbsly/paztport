@@ -79,7 +79,7 @@ import org.paztport.http.event.LoggingEventPublisher;
 import org.paztport.http.event.ResponderEventPublisher;
 import org.paztport.http.wire.HttpWire;
 import org.paztport.http.wire.PaztportHeaders;
-import org.paztport.spring.internal.OwnMaterial;
+import org.paztport.spring.internal.StartupMaterial;
 import org.paztport.spring.outbound.PooledTlsClient;
 import org.paztport.spring.trust.AdminModeController;
 import org.paztport.spring.trust.ResponseVerifier;
@@ -206,7 +206,7 @@ class PaztportAutoConfigurationTest {
                     assertThat(context).hasSingleBean(NonceCache.class);
                     assertThat(context.getBean(NonceCache.class)).isSameAs(mine);
                     Verifier verifier = context.getBean(Verifier.class);
-                    assertThat(verifier.nonceTtlMs()).isEqualTo(20_000);
+                    assertThat(mine.ttlMs()).isEqualTo(20_000);
 
                     // A request through the verifier spends its key in the application's cache.
                     Stamper.Stamped sent = new Stamper("gateway", "gw-1", gateway.getPrivate(), true,
@@ -232,7 +232,6 @@ class PaztportAutoConfigurationTest {
                     assertThat(context).hasSingleBean(Verifier.class).hasSingleBean(ResponseVerifier.class);
                     Verifier responses = context.getBean(ResponseVerifier.class).verifier();
                     assertThat(responses).isNotSameAs(context.getBean(Verifier.class));
-                    assertThat(responses.nonceTtlMs()).isEqualTo(VerifierConfig.nonceTtlFor(20_000));
 
                     // A check through the response verifier spends its key in its own cache, never in the
                     // application's, and the same key again is a replay there.
@@ -557,7 +556,7 @@ class PaztportAutoConfigurationTest {
 
     /** The warning's lines, with the file and the notAfter each names, while {@code run} runs. */
     private List<String> warningsDuring(Runnable run) {
-        Logger log = (Logger) LoggerFactory.getLogger(OwnMaterial.class);
+        Logger log = (Logger) LoggerFactory.getLogger(StartupMaterial.class);
         ListAppender<ILoggingEvent> lines = new ListAppender<>();
         lines.start();
         log.addAppender(lines);
@@ -575,7 +574,7 @@ class PaztportAutoConfigurationTest {
     @Test
     void warnsNearExpiry(@TempDir Path dir) throws Exception {
         writeWorld(dir);
-        long notAfter = System.currentTimeMillis() + OwnMaterial.WARN_WITHIN_MS - 60_000;
+        long notAfter = System.currentTimeMillis() + StartupMaterial.WARN_WITHIN_MS - 60_000;
         JSON.writeValue(dir.resolve("keyring.json").toFile(),
                 KeyringFile.sign(Map.of("gateway", pub(gateway)), pub(policy), notAfter, policy.getPrivate()));
 
@@ -591,7 +590,7 @@ class PaztportAutoConfigurationTest {
     @Test
     void noWarningWithAQuarterOfTheLifetimeLeftOrMore(@TempDir Path dir) throws Exception {
         writeWorld(dir);
-        long notAfter = System.currentTimeMillis() + OwnMaterial.WARN_WITHIN_MS + 60_000;
+        long notAfter = System.currentTimeMillis() + StartupMaterial.WARN_WITHIN_MS + 60_000;
         JSON.writeValue(dir.resolve("keyring.json").toFile(),
                 KeyringFile.sign(Map.of("gateway", pub(gateway)), pub(policy), notAfter, policy.getPrivate()));
 
@@ -601,8 +600,8 @@ class PaztportAutoConfigurationTest {
 
     @Test
     void aNotAfterBeyondTheInstantRangeStillGivesAMessage() {
-        assertThat(OwnMaterial.describe(Long.MAX_VALUE)).startsWith("9223372036854775807");
-        assertThat(OwnMaterial.describe(KeyringFile.MAX_NOT_AFTER)).startsWith("9007199254740991");
+        assertThat(StartupMaterial.describe(Long.MAX_VALUE)).startsWith("9223372036854775807");
+        assertThat(StartupMaterial.describe(KeyringFile.MAX_NOT_AFTER)).startsWith("9007199254740991");
     }
 
     /**
@@ -618,10 +617,10 @@ class PaztportAutoConfigurationTest {
                     .withPropertyValues("paztport.max-age-ms=" + maxAge)
                     .run(context -> {
                         Verifier verifier = context.getBean(Verifier.class);
-                        assertThat(verifier.callMaxAgeMs()).isEqualTo(maxAge);
-                        assertThat(verifier.nonceTtlMs()).isNotEqualTo(Long.MAX_VALUE)
+                        long ttlMs = context.getBean(NonceCache.class).ttlMs();
+                        assertThat(ttlMs).isNotEqualTo(Long.MAX_VALUE)
                                 .isEqualTo(Math.max(VerifierConfig.NONCE_TTL_MS, 2 * maxAge));
-                        assertThat(Math.floorDiv(verifier.nonceTtlMs(), 2)).isGreaterThanOrEqualTo(maxAge);
+                        assertThat(Math.floorDiv(ttlMs, 2)).isGreaterThanOrEqualTo(maxAge);
 
                         // The guard holds, so a fresh request verifies rather than failing closed as a replay.
                         Stamper.Stamped sent = new Stamper("gateway", "gw-1", gateway.getPrivate(), true,

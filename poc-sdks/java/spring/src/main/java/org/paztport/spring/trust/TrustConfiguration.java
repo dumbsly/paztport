@@ -24,7 +24,7 @@ import org.paztport.http.VerificationMode;
 import org.paztport.spring.PaztportAutoConfiguration;
 import org.paztport.spring.PaztportProperties;
 import org.paztport.spring.internal.Durations;
-import org.paztport.spring.internal.OwnMaterial;
+import org.paztport.spring.internal.StartupMaterial;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -61,7 +61,7 @@ public class TrustConfiguration {
     @Bean
     @ConditionalOnProperty("paztport.proofs-path")
     ProofBundle paztportProofBundle(PaztportProperties props) {
-        return OwnMaterial.loadProofs(Path.of(props.getProofsPath()));
+        return StartupMaterial.loadProofs(Path.of(props.getProofsPath()));
     }
 
     /**
@@ -109,27 +109,27 @@ public class TrustConfiguration {
                     + "the entry points it accepts, for example paztport.origins=gateway");
         }
         long runMaxAgeMs = props.getRunMaxAgeMs() != null ? props.getRunMaxAgeMs() : props.getMaxAgeMs();
-        KeyringFile keyring = OwnMaterial.loadKeyring(Path.of(props.getKeyringPath()));
-        SignedRoot root = OwnMaterial.loadRoot(Path.of(props.getRootPath()));
+        Path keyringFile = Path.of(props.getKeyringPath());
+        Path rootFile = Path.of(props.getRootPath());
+        KeyringFile keyring = StartupMaterial.loadKeyring(keyringFile);
+        SignedRoot root = StartupMaterial.loadRoot(rootFile);
         String pin = KeyFiles.loadPolicyPin(Path.of(props.getPolicyKeyPath()));
         // One reading of the clock judges every file at startup and pins them, so none can pass one check and
         // expire before the next. The verifier itself keeps the live clock.
         long startup = System.currentTimeMillis();
-        Path keyringFile = Path.of(props.getKeyringPath());
-        Path rootFile = Path.of(props.getRootPath());
-        OwnMaterial.require(keyring, keyringFile, root, rootFile, pin, startup);
+        StartupMaterial.require(keyring, keyringFile, root, rootFile, pin, startup);
         // This service's own keyring and root first, then the overlap files in the order given.
         List<Path> keyringFiles = paths(props.getOverlap().getKeyringPaths());
         List<Path> rootFiles = paths(props.getOverlap().getRootPaths());
         List<KeyringFile> keyrings = new ArrayList<>(List.of(keyring));
         List<SignedRoot> roots = new ArrayList<>(List.of(root));
         for (int i = 0; i < keyringFiles.size(); i++) {
-            keyrings.add(OwnMaterial.loadOverlapKeyring(keyringFiles.get(i), i));
+            keyrings.add(StartupMaterial.loadOverlapKeyring(keyringFiles.get(i), i));
         }
         for (int i = 0; i < rootFiles.size(); i++) {
-            roots.add(OwnMaterial.loadOverlapRoot(rootFiles.get(i), i));
+            roots.add(StartupMaterial.loadOverlapRoot(rootFiles.get(i), i));
         }
-        OwnMaterial.requireOverlap(keyrings.subList(1, keyrings.size()), keyringFiles,
+        StartupMaterial.requireOverlap(keyrings.subList(1, keyrings.size()), keyringFiles,
                 roots.subList(1, roots.size()), rootFiles, keyring, keyringFile, root, rootFile, pin, startup);
         if (!keyringFiles.isEmpty() || !rootFiles.isEmpty()) {
             LOG.info("pinning {} overlap {} and {} overlap {} beside this service's own", rootFiles.size(),
