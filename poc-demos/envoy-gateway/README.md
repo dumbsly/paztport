@@ -504,15 +504,15 @@ What the checks and the measurements found, beyond the numbers.
   route that retries on 5xx does exactly that. With `payment` scaled to 0, so that `orders` answers 500, each of 50
   requests on such a route was verified and served by one `orders` replica, retried and served again by the other, and
   refused `REPLAY` only on the third try, back at a replica that had seen the stamp (Envoy counted 100 retries). Every
-  client got 403 in the end, but had `payment` been up, it would have been called twice for one order. Hence the rule:
-  a Paztport route retries only what never reached the backend (`connect-failure`, `refused-stream`), as
-  `orders-routes` does. On it, 50 such requests were each served once, Envoy retrying none, and with an `orders`
-  container killed under load, Envoy made 356 retries after 364 failed connections, and every stamp was served once. A
-  request the edge sends twice is duplicate delivery, which the backend's application handles by idempotency keyed on
-  the delivery (the verified chain's `rid`, last signer and last receiver, with the last stamp's `bind` to tell a different
-  request under a reused key). A shared, expiring nonce store across replicas is optional hardening: it holds a
-  compromised caller to each key once per request tree whatever the replica count, but it does not make a retry
-  safe, as the retry is then refused `REPLAY`.
+  client got 403 in the end, but had `payment` been up, it would have been called twice for one order. Hence the rule: a
+  Paztport route retries only what never reached the backend (`connect-failure`, `refused-stream`), as `orders-routes`
+  does. On it, 50 such requests were each served once, Envoy retrying none, and with an `orders` container killed under
+  load, Envoy made 356 retries after 364 failed connections, and every stamp was served once. A request the edge sends
+  twice is duplicate delivery, which the backend's application handles by idempotency keyed on the delivery (the
+  verified chain's `rid`, last signer and last receiver, with the last stamp's `bind` to tell a different request under
+  a reused key). A shared, expiring nonce store across replicas is optional hardening: it holds a compromised caller to
+  each key once per request tree whatever the replica count, but it does not make a retry safe, as the retry is then
+  refused `REPLAY`.
 - **No central server is needed:** see the fourth answer above.
 - **Spring Boot trusts `X-Forwarded-For` on Kubernetes.** Boot turns on Tomcat's `RemoteIpValve` when it detects
   Kubernetes, so the peer's instance a refusal's event names would come from a header the client sent. The backends
