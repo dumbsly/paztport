@@ -22,6 +22,6 @@
  *
  * <p>Four packages sit beside it: {@code wire} holds the header codecs and the request binding, {@code boundary}
  * the egress to a partner, {@code event} the verification events a service reports, and {@code internal} what the
- * module shares inside itself and does not publish.
+ * SDK's modules share, which is not API.
  */
 package org.paztport.http;

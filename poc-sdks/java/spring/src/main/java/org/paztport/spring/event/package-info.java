@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Verification verdicts worth reporting, and the publishers that log them or send them, signed, to the responder.
+ * The bean that publishes this service's verification events: to the responder where {@code paztport.responder-url}
+ * is set, otherwise to the log.
  */
 package org.paztport.spring.event;

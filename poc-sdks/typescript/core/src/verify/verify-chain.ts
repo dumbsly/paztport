@@ -9,7 +9,10 @@ import { isNotAfter } from "../policy/validity.ts";
 
 export const CALL_MAX_AGE_MS = 5000;
 export const RUN_MAX_AGE_MS = 1_800_000;
-/** Nonce caches must remember keys for at least twice the call freshness window. */
+/**
+ * The least time a nonce cache remembers a key, whatever the call window; the verifier also refuses a cache that
+ * remembers keys for less than twice the window.
+ */
 export const NONCE_TTL_MS = 15_000;
 
 /** The authenticated transport peer, supplied by the transport extension (e.g. from mTLS): its service name and its address. */

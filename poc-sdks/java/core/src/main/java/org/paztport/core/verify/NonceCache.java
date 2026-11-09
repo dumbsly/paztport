@@ -4,10 +4,9 @@
 package org.paztport.core.verify;
 
 /**
- * Replay guard keyed by an opaque string. {@link #seenBefore} atomically
- * records the key at {@code now} and reports whether it had been seen already.
- * What the key is made of belongs to the protocol version using the cache, so
- * the cache never has to understand it. A deployment that wants one cache across its replicas can supply a
+ * Replay guard keyed by an opaque string. {@link #seenBefore} atomically records the key at {@code now} and reports
+ * whether it had been seen already. What the key is made of belongs to the transport (the HTTP nonce keys), so the
+ * cache never has to understand it. A deployment that wants one cache across its replicas can supply a
  * shared, expiring implementation.
  *
  * <p>A cache that cannot answer (a shared store that is down or too slow) throws an exception from

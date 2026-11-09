@@ -7,11 +7,10 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * In-memory, process-local replay guard. The no-argument form never forgets,
- * which is unbounded and fine for the POC; the ttl form drops a key once it is
- * older than the ttl, so memory follows the freshness window. Expired keys are swept at most once per half ttl;
- * between sweeps an expired key may still be stored, but it is never reported seen, since the check compares the
- * stored time.
+ * In-memory, process-local replay guard. The no-argument form never forgets, for use where that is the point, such as
+ * an offline record set, and grows without bound. The ttl form drops a key once it is older than the ttl, so memory
+ * follows the freshness window. Expired keys are swept at most once per half ttl; between sweeps an expired key may
+ * still be stored, but it is never reported seen, since the check compares the stored time.
  */
 public final class InMemoryNonceCache implements NonceCache {
 

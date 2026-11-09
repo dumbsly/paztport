@@ -186,7 +186,7 @@ public final class Sessions {
     /**
      * Signs the reply with {@code signingKey}: the entry service's key when the reply carries
      * {@code serverKeyringSig} and {@code serverReplyCert}, the policy key when it carries neither. Any signature
-     * already on the input is replaced. Only the key changed between the forms: the server must still say
+     * already on the input is replaced. The two forms differ only in the signing key: the server must still say
      * {@code "attested"} only after its status checks ({@link #status}), since the signature vouches for whatever
      * the reply says. In the entry-key form {@code serverKeyringNotAfter} must be the window
      * {@code serverKeyringSig} was made over, the keyring's own, or the client's check of that signature fails.

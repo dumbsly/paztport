@@ -49,7 +49,10 @@ public record VerifierConfig(
     public static final long CALL_MAX_AGE_MS = 5000;
     /** How old a run's origin stamp may be. */
     public static final long RUN_MAX_AGE_MS = 1_800_000;
-    /** Nonce caches must remember keys for at least twice the call freshness window. */
+    /**
+     * The least time a nonce cache remembers a key, whatever the call window; {@link #nonceTtlFor} takes the larger of
+     * this and twice the window.
+     */
     public static final long NONCE_TTL_MS = 15_000;
 
     /**
