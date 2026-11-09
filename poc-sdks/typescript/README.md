@@ -19,7 +19,7 @@ writes one and names it, so there it always runs.
 ## @paztport/core
 
 The protocol, with no transport: base64url, Ed25519 and SHA-256 helpers, canonical JSON, v3 stamps and chains, the
-salted Merkle tree, signed roots and keyrings, reply certificates, policy building, reason codes, the replay cache (an in-memory `NonceCache`, synchronous, with no way to plug in another store),
+salted Merkle tree, signed roots and keyrings, reply certificates, policy building, reason codes, the replay cache,
 prompt binding, influence and the owner-aware influence rule, sessions, local tool rules and the verdict for a local
 tool call, local steps, the live v3 chain verifier (`verifyChain`), and `keyFileText`, which trims a key file's text
 of the JSON whitespace around it and nothing else. For responders, `signEvent` signs an event, `createEventVerifier`
@@ -28,9 +28,10 @@ responder may act on it. Offline verification of a recorded run (`verifyChainOff
 checks with the live verifier; the agents demo's `npm run verify` uses it.
 
 It implements protocol v3, as the [spec](../spec/README.md) defines it, for MCP
-only: the TypeScript SDK has no HTTP binding, no delivery key, and does not
-name or confirm operations (the Java SDK does both). Its verifier does accept an
-operation in an `rcv`.
+only. The TypeScript SDK has no HTTP binding and no delivery key (the Java and Go
+SDKs have both), and it neither names nor confirms operations over HTTP (the Java
+SDK does; the Go SDK's receiver does not). Its verifier does accept an operation
+in an `rcv`.
 
 - **v3 only.** The live and offline chain verifiers take v3 stamps only: a stamp's `v` must be 3, and a
   chain holding any other is malformed, `CHAIN_MISSING`.
@@ -48,7 +49,8 @@ operation in an `rcv`.
 - **The receiver.** Every v3 stamp names the hop it was handed to, and the verifier checks each `rcv` against
   the next stamp and the last against `receiver`. An `rcv` is a service's name or `svc#operation` (check 4
   accepts either for a hop's next service, and takes the last `rcv` as exactly `receiver`). A live call or
-  chain stamped for a different receiver is `BINDING_MISMATCH`, not a route failure, so a forwarded chain does not blame its last signer.
+  chain stamped for a different receiver is `BINDING_MISMATCH`, not a route failure, so a forwarded chain
+  does not blame its last signer.
 - **The peer.** `peer` (`{ svc, inst }`) is the sender a transport authenticated. Given one, the verifier
   checks it is the last signer (`PEER_MISMATCH`, after every other check) and names it as the suspect in every
   result but `POLICY_EXPIRED`. No transport in this repository supplies one: the MCP wrappers (`verifyCall`,
