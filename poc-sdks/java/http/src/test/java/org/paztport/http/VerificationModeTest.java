@@ -5,6 +5,7 @@ package org.paztport.http;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
+import java.util.Locale;
 import org.junit.jupiter.api.Test;
 
 class VerificationModeTest {
@@ -14,6 +15,18 @@ class VerificationModeTest {
         assertEquals(VerificationMode.OFF, VerificationMode.fromProperty("off"));
         assertEquals(VerificationMode.AUDIT, VerificationMode.fromProperty("AUDIT"));
         assertEquals(VerificationMode.ENFORCE, VerificationMode.fromProperty("Enforce"));
+    }
+
+    @Test
+    void fromPropertyIgnoresTheDefaultLocale() {
+        Locale saved = Locale.getDefault();
+        try {
+            // Under tr-TR, "audit".toUpperCase() is "AUDİT" (dotted capital I).
+            Locale.setDefault(Locale.forLanguageTag("tr-TR"));
+            assertEquals(VerificationMode.AUDIT, VerificationMode.fromProperty("audit"));
+        } finally {
+            Locale.setDefault(saved);
+        }
     }
 
     @Test

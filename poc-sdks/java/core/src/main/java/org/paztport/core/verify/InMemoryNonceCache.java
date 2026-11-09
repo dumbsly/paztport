@@ -4,16 +4,23 @@
 package org.paztport.core.verify;
 
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * In-memory, process-local replay guard. The no-argument form never forgets,
  * which is unbounded and fine for the POC; the ttl form drops a key once it is
- * older than the ttl, so memory follows the freshness window.
+ * older than the ttl, so memory follows the freshness window. Expired keys are swept at most once per half ttl;
+ * between sweeps an expired key may still be stored, but it is never reported seen, since the check compares the
+ * stored time.
  */
 public final class InMemoryNonceCache implements NonceCache {
 
     private final ConcurrentHashMap<String, Long> seen = new ConcurrentHashMap<>();
     private final long ttlMs;
+    private final long sweepIntervalMs;
+    private final AtomicLong sweptAt = new AtomicLong(UNSWEPT);
+
+    private static final long UNSWEPT = Long.MIN_VALUE;
 
     public InMemoryNonceCache() {
         this(Long.MAX_VALUE);
@@ -21,6 +28,7 @@ public final class InMemoryNonceCache implements NonceCache {
 
     public InMemoryNonceCache(long ttlMs) {
         this.ttlMs = ttlMs;
+        this.sweepIntervalMs = ttlMs / 2;
     }
 
     @Override
@@ -35,9 +43,20 @@ public final class InMemoryNonceCache implements NonceCache {
             return now;
         });
         if (ttlMs != Long.MAX_VALUE) {
-            seen.values().removeIf(recorded -> now - recorded > ttlMs);
+            sweepIfDue(now);
         }
         return hit[0];
+    }
+
+    /** Removes expired keys when a sweep interval has passed; one caller wins each interval. */
+    private void sweepIfDue(long now) {
+        long last = sweptAt.get();
+        if (last == UNSWEPT) {
+            // The first call has nothing to sweep: start the interval.
+            sweptAt.compareAndSet(UNSWEPT, now);
+        } else if (now - last >= sweepIntervalMs && sweptAt.compareAndSet(last, now)) {
+            seen.values().removeIf(recorded -> now - recorded > ttlMs);
+        }
     }
 
     @Override

@@ -32,6 +32,7 @@ import org.paztport.http.RequestContext;
 import org.paztport.http.VerificationMode;
 import org.paztport.http.event.EventPublisher;
 import org.paztport.http.wire.PaztportHeaders;
+import org.paztport.spring.internal.Observed;
 import org.paztport.spring.internal.ObservedValues;
 import org.paztport.spring.internal.PeerIdentity;
 import org.paztport.spring.internal.Refusals;
@@ -308,51 +309,23 @@ public final class InboundFilter extends OncePerRequestFilter {
                 .lowCardinalityKeyValue(PaztportObservation.Keys.MODE.withValue(
                         verifyRequests ? mode.name().toLowerCase(Locale.ROOT) : ObservedValues.NONE))
                 .start();
-        String reason = ObservedValues.NONE;
-        String outcome = ObservedValues.REFUSED;
-        RequestContext.Entered<Accepted> entered = null;
-        Throwable failure = null;
-        try {
-            try (Observation.Scope open = observation.openScope()) {
-                entered = RequestContext.accept(receiver, inbound, peer, mode);
-                Accepted accepted = entered.result();
-                if (accepted.cacheFailure() != null) {
-                    // The receiver has logged it; the observation carries it so the error is counted.
-                    observation.error(accepted.cacheFailure());
-                }
-                reason = ObservedValues.reason(accepted.result());
-                outcome = accepted.refusal() == null ? ObservedValues.SERVED : ObservedValues.REFUSED;
-            } catch (Throwable t) {
-                failure = t;
-                try {
-                    observation.error(t);
-                } catch (Throwable erroring) {
-                    if (erroring != t) {
-                        t.addSuppressed(erroring);
-                    }
-                }
-                throw t;
-            } finally {
-                try {
-                    observation.lowCardinalityKeyValue(PaztportObservation.Keys.REASON.withValue(reason))
-                            .lowCardinalityKeyValue(PaztportObservation.Keys.OUTCOME.withValue(outcome))
-                            .stop();
-                } catch (Throwable stopping) {
-                    if (failure == null) {
-                        throw stopping;
-                    }
-                    if (stopping != failure) {
-                        failure.addSuppressed(stopping);
-                    }
-                }
+        return Observed.run(observation, held -> {
+            RequestContext.Entered<Accepted> entered = RequestContext.accept(receiver, inbound, peer, mode);
+            held.accept(entered);
+            Accepted accepted = entered.result();
+            if (accepted.cacheFailure() != null) {
+                // The receiver has logged it; the observation carries it so the error is counted.
+                observation.error(accepted.cacheFailure());
             }
             return entered;
-        } catch (Throwable t) {
-            if (entered != null) {
-                entered.close();
-            }
-            throw t;
-        }
+        }, (stopping, entered) -> {
+            Accepted accepted = entered == null ? null : entered.result();
+            stopping.lowCardinalityKeyValue(PaztportObservation.Keys.REASON.withValue(
+                            accepted == null ? ObservedValues.NONE : ObservedValues.reason(accepted.result())))
+                    .lowCardinalityKeyValue(PaztportObservation.Keys.OUTCOME.withValue(
+                            accepted != null && accepted.refusal() == null
+                                    ? ObservedValues.SERVED : ObservedValues.REFUSED));
+        }, RequestContext.Entered::close);
     }
 
     /**

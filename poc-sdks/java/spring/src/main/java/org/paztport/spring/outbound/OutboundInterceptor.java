@@ -17,6 +17,7 @@ import org.paztport.http.HttpCaller;
 import org.paztport.http.RequestContext;
 import org.paztport.http.wire.HttpWire;
 import org.paztport.http.wire.PaztportHeaders;
+import org.paztport.spring.internal.Observed;
 import org.paztport.spring.internal.ObservedValues;
 import org.paztport.spring.observation.PaztportObservation;
 import org.springframework.http.HttpHeaders;
@@ -112,34 +113,12 @@ public final class OutboundInterceptor implements ClientHttpRequestInterceptor {
     private void observed(HttpCaller.Outbound sent, Buffered buffered) throws IOException {
         Observation observation = Observation.createNotStarted(PaztportObservation.RESPONSE.getName(), observations)
                 .start();
-        String reason = ObservedValues.NONE;
-        Throwable failure = null;
-        try (Observation.Scope open = observation.openScope()) {
-            HttpWire.ResponseCheck check = caller.recordToContext(sent, buffered.getStatusCode().value(),
-                    buffered.getHeaders().getFirst(PaztportHeaders.RESPONSE), buffered.body);
-            reason = check == null ? ObservedValues.NONE : ObservedValues.reason(check.result());
-        } catch (Throwable t) {
-            failure = t;
-            try {
-                observation.error(t);
-            } catch (Throwable erroring) {
-                if (erroring != t) {
-                    t.addSuppressed(erroring);
-                }
-            }
-            throw t;
-        } finally {
-            try {
-                observation.lowCardinalityKeyValue(PaztportObservation.Keys.REASON.withValue(reason)).stop();
-            } catch (Throwable stopping) {
-                if (failure == null) {
-                    throw stopping;
-                }
-                if (stopping != failure) {
-                    failure.addSuppressed(stopping);
-                }
-            }
-        }
+        Observed.<HttpWire.ResponseCheck, IOException>run(observation,
+                held -> caller.recordToContext(sent, buffered.getStatusCode().value(),
+                        buffered.getHeaders().getFirst(PaztportHeaders.RESPONSE), buffered.body),
+                (stopping, check) -> stopping.lowCardinalityKeyValue(PaztportObservation.Keys.REASON.withValue(
+                        check == null ? ObservedValues.NONE : ObservedValues.reason(check.result()))),
+                check -> { });
     }
 
     /** The response, with its body already read into memory, so the caller reads exactly what was checked. */

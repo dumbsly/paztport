@@ -3,6 +3,8 @@
 
 package org.paztport.http;
 
+import java.util.Locale;
+
 /**
  * How a verifying service treats a request. {@link #AUDIT} and {@link #ENFORCE} are the protocol's two modes;
  * {@link #OFF} is not a protocol mode but this SDK's deployment switch, kept so that an operator can take Paztport
@@ -32,7 +34,7 @@ public enum VerificationMode {
             return ENFORCE;
         }
         try {
-            return VerificationMode.valueOf(value.trim().toUpperCase());
+            return VerificationMode.valueOf(value.trim().toUpperCase(Locale.ROOT));
         } catch (IllegalArgumentException e) {
             return ENFORCE;
         }

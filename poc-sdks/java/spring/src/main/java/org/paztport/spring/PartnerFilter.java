@@ -19,6 +19,7 @@ import org.paztport.http.PartnerReceiver;
 import org.paztport.http.PartnerSessions;
 import org.paztport.http.PeerCert;
 import org.paztport.http.RequestContext;
+import org.paztport.spring.internal.Observed;
 import org.paztport.spring.internal.ObservedValues;
 import org.paztport.spring.internal.PeerIdentity;
 import org.paztport.spring.internal.Refusals;
@@ -115,50 +116,21 @@ public final class PartnerFilter extends OncePerRequestFilter {
     private RequestContext.Entered<PartnerAccepted> observed(InboundRequest inbound, PeerCert peer) {
         Observation observation = Observation
                 .createNotStarted(PaztportObservation.PARTNER_REQUEST.getName(), observations).start();
-        String session = ObservedValues.UNKNOWN;
-        String reason = ObservedValues.NONE;
-        String outcome = ObservedValues.REFUSED;
-        RequestContext.Entered<PartnerAccepted> entered = null;
-        Throwable failure = null;
-        try {
-            try (Observation.Scope open = observation.openScope()) {
-                entered = RequestContext.accept(receiver, inbound, peer);
-                PartnerAccepted accepted = entered.result();
-                session = accepted.result() != null ? ObservedValues.ATTESTED
-                        : accepted.refusal() != null ? ObservedValues.UNKNOWN : ObservedValues.UNSAFE;
-                reason = ObservedValues.reason(accepted.result());
-                outcome = accepted.refusal() == null ? ObservedValues.SERVED : ObservedValues.REFUSED;
-            } catch (Throwable t) {
-                failure = t;
-                try {
-                    observation.error(t);
-                } catch (Throwable erroring) {
-                    if (erroring != t) {
-                        t.addSuppressed(erroring);
-                    }
-                }
-                throw t;
-            } finally {
-                try {
-                    observation.lowCardinalityKeyValue(PaztportObservation.Keys.SESSION.withValue(session))
-                            .lowCardinalityKeyValue(PaztportObservation.Keys.REASON.withValue(reason))
-                            .lowCardinalityKeyValue(PaztportObservation.Keys.OUTCOME.withValue(outcome))
-                            .stop();
-                } catch (Throwable stopping) {
-                    if (failure == null) {
-                        throw stopping;
-                    }
-                    if (stopping != failure) {
-                        failure.addSuppressed(stopping);
-                    }
-                }
-            }
+        return Observed.run(observation, held -> {
+            RequestContext.Entered<PartnerAccepted> entered = RequestContext.accept(receiver, inbound, peer);
+            held.accept(entered);
             return entered;
-        } catch (Throwable t) {
-            if (entered != null) {
-                entered.close();
-            }
-            throw t;
-        }
+        }, (stopping, entered) -> {
+            PartnerAccepted accepted = entered == null ? null : entered.result();
+            String session = accepted == null ? ObservedValues.UNKNOWN
+                    : accepted.result() != null ? ObservedValues.ATTESTED
+                    : accepted.refusal() != null ? ObservedValues.UNKNOWN : ObservedValues.UNSAFE;
+            stopping.lowCardinalityKeyValue(PaztportObservation.Keys.SESSION.withValue(session))
+                    .lowCardinalityKeyValue(PaztportObservation.Keys.REASON.withValue(
+                            accepted == null ? ObservedValues.NONE : ObservedValues.reason(accepted.result())))
+                    .lowCardinalityKeyValue(PaztportObservation.Keys.OUTCOME.withValue(
+                            accepted != null && accepted.refusal() == null
+                                    ? ObservedValues.SERVED : ObservedValues.REFUSED));
+        }, RequestContext.Entered::close);
     }
 }

@@ -35,4 +35,26 @@ class NonceCacheTest {
         assertFalse(cache.seenBefore("a|c", 0));
         assertTrue(cache.seenBefore("a|b", 0));
     }
+
+    @Test
+    void expiredKeyIsNotSeenBetweenSweeps() {
+        NonceCache cache = new InMemoryNonceCache(1000);
+        assertFalse(cache.seenBefore("a", 0));
+        // 100 is inside the sweep interval, so "a" is still stored at 1001, past its ttl.
+        assertFalse(cache.seenBefore("b", 100));
+        assertFalse(cache.seenBefore("a", 1001));
+    }
+
+    @Test
+    void liveKeyIsSeenBetweenSweeps() {
+        NonceCache cache = new InMemoryNonceCache(1000);
+        assertFalse(cache.seenBefore("a", 0));
+        assertFalse(cache.seenBefore("b", 400));
+        assertTrue(cache.seenBefore("a", 900));
+        assertTrue(cache.seenBefore("a", 1000));
+        // A sweep at 1400 drops "a" and keeps "b".
+        assertFalse(cache.seenBefore("c", 1400));
+        assertTrue(cache.seenBefore("b", 1400));
+        assertFalse(cache.seenBefore("a", 1400));
+    }
 }
