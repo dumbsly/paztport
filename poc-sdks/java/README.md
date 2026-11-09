@@ -351,6 +351,8 @@ hands a session request's body to `HttpSessions.serve`.
   and a host not listed is still its own name, so with nothing set nothing
   changes. The mapping is configuration: nothing a request or a destination says
   changes it. Outside the starter it is `HttpCaller.builder(...).receivers(Map)`.
+  A name is a service, never an operation: a call names the operation from the
+  receiver's table (**Operations**, below), so a name holding `#` is refused.
   A host is matched as `URI.getHost()` gives it, its ASCII letters in lower case
   and nothing else (a key that is not ASCII is refused when the table is built),
   and Spring Boot reads a map key in brackets as written inside them:

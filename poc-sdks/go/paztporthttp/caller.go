@@ -43,7 +43,7 @@ func NewReceivers(byHost map[string]string) (Receivers, error) {
 			return Receivers{}, fmt.Errorf("paztport http: a receiver's policy name: %w", err)
 		}
 		if strings.Contains(name, "#") {
-			return Receivers{}, errors.New("paztport http: a receiver's policy name is a service's and holds no '#'")
+			return Receivers{}, errors.New("paztport http: a receiver's policy name must name a service, with no '#'")
 		}
 		if !isASCII(host) {
 			return Receivers{}, errors.New("paztport http: a receiver host must be ASCII")

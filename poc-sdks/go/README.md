@@ -21,7 +21,9 @@ a caller, a partner and an egress. It replays `spec/vectors/v3.json` and
   operation a request invokes: it has no operation table. An embedder that names
   operations supplies `svc#operation` as the receiver itself, in the `Receiver`'s
   `Name`, and confirms the operation on its own side. The verifier accepts that
-  form in a stamp's `rcv`, and the stamper and the caller can address it.
+  form in a stamp's `rcv`, and the stamper and the caller can address it: pass
+  `svc#operation` to `Caller.Stamp`. A `Receivers` map names services only, and
+  a response's `src` is the service.
 - **Tools.** It has no keygen or policy tool: it generates no keys, builds no
   route tree and writes no files. The Java and TypeScript SDKs' keygens and policy
   tools write the keys, keyrings, roots, proof bundles and reply certificates it
