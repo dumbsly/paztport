@@ -8,10 +8,10 @@ tree, the signed root, the signed keyring, the reply certificate, events, the pr
 The key words MUST, MUST NOT, SHOULD, SHOULD NOT and MAY are to be read as described in RFC 2119.
 
 Contents: [Encodings](#encodings) · [JSON](#json) · [Keys and files](#keys-and-files) · [Stamps](#stamps) ·
-[Chains](#chains) · [Bindings](#bindings) · [Carrying a chain](#carrying-a-chain) ·
-[The Merkle tree](#the-merkle-tree) · [Routes](#routes) · [Operations](#operations) ·
-[The signed root](#the-signed-root) · [The signed keyring](#the-signed-keyring) · [The reply certificate](#the-reply-certificate) ·
-[Events](#events) · [Proof bundles, and who holds what](#proof-bundles-and-who-holds-what)
+[Chains](#chains) · [Bindings](#bindings) · [Carrying a chain](#carrying-a-chain) · [The Merkle tree](#the-merkle-tree)
+· [Routes](#routes) · [Operations](#operations) · [The signed root](#the-signed-root) ·
+[The signed keyring](#the-signed-keyring) · [The reply certificate](#the-reply-certificate) · [Events](#events) ·
+[Proof bundles, and who holds what](#proof-bundles-and-who-holds-what)
 
 ## Encodings
 
@@ -209,12 +209,12 @@ exactly sees two.
 | Public key | The X.509 SubjectPublicKeyInfo DER of the Ed25519 key (44 bytes, starting `302a300506032b6570032100`), as base64url. |
 | Private key | The PKCS#8 DER of the Ed25519 key (48 bytes: `302e020100300506032b657004220420` ‖ the 32-byte seed), as base64url. |
 
-The policy tools write these files, except the pins of the other side of a session, which whoever onboards that
-side writes (in the agents demo, its setup script). A key file holds one value, and readers trim surrounding
-whitespace: the space, horizontal tab, line feed and carriage return of JSON (RFC 8259), and no other character. A key
-surrounded by any other character, a no-break space or a byte order mark included, is not that key and is refused. Each
-JSON file (`keyring.json`, `reply-cert.json`, `root.json`, `proofs-<svc>.json` and `ops-<svc>.json`) is written in the [file format](#files),
-and read as [Files](#files) says: strictly, in any member order and spacing.
+The policy tools write these files, except the pins of the other side of a session, which whoever onboards that side
+writes (in the agents demo, its setup script). A key file holds one value, and readers trim surrounding whitespace: the
+space, horizontal tab, line feed and carriage return of JSON (RFC 8259), and no other character. A key surrounded by any
+other character, a no-break space or a byte order mark included, is not that key and is refused. Each JSON file
+(`keyring.json`, `reply-cert.json`, `root.json`, `proofs-<svc>.json` and `ops-<svc>.json`) is written in the
+[file format](#files), and read as [Files](#files) says: strictly, in any member order and spacing.
 
 | File | Holds | Secret |
 |---|---|---|

@@ -347,16 +347,15 @@ connects to (TLS hostname verification, RFC 9110 §4.3.4). That is why a respons
 
 **Who attests.** In either [mode](#modes-and-refusals), a service attests a response only when the request's chain
 passed the live order, 0 to 12, at that service, as for a request at the receiver above: its own pinned material,
-`receiver` as a request at the receiver supplies it, the request's proof and influence, and the peer when there
-is one. This holds whether or not the service refuses requests that fail: one that does not enforce MUST still run
-the live order before it attests, and a failure there only withholds the attestation. A response stamp is shaped
-like a request stamp, so attesting a chain nobody checked would let anyone mint stamps under the service's key: on a
-forged one-stamp chain with an empty `sig`, the response is a valid origin stamp from the answering service. So a
-service with nothing to verify with never attests, and an origin, which starts each request tree afresh, never
-attests. Nor is a refusal attested, or a request that failed in audit mode.
-Where a service confirms its operation a second time, it attests only an answer whose handler it confirmed
-([The receiver's operation](#http-requests-and-responses)). A service runs the live order at most
-once per request, since it spends the request's nonce key.
+`receiver` as a request at the receiver supplies it, the request's proof and influence, and the peer when there is one.
+This holds whether or not the service refuses requests that fail: one that does not enforce MUST still run the live
+order before it attests, and a failure there only withholds the attestation. A response stamp is shaped like a request
+stamp, so attesting a chain nobody checked would let anyone mint stamps under the service's key: on a forged one-stamp
+chain with an empty `sig`, the response is a valid origin stamp from the answering service. So a service with nothing to
+verify with never attests, and an origin, which starts each request tree afresh, never attests. Nor is a refusal
+attested, or a request that failed in audit mode. Where a service confirms its operation a second time, it attests only
+an answer whose handler it confirmed ([The receiver's operation](#http-requests-and-responses)). A service runs the live
+order at most once per request, since it spends the request's nonce key.
 
 **A response, at the caller.** The caller checks `X-Path-Response` with `stamps` = the chain it sent then the
 response stamp, `receiver` = its own name, `receiverInRoute = false`, `proof` = the proof it sent,
