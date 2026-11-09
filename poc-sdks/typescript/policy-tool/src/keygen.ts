@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 

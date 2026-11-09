@@ -39,6 +39,13 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-autoconfigure</artifactId>
         </dependency>
+        <dependency>
+            <!-- Build time only: writes META-INF/spring-configuration-metadata.json from PaztportProperties, so
+                 IDEs complete and describe the paztport.* properties. Optional, so it never reaches a consumer. -->
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-configuration-processor</artifactId>
+            <optional>true</optional>
+        </dependency>
 
         <dependency>
             <!-- ObservationRegistry, in which the filters and the interceptor record each verification result.
@@ -88,6 +95,15 @@
 
     <build>
         <plugins>
+            <!-- Since JDK 23 javac runs annotation processors only when asked: this one writes the configuration
+                 metadata of PaztportProperties. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <configuration>
+                    <proc>full</proc>
+                </configuration>
+            </plugin>
             <!-- Mockito attaches byte-buddy's agent at runtime. Allowing that up front keeps the JVM's
                  warning about it out of the test output; class sharing is off because the agent extends
                  the boot class path, which class sharing would otherwise warn about. -->
