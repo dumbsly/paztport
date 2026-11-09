@@ -214,4 +214,122 @@ class OperationTableTest {
                 List.of(t.route(), List.of("gateway", "orders#getOrder")), 8, NOT_AFTER, key.getPrivate());
         assertFalse(t.coveredBy(r.bundles().get("orders"), List.of(other.signedRoot())));
     }
+
+    private static String keyedOp(String key, String name, String template) {
+        return "{\"key\":" + key + ",\"method\":\"POST\",\"name\":\"" + name + "\",\"template\":\""
+                + template + "\"}";
+    }
+
+    private static OperationTable keyed() {
+        return OperationTable.read(file("items", "1",
+                keyedOp("{\"segment\":1}", "reserve", "/items/{}/reserve"),
+                "{\"key\":{\"query\":\"line\"},\"method\":\"GET\",\"name\":\"getLine\","
+                        + "\"template\":\"/lines\"}",
+                op("GET", "plain", "/plain/{}")));
+    }
+
+    @Test
+    void readsSegmentAndQueryKeys() {
+        OperationTable t = keyed();
+
+        assertEquals(OperationTable.Key.segment(1), t.operation("reserve").key());
+        assertEquals(128, t.operation("reserve").key().limit());
+        assertEquals(OperationTable.Key.query("line"), t.operation("getLine").key());
+        assertNull(t.operation("plain").key());
+        assertNull(t.operation("nope"));
+        assertEquals(t, OperationTable.read(t.toFile()));
+    }
+
+    @ParameterizedTest
+    @MethodSource("malformedKeys")
+    void refusesMalformedKeys(String keyJson, String template) {
+        String text = file("items", "1", keyedOp(keyJson, "reserve", template));
+        assertThrows(IllegalArgumentException.class, () -> OperationTable.read(text));
+    }
+
+    static java.util.stream.Stream<org.junit.jupiter.params.provider.Arguments> malformedKeys() {
+        String one = "/items/{}/reserve";
+        return java.util.stream.Stream.of(
+                org.junit.jupiter.params.provider.Arguments.of("{\"segment\":1,\"query\":\"a\"}", one),
+                org.junit.jupiter.params.provider.Arguments.of("{}", one),
+                org.junit.jupiter.params.provider.Arguments.of("{\"segment\":1,\"other\":1}", one),
+                org.junit.jupiter.params.provider.Arguments.of("{\"segment\":0}", one),
+                org.junit.jupiter.params.provider.Arguments.of("{\"segment\":2}", one),
+                org.junit.jupiter.params.provider.Arguments.of("{\"segment\":1}", "/charge"),
+                org.junit.jupiter.params.provider.Arguments.of("{\"segment\":\"1\"}", one),
+                org.junit.jupiter.params.provider.Arguments.of("{\"query\":\"a|b\"}", one),
+                org.junit.jupiter.params.provider.Arguments.of("{\"query\":\"\"}", one),
+                org.junit.jupiter.params.provider.Arguments.of("{\"segment\":1,\"maxLength\":0}", one),
+                org.junit.jupiter.params.provider.Arguments.of("{\"segment\":1,\"maxLength\":1025}", one),
+                org.junit.jupiter.params.provider.Arguments.of("{\"segment\":1,\"maxLength\":\"128\"}", one),
+                org.junit.jupiter.params.provider.Arguments.of("[]", one));
+    }
+
+    @Test
+    void refusesAQueryKeyNamedByItsEntrancesCondition() {
+        String text = file("p", "1",
+                op("POST", "charge", "/charge"),
+                "{\"key\":{\"query\":\"mode\"},\"method\":\"POST\",\"name\":\"refund\","
+                        + "\"query\":{\"mode\":\"refund\"},\"template\":\"/charge\"}");
+        assertThrows(IllegalArgumentException.class, () -> OperationTable.read(text));
+        String other = file("p", "1",
+                "{\"key\":{\"query\":\"mode\"},\"method\":\"POST\",\"name\":\"charge\","
+                        + "\"template\":\"/charge\"}",
+                "{\"method\":\"POST\",\"name\":\"refund\",\"query\":{\"mode\":\"refund\"},"
+                        + "\"template\":\"/charge\"}");
+        assertThrows(IllegalArgumentException.class, () -> OperationTable.read(other));
+    }
+
+    @Test
+    void explicitDefaultMaxLengthKeepsItsHash() {
+        String with = file("items", "1", keyedOp("{\"maxLength\":128,\"segment\":1}", "reserve", "/items/{}"));
+        String without = file("items", "1", keyedOp("{\"segment\":1}", "reserve", "/items/{}"));
+        OperationTable a = OperationTable.read(with);
+        OperationTable b = OperationTable.read(without);
+
+        assertFalse(a.hash().equals(b.hash()));
+        assertEquals(a.hash(), OperationTable.read(a.toFile()).hash());
+        assertEquals(b.hash(), OperationTable.read(b.toFile()).hash());
+        assertEquals(128, a.operation("reserve").key().limit());
+    }
+
+    @Test
+    void keyValueFromSegmentAndQuery() {
+        OperationTable t = keyed();
+
+        assertEquals("A1", t.keyValue("reserve", "/items/A1/reserve", null));
+        assertEquals("L-7", t.keyValue("getLine", "/lines", "line=L-7"));
+        assertEquals("L-7", t.keyValue("getLine", "/lines", "x=1&line=L-7"));
+    }
+
+    @Test
+    void noKeyValue() {
+        OperationTable t = keyed();
+        String long129 = "a".repeat(129);
+
+        assertNull(t.keyValue("reserve", "/items/%41/reserve", null));
+        assertNull(t.keyValue("reserve", "/items/./reserve", null));
+        assertNull(t.keyValue("reserve", "/items/../reserve", null));
+        assertNull(t.keyValue("reserve", "/items/" + long129 + "/reserve", null));
+        assertNull(t.keyValue("reserve", "/items//reserve", null));
+        assertNull(t.keyValue("getLine", "/lines", "line=%41"));
+        assertNull(t.keyValue("getLine", "/lines", null));
+        assertNull(t.keyValue("getLine", "/lines", "line=a&line=b"));
+        assertNull(t.keyValue("getLine", "/lines", "line"));
+        assertNull(t.keyValue("getLine", "/lines", "line="));
+        assertNull(t.keyValue("plain", "/plain/x", null));
+        assertNull(t.keyValue("nope", "/items/A1/reserve", null));
+        assertNull(t.keyValue("reserve", "/other/A1/reserve", null));
+    }
+
+    @Test
+    void raisedMaxLength() {
+        OperationTable t = OperationTable.read(file("items", "1",
+                keyedOp("{\"maxLength\":256,\"segment\":1}", "reserve", "/items/{}"),
+                keyedOp("{\"maxLength\":1024,\"segment\":1}", "big", "/big/{}")));
+
+        assertEquals("a".repeat(200), t.keyValue("reserve", "/items/" + "a".repeat(200), null));
+        assertNull(t.keyValue("reserve", "/items/" + "a".repeat(257), null));
+        assertEquals(1024, t.operation("big").key().limit());
+    }
 }

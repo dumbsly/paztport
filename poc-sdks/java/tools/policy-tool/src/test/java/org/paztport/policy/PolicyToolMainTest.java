@@ -112,6 +112,33 @@ class PolicyToolMainTest {
     }
 
     @Test
+    void listsKeyedOperations(@TempDir Path dir) throws Exception {
+        Path keys = dir.resolve("keys");
+        Path pathsYaml = dir.resolve("paths.yaml");
+        Path out = dir.resolve("out");
+        OperationTable table = new OperationTable("orders", List.of(
+                new OperationTable.Operation("getOrder", "GET", "/orders/{}"),
+                new OperationTable.Operation("reserve", "POST", "/orders/{}/reserve", null,
+                        OperationTable.Key.segment(1)),
+                new OperationTable.Operation("line", "GET", "/lines", null,
+                        new OperationTable.Key(0, "line", 256))));
+        writeOpsWorld(keys, pathsYaml, "[gateway, orders#reserve]", "ops-orders.json", table);
+
+        java.io.PrintStream saved = System.out;
+        java.io.ByteArrayOutputStream captured = new java.io.ByteArrayOutputStream();
+        System.setOut(new java.io.PrintStream(captured, true, java.nio.charset.StandardCharsets.UTF_8));
+        try {
+            PolicyToolMain.run(pathsYaml, keys, out, 8);
+        } finally {
+            System.setOut(saved);
+        }
+
+        assertEquals("policy-tool: orders#reserve is keyed by path segment 1, at most 128 characters\n"
+                + "policy-tool: orders#line is keyed by query parameter line, at most 256 characters\n",
+                captured.toString(java.nio.charset.StandardCharsets.UTF_8).replace("\r\n", "\n"));
+    }
+
+    @Test
     void rebuildAcceptsATableWithAQuery(@TempDir Path dir) throws Exception {
         Path keys = dir.resolve("keys");
         Path pathsYaml = dir.resolve("paths.yaml");

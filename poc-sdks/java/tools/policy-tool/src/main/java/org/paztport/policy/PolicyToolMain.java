@@ -54,7 +54,9 @@ import org.paztport.core.session.ReplyCert;
  * spec's file format whose {@code service} is the {@code <svc>} in its name. Each table's route
  * {@code <svc>/ops:<hash>} is added to the policy, and the table is copied to {@code outDir/ops-<svc>.json}, after
  * the bundles. A route node {@code <svc>#<op>} must name an operation in {@code svc}'s table, or the run is refused;
- * a service with a table may still be named alone. Renewing and rotating ignore tables.
+ * a service with a table may still be named alone. A rebuild prints one line for each keyed operation, such as
+ * {@code policy-tool: orders#reserve is keyed by path segment 1, at most 128 characters}, so the owner sees what
+ * each table opens to a caller's choice. Renewing and rotating ignore tables.
  *
  * <p>A third mode, {@code --rotate svc} or {@code PAZTPORT_ROTATE=svc}, exclusive with the other two, replaces one
  * service's key: it writes {@code keysDir/svc.next.key}, a new key, and {@code keysDir/keyring.next.json}, the
@@ -117,6 +119,7 @@ public final class PolicyToolMain {
         List<List<String>> routes = new ArrayList<>(PathsReader.parse(Files.readAllBytes(pathsYaml)));
         List<OperationTable> tables = loadTables(pathsYaml.toAbsolutePath().getParent());
         checkOperations(routes, tables);
+        listKeyedOperations(tables);
         for (OperationTable table : tables) {
             routes.add(table.route());
         }
@@ -175,6 +178,21 @@ public final class PolicyToolMain {
             tables.add(table);
         }
         return tables;
+    }
+
+    /** Prints one line for each operation that declares a key, so the policy owner sees what the table opens. */
+    private static void listKeyedOperations(List<OperationTable> tables) {
+        for (OperationTable table : tables) {
+            for (OperationTable.Operation op : table.operations()) {
+                OperationTable.Key key = op.key();
+                if (key != null) {
+                    System.out.println("policy-tool: " + table.service() + "#" + op.name() + " is keyed by "
+                            + (key.query() == null ? "path segment " + key.segment()
+                                    : "query parameter " + key.query())
+                            + ", at most " + key.limit() + " characters");
+                }
+            }
+        }
     }
 
     /** Refuses a {@code <svc>#<op>} node whose service has no table or whose table does not name the operation. */
