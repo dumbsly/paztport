@@ -87,9 +87,10 @@ Why this order:
 | `NONCE_TTL_MS` | `15000` (15 s) | How long a nonce cache remembers a key. It MUST be at least 2 × `CALL_MAX_AGE_MS`. |
 
 Inside one HTTP mesh a request tree is a single call, not a run, so a mesh verifier MAY set `RUN_MAX_AGE_MS` to
-`CALL_MAX_AGE_MS`: the origin's stamp is then held to the call window too. The Java mesh does: both are
-`paztport.max-age-ms` (5000), unless `paztport.run-max-age-ms` sets the run's apart. Its stamps carry `sess = ""`,
-since a mesh opens no session.
+`CALL_MAX_AGE_MS`: the origin's stamp is then held to the call window too. The Java starter does by default: both
+are `paztport.max-age-ms` (5000) unless `paztport.run-max-age-ms` sets the run's apart, as the Java mesh does
+(30 s) for the six services a support ticket crosses, where five hops started cold can take longer than 5 s. A
+mesh's stamps carry `sess = ""`, since a mesh opens no session.
 
 The nonce key names the request and the direction, so a call, its response and a local step with the same ids
 can't spend each other's keys:
