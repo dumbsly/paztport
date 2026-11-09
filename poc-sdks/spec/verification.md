@@ -100,14 +100,17 @@ can't spend each other's keys:
 | MCP tool call, server side ([MCP profile](README.md#the-mcp-profile)) | `<rid>\|<callId>\|req` |
 | MCP response, client side ([MCP profile](README.md#the-mcp-profile)) | `<rid>\|<callId>\|resp` |
 | Local step ([MCP profile](README.md#the-mcp-profile)) | `<rid>\|<callId>\|local` |
-| HTTP request (receiver side) | `<rid>\|<last svc>\|<last rcv>\|req` |
-| HTTP response (caller side) | `<rid>\|<last rcv>\|resp` |
+| HTTP request (receiver side) | `<rid>\|<last svc>\|<last rcv>\|req`, or `<rid>\|<last svc>\|<last rcv>\|<key value>\|req` |
+| HTTP response (caller side) | `<rid>\|<last rcv>\|resp`, or `<rid>\|<last rcv>\|<key value>\|resp` |
 
 `<rid>` is the origin's `rid` and `<callId>` the call's `paztport/callId` (for a local step, the tool call id).
 `<last svc>` is the request chain's last signer and `<last rcv>` the receiver its last stamp names, with the
-operation when it names one; at the caller, the chain is the one it sent. An HTTP call has no call id, so its keys
-name the caller and the receiver instead: a service calls a given receiver, or a given operation of it, at most
-once per request tree, and a second such call is `REPLAY`. Calls to two operations of one receiver spend two keys.
+operation when it names one; at the caller, the chain is the one it sent. The second form is for a chain whose last
+stamp names an operation with a `key`, and `<key value>` is the call's [key value](wire.md#operations). An HTTP call
+has no call id, so its keys name the caller and the receiver instead: a service calls a given receiver, or a given
+operation of it, at most once per request tree, and an operation with a key at most once per request tree for each
+key value; a second such call is `REPLAY`. Calls to two operations of one receiver spend two keys, and so do calls
+for two items of one keyed operation.
 
 **Replicas and duplicates.** A stamp is good only for its receiver and its request, and with a peer (check 12) only on
 the last signer's own connections; these hold whatever cache a receiver keeps. The nonce cache adds one thing: it
@@ -115,11 +118,12 @@ refuses the last signer's second sending of a request within the window, but onl
 service run as several replicas, each with its own cache, or whose cache is lost when it restarts, can serve a second
 sending. That is duplicate delivery, as a proxy's retry is, and the receiving application handles it as it handles any
 retried request, by idempotency keyed on the delivery: the verified chain's `rid`, its last signer and the receiver its
-last stamp names, with the operation when it names one, name it, the last stamp's `bind` says which request it was, and,
-with a peer, no one but that signer can send it. A service that must also hold a compromised caller to each key once per
-request tree, whatever its replica count, shares one expiring cache across its replicas. A session's cache is not
-shared: a session lives on one replica. A cache that cannot answer gives no verdict: a receiver in `enforce` refuses the
-request as unavailable (HTTP 503), and one in `audit` serves it and records the failure.
+last stamp names, with the operation when it names one, and the key value when that operation has one, name it, the
+last stamp's `bind` says which request it was, and, with a peer, no one but that signer can send it. A service that
+must also hold a compromised caller to each key once per request tree, whatever its replica count, shares one expiring
+cache across its replicas. A session's cache is not shared: a session lives on one replica. A cache that cannot answer
+gives no verdict: a receiver in `enforce` refuses the request as unavailable (HTTP 503), and one in `audit` serves it
+and records the failure.
 
 ## Receivers, the peer and attribution
 
@@ -240,7 +244,8 @@ then, when the last stamp's `rcv` names an operation, `#` and the operation the 
 (its own name alone when that is none in its [table](wire.md#operations)),
 `receiverInRoute = true`, `expectedBind` = the HTTP binding of the request received, over the raw path and query,
 `influence` = `X-Path-Influence` (`[]` when absent), `proof` = `X-Path-Proof` and
-`nonceKey = <rid>|<last svc>|<last rcv>|req`. A header that is present but does not decode is left to the check
+`nonceKey` = the request's key from the table above, with the key value it read when the operation it supplies has
+a `key`. A header that is present but does not decode is left to the check
 that reads it: an unreadable chain is `CHAIN_MISSING`, unreadable influence is `INFLUENCE_MISMATCH`, and an
 unreadable proof is no proof, so `PATH_NOT_ALLOWED`. A receiver MUST NOT drop influence it can't read, even when it
 does not verify: dropping it could hide `private` content from the rule. It is answered
@@ -250,13 +255,15 @@ nor the influence a request brings, and has nothing to drop.
 
 **The receiver's operation.** The receiver's operation is the handler its framework will run. It works it out from its
 own routing before it verifies, and, where its framework lets later code route a request on after the receiver has
-verified it, confirms it again as the first handler is about to run; it never takes it from the request. So a chain that
-names another operation than the one the request will reach fails check 4, `BINDING_MISMATCH`, as a chain signed for
-another receiver does, and spends no nonce key; a handler found at that second look to be another operation is refused
-the same way, and its answer is never attested. Where it confirms its operation that second time, it attests only an
-answer whose handler it confirmed: an answer written before any handler ran, or by code its routing does not see, is not
-attested. A receiver whose chain names no operation supplies its own name alone, and the policy says whether a route
-that names no operation is allowed.
+verified it, confirms it again as the first handler is about to run; it never takes it from the request. So a chain
+that names another operation than the one the request will reach fails check 4, `BINDING_MISMATCH`, as a chain signed
+for another receiver does, and spends no nonce key; a handler found at that second look to be another operation is
+refused the same way, and its answer is never attested. Where it confirms its operation that second time, it attests
+only an answer whose handler it confirmed: an answer written before any handler ran, or by code its routing does not
+see, is not attested. When the operation it supplies has a `key`, it reads the key value from the request target by
+that operation's template ([wire.md](wire.md#operations)); a request with none fails check 4, `BINDING_MISMATCH`, and
+spends no nonce key. A receiver whose chain names no operation reads no key value. A receiver whose chain names no
+operation supplies its own name alone, and the policy says whether a route that names no operation is allowed.
 
 Only the receiver can confirm its operation: a later verifier sees the operation a chain names, not the handler that
 ran. So where a hop serves a request it does not refuse (in `audit` mode, or without verifying), a chain that names
@@ -360,7 +367,8 @@ order at most once per request, since it spends the request's nonce key.
 
 **A response, at the caller.** The caller checks `X-Path-Response` with `stamps` = the chain it sent then the
 response stamp, `receiver` = its own name, `receiverInRoute = false`, `proof` = the proof it sent,
-`influence = []`, `nonceKey = <rid>|<last rcv>|resp` and no peer. In order:
+`influence = []`, `nonceKey` = the response's key from the table above, with the key value of the target it sent when
+the sent chain's last `rcv` names an operation with a `key`, and no peer. In order:
 
 1. The header is present and reads from its token ([wire.md](wire.md#http-v3)) as an object with exactly a `stamp`
    and an array of well-formed `labels` (`CHAIN_MISSING`).

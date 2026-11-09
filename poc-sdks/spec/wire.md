@@ -574,6 +574,14 @@ operations: its receivers already name one tool.
         "mode": "refund"
       },
       "template": "/charge"
+    },
+    {
+      "key": {
+        "segment": 1
+      },
+      "method": "POST",
+      "name": "hold",
+      "template": "/holds/{}"
     }
   ],
   "service": "payment",
@@ -583,7 +591,7 @@ operations: its receivers already name one tool.
 
 - `service` is the service's name, and `v` is `1`.
 - `operations` is a non-empty array of objects with the members `method`, `name` and `template`, each a string,
-  and optionally `query`, and no others.
+  and optionally `query` and `key`, and no others.
 - `name` is a [route node](#routes) that holds no `#`, and no two operations share one.
 - `method` is an HTTP method: one or more of the characters `A` to `Z`.
 - `template` is `/`, or `/` and then segments joined with `/`, each one non-empty: either `{}`, which matches any
@@ -591,6 +599,11 @@ operations: its receivers already name one tool.
 - `query`, where present, is an object with exactly one member, a condition: the call's query holds that
   parameter with that value. Its name and its value are each one or more of the characters `A` to `Z`, `a` to
   `z`, `0` to `9`, `-`, `.`, `_` and `~`.
+- `key`, where present, is an object with exactly one of `segment` and `query`, optionally `maxLength`, and no
+  other member. `segment` is a protocol integer from 1 to the number of `{}` segments in the `template`, and names
+  the `{}` segment at that position, counted from the left. `query` is a parameter name, one or more of the
+  characters `A` to `Z`, `a` to `z`, `0` to `9`, `-`, `.`, `_` and `~`, that no `query` of the operation's entrance
+  names. `maxLength` is a protocol integer from 1 to 1024, and is 128 when absent.
 - The operations that share a `method` and a `template` are an entrance. No two operations of an entrance share
   a `query` or both have none; every `query` of an entrance names the same parameter.
 
@@ -608,6 +621,21 @@ entrance, one whose `query` holds wins over the one with none. No tie is left: t
 path and agree on which segments are literal are the same template, and the conditions of an entrance name one
 parameter with distinct values, so at most one holds. A call no operation matches has none.
 
+**The key value.** A caller calls an operation at most once per request tree
+([verification.md](verification.md#freshness-and-replay)), and an operation with a `key` at most once per request
+tree for each key value: the key names the item a call acts on. A call's key value is read from its raw target, as
+matching reads it: for `segment`, the path segment that `{}` matches; for `query`, the value of the parameter of
+that name, which the raw query holds exactly once. The call has a key value only when that text is one or more of
+the characters `A` to `Z`, `a` to `z`, `0` to `9`, `-`, `.`, `_` and `~`, is neither `.` nor `..`, and is at most
+`maxLength` characters long. Those characters read the same percent-decoded or not, so the value is the one the
+handler reads, and none of them is the `|` that separates a nonce key's parts. Values are compared exactly.
+
+A service declares a key only for an operation whose handler takes two different values to be two different items:
+one that reads `ABC` and `abc`, or `7` and `007`, as one item would act on it twice under two keys. It declares none
+where each call's effect is itself the harm, such as sending one message, so that a caller makes that call once per
+request tree. The key is the receiver's choice, signed by the policy owner through the hash below: a caller chooses
+the item, but only for an operation its receiver has opened to that choice.
+
 **The hash and its route.** `opsHash = b64url(H(utf8("operations\n" ‖ JCS(table))))`, where `table` is the table
 as read. The signed root covers a table as the route `<svc>/ops:<opsHash>`. A service and its callers MUST NOT
 use a table the signed root does not cover.
@@ -617,7 +645,14 @@ name, then `#`, then the call's operation: `orders#createOrder`. It MUST NOT sen
 matches no operation. A caller that holds no table for the receiver names the receiver alone. Either way the
 route names what was asked for, so the policy says whether it is allowed.
 
-**Confirming it.** The receiver does not take its operation from the request. Its operation is the handler its
+A call to an operation with a `key` MUST have a key value. The value is not part of `rcv`: the request binding
+covers the target it is read from, so a replayed stamp carries the same value and no one in the middle can change
+it.
+
+**Confirming it.** The receiver does not take its operation from the request. When its operation has a `key`, it
+reads the key value from the request target by that operation's template, as it works out the operation, and never
+from anything else the request says; a request whose chain names that operation and which has no key value fails
+check 4, `BINDING_MISMATCH`. Its operation is the handler its
 framework will run: it works that out from its own routing and supplies it as part of `receiver`
 ([verification.md](verification.md#http-requests-and-responses)), so a chain that names another operation fails
 check 4. A service that names operations MUST route each request that names one to a single handler by its
