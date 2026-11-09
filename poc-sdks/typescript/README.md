@@ -19,7 +19,7 @@ writes one and names it, so there it always runs.
 ## @paztport/core
 
 The protocol, with no transport: base64url, Ed25519 and SHA-256 helpers, canonical JSON, v3 stamps and chains, the
-salted Merkle tree, signed roots and keyrings, reply certificates, policy building, reason codes, the replay cache,
+salted Merkle tree, signed roots and keyrings, reply certificates, policy building, reason codes, the replay cache (an in-memory `NonceCache`, synchronous, with no way to plug in another store),
 prompt binding, influence and the owner-aware influence rule, sessions, local tool rules and the verdict for a local
 tool call, local steps, the live v3 chain verifier (`verifyChain`), and `keyFileText`, which trims a key file's text
 of the JSON whitespace around it and nothing else. For responders, `signEvent` signs an event, `createEventVerifier`
@@ -27,10 +27,13 @@ checks a received body (strictly: the envelope and payload must be JCS bytes) an
 responder may act on it. Offline verification of a recorded run (`verifyChainOffline`) is here too, and shares its
 checks with the live verifier; the agents demo's `npm run verify` uses it.
 
-It implements protocol v3, as the [spec](../spec/README.md) defines it:
+It implements protocol v3, as the [spec](../spec/README.md) defines it, for MCP
+only: the TypeScript SDK has no HTTP binding, no delivery key, and does not
+name or confirm operations (the Java SDK does both). Its verifier does accept an
+operation in an `rcv`.
 
-- **v3 only.** The live and offline chain verifiers take v3 stamps only; a chain holding any other `v` is
-  `CHAIN_MISSING`.
+- **v3 only.** The live and offline chain verifiers take v3 stamps only: a stamp's `v` must be 3, and a
+  chain holding any other is malformed, `CHAIN_MISSING`.
 - **Tokens in, tokens out.** The SDK has no JSON library: it reads every Paztport object from bytes with its own
   strict reader, and writes it as its JCS bytes ([wire.md](../spec/wire.md#json)). `writeToken` writes an
   object's token, the base64url of those bytes, and `readToken` reads one; `readWireBytes` reads wire bytes,
@@ -43,11 +46,12 @@ It implements protocol v3, as the [spec](../spec/README.md) defines it:
   and `checkSessionReply`'s reply), so a token that does not read is the typed rejection of the check that reads
   it. `canonicalize` is JCS for content Paztport only hashes, every number written as RFC 8785 writes a binary64.
 - **The receiver.** Every v3 stamp names the hop it was handed to, and the verifier checks each `rcv` against
-  the next stamp and the last against `receiver`. A live call or chain stamped for a different receiver is
-  `BINDING_MISMATCH`, not a route failure, so a forwarded chain does not blame its last signer.
+  the next stamp and the last against `receiver`. An `rcv` is a service's name or `svc#operation` (check 4
+  accepts either for a hop's next service, and takes the last `rcv` as exactly `receiver`). A live call or
+  chain stamped for a different receiver is `BINDING_MISMATCH`, not a route failure, so a forwarded chain does not blame its last signer.
 - **The peer.** `peer` (`{ svc, inst }`) is the sender a transport authenticated. Given one, the verifier
   checks it is the last signer (`PEER_MISMATCH`, after every other check) and names it as the suspect in every
-  result but `POLICY_EXPIRED`. No transport here supplies one yet: the MCP wrappers (`verifyCall`,
+  result but `POLICY_EXPIRED`. No transport in this repository supplies one: the MCP wrappers (`verifyCall`,
   `verifyMcpResponse`, `McpServerSession.checkCall`) pass no peer, because stdio has no TLS, so for MCP over
   stdio the live order ends at check 11, and the peer check is core's (`verifyChain`).
 - **The policy's window.** A verifier config pins one or more keyrings (`keyrings`, each a `PinnedKeyring`) and

@@ -9,14 +9,19 @@ MCP profile: stamps and chains, policy material, the live and offline verifiers,
 the owner-aware rule, sessions, responder events, and v3 over HTTP at a receiver,
 a caller, a partner and an egress. It replays `spec/vectors/v3.json` and
 `json.json` but their sections that belong to the
-[MCP profile](../spec/README.md#the-mcp-profile), and `http-v3.json` and
-`events.json` in full. It leaves out:
+[MCP profile](../spec/README.md#the-mcp-profile), `http-v3.json` but its
+`operations` section, and `events.json` in full. It leaves out:
 
 - **The MCP profile**, local steps included.
 - **Any integration.** It sends nothing, logs nothing, publishes no events and
   imports no HTTP library. It takes a request or a response as the strings and
   bytes a server, client or gateway already has, and hands back answers, headers
   and verdicts. The adapter for a server or a gateway is the embedder's.
+- **Operations over HTTP.** The receiver neither works out nor confirms the
+  operation a request invokes: it has no operation table. An embedder that names
+  operations supplies `svc#operation` as the receiver itself, in the `Receiver`'s
+  `Name`, and confirms the operation on its own side. The verifier accepts that
+  form in a stamp's `rcv`, and the stamper and the caller can address it.
 - **Tools.** It has no keygen or policy tool: it generates no keys, builds no
   route tree and writes no files. The Java and TypeScript SDKs' keygens and policy
   tools write the keys, keyrings, roots, proof bundles and reply certificates it

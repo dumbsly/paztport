@@ -6,12 +6,13 @@ cryptographic primitive comes from the standard JDK; `keygen` uses Bouncy Castle
 only to build its X.509 certificates, which the JDK signs.
 
 It implements protocol v3 as the [spec](../spec/README.md) defines it, and carries
-it over HTTP. It replays all of `spec/vectors/v3.json` but the recorded local steps,
-the response attestations, `paztport/session`'s params and result, and the result
-and `tools/call` bindings (`recordedLocalStep`, `responseAttestation`,
-`sessionParams`, `sessionResult`, `bindResult` and `bindMcpCall`), which belong to
-the [MCP profile](../spec/README.md#the-mcp-profile) that an HTTP-only SDK need not
-implement, and the Java-exported `http-v3.json`.
+it over HTTP. It replays `spec/vectors/http-v3.json`, `json.json` and `events.json`
+in full, and `v3.json` but the recorded local steps, the response attestations,
+`paztport/session`'s params and result, and the result and `tools/call` bindings
+(`recordedLocalStep`, `responseAttestation`, `sessionParams`, `sessionResult`,
+`bindResult` and `bindMcpCall`), which belong to the
+[MCP profile](../spec/README.md#the-mcp-profile) that an HTTP-only SDK need not
+implement.
 
 ```bash
 mvn -q install   # build, test, and install into the local Maven repository
@@ -265,7 +266,8 @@ hands a session request's body to `HttpSessions.serve`.
   value the starter cannot read is `enforce`.
 - **Refusals.** Every refusal, in the mesh and at a partner, is
   `{"reason":"<code>"}` and nothing else, with `403` (or `400` for unreadable
-  influence). The caller, who is usually the suspect, is never told who is
+  influence). The one exception is the `503` with an empty body that a request gets
+  under `enforce` when the nonce cache cannot answer. The caller, who is usually the suspect, is never told who is
   suspected. The event carries the attribution, `suspectSvc` and `suspectInst`.
   The `PAZTPORT_TRACE request` line names only the authenticated peer's service
   (`peer=<svc> (mTLS)`, or `peer=none`), not its address and not a suspect without
@@ -461,7 +463,7 @@ hands a session request's body to `HttpSessions.serve`.
   after `max(15 s, 2 × paztport.max-age-ms)`: never sooner than twice the call
   window, which the verifier requires, and never so late that it grows without end.
   An application that defines its own `NonceCache` bean, to share one store across
-  replicas, replaces it for requests only. It defines one: two `NonceCache` beans, neither `@Primary`,
+  replicas, replaces it for requests only. Define at most one: two `NonceCache` beans, neither `@Primary`,
   fail startup with Spring's own error naming both. Startup also fails if that cache's `ttlMs()`
   is under `2 × paztport.max-age-ms`. Responses are still checked with the
   starter's own in-memory cache (the `ResponseVerifier` bean), since only the
@@ -573,7 +575,7 @@ hands a session request's body to `HttpSessions.serve`.
   30 s tries the full handshake again. A genuine unsafe reply to the full handshake
   (the partner has not pinned this organisation) is the partner's answer, not a
   fallback, and is kept like an attested session. Each call has the read
-  timeout, `paztport.read-timeout-ms` (below); one past it throws
+  timeout, `paztport.read-timeout-ms` (above, under **Timeouts**); one past it throws
   `UncheckedIOException` and keeps the session, as any failed call does, and is not
   retried. A `403 SESSION_UNKNOWN` clears the session, so the next call opens a
   new one; the refused call is not retried. A `403 POLICY_EXPIRED` clears it too: once
@@ -586,7 +588,7 @@ hands a session request's body to `HttpSessions.serve`.
   opens a new one. Keep it below the partner's `session-idle-ms`. Every partner
   reply becomes one `local-untrusted` entry, and the request's own response is labelled
   `local-untrusted`, so a handler that relays the reply passes it on as untrusted. A path that would change the host or not be sent as given is refused before
-  any I/O. The constructor refuses a root or keyring that does not verify under the
+  any I/O. `BoundaryClient`'s builder refuses a root or keyring that does not verify under the
   service's own policy key.
 - **Partner mode.** `paztport.partner.enabled=true` makes the service a partner's
   entry. It answers `POST /paztport/session` and registers `PartnerFilter` in place
