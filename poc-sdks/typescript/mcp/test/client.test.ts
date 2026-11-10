@@ -25,7 +25,6 @@ import {
   type InfluenceEntry,
   type SessionRequest,
   type ReplyCert,
-  type SessionReply,
 } from "@paztport/core";
 import {
   classifySessionError,

@@ -12,7 +12,7 @@ import { runEval, type EvalOptions, type ResultsFile } from "../../eval/src/eval
 import { checkModelAvailable, OFF_MODE_COPY, parseModel, runOnce, type LineFile, type ModelRef, type RunMode, type RunResult, type RunSpec } from "../../eval/src/runner.ts";
 import { recheckResultsDir, recheckSignature, type Recheck } from "../../eval/src/recheck.ts";
 import { CLASSES_NOTE, LIMITS, LOCAL_CLASSES_NOTE, LOCAL_LIMIT, LOCAL_SHELL_CAPTION, MODE_LABEL, tableDefinitions } from "../../eval/src/report.ts";
-import { readLocalFacts, scoreRunFile, type ScoredRun } from "../../eval/src/score.ts";
+import { readLocalFacts, scoreRunFile } from "../../eval/src/score.ts";
 import { pinFingerprint } from "../../eval/src/verify.ts";
 import type { OutcomeRecord } from "../../mock-github-mcp/src/outcome.ts";
 import { loadScenario, type Scenario } from "../../mock-github-mcp/src/scenario.ts";

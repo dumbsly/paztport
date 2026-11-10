@@ -5,9 +5,9 @@
 
 import { describe, expect, it } from "vitest";
 import { generateKeyPair, randomBytes } from "../../src/crypto/crypto.ts";
-import { commitInfluence, type InfluenceEntry } from "../../src/influence/influence.ts";
+import type { InfluenceEntry } from "../../src/influence/influence.ts";
 import type { LocalVerdict, Resolved } from "../../src/influence/local-decision.ts";
-import { localStepBind, stampLocalStep } from "../../src/influence/local-step.ts";
+import { stampLocalStep } from "../../src/influence/local-step.ts";
 import { parseLocalRules, rulesHash, type LocalRules } from "../../src/policy/local-rules.ts";
 import { writeToken } from "../../src/encoding/jcs.ts";
 import { buildTree, type MerkleProof } from "../../src/policy/merkle.ts";

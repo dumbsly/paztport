@@ -37,10 +37,9 @@ import {
   readVerdict,
   verifyCall,
   type ServerPolicy,
-  type Session,
   type SessionRules,
 } from "../src/index.ts";
-import { CLIENT_NOT_AFTER, CLIENT_POLICY, makeClient, sessionParams, tokenOf, type CallToolResult } from "./helpers/client.ts";
+import { CLIENT_NOT_AFTER, CLIENT_POLICY, makeClient, sessionParams, type CallToolResult } from "./helpers/client.ts";
 
 const RULES: SessionRules = {
   disabledWhenUnsafe: ["create_branch", "create_or_update_file", "push_files", "create_pull_request", "add_issue_comment"],

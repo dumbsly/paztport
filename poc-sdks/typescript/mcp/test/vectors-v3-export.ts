@@ -19,7 +19,7 @@ import {
   utf8, verifyChainOffline, verifyChain, verifyKeyring, signReplyCert, replyCertSigningBytes, verifyReplyCert,
   checkSessionReply, readProof, readSessionReply, readSessionRequest, deriveSessionId, encodeProof, isCurrent, isNotAfter,
   pinnedNotAfter, signRenewedRoot, rootSigningBytes, sessionStatus, signRoot, verifyRoot,
-  callInSession, newRecordSet, parseLocalRules, recordedSession, rulesHash, stampLocalStep, localStepBind, verifyRecordedLocalStep,
+  callInSession, newRecordSet, parseLocalRules, recordedSession, rulesHash, stampLocalStep, verifyRecordedLocalStep,
   verifyResponse,
 } from "@paztport/core";
 import type {

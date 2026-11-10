@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { runEval, type ResultsFile } from "../../eval/src/eval.ts";
 import { CLASSES_NOTE, DEFINITIONS, LOCAL_CLASSES_NOTE, LOCAL_DEFINITION_TEXT } from "../../eval/src/report.ts";
-import { OFF_MODE_COPY, type LineFile, type RunResult, type RunSpec } from "../../eval/src/runner.ts";
+import { OFF_MODE_COPY, type RunResult, type RunSpec } from "../../eval/src/runner.ts";
 import { pinFingerprint, verifyEvidence } from "../../eval/src/verify.ts";
 import { localRun } from "../../eval/test/fixtures/local-run.ts";
 import { setupDemo } from "../../pi-extension/test/helpers/demo.ts";

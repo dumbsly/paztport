@@ -6,9 +6,9 @@ import { cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, wri
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  bindLocalTool, buildTree, commitInfluence, decode, encode, generateKeyPair, keyringSigningBytes, randomBytes, readChain, readInfluence,
+  bindLocalTool, buildTree, decode, encode, generateKeyPair, keyringSigningBytes, randomBytes, readChain, readInfluence,
   readKeyring, readLocalDecision, readRoot, readSessionReply, readSessionRequest, readToken, sign, signRoot, signSessionReply, signStamp,
-  utf8, writeToken,
+  writeToken,
 } from "@paztport/core";
 import { bindMcpCall } from "@paztport/mcp";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";

@@ -12,7 +12,7 @@ import {
   readProofBundleFile, readReplyCertFile, readRootFile, renewKeyring, signRenewedRoot, rulesHash, rulesRoute, sign,
   utf8, verify, verifyKeyring, verifyProof, verifyReplyCert, verifyRoot,
 } from "@paztport/core";
-import type { MerkleProof, ProofBundle, ReplyCert, SignedKeyring, SignedRoot } from "@paztport/core";
+import type { MerkleProof, SignedKeyring } from "@paztport/core";
 import { readKey } from "../src/files.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
