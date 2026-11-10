@@ -3,17 +3,12 @@
 **A passport for requests.** The "zt" stands for zero trust.
 
 Most security asks one question at the door: *who are you?* Paztport asks a
-second question that almost nobody asks today: ***how did you get here?***
+second question: ***how did you get here?***
 
-That second question matters because modern break-ins rarely come through the
-front door. An attacker takes over one small, forgettable part of a system, such
-as a search box, a reporting tool, or a firewall. From there they don't need to
-break anything. They just *ask*. Inside a system, a request from a trusted
-component looks exactly like every legitimate request, so the sensitive part (the
-payment service, the customer database, the admin panel) does what it's told. In
-the 2019 Capital One breach, an attacker tricked a misconfigured firewall into
-fetching cloud credentials on their behalf, and the records of more than 100
-million people left through a component the system trusted.
+That second question matters once an attacker has taken over one part of a
+system. A request from that part carries its valid credentials, so a service that
+asks only *who are you?* (the payment service, the customer database, the admin
+panel) does what it's told.
 
 ## The idea in plain terms
 
@@ -37,39 +32,35 @@ the signed events the rejection produces.
 
 ## Why it matters
 
-- **It catches the attacks that look normal.** Firewalls, passwords, and
-  encrypted connections all wave through a request from a hijacked internal
-  service, because it *is* an internal service. Paztport rejects it because of
-  where it came from.
+- **It catches the attacks that look normal.** Paztport rejects a request from a
+  hijacked internal service because of where it came from.
 - **It shrinks what a break-in is worth.** A compromised component can only do
   what its legitimate position in the system allows. An attacker who takes over
   the search service gets the search service, not the payment system behind it.
-- **It keeps your blueprint private.** How your systems connect is exactly the map
-  an attacker wants. Paztport checks routes without ever publishing them. The same
-  design is meant to let two organisations trust each other's calls without
-  swapping architecture diagrams.
+- **It keeps your blueprint private.** Paztport checks routes without ever
+  publishing them. The same design is meant to let two organisations trust each
+  other's calls without swapping architecture diagrams.
 - **It makes an automatic response possible and keeps the evidence.** The signed
   events name the offending machine, so a responder can act on them. The demo's
   responder isolates the machine rather than deleting it, so investigators get a
   live specimen while a clean replacement keeps the service running. If the same
   service keeps tripping, it stops and calls a human rather than risk tearing down
   healthy machines after a bad deploy.
-- **It fits the AI-agent problem.** An AI assistant that reads a booby-trapped
-  email and then sends your files somewhere has the same failure: a trusted
-  component doing something because untrusted input asked it to. Requiring proof
-  of where an action came from is a natural guardrail for agents too. The
-  [agents demo](poc-demos/agents-mcp/README.md) does it for MCP calls, and
-  [§7](#7-where-this-could-go) says what is still open.
+- **It covers an AI agent's tool calls.** The
+  [agents demo](poc-demos/agents-mcp/README.md) stamps an agent's MCP calls, and
+  the server refuses the write a planted prompt injection asks for, by the
+  owner-aware rule ([§3](#3-operations-influence-and-sessions));
+  [§6](#6-where-this-could-go) says what is still open.
 - **It's cheap.** Checking a request is a few Ed25519 verifications and SHA-256
   hashes; the demos measure what that costs
   ([Java mesh](poc-demos/java-mesh/README.md#measurements),
   [Envoy Gateway](poc-demos/envoy-gateway/README.md#measurements)).
-- **It's open.** There's no vendor and no lock-in. It's Apache-2.0 code built
-  entirely on standard, well-understood cryptography.
+- **It's open.** There's no vendor and no lock-in. It's Apache-2.0 code built on
+  standard primitives, Ed25519 and SHA-256.
 
 It's also honest about its limits. Paztport doesn't make a compromised machine
 trustworthy; it limits how far a compromise can travel. The full list is in
-[Known limits](#6-known-limits).
+[Known limits](#5-known-limits).
 
 ## What's in this repository
 
@@ -108,15 +99,15 @@ run showed: the processor's cost under load, how the edge fails and recovers, an
 rotating the edge's key.
 
 The [agents demo](poc-demos/agents-mcp/README.md) carries the same chains over MCP,
-with the TypeScript SDK. An extension to the pi coding agent stamps each tool call
-the agent makes to a mock GitHub MCP server, verifies each response, and tracks the
-influence of what the agent has read. One issue on a public repository carries a
-prompt injection that asks the agent to copy private notes into a public pull
-request, and with Paztport on, the server refuses that write by the owner-aware rule
-([§3](#3-operations-influence-and-sessions)). The model runs locally through Ollama,
-and an eval runs the agent many times in each setting, with Paztport on and off and
-with and without the planted issue, and scores each run from the server's outcome
-log.
+with the TypeScript SDK. An extension to the pi coding agent intercepts each tool
+call the agent makes to a mock GitHub MCP server and stamps it, verifies each
+response, and tracks the influence of what the agent has read. One issue on a
+public repository carries a prompt injection that asks the agent to copy private
+notes into a public pull request, and with Paztport on, the server refuses that
+write by the owner-aware rule ([§3](#3-operations-influence-and-sessions)). The
+model runs locally through Ollama, and an eval runs the agent many times in each
+setting, with Paztport on and off and with and without the planted issue, and scores
+each run from the server's outcome log.
 
 The idea is offered freely. The code is Apache-2.0, and every cryptographic
 primitive comes from each language's standard library (the JDK, Node's
@@ -126,34 +117,34 @@ primitive comes from each language's standard library (the JDK, Node's
 
 ## Contents
 
-1. [The problem: every hop trusts only its neighbour](#1-the-problem-every-hop-trusts-only-its-neighbour)
+1. [The problem: a caller's identity covers one hop](#1-the-problem-a-callers-identity-covers-one-hop)
 2. [Two proofs that bind together](#2-two-proofs-that-bind-together)
 3. [Operations, influence and sessions](#3-operations-influence-and-sessions)
 4. [Security principles](#4-security-principles)
-5. [How it compares](#5-how-it-compares)
-6. [Known limits](#6-known-limits)
-7. [Where this could go](#7-where-this-could-go)
-8. [Running it](#8-running-it)
-9. [Repository layout](#9-repository-layout)
-10. [Where to go next](#10-where-to-go-next)
+5. [Known limits](#5-known-limits)
+6. [Where this could go](#6-where-this-could-go)
+7. [Running it](#7-running-it)
+8. [Repository layout](#8-repository-layout)
+9. [Where to go next](#9-where-to-go-next)
 
 ---
 
-## 1. The problem: every hop trusts only its neighbour
+## 1. The problem: a caller's identity covers one hop
 
-Distributed systems check trust one hop at a time. Service C verifies that
-service B called it, and stops there. Nobody asks who called B.
+Service C can verify that service B called it. mTLS and SPIFFE identities make that
+*last hop* trustworthy and say nothing about the hops before it, so C doesn't learn
+who called B.
 
-That gap is the **confused deputy** problem. An attacker who compromises B, or
-tricks it, inherits every privilege B has downstream. The malicious request looks
-identical to a legitimate one: same headers, same body shape, same authenticated
-caller. mTLS and SPIFFE identities make the *last hop* trustworthy and say nothing
-about the hops before it.
+An attacker who compromises B, or tricks it, inherits every privilege B has
+downstream. A B tricked into using its privileges for someone else is what Norm
+Hardy called a **confused deputy** ("The Confused Deputy (or why capabilities might
+have been invented)", ACM SIGOPS Operating Systems Review 22(4), 1988). Either way,
+the malicious request looks identical to a legitimate one: same headers, same body
+shape, same authenticated caller.
 
-Inspecting the payload can't catch this, because the payload is the part the
-attacker controls. What the attacker rarely controls is the request's **history**.
-An illicit route leaves a fingerprint even when the request itself is clean.
-Paztport turns that history into a credential, and makes it unforgeable.
+What differs is the request's **history**. An illicit route leaves a fingerprint
+even when the request itself is clean. Paztport turns that history into a
+credential, and makes it unforgeable.
 
 ## 2. Two proofs that bind together
 
@@ -192,9 +183,9 @@ flowchart LR
 
 Why it's built this way:
 
-- **Chaining through `prev = sig`** makes the chain tamper-evident in the same way a
-  hash chain is. Remove, reorder, or insert a stamp and some `prev` stops matching,
-  or some signature stops verifying.
+- **Chaining through `prev = sig`** makes the chain tamper-evident. Remove,
+  reorder, or insert a stamp and some `prev` stops matching, or some signature
+  stops verifying.
 - **Ed25519 rather than an HMAC** means verifiers need only *public* keys. No
   shared secret is ever distributed, and a compromised verifier can't forge stamps.
 - **The receiver binding**, `rcv`, makes each stamp good only for the hop it was
@@ -283,10 +274,10 @@ The details carry real weight:
   **Node** = `SHA-256(0x01 ‖ left ‖ right)`. The `0x00` / `0x01` domain-separation
   prefixes are mandatory. Without them, a 64-byte internal node could be passed off
   as a leaf: the classic Merkle second-preimage attack.
-- **Every leaf has a secret 128-bit salt.** Real path spaces are tiny, so an
-  unsalted `gateway/orders/payment` could be confirmed by hashing a handful of
+- **Every leaf has a secret 128-bit salt.** A route space is small enough to
+  enumerate, so an unsalted `gateway/orders/payment` could be confirmed by hashing
   guesses. With salts, sibling hashes and the root reveal nothing an observer can
-  test guesses against. §4 explains why this is a hard rule, not a preference.
+  test guesses against. No leaf goes unsalted (§4).
 - **Proofs are padded to a fixed depth** (8 levels, 256 leaf slots). Each route
   goes in a random slot, and unused slots are filled with random 32-byte values
   that look like any other hash. Proof length and position therefore leak nothing
@@ -301,7 +292,7 @@ The details carry real weight:
   policy key also signs the keyring, which names every service's key, the same way,
   with its own window.
 
-The proof hides the policy, not the request's own route (see §6.2, Inherent).
+The proof hides the policy, not the request's own route (see §5.2, Inherent).
 
 ### 2.3 Why you need both
 
@@ -348,7 +339,7 @@ An operation that acts on one item of many can declare a key in its
 table entry: a `{}` path segment or a query parameter, whose value is at most 128
 characters long by default and never more than 1024. The receiver reads the key value
 from its own route match and the caller from the target it sends; both nonce keys
-and the delivery key (§6.1) gain the value, so a keyed operation is called at most
+and the delivery key (§5.1) gain the value, so a keyed operation is called at most
 once per request tree for each item. A call to a keyed operation with no key value
 fails `BINDING_MISMATCH` and spends nothing, and the Java policy tool lists each
 keyed operation when it builds a policy. The MCP profile has no operations, since a
@@ -410,7 +401,7 @@ applies the owner-aware rule, and the internal route never crosses. An unsafe
 session is graded trust, not a refusal: the egress sends no stamp and no influence,
 and the partner verifies nothing, refuses the endpoints it lists as disabled
 (`UNSAFE_SESSION`) and serves the rest. Either way the partner does not attest its
-replies (§6.2), so the sender counts each one `local-untrusted`. The agents demo's
+replies (§5.2), so the sender counts each one `local-untrusted`. The agents demo's
 client opens the same kind of session with each MCP server, and in an unsafe one
 counts every result `local-untrusted`
 ([status](poc-sdks/spec/sessions-and-influence.md#status),
@@ -418,37 +409,24 @@ counts every result `local-untrusted`
 
 ## 4. Security principles
 
-**Security must come from secrets, never from effort.** No part of Paztport's
-security may depend on an attacker having to hash more than honest parties do.
+**Every route leaf carries a secret, random 128-bit salt, and no unsalted leaf
+exists.** So a route can't be confirmed by hashing guesses: guessing a salted leaf
+means brute-forcing its salt, roughly `2¹²⁸` work. There's no unsalted leaf code
+path anywhere in the codebase, tests included.
 
-This is a law, not a habit. Barak and Mahmoody,
-*["Merkle's Key Agreement Protocol is Optimal"](https://arxiv.org/abs/0801.3669)*
-(CRYPTO 2009), prove that in a hash-only world (the random-oracle model, with no
-other assumptions) honest parties can get **at most a quadratic** advantage over
-an attacker. If the honest side makes `n` queries, an attacker succeeds in `O(n²)`.
-Read it as a **conservation law for cryptographic asymmetry**: you can't
-manufacture a super-polynomial gap out of hashing effort. Any real asymmetry has to
-be *imported* from something the theorem doesn't cover, either a **secret** the
-attacker lacks or a **structured hardness assumption**.
+Signatures are Ed25519 and hashes are SHA-256, relied on for their standard
+properties:
 
-Paztport sits on the right side of that line:
-
-- Stamps are **Ed25519**, which rests on discrete log, a structured and
-  super-polynomial assumption.
-- Route confidentiality rests on **128-bit secret salts**. Guessing a salted leaf
-  means brute-forcing the salt, roughly `2¹²⁸` work. That is a secret, not a
-  hashing race.
+- Stamps are **Ed25519** signatures, whose security rests on discrete log on
+  Curve25519.
 - Integrity (binding, replay, Merkle) rests on SHA-256's preimage and collision
-  resistance, which is again structured hardness.
+  resistance.
 
-The one place the bound would bite is exactly what's forbidden: unsalted leaves. A
-tiny path space plus "just hash harder" can never be secure. There's no unsalted
-leaf code path anywhere in the codebase, tests included. The quantum view agrees:
-Grover gives only a quadratic speedup against hashes, while Shor breaks Ed25519
-outright, which is why the post-quantum plan (§7) keeps the Merkle tree and swaps
-only the signatures.
+Against a quantum attacker, Grover gives only a quadratic speedup against preimage
+search, while Shor breaks Ed25519 outright, which is why the post-quantum plan (§6)
+keeps the Merkle tree and swaps only the signatures.
 
-The rest of the principles follow the same discipline:
+The other principles:
 
 - **Fail closed.** Any parse error, missing header, unknown key, or expired stamp
   is a rejection. Stripping the header must never become an escape hatch.
@@ -465,33 +443,13 @@ The rest of the principles follow the same discipline:
 - **Log identities and verdicts, never secrets.** Service IDs, request IDs, and
   reason codes appear in logs. Private keys, salts, and proof bundles never do.
 
-## 5. How it compares
-
-The pieces exist, scattered across observability, service meshes, and token
-research. None of them combines proof of route with a private policy of valid
-routes.
-
-| Approach | What it proves | Where it stops |
-|---|---|---|
-| Distributed tracing (OpenTelemetry, `traceparent`) | The path a request *claims* to have taken | Unauthenticated headers, trivially forged or stripped |
-| Per-hop identity (mTLS, SPIFFE, Istio, Linkerd) | Who the immediate caller is | One hop deep, no knowledge of the chain |
-| Network policies (Calico, Cilium) | Which pod may reach which pod | Edge-level allow lists, no request context |
-| Macaroons | A chained HMAC that holders can only restrict | Attenuates authority; doesn't attest a route |
-| OAuth Transaction Tokens (IETF draft) | Original caller and purpose, carried along | Context propagation, not hop-by-hop proof |
-| SCION, OPT | Packet-level path verification | Network layer, needs new routing infrastructure |
-| Trace-based anomaly detection | Statistically unusual call graphs | Probabilistic, no cryptographic guarantee |
-
-Paztport borrows chaining from macaroons, identity from the mesh, and learned
-paths from tracing, and adds the piece none of them has: a **cryptographic proof
-that the route taken is in a private, committed policy**.
-
-## 6. Known limits
+## 5. Known limits
 
 The limits come in three parts: what a deployment must supply for Paztport to
 hold, what any design of this kind cannot do, and the shortcuts this repository
 takes.
 
-### 6.1 Using it soundly
+### 5.1 Using it soundly
 
 What Paztport needs from a deployment, and what it deliberately doesn't cover yet.
 
@@ -567,7 +525,7 @@ What Paztport needs from a deployment, and what it deliberately doesn't cover ye
   at once. Choosing the lifetime and running the renewals are the deployment's job.
 - **Async is out of scope.** Queues, caches, and scheduled jobs break the
   linear-chain model (see the async direction in
-  [section 7](#7-where-this-could-go)).
+  [section 6](#6-where-this-could-go)).
 - **The rule judges whose data shaped a write, not who may receive it.** A
   hijacked request that read no private data passes the rule whatever destination
   it names. In the demo, who may receive a refund is the PSP's own payer check
@@ -582,7 +540,7 @@ What Paztport needs from a deployment, and what it deliberately doesn't cover ye
   incomplete or empty, and the rule passes what it cannot see. A partner must
   therefore list its public writes in `paztport.partner.unsafe-disabled`.
 
-### 6.2 Limits of the concept
+### 5.2 Limits of the concept
 
 What any design of this kind meets, and what this one has not yet tackled.
 
@@ -595,21 +553,20 @@ What any design of this kind meets, and what this one has not yet tackled.
   key the peer check reads, and a pod that can read or mount them is that service:
   its stamps verify. Paztport attests the path, not that each hop is a legitimate
   deployment. That proof belongs to the workload-identity layer: attestation that
-  issues short-lived identities only to approved workloads (SPIFFE/SPIRE, for one),
-  signed images checked at admission, and admission rules on who may run a service's
-  pods. Because the peer check binds each stamp to its TLS peer, once TLS identity
+  issues identities only to approved workloads (SPIFFE/SPIRE, for one), signed
+  images checked at admission, and admission rules on who may run a service's pods.
+  Because the peer check binds each stamp to its TLS peer, once TLS identity
   is attested a copy holding a stolen stamping key is refused at the next hop with a
   peer; offline verification has no peer to check.
 - **Influence is only as complete as the instrumented path.** Content that reaches a
   component outside an attested hop (a cache, a side channel, training data, a
-  person pasting text) is invisible to the rule. This is the general limit of
-  information-flow tracking.
+  person pasting text) is invisible to the rule.
 - **The rule counts presence, not effect.** It can't tell whether third-party text
-  actually changed what a model did, which can't be determined in general. So it
-  refuses conservatively, preferring a false refusal to a missed one. It doesn't
-  refuse on third-party text alone: it refuses when untrusted content and private
-  data not owned by the destination are both in the influence. Untrusted content
-  can still steer a customer's own data to that customer.
+  actually changed what a model did, so it refuses conservatively, preferring a
+  false refusal to a missed one. It doesn't refuse on third-party text alone: it
+  refuses when untrusted content and private data not owned by the destination are
+  both in the influence. Untrusted content can still steer a customer's own data to
+  that customer.
 - **The proof hides the policy, not the request's route.** The stamps name the
   route to whoever verifies them, and a route's proof is the same on every
   request, so a partner can count and cluster requests by route. It sees one
@@ -636,7 +593,7 @@ What any design of this kind meets, and what this one has not yet tackled.
   keyring, which the egress already holds from the session reply, would attest it;
   that is a spec addition.
 
-### 6.3 Limits of this proof of concept
+### 5.3 Limits of this proof of concept
 
 Engineering shortcuts of this repository, not of the design.
 
@@ -680,20 +637,22 @@ Engineering shortcuts of this repository, not of the design.
   and the mailer's directory are fixtures, and `assistant` is scripted, with no
   model.
 
-## 7. Where this could go
+## 6. Where this could go
 
 These are design directions, except where a bullet says what is built.
 
 - **Post-quantum.** Keep the Merkle tree and swap Ed25519 stamps for hash-based
-  signatures. SLH-DSA (FIPS 205) is stateless, but at ~8–50 KB per signature it's
-  too large for per-hop headers today. XMSS and LMS are smaller but stateful, and
-  reusing a key is catastrophic. Signing isn't behind a swap interface yet.
-  Making it swappable would take a `StampSigner` / `StampVerifier` interface, an
-  algorithm tag in `keyring.json` and alongside each `sig`, and, for XMSS or LMS, a
-  signer with persisted key state. The interface is cheap; managing stateful keys
-  and living with the header sizes is the real work.
-- **AI agents and MCP.** Prompt injection *is* the confused-deputy problem. A path
-  becomes a sequence of steps (`user → orchestrator → subagent → tool`, or
+  signatures. SLH-DSA (FIPS 205) is stateless, but at ~8–50 KB per signature, one
+  stamp as `X-Path-Chain` encodes it is larger than Tomcat's default 8 KB header
+  limit with any parameter set, and two stamps with the smallest are larger than
+  Node's default 16 KiB; those limits can be raised. XMSS and LMS are smaller but
+  stateful, and reusing a key is catastrophic. Signing isn't behind a swap
+  interface yet. Making it swappable would take a `StampSigner` / `StampVerifier`
+  interface, an algorithm tag in `keyring.json` and alongside each `sig`, and, for
+  XMSS or LMS, a signer with persisted key state. The interface is cheap; managing
+  stateful keys and living with the header sizes is the real work.
+- **AI agents and MCP.** For an agent, a path is a sequence of steps
+  (`user → orchestrator → subagent → tool`, or
   `read_inbox → summarize → send_email`), and the agent *runtime*, not the model,
   holds the keys and stamps each step. A sensitive MCP server can require a chain
   proving a call began in a user session and went only through approved agents,
@@ -707,9 +666,7 @@ These are design directions, except where a bullet says what is built.
   (joins) is the open frontier and likely needs its own commitment structure.
 - **Scale.** A forest of sub-roots partitioned by destination keeps every proof at
   `log(subtree)` no matter how large the global path space gets. It also shrinks the
-  blast radius of a policy change to one domain. Further out, the policy could be
-  modelled as a sparse route operator (forward is `A`, backward is `Aᵀ`) committed
-  with polynomial commitments for constant-size proofs.
+  blast radius of a policy change to one domain.
 - **Interrupted work and race conditions.** A quarantined node can't be trusted to
   hand off its own work. The trusted party is the origin, which can mint a
   retry (the same `rid` and an `attempt` counter, which would need a new field in
@@ -720,11 +677,11 @@ These are design directions, except where a bullet says what is built.
   gateway verifies the internal chain and emits one boundary attestation. The
   boundary attestation is implemented in the Java demo (see
   [the storyline](poc-demos/java-mesh/README.md#the-support-assistant-storyline)).
-  What is still a direction is the rest: an
-  append-only log of roots (in the style of Certificate Transparency) lets partners
-  detect a quietly widened policy without seeing its contents.
+  What is still a direction is the rest: an append-only log of roots (in the style
+  of Certificate Transparency) lets partners detect an unexpected new root without
+  seeing the policy behind it.
 
-## 8. Running it
+## 7. Running it
 
 **Prerequisites:** JDK 25 or newer and Maven for the Java side, Docker with Compose
 for the mesh demo, Node 22.19 or newer with npm for the TypeScript side, Go 1.27 or
@@ -746,7 +703,7 @@ concept, Maven running on Java 25 or newer (as `mvn -v` reports it), Docker, Go,
 line naming what is missing, before anything is built. Each folder still builds on
 its own; its README has the commands.
 
-## 9. Repository layout
+## 8. Repository layout
 
 ```
 paztport/
@@ -774,7 +731,7 @@ paztport/
         └── scenarios/        scenario folders: repositories, planted text, scoring data
 ```
 
-## 10. Where to go next
+## 9. Where to go next
 
 - [poc-sdks](poc-sdks/README.md): the SDKs and a summary of the on-the-wire format.
   - [poc-sdks/java](poc-sdks/java/README.md) and
@@ -793,8 +750,10 @@ paztport/
 ## Licence and third-party software
 
 Copyright 2026 The Paztport Authors. Licensed under Apache-2.0 (see
-[LICENSE](LICENSE) and [NOTICE](NOTICE)), whose explicit patent grant protects
-everyone who builds on this, including commercially. The repository bundles no
-third-party code. [THIRD-PARTY.txt](THIRD-PARTY.txt) lists the runtime dependencies
-and the licence each is used under, and [LICENSING.md](LICENSING.md) says what each
-jar and image carries, and how to regenerate the list.
+[LICENSE](LICENSE) and [NOTICE](NOTICE)). Its patent grant (section 3) licenses
+each contributor's patent claims that their contribution infringes, to everyone who
+uses the code, commercially included, and ends for anyone who sues over them. The
+repository bundles no third-party code. [THIRD-PARTY.txt](THIRD-PARTY.txt) lists the
+runtime dependencies and the licence each is used under, and
+[LICENSING.md](LICENSING.md) says what each jar and image carries, and how to
+regenerate the list.

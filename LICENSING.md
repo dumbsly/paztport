@@ -1,10 +1,11 @@
 # Licensing
 
 Copyright 2026 The Paztport Authors. Licensed under Apache-2.0 (see
-[LICENSE](LICENSE) and [NOTICE](NOTICE)). Its explicit patent grant protects
-everyone who builds on this, including commercially. The idea is meant to stay
-open: anyone can implement, extend, or sell path attestation, and the only
-request is that improvements flow back into the open where they can.
+[LICENSE](LICENSE) and [NOTICE](NOTICE)). Its patent grant (section 3) licenses
+each contributor's patent claims that their contribution infringes, to everyone who
+uses the code, commercially included, and ends for anyone who sues over them. The
+idea is meant to stay open: anyone can implement, extend, or sell path attestation,
+and the only request is that improvements flow back into the open where they can.
 
 ## The source and its third-party list
 
@@ -17,13 +18,13 @@ BSD-2-Clause, the MIT-style Bouncy Castle licence) or weak copyleft that is fine
 redistribute unmodified (EPL-2.0), except JMH (below). Two of them also carry
 Mozilla's Public Suffix List, which is under MPL-2.0: docker-java-transport-zerodep
 holds the list as a file, unmodified, whose own notice says it is under MPL-2.0 and
-where that licence is published, and Guava holds classes generated from the same
-list. The MPL-2.0 text is not in licenses/. Four components offer a choice of
-licence, recorded in [licenses/overrides.properties](licenses/overrides.properties):
-Logback (EPL-2.0 or LGPL-2.1) and Jakarta Annotations (EPL-2.0 or GPL-2.0 with the
-Classpath Exception) are used under EPL-2.0, JNA (Apache-2.0 or LGPL-2.1) under
-Apache-2.0, and HdrHistogram (public domain under CC0, or BSD-2-Clause) under
-BSD-2-Clause.
+where that licence is published, and Guava holds public-suffix classes that its
+documentation ties to the same list. The MPL-2.0 text is not in licenses/. Four
+components offer a choice of licence, recorded in
+[licenses/overrides.properties](licenses/overrides.properties): Logback (EPL-2.0 or
+LGPL-2.1) and Jakarta Annotations (EPL-2.0 or GPL-2.0 with the Classpath Exception)
+are used under EPL-2.0, JNA (Apache-2.0 or LGPL-2.1-or-later) under Apache-2.0, and
+HdrHistogram (public domain under CC0, or BSD-2-Clause) under BSD-2-Clause.
 
 Regenerate the list after changing dependencies:
 
@@ -46,7 +47,7 @@ Every jar the build produces carries `META-INF/LICENSE` (the Apache-2.0 text) an
 - `META-INF/THIRD-PARTY.txt`: exactly what that jar bundles, each component with the
   licence it is used under and its Maven Central coordinates. Its header says how
   to get each component's source (the `-sources.jar` at those coordinates), which
-  EPL-2.0 requires of a binary.
+  EPL-2.0 §3.1(a) requires of a binary.
 - `META-INF/licenses/`: the text of each licence in that list other than Apache-2.0,
   when there is one.
 
