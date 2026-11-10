@@ -519,10 +519,8 @@ the policy key or the CA key. Its goal is to get `payment` to act on a request.
 still misuse that route. If `orders` were compromised, it could alter what it sends
 to `payment`. It would sign the altered request itself, so the misuse is
 attributable to it, but it isn't prevented. Attestation constrains **position**,
-not **trustworthiness**. The practical result is that lateral movement becomes
-*positional*: a compromised node can do only what its legitimate place in the
-graph allows. Where services name their operations, that place is the operation
-a request came in through ([Operations](#operations)).
+not **trustworthiness**. Where services name their operations, a node's place is
+the operation a request came in through ([Operations](#operations)).
 
 ## Operations
 
@@ -596,8 +594,8 @@ named alone; an operation name lengthens a stamp's `rcv` by a few bytes.
 ## Response: quarantine, not deletion
 
 The chain shows exactly where a route stopped being valid, so the response can
-target **one instance** rather than a whole service. Docker has no ReplicaSet, so
-the `responder` plays that role through the Docker socket.
+target **one instance** rather than a whole service. Plain Docker or Compose has no
+ReplicaSet, so the `responder` plays that role through the Docker socket.
 
 The decision logic is a small pure function, unit-tested without Docker:
 
@@ -711,15 +709,13 @@ when the whole mesh runs:
   period. The suspect is *part of the call chain* that produced the event
   (`demo → search → payment → responder`), so pulling it off the network inside
   the POST would cut the path `payment`'s 403 travels back on, and the triggering
-  call would hang. The general rule: **a response system must never sit inside
-  the path of the thing it's responding to.**
+  call would hang.
 - **Every holder of a root reloads together.** Each rebuild of the policy (the
   `policy-tool` default) draws a new `rootId` and new salts, so the root bytes
   change with every build. A verifier restarted alone loads the new root while
   its callers still send proofs for the old tree, and every legitimate request
   fails. So `demo.sh` recreates every service that pins a root or holds proofs
-  after each build: policy rollout is atomic across its holders, a miniature of
-  the "policy drift" problem real deployments face.
+  after each build, so policy rollout is atomic across its holders.
 - **The control plane is outside the data-plane check, by configuration.** The
   starter verifies every path unless `paztport.unverified-paths` lists it, and
   matches a listed prefix as a whole first path segment. Each demo service lists
@@ -752,11 +748,10 @@ when the whole mesh runs:
   exception: a 403 the caller should mirror would come back as a 500. The
   starter's own client has no such order, but an application may give the
   builder either.
-- **The responder creates the infrastructure it needs.** Compose doesn't create
-  a network that no service joins, so the responder creates the quarantine
-  network itself at startup. A container created with networking disabled can't
-  then join a network, so a replacement is created straight onto the mesh
-  network under the service's alias, in one step.
+- **The responder creates the infrastructure it needs.** No service joins the
+  quarantine network, so Compose doesn't create it and the responder creates it
+  itself at startup. A replacement is created straight onto the mesh network
+  under the service's alias, in one step.
 
 ## Measurements
 
@@ -822,7 +817,7 @@ What the numbers say:
   Ed25519 verify. Of the primitives, nearly all the cost is Ed25519: a verify per
   stamp, and a signature per stamp a hop adds.
 - **Stock JDK Ed25519 is the slow part.** Optimised native implementations, which
-  this repository doesn't benchmark, do tens of microseconds, about 5–10× faster.
+  this repository doesn't benchmark, do tens of microseconds.
   A hot-path deployment would swap the signature implementation; the Merkle
   machinery wouldn't change.
 - **The chain grows by about 462 B per stamp, on average** (924 B over two). The proof is a fixed 615 B whatever
@@ -937,9 +932,9 @@ all the same.
 Every hop is mutual TLS, so every call is `https` and presents a certificate from
 the mesh CA. `demo.sh` and `measure.sh` make their calls from throwaway containers
 on the mesh network that present the `operator` certificate, mounted file by file;
-the containers run as root to read the owner-only key. k6 can't be given a private
-CA, so `load.js` skips checking the gateway's certificate, while the gateway still
-checks the operator's. A client on the host needs the same: the `operator`
+the containers run as root to read the owner-only key. k6 has no option to name a
+CA file, so `load.js` skips checking the gateway's certificate, while the gateway
+still checks the operator's. A client on the host needs the same: the `operator`
 certificate and key, `ca.crt`, and `gateway` as the host name, since that is the
 name in the gateway's certificate.
 

@@ -335,7 +335,7 @@ backends:
   address, and the peer's instance that a refusal's event names would be whatever the client put there (check 10).
 - `MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE=health,prometheus`, for `/actuator/prometheus`.
 - On `payment`, Actuator's SSL metrics and SSL health check are left out: they read every SSL bundle's files (the
-  metrics at start, the health check at each `/actuator/health`, which it would answer `DOWN`), and `payment` also
+  health check at each `/actuator/health`, which it would answer `DOWN`), and `payment` also
   defines one for the PSP, which this proof of concept leaves out.
 
 ## The chart
@@ -357,9 +357,9 @@ its Service, and:
 - a BackendTLSPolicy, so that Envoy checks the processor's certificate against the mesh CA;
 - a NetworkPolicy that admits the Gateway's Envoy pods, by Envoy Gateway's labels, and no other pod to the gRPC port.
   It needs a network plugin that enforces NetworkPolicy (kind's does; on EKS, the VPC CNI with network policy
-  enabled; on AKS, Azure Network Policy Manager, Cilium or Calico). With merged gateways Envoy Gateway gives Envoy's
-  pods the GatewayClass's label (`gateway.envoyproxy.io/owning-gatewayclass`) and not the Gateway's, so the policy
-  admits nothing and the edge refuses every request until `gateway.envoyPodLabels` names that label instead. The
+  enabled; on AKS, Azure Network Policy Manager, Cilium or Calico). With merged gateways Envoy's pods do not carry
+  the Gateway's labels, so the policy admits nothing and the edge refuses every request until `gateway.envoyPodLabels`
+  names the labels they carry. The
   admin port (`/metrics`, `/readyz` and `/livez`, read only) is open to every pod by default; in production set
   `adminFrom` to the Prometheus namespace;
 - a BackendTrafficPolicy on the same routes, and on no other, that sets their request buffer's limit
@@ -483,8 +483,7 @@ Envoy's 413 with its own 500 (11), and the request buffer taken off the routes' 
   the limit: Envoy then opens a stream to the processor with that reply's headers alone, which the processor passes
   on, deciding and counting nothing, since it never had the request. On a route with no request buffer, the
   listener's buffer refuses the body instead while the processor awaits it, and the processor counts the request
-  `refused_body`. Envoy sends the processor its own replies before the stamp in the same way when any filter ahead
-  of `ext_proc` refuses a request; each is passed on, never replaced.
+  `refused_body`.
 - Containment needs every route to a Paztport backend to pass the processor. Envoy presents the edge's certificate
   on every upstream with a BackendTLSPolicy, so on a route without the processor a stamp the client holds is accepted
   as the edge's (seen with the policy detached: a stamp taken from the processor was served). Each such route must be
@@ -540,15 +539,18 @@ What the checks and the measurements found, beyond the numbers.
   `spec.routingType: Service`: Envoy then routes to the processor's Service, Envoy Gateway keeps the policy accepted and
   the filter in place, and 0 reached `echo` unstamped. Envoy refused every request itself, failing closed: over the
   case, 172465 500s, most of them (`cluster_rq_pending_overflow` +167584) from its circuit breaker once 1024 waited on
-  connections that could not open, and 66199 504s at the `messageTimeout`. It costs a slower recovery, the first 200 to
+  connections that could not open (`cluster_rq_pending_overflow` and `cluster_rq_active_overflow` are the harness's
+  labels for Envoy's `upstream_rq_pending_overflow` and `upstream_rq_active_overflow` counters on the processor's
+  cluster), and 66199 504s at the `messageTimeout`. It costs a slower recovery, the first 200 to
   a probe 2.51 s after two replicas were asked for against 0.92 s, and the last error 3.63 s after against 0.73 s, and
   Envoy no longer balances across the processor's pods itself: kube-proxy balances its few long-lived HTTP/2
   connections, which in the run split 58.3% and 41.7%, and nothing keeps them even. It is also Gateway-wide, for every
   route. The default, routing to endpoints, leaks; `failure` reports it as a FAIL, and the run exits 1 for it.
 - **Envoy's circuit breaker on the processor's cluster sheds load.** The processor's cluster sets no limit of its own
   (only `max_retries`, in Envoy's configuration as the run read it), so Envoy's default of 1024 requests at a time
-  applies, and the chart leaves it. Past it Envoy refuses with its own 500 (`cluster_rq_active_overflow`), failing
-  closed. Measured: one replica offered 15000/s refused 172975 that way while stamping every request that came back 200;
+  applies, and the chart leaves it. Past it Envoy refuses with its own 500 (`cluster_rq_active_overflow`; the 500 is
+  the `ext_proc` filter's `status_on_error` default), failing closed. Measured: one replica offered 15000/s refused
+  172975 that way while stamping every request that came back 200;
   on `orders` at 3000/s Envoy refused 9598 of 60001 while the processors stamped only 50403 in 20 s, about 2500 a
   second, far under what two replicas sustained on `echo`; and three steps that rolled the backends under load counted
   4439 (rotation's last), 3818 (`route`'s last overlap step) and 1592 (its old way). A reading of the `orders` case and
@@ -631,7 +633,7 @@ What the checks and the measurements found, beyond the numbers.
 | A second BackendTrafficPolicy or EnvoyExtensionPolicy on a route, or one on the Gateway | `Conflicted`, or the Gateway's `Overridden` | `backendTrafficPolicy: false`, `mergeType`, and alerts (see [The chart](#the-chart)) |
 | Merged gateways | the NetworkPolicy admits nothing, and the edge refuses everything | `gateway.envoyPodLabels` |
 | Every processor replica gone | refused while down; 4200 unstamped on recovery in the run, one a kept-alive connection by the count | backends in `enforce`; `routingType: Service`; the PodDisruptionBudget and two replicas |
-| More than 1024 requests in flight | Envoy's own 500 | capacity; it fails closed |
+| More than 1024 requests in flight | Envoy's own 500 (`ext_proc`'s `status_on_error` default) | capacity; it fails closed |
 | A processor replica slow on its gRPC port | 504s at the `messageTimeout` for its share until shortly after Envoy's health check takes it out (4081 in the run, stopping 2.83 s after the delay) | the chart's health check (see [The chart](#the-chart)); an operator's alert on 504s and `message_timeouts` for the gap (see **A slow processor replica** under [Operating it](#operating-it)) |
 | `X-Forwarded-For` | Boot would take the peer's instance from it | `SERVER_FORWARDHEADERSSTRATEGY=NONE` |
 
@@ -667,8 +669,8 @@ What the checks and the measurements found, beyond the numbers.
   share of requests ends in 504s at the `messageTimeout`: alert on the 504s, and on the counter under **What to
   watch**.
 - **What to watch.** `paztport_edge_requests_total` by outcome, `paztport_edge_material_seconds_left`, and, from
-  Envoy, the processor's cluster: `streams_failed`, `message_timeouts` and `cluster_rq_active_overflow`; and the
-  backends' reasons other than `OK`.
+  Envoy, the `ext_proc` filter's `streams_failed` and `message_timeouts` and the processor's cluster's
+  `cluster_rq_active_overflow`; and the backends' reasons other than `OK`.
 
 ## Limits
 
@@ -694,15 +696,14 @@ What the checks and the measurements found, beyond the numbers.
 - **Origin claims**: identity committed in the origin stamp.
 - **Origin-minted retries**: the origin signs a retry (same `rid`, a new attempt), which a replayer cannot forge.
 - **A shared, expiring nonce store** across a backend's replicas, as optional hardening against a compromised caller.
-- **A verifying front** and **partner entry** at the edge, and **client stamps**, a client signing its own requests
-  (the DPoP and passkey shape).
+- **A verifying front** and **partner entry** at the edge, and **client stamps**, a client signing its own requests.
 - **Chains that start only at an ingress or an approved trigger,** with `audit` stamping (both defined in the
   chainless-request item under [Findings](#findings)).
 - **`routingType: Service`, or a fix in Envoy Gateway,** for the leak on recovery.
 
 ## Why ext_proc now, and a dynamic module later
 
-`ext_proc` keeps the processor a separate gRPC service on Envoy's stable `ext_proc` v3 API. It is built on the Go
+`ext_proc` keeps the processor a separate gRPC service on Envoy's `ext_proc` v3 API. It is built on the Go
 SDK, and Envoy, Envoy Gateway and the processor upgrade apart: an Envoy Gateway upgrade rebuilds nothing of
 Paztport's. It scales, fails and rolls as its own Deployment (a processor roll cost no error in the run), and its
 signing key lives apart from Envoy's TLS key, which is what the peer check rests on. It costs a round trip to the
@@ -711,9 +712,9 @@ of a separate service, above.
 
 A dynamic module runs in Envoy's process, and Envoy Gateway can attach one through the same EnvoyExtensionPolicy. It
 would drop the round trip and the separate Deployment's failure modes. But it builds against Envoy's own interface,
-so it is rebuilt for each Envoy minor version, and every Envoy Gateway upgrade carries a rebuild; its SDKs are still
-young; and the edge's signing key would sit in Envoy's process beside its TLS key, so a compromise of either would be
-a compromise of both. It is the later step, once its SDK has matured.
+and rebuilding it for each Envoy version is recommended, though not required, so an Envoy Gateway upgrade can carry a
+rebuild; and the edge's signing key would sit in Envoy's process beside its TLS key, so a compromise of either would
+be a compromise of both. It is the later step.
 
 ## What is kind-specific
 
