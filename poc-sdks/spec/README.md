@@ -51,10 +51,10 @@ Design choices:
 
 | File | Covers | Replayed by |
 |---|---|---|
-| `v3.json` | The session id, the prompt, result, `tools/call` and response bindings, the influence commitment, the Merkle leaves, nodes and proofs (with the encoded proof headers), v3 signed bytes and signatures, influence with owners and its commitment, the owner-aware rule's truth table, the signed keyring and the signed root (the signed bytes and signature, at its `notAfter` and 1 ms after, the largest `notAfter`, a renewed root, a tampered service key and a tampered `notAfter`, a `notAfter` added to a signature made without one, a `notAfter` that is not an integer, a `notAfter` of 2^53, one whose file writes it `1798761600000.0`, a root signature offered as a keyring's and the other way round, and a keyring and a root with no `notAfter`, each signed over its other fields alone, which a reader refuses and which are never valid; the root-as-keyring and keyring-as-root cases do not pin the domain prefixes, since their signed bodies differ and would fail without them: each case's literal signed bytes do), reply certificates (the signed bytes and signature, a tampered `notAfter`, one signed by and one naming another policy key, one with an extra field and the largest `notAfter`), session replies (the entry-key and policy-key forms, the certificate's expiry, forged and malformed replies, one with a member a reply does not have among them, a server keyring or root `notAfter` moved, dropped or malformed, the server's root and keyring at their `notAfter` and expired, an expired root's window moved in a reply the entry key signed again, and a keyring window in a policy-key reply), session status cases (the server's status for a request, against its own root and keyring and its pins: each side's root and keyring at its `notAfter` and expired, and a client window moved), session request cases (a well-formed request, and one with no keyring signature, or a `null`, empty or numeric one, with no keyring `notAfter`, or with a client root without one, each malformed), live verify cases (each kind of receiver, operations named in `rcv` (a route through them, a chain naming another operation, a receiver naming none, an inner `rcv` naming another service's operation, an empty operation, an inner operation holding a `/` or a `#`, and a proof for another operation's route), a stamp whose `v` is not 3, malformed `rcv` fields, the check order, the peer and attribution, replay, an altered owner, and the pinned policy's window: at it, past it, out of range, and past it before a bad signature or a malformed chain, and a stamp `ts` of −2^63, written exactly, and several pinned keyrings and roots: a proof under the second root, a `rootId` pinned nowhere, a rotated key only in the second keyring, a chain whose keys come from two keyrings, a proof under an expired root and one under a renewal of it, a key only in an expired keyring, every keyring or every root expired, and a proof relabelled with the other root's `rootId`), offline cases (a recorded call, a stamp whose `v` is not 3, a broken receiver, the recorded time, age, prompt and replay checks, a record with no time, `recordedTs` `null`, and no age limits, `callMaxAgeMs` and `runMaxAgeMs` `null`, with the last stamp at the run window and 1 ms past it, and the origin at the call window after the last stamp and 1 ms past it, where a `null` is absent, never 0, and a record within only the second root's window, one at its `notAfter`, one past every root's window, one past every keyring's window, and one past every root's window whose chain is malformed), recorded handshakes (attested at a time, at all and the response limit, and none where the server's signatures do not verify, in both reply forms, at each kind of limit, and not attested, a reply the server signed that fails the client's shape check included, and a request without a client keyring signature or `notAfter`, or with a client root without one), recorded calls (the session's limits, a failing call past them, and replay across a record set, a repeated handshake included), recorded local steps ([MCP profile](#the-mcp-profile): allowed, refused and unlisted steps, the client's root and keyring windows, each re-check, and a step at the run window and 1 ms past it), response attestations ([MCP profile](#the-mcp-profile): an attested response, an attestation with a member it does not have, a label with a member labels do not have, an attestation in wire member order, and a result hash for another result), and `paztport/session`'s params and result ([MCP profile](#the-mcp-profile): a request or reply token alone and with `_meta`, a member they do not have, the request or reply itself in place of its token, none, and a request token and a reply token that do not read). | TypeScript (`@paztport/core`, `@paztport/mcp`), and Java (`paztport-core`) and Go (`poc-sdks/go`) for every section but `recordedLocalStep`, `responseAttestation`, `sessionParams`, `sessionResult`, `bindMcpCall` and `bindResult`, which belong to the [MCP profile](#the-mcp-profile) |
-| `http-v3.json` | v3 over HTTP: the HTTP result hash, the request binding with and without a query, Paztport's header names (a name and whether it begins with `X-Path-`, ASCII letters in any case, lookalikes refused), and response checks (a good response, one sent to the wrong receiver, altered labels, an altered status, a replay and one past the verifier's `policyNotAfter`, a response on a route through operations, which another operation's spent response key does not refuse and its own does, and responses from a keyed operation, which another item's spent response key does not refuse and its own does), blinded boundary influence (the salts, the sent entries, and an opening that opens and one with an extra original that does not), and in `operations` an operation table with its hash and route, an entrance with two operations told apart by a query condition, a table whose operations declare keys, tables a reader refuses, matching cases, the key value a call gives or lacks, and how a receiver confirms the operation it dispatches to, and that it spends that operation's request key alone, one for each key value for an operation with a key, and in `rules` the HTTP rules a receiver, a caller, a partner and an egress follow ([below](#the-http-rules-in-http-v3json)). It reuses `v3.json`'s keys and mesh policy by name, and adds a `payment` key derived by `v3.json`'s rule; `rules` adds keys and material of its own, derived the same way. | Java (`paztport-http`) and Go (`poc-sdks/go`), Go every section. The TypeScript SDK does not speak v3 over HTTP and does not replay it. |
-| `events.json` | Responder events: the envelope's signed bytes and signatures, and the responder's checks (an accepted event, each refusal, `ts` at the window and 1 ms past it on both sides, replays with `uses` and across the window, refusals that spend no id, a wrong signer, a signer known only to the second of several keyrings, one whose key is the second of two keyrings naming it, and one in none (a case's `keyrings`, in place of the file's one, each map naming keys in `keys` by name), a tampered payload, malformed envelopes and payloads read strictly, with nothing coerced or filled in, and the check order), and in `attributable` each allowed reason, the excluded ones, an audit event and an event naming no service or no instance, with whether a responder may act on it. Its keys, `payment-next` among them, are derived by `v3.json`'s rule. | Written and replayed by Java (`paztport-core`), and replayed by TypeScript (`@paztport/core`) and Go (`poc-sdks/go`). |
-| `json.json` | Reading and writing JSON ([wire.md](wire.md#json)), each input given as bytes, and each refused input naming the reading step (`size`, `parse` or `canonical`) that first refuses it: in `wire`, bytes read as a base64url token (canonical bytes read, among them an empty object and array, the escapes JCS writes, non-ASCII written as itself, the characters beside the noncharacters, `__proto__`, integer-like names in code-unit order, the largest integers and the limits exactly, and refused: whitespace, members out of order or in code-point order, a repeated name, each escape JCS does not write, lone surrogates raw and escaped, raw noncharacters, a byte order mark, UTF-16 and UTF-32, invalid UTF-8 and overlong forms, raw control characters, every number that is not a protocol integer, malformed JSON, and the size and depth limits, at each and one past it); in `file`, bytes read as a file (any whitespace, member order and escape read, and refused: a name repeated, also through an escape and when not adjacent, an escaped lone surrogate, noncharacters raw and escaped, invalid UTF-8, a byte order mark, every number that is not a protocol integer, and the file limits); in `fileFormat`, a keyring, root, reply certificate, proof bundle and local rules file, integer-like names, a value given out of JCS order, and an empty object and array, each as written; in `base64url`, the decoder's text read as canonical bytes or refused (padding; every last character after `A` and after `AA`, refused when its unused bits are not zero and accepted, with the bytes it decodes to, when they are; an impossible length; characters outside the url-safe alphabet; surrounding whitespace); in `jcs` ([MCP profile](#the-mcp-profile)), hashed content as JCS writes it (RFC 8785's Appendix B numbers, its §3.2.2 sample and §3.2.3 sorting example, `-0`, a noncharacter, and a lone surrogate refused); and in `bindings`, each binding ([wire.md](wire.md#bindings)) refusing a lone surrogate in one string it hashes (the prompt text, a response's `resultHash` or `toolCallId`, a `tools/call`'s tool, call id or argument, a result, a local tool's name or input, a Merkle leaf's route, an HTTP request's method or target). | TypeScript (`@paztport/core`, and `@paztport/mcp` for `toolsCall`), every section but the `http` cases of `bindings`, and Java (`paztport-core`, and `paztport-http` for `http`) and Go (`poc-sdks/go`) for every section but `jcs` and the MCP profile's `bindings` (`toolsCall`, `result`, `localTool`), which belong to the [MCP profile](#the-mcp-profile). |
+| [`v3.json`](#v3json) | v3: stamps, the live and offline verifiers, influence and sessions | TypeScript (`@paztport/core`, `@paztport/mcp`), and Java (`paztport-core`) and Go (`poc-sdks/go`) for every section but `recordedLocalStep`, `responseAttestation`, `sessionParams`, `sessionResult`, `bindMcpCall` and `bindResult`, which belong to the [MCP profile](#the-mcp-profile) |
+| [`http-v3.json`](#http-v3json) | v3 over HTTP | Java (`paztport-http`) and Go (`poc-sdks/go`), Go every section. The TypeScript SDK does not speak v3 over HTTP and does not replay it. |
+| [`events.json`](#eventsjson) | Responder events | Written and replayed by Java (`paztport-core`), and replayed by TypeScript (`@paztport/core`) and Go (`poc-sdks/go`). |
+| [`json.json`](#jsonjson) | Reading and writing JSON ([wire.md](wire.md#json)) | TypeScript (`@paztport/core`, and `@paztport/mcp` for `toolsCall`), every section but the `http` cases of `bindings`, and Java (`paztport-core`, and `paztport-http` for `http`) and Go (`poc-sdks/go`) for every section but `jcs` and the MCP profile's `bindings` (`toolsCall`, `result`, `localTool`), which belong to the [MCP profile](#the-mcp-profile). |
 
 | Part | Java SDK | TypeScript SDK | Go SDK |
 |---|---|---|---|
@@ -154,6 +154,132 @@ the spec's objects and times, never from any implementation's record format:
   it: `expected` is `OK` when it is a `reply` token, with or without `_meta`, that reads as a reply, and
   `MALFORMED_REPLY` otherwise. Its `OK` cases carry the reply of the `sessionReply` case "entry-key form attested",
   whose check that section pins. Java and Go replay no case here.
+
+### v3.json
+
+- `deriveSessionId`: the session id.
+- `bindPrompt`, `bindResult`, `bindMcpCall` and `bindResponse`: the prompt, result, `tools/call` and response
+  bindings.
+- `commitInfluence`: the influence commitment.
+- `merkle`: the Merkle leaves, nodes and proofs (with the encoded proof headers).
+- `signingBytes` and `signatures`: v3 signed bytes and signatures.
+- `influence`: influence with owners and its commitment.
+- `rule`: the owner-aware rule's truth table.
+- `keyring` and `root`: the signed keyring and the signed root (the signed bytes and signature, at its `notAfter`
+  and 1 ms after, the largest `notAfter`, a renewed root, a tampered service key and a tampered `notAfter`, a
+  `notAfter` added to a signature made without one, a `notAfter` that is not an integer, a `notAfter` of 2^53, one
+  whose file writes it `1798761600000.0`, a root signature offered as a keyring's and the other way round, and a
+  keyring and a root with no `notAfter`, each signed over its other fields alone, which a reader refuses and which
+  are never valid; the root-as-keyring and keyring-as-root cases do not pin the domain prefixes, since their signed
+  bodies differ and would fail without them: each case's literal signed bytes do).
+- `replyCert`: reply certificates (the signed bytes and signature, a tampered `notAfter`, one signed by and one
+  naming another policy key, one with an extra field and the largest `notAfter`).
+- `sessionReply`: session replies (the entry-key and policy-key forms, the certificate's expiry, forged and
+  malformed replies, one with a member a reply does not have among them, a server keyring or root `notAfter` moved,
+  dropped or malformed, the server's root and keyring at their `notAfter` and expired, an expired root's window
+  moved in a reply the entry key signed again, and a keyring window in a policy-key reply).
+- `sessionStatus`: session status cases (the server's status for a request, against its own root and keyring and
+  its pins: each side's root and keyring at its `notAfter` and expired, and a client window moved).
+- `sessionRequest`: session request cases (a well-formed request, and one with no keyring signature, or a `null`,
+  empty or numeric one, with no keyring `notAfter`, or with a client root without one, each malformed).
+- `verify`: live verify cases (each kind of receiver, operations named in `rcv` (a route through them, a chain
+  naming another operation, a receiver naming none, an inner `rcv` naming another service's operation, an empty
+  operation, an inner operation holding a `/` or a `#`, and a proof for another operation's route), a stamp whose
+  `v` is not 3, malformed `rcv` fields, the check order, the peer and attribution, replay, an altered owner, and
+  the pinned policy's window: at it, past it, out of range, and past it before a bad signature or a malformed
+  chain, and a stamp `ts` of −2^63, written exactly, and several pinned keyrings and roots: a proof under the
+  second root, a `rootId` pinned nowhere, a rotated key only in the second keyring, a chain whose keys come from
+  two keyrings, a proof under an expired root and one under a renewal of it, a key only in an expired keyring,
+  every keyring or every root expired, and a proof relabelled with the other root's `rootId`).
+- `offline`: offline cases (a recorded call, a stamp whose `v` is not 3, a broken receiver, the recorded time, age,
+  prompt and replay checks, a record with no time, `recordedTs` `null`, and no age limits, `callMaxAgeMs` and
+  `runMaxAgeMs` `null`, with the last stamp at the run window and 1 ms past it, and the origin at the call window
+  after the last stamp and 1 ms past it, where a `null` is absent, never 0, and a record within only the second
+  root's window, one at its `notAfter`, one past every root's window, one past every keyring's window, and one past
+  every root's window whose chain is malformed).
+- `recordedHandshake`: recorded handshakes (attested at a time, at all and the response limit, and none where the
+  server's signatures do not verify, in both reply forms, at each kind of limit, and not attested, a reply the
+  server signed that fails the client's shape check included, and a request without a client keyring signature or
+  `notAfter`, or with a client root without one).
+- `recordedCall`: recorded calls (the session's limits, a failing call past them, and replay across a record set, a
+  repeated handshake included).
+- `recordedLocalStep`: recorded local steps ([MCP profile](#the-mcp-profile): allowed, refused and unlisted steps,
+  the client's root and keyring windows, each re-check, and a step at the run window and 1 ms past it).
+- `responseAttestation`: response attestations ([MCP profile](#the-mcp-profile): an attested response, an
+  attestation with a member it does not have, a label with a member labels do not have, an attestation in wire
+  member order, and a result hash for another result).
+- `sessionParams` and `sessionResult`: `paztport/session`'s params and result ([MCP profile](#the-mcp-profile): a
+  request or reply token alone and with `_meta`, a member they do not have, the request or reply itself in place of
+  its token, none, and a request token and a reply token that do not read).
+
+### http-v3.json
+
+- `resultHash`: the HTTP result hash.
+- `requestBinding`: the request binding with and without a query.
+- `headerNames`: Paztport's header names (a name and whether it begins with `X-Path-`, ASCII letters in any case,
+  lookalikes refused).
+- `responses`: response checks (a good response, one sent to the wrong receiver, altered labels, an altered status,
+  a replay and one past the verifier's `policyNotAfter`, a response on a route through operations, which another
+  operation's spent response key does not refuse and its own does, and responses from a keyed operation, which
+  another item's spent response key does not refuse and its own does).
+- `boundaryInfluence`: blinded boundary influence (the salts, the sent entries, and an opening that opens and one
+  with an extra original that does not).
+- `rules`: the HTTP rules a receiver, a caller, a partner and an egress follow
+  ([below](#the-http-rules-in-http-v3json)).
+- `operations`:
+  - `table`: an operation table with its hash and route.
+  - `shared`: an entrance with two operations told apart by a query condition.
+  - `keyed`: a table whose operations declare keys.
+  - `refused`: tables a reader refuses.
+  - `match`: matching cases.
+  - `keys`: cases giving a call's operation in `keyed` and its key value, null for none: a segment key, a query
+    key, a key of 128 characters, and one of 200 under `maxLength` 256; no key value for a percent-encoded segment
+    or query value, a dot or dot-dot segment, a key of 129 characters, a query key absent, repeated, with no value
+    or repeated under an encoded name, a query holding a semicolon, or an operation with no key.
+  - `receive`: how a receiver confirms the operation it dispatches to, and that it spends that operation's request
+    key alone, one for each key value for an operation with a key.
+
+It reuses `v3.json`'s keys and mesh policy by name, and adds a `payment` key derived by `v3.json`'s rule; `rules`
+adds keys and material of its own, derived the same way.
+
+### events.json
+
+- `envelope`: the envelope's signed bytes and signatures.
+- `verify`: the responder's checks (an accepted event, each refusal, `ts` at the window and 1 ms past it on both
+  sides, replays with `uses` and across the window, refusals that spend no id, a wrong signer, a signer known only
+  to the second of several keyrings, one whose key is the second of two keyrings naming it, and one in none (a
+  case's `keyrings`, in place of the file's one, each map naming keys in `keys` by name), a tampered payload,
+  malformed envelopes and payloads read strictly, with nothing coerced or filled in, and the check order).
+- `attributable`: each allowed reason, the excluded ones, an audit event and an event naming no service or no
+  instance, with whether a responder may act on it.
+
+Its keys, `payment-next` among them, are derived by `v3.json`'s rule.
+
+### json.json
+
+Cases: each input given as bytes, and each refused input naming the reading step (`size`, `parse` or `canonical`)
+that first refuses it.
+
+- `wire`: bytes read as a base64url token (canonical bytes read, among them an empty object and array, the escapes
+  JCS writes, non-ASCII written as itself, the characters beside the noncharacters, `__proto__`, integer-like names
+  in code-unit order, the largest integers and the limits exactly, and refused: whitespace, members out of order or
+  in code-point order, a repeated name, each escape JCS does not write, lone surrogates raw and escaped, raw
+  noncharacters, a byte order mark, UTF-16 and UTF-32, invalid UTF-8 and overlong forms, raw control characters,
+  every number that is not a protocol integer, malformed JSON, and the size and depth limits, at each and one past
+  it).
+- `file`: bytes read as a file (any whitespace, member order and escape read, and refused: a name repeated, also
+  through an escape and when not adjacent, an escaped lone surrogate, noncharacters raw and escaped, invalid UTF-8,
+  a byte order mark, every number that is not a protocol integer, and the file limits).
+- `fileFormat`: a keyring, root, reply certificate, proof bundle and local rules file, integer-like names, a value
+  given out of JCS order, and an empty object and array, each as written.
+- `base64url`: the decoder's text read as canonical bytes or refused (padding; every last character after `A` and
+  after `AA`, refused when its unused bits are not zero and accepted, with the bytes it decodes to, when they are;
+  an impossible length; characters outside the url-safe alphabet; surrounding whitespace).
+- `jcs` ([MCP profile](#the-mcp-profile)): hashed content as JCS writes it (RFC 8785's Appendix B numbers, its
+  §3.2.2 sample and §3.2.3 sorting example, `-0`, a noncharacter, and a lone surrogate refused).
+- `bindings`: each binding ([wire.md](wire.md#bindings)) refusing a lone surrogate in one string it hashes (the
+  prompt text, a response's `resultHash` or `toolCallId`, a `tools/call`'s tool, call id or argument, a result, a
+  local tool's name or input, a Merkle leaf's route, an HTTP request's method or target).
 
 ### The MCP profile
 
