@@ -33,10 +33,11 @@ public enum ReasonCode {
     /** Check 5: the stamps do not all carry the origin's {@code rid}, or they name another request. 403. */
     RID_MISMATCH,
     /**
-     * Check 4: the last {@code rcv} is not this receiver or the operation it dispatches the request to, a keyed
-     * operation with no key value included, verified as dispatched to none. Check 8: the last stamp's {@code bind}
-     * is not the binding of what was received. And the Spring starter's dispatch check: the handler about to run is
-     * another operation, or for a keyed one reads a different key value or none. 403.
+     * Check 4: a stamp's {@code rcv} names the wrong hop: one before the last is not the next stamp's {@code svc},
+     * bare or with {@code #} and an operation, or the last is not this receiver or the operation it dispatches the
+     * request to, a keyed operation with no key value included, verified as dispatched to none. Check 8: the last
+     * stamp's {@code bind} is not the binding of what was received. And the Spring starter's dispatch check: the
+     * handler about to run is another operation, or for a keyed one reads a different key value or none. 403.
      */
     BINDING_MISMATCH,
     /**

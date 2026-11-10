@@ -614,10 +614,13 @@ no `X-Path-Response`.
 Put together, an answer carries `X-Path-Response` only where all of these hold: the
 receiver attests it, its chain having passed the live order here as above; the
 response is not yet committed when the answer is finished; and, only where the chain
-named an operation, the handler was checked as it was about to run, was reached, and
-was not found to be another operation's ([Operations](#operations)). An answer to a
-chain that names no operation is still attested, there being no operation to vouch
-for.
+named an operation and the filter recorded it on the request's own dispatch, the
+handler was checked as it was about to run, was reached, and was not found to be
+another operation's ([Operations](#operations)). An answer to a chain that names no
+operation is still attested, there being no operation to vouch for. So is the answer
+to a forward that the filter verifies afresh, one an unverified path's handler starts:
+the filter records no operation there, so that answer is attested when its chain
+passes, with no dispatch check.
 
 ### The request context
 

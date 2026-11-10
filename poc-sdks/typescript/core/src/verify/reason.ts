@@ -32,10 +32,11 @@ export type ReasonCode =
   /** Check 5: the stamps do not all carry the origin's `rid`, or they name another request. 403. */
   | "RID_MISMATCH"
   /**
-   * Check 4: the last `rcv` is not this receiver or the operation it dispatches the request to, a keyed operation with
-   * no key value included, verified as dispatched to none. Check 8: the last stamp's `bind` is not the binding of what
-   * was received. And the Spring starter's dispatch check: the handler about to run is another operation, or for a
-   * keyed one reads a different key value or none. 403.
+   * Check 4: a stamp's `rcv` names the wrong hop: one before the last is not the next stamp's svc, bare or with `#`
+   * and an operation, or the last is not the chain's receiver. Check 8: the last stamp's `bind` is not the binding of
+   * what was received. Before the live order, over MCP: a call whose tools/call binding cannot be computed, or a
+   * response whose resultHash is not the result received or whose response binding cannot be computed. Offline: a
+   * local step whose decision does not read, is for another call, or cannot be bound. 403.
    */
   | "BINDING_MISMATCH"
   /**

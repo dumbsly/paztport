@@ -80,8 +80,9 @@ import org.springframework.web.util.ContentCachingResponseWrapper;
  * the raw request target: a chain naming it is verified with the key value in its nonce key, and one whose target
  * gives none (a percent-encoded segment Spring decoded to reach the handler, say) is refused {@code BINDING_MISMATCH}.
  * Where the chain named an operation and the receiver verified the request with it, under a mode or for attestation
- * alone, the filter records that operation and its key value on the request ({@link VerifiedOperation}), and the
- * dispatch check reads them as the first handler the request reaches is about to run.
+ * alone, the filter records that operation and its key value on the request's own dispatch
+ * ({@link VerifiedOperation}), and the dispatch check reads them as the first handler the request reaches is about
+ * to run.
  *
  * <p>Apart from the cases above, in which nothing is attested (a handler that throws, a forward behind another
  * filter's wrapper, an async response), an answer is attested only when:
@@ -89,8 +90,9 @@ import org.springframework.web.util.ContentCachingResponseWrapper;
  * <ul>
  *   <li>the receiver attests it: the chain passed the live order here;</li>
  *   <li>the response is not committed when the answer is finished; and</li>
- *   <li>where the chain named an operation, its handler was checked as it was about to run, was reached, and was not
- *       contradicted: it is the recorded operation and, for a keyed operation, reads the recorded key value.</li>
+ *   <li>where the chain named an operation and the filter recorded it on the request's own dispatch, its handler was
+ *       checked as it was about to run, was reached, and was not contradicted: it is the recorded operation and, for
+ *       a keyed operation, reads the recorded key value.</li>
  * </ul>
  *
  * <p>The reasons:
@@ -107,9 +109,11 @@ import org.springframework.web.util.ContentCachingResponseWrapper;
  *       Paztport's last interceptor records that it was.</li>
  * </ul>
  *
- * <p>A chain that names no operation is still attested, there being no operation to vouch for. A handler reached by
- * an include cannot set the status, so where the check refuses one, this filter writes the refusal once the chain
- * returns, in place of anything written before it, unless the response is already committed.
+ * <p>A chain that names no operation is still attested, there being no operation to vouch for. So is the answer to a
+ * forward this filter verifies afresh, one an unverified path's handler starts: the filter records no operation there,
+ * so that answer is attested when its chain passes, with no dispatch check. A handler reached by an include cannot set
+ * the status, so where the check refuses one, this filter writes the refusal once the chain returns, in place of
+ * anything written before it, unless the response is already committed.
  *
  * <p>A path listed in {@code paztport.unverified-paths} ({@link #unverified}) is not filtered, so it is not observed.
  * None is listed unless the application lists it.
@@ -258,9 +262,10 @@ public final class InboundFilter extends OncePerRequestFilter {
             VerifiedOperation verified = null;
             if (accepted.operation() != null && request.getDispatcherType() == DispatcherType.REQUEST) {
                 // Read as the handler is about to run, which catches a later filter that changes the handler or item.
-                // Recorded only on the request's own dispatch, which comes before any handler: the filter verifies a
-                // forward or include only where it is not already filtering the request (one an unverified path's
-                // handler starts, say), and by then a handler has run, so the first handler is past checking.
+                // Recorded only on the request's own dispatch, before any handler has run, so the handler checked is
+                // the first the request reaches. A forward this filter verifies afresh, because it skipped the
+                // request's own dispatch (an unverified path whose handler forwards), records none: its handler is
+                // not checked, and its answer is attested when its chain passes.
                 verified = new VerifiedOperation(accepted.operation(), accepted.key(),
                         mode == VerificationMode.ENFORCE);
                 request.setAttribute(VerifiedOperation.ATTRIBUTE, verified);
