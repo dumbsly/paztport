@@ -86,10 +86,9 @@ public final class Accepted {
     }
 
     /**
-     * The key value the request's nonce key carried: the one the receiver read from the request target for the keyed
-     * operation the chain named. Null for a refusal, where the chain named no operation, and where that operation
-     * declares no key or the receiver holds no table. An adapter that checks the handler as it runs
-     * ({@link #operation}) checks that it reads this key value too.
+     * The key value read for the request's operation, which the nonce key carried when the live order ran. It can be
+     * non-null where nothing was verified (mode OFF) and {@link #operation} is null. An adapter that checks the
+     * handler as it runs checks that it reads this key value too.
      */
     public String key() {
         return key;

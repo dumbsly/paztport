@@ -185,7 +185,7 @@ func keyFromValue(v json.Value) (Key, error) {
 			return Key{}, err
 		}
 		if n < 1 || n > 1<<31-1 {
-			return Key{}, errors.New("a key segment must be 1 or more")
+			return Key{}, errors.New("a key segment must be from 1 to the number of {} segments")
 		}
 		k.Segment = int(n)
 	} else {

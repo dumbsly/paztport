@@ -247,3 +247,15 @@ func TestOperationTableCoveredBy(t *testing.T) {
 		t.Error("CoveredBy = true for another table")
 	}
 }
+
+// TestOperationTableKeySegmentRange names the range rule for a segment below 1 or beyond an int.
+func TestOperationTableKeySegmentRange(t *testing.T) {
+	for _, segment := range []string{"0", "2147483648"} {
+		text := `{"operations":[{"key":{"segment":` + segment +
+			`},"method":"GET","name":"a","template":"/r/{}"}],"service":"s","v":1}`
+		_, err := policy.ReadOperationTable([]byte(text))
+		if err == nil || !strings.HasSuffix(err.Error(), "a key segment must be from 1 to the number of {} segments") {
+			t.Errorf("segment %s: got %v, want the range rule", segment, err)
+		}
+	}
+}

@@ -278,8 +278,9 @@ func (c *Caller) operate(method, target, receiver string) (named, key string, er
 	}
 	named = service + "#" + operation
 	if hasOperation && asked != operation {
-		return "", "", fmt.Errorf("paztport http: the call to %s is not the operation of %s its method and target match; "+
-			"nothing is sent", receiver, service)
+		return "", "", fmt.Errorf(
+			"paztport http: the call to %s is not the operation of %s its method and target match; nothing is sent",
+			receiver, service)
 	}
 	if table.Keyed(operation) {
 		if key, ok = table.KeyValue(operation, path, query); !ok {
