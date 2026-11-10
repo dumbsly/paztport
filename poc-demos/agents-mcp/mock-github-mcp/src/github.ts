@@ -291,7 +291,7 @@ export const GITHUB_TOOLS: GithubTool[] = [
       const t = target(state, args);
       const path = req(args, "path");
       const content = str(args, "content") ?? "";
-      const message = req(args, "message");
+      req(args, "message");
       const branch = req(args, "branch");
       branchOf(state, t.owner, t.repo, branch);
       state.putFiles(t.owner, t.repo, branch, [{ path, content }]);
@@ -308,7 +308,7 @@ export const GITHUB_TOOLS: GithubTool[] = [
       const t = target(state, args);
       const branch = req(args, "branch");
       const files = fileList(args);
-      const message = req(args, "message");
+      req(args, "message");
       branchOf(state, t.owner, t.repo, branch);
       state.putFiles(t.owner, t.repo, branch, files);
       return {
