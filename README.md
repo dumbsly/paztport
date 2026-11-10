@@ -173,7 +173,7 @@ flowchart LR
 | `svc` | Service name. The route is rebuilt from these and the `rcv` fields. |
 | `inst` | Instance (container hostname), so a response targets one replica, not a whole service. |
 | `rid` | Request ID, minted by the origin and carried unchanged. |
-| `ts` | When this stamp was signed. The last stamp must be within 5 s of the receiver's clock; the origin within a run window (30 min by default in the SDKs, for an agent run that reuses one origin; the Spring starter defaults it to the 5 s call window, since inside one mesh a request tree is a single call; the Java mesh sets 30 s for the six services a ticket crosses). |
+| `ts` | When this stamp was signed. The last stamp must be within 5 s of the receiver's clock; the origin within a run window (30 min by default in the core SDKs, for an agent run that reuses one origin; the Spring starter defaults it to the 5 s call window, since inside one mesh a request tree is a single call; the Java mesh sets 30 s for the six services a ticket crosses). |
 | `sess` | The session id, or empty for a chain with no session. |
 | `rcv` | The receiver this stamp was signed for: the next stamp's `svc`, or the chain's receiver. Over HTTP it may also name an operation, `service#operation`. |
 | `bind` | The binding of what *this hop sent*. Over HTTP, `SHA-256(METHOD \n PATH \n BODY)` (`PATH` with its query). |
@@ -683,16 +683,17 @@ These are design directions, except where a bullet says what is built.
 ## 7. Running it
 
 **Prerequisites:** JDK 25 or newer and Maven for the Java side, Docker with Compose
-for the mesh demo, Node 22.19 or newer with npm for the TypeScript side, Ollama with
-a model pulled (for example `ollama pull qwen3:4b`) for the agents demo, Go 1.27 or
-newer for the Go SDK, staticcheck 2026.2.2 or newer for `./run test`'s checks of the
-Envoy Gateway processor, and unzip for its jar check; for the Envoy Gateway proof of
-concept, Maven running on Java 25 or newer (as `mvn -v` reports it), Docker, Go, kind
+for the mesh demo, Node 22.19 or newer with npm for the TypeScript side, Ollama,
+running, with a model pulled (for example `ollama pull qwen3:4b`) for the agents
+demo, Go 1.27 or newer for the Go SDK, staticcheck 2026.2.2 or newer for
+`./run test`'s checks of the Envoy Gateway processor, and unzip for its jar check;
+for the Envoy Gateway proof of concept, Maven running on Java 25 or newer (as
+`mvn -v` reports it), Docker, Go, kind
 0.33, kubectl 1.36 and Helm 4.3 or newer, and python3 for its measurements. macOS and Linux; on Windows use WSL.
 
 ```bash
 ./run test        # the name, link and Java import checks, the TypeScript type checks, gofmt, go vet and staticcheck, every suite, a check of the built jars and of the processor's third-party list; no Docker and no model
-./run java-mesh   # build the Java SDK and the mesh demo, then run every scenario
+./run java-mesh   # build the Java SDK and the mesh demo, then run every scenario; the mesh stays up
 ./run envoy-gateway  # the edge processor on Envoy Gateway in a local kind cluster, and its checks; the cluster stays up
 ./run envoy-gateway measure  # the measurement suites, on a cluster of their own; needs python3
 ./run agents-mcp  # install the TypeScript SDK and the agents demo, set up demo keys, start the demo page
@@ -700,8 +701,9 @@ concept, Maven running on Java 25 or newer (as `mvn -v` reports it), Docker, Go,
 ```
 
 `./run` with no argument prints its usage. A missing prerequisite stops it with one
-line naming what is missing, before anything is built. Each folder still builds on
-its own; its README has the commands.
+line naming what is missing, before anything is built; Ollama is the exception,
+which `./run agents-mcp` only reports as reachable or not. Each folder still builds
+on its own; its README has the commands.
 
 ## 8. Repository layout
 

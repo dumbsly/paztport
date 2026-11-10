@@ -868,7 +868,8 @@ docker compose up -d --build            # the mesh + responder
 ./demo.sh                               # run every scenario, print pass/fail
 docker compose up -d --force-recreate payment   # back to your token (see below)
 ./measure.sh                            # optional: off vs enforce latency + header sizes
-docker compose down                     # stop the mesh and remove its networks
+docker compose down                     # stop the mesh; the responder's quarantine network stays
+docker network rm paztport-quarantine   # optional: remove that network too
 ```
 
 `measure.sh` switches `payment` between `off` and `enforce` through `/admin/mode`,

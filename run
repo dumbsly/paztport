@@ -10,7 +10,8 @@ usage() {
   cat <<'USAGE'
 Usage: ./run <command> [options]
 
-  java-mesh    Build the Java SDK and the mesh demo, then run poc-demos/java-mesh/demo.sh (needs Docker).
+  java-mesh    Build the Java SDK and the mesh demo, then run poc-demos/java-mesh/demo.sh (needs Docker). The
+               mesh stays up; docker compose down in poc-demos/java-mesh stops it.
   envoy-gateway
                Build the Java SDK and the mesh demo, make the edge's keys and policy, then bring up the
                Envoy Gateway proof of concept on a local kind cluster and run its checks (needs Docker, Go,
