@@ -59,7 +59,7 @@ the signed events the rejection produces.
   component doing something because untrusted input asked it to. Requiring proof
   of where an action came from is a natural guardrail for agents too. The
   [agents demo](poc-demos/agents-mcp/README.md) does it for MCP calls, and
-  [§6](#6-where-this-could-go) says what is still open.
+  [§7](#7-where-this-could-go) says what is still open.
 - **It's cheap.** Checking a request is a few Ed25519 verifications and SHA-256
   hashes; the demos measure what that costs
   ([Java mesh](poc-demos/java-mesh/README.md#measurements),
@@ -69,7 +69,7 @@ the signed events the rejection produces.
 
 It's also honest about its limits. Paztport doesn't make a compromised machine
 trustworthy; it limits how far a compromise can travel. The full list is in
-[Known limits](#5-known-limits).
+[Known limits](#6-known-limits).
 
 ## What's in this repository
 
@@ -97,6 +97,27 @@ provider from the influence the requests carry, though every hop was a legitimat
 position on an allowed route. See
 [the support-assistant storyline](poc-demos/java-mesh/README.md#the-support-assistant-storyline).
 
+The [Envoy Gateway proof of concept](poc-demos/envoy-gateway/README.md) puts Paztport
+at a Kubernetes edge, on a local kind cluster. A Go `ext_proc` processor, installed
+by its own Helm chart, stamps each request entering an Envoy Gateway as the origin
+service `edge`, and the Java mesh's `orders` and `payment` verify it. Its checks show
+that a chain a client sends is replaced at the edge, not believed, that a request
+sent around the edge is refused, and that a stamp taken from the processor is refused
+from any connection but Envoy's. Its README also records what one full measurement
+run showed: the processor's cost under load, how the edge fails and recovers, and
+rotating the edge's key.
+
+The [agents demo](poc-demos/agents-mcp/README.md) carries the same chains over MCP,
+with the TypeScript SDK. An extension to the pi coding agent stamps each tool call
+the agent makes to a mock GitHub MCP server, verifies each response, and tracks the
+influence of what the agent has read. One issue on a public repository carries a
+prompt injection that asks the agent to copy private notes into a public pull
+request, and with Paztport on, the server refuses that write by the owner-aware rule
+([§3](#3-operations-influence-and-sessions)). The model runs locally through Ollama,
+and an eval runs the agent many times in each setting, with Paztport on and off and
+with and without the planted issue, and scores each run from the server's outcome
+log.
+
 The idea is offered freely. The code is Apache-2.0, and every cryptographic
 primitive comes from each language's standard library (the JDK, Node's
 `node:crypto`, Go's `crypto` packages), so anyone can lift it into their own stack.
@@ -107,13 +128,14 @@ primitive comes from each language's standard library (the JDK, Node's
 
 1. [The problem: every hop trusts only its neighbour](#1-the-problem-every-hop-trusts-only-its-neighbour)
 2. [Two proofs that bind together](#2-two-proofs-that-bind-together)
-3. [Security principles](#3-security-principles)
-4. [How it compares](#4-how-it-compares)
-5. [Known limits](#5-known-limits)
-6. [Where this could go](#6-where-this-could-go)
-7. [Running it](#7-running-it)
-8. [Repository layout](#8-repository-layout)
-9. [Where to go next](#9-where-to-go-next)
+3. [Operations, influence and sessions](#3-operations-influence-and-sessions)
+4. [Security principles](#4-security-principles)
+5. [How it compares](#5-how-it-compares)
+6. [Known limits](#6-known-limits)
+7. [Where this could go](#7-where-this-could-go)
+8. [Running it](#8-running-it)
+9. [Repository layout](#9-repository-layout)
+10. [Where to go next](#10-where-to-go-next)
 
 ---
 
@@ -175,8 +197,10 @@ Why it's built this way:
   or some signature stops verifying.
 - **Ed25519 rather than an HMAC** means verifiers need only *public* keys. No
   shared secret is ever distributed, and a compromised verifier can't forge stamps.
-- **The receiver binding**, `rcv`, names the hop each stamp was handed to. A chain
-  forwarded unchanged to any other service fails `BINDING_MISMATCH`.
+- **The receiver binding**, `rcv`, makes each stamp good only for the hop it was
+  handed to: the next service, or the chain's receiver. A chain forwarded unchanged
+  to any other service fails `BINDING_MISMATCH` before its route is looked at. Over
+  HTTP `rcv` can also name the operation the call invokes there (§3).
 - **The request binding** ties the chain to the actual payload. The receiver
   recomputes `bind` from the request it got and compares it to the **last** stamp.
   A chain copied from a real request and spliced onto a malicious body no longer
@@ -186,14 +210,17 @@ Why it's built this way:
   the replica that saw the first, and forgets a key after 15 s, at least twice the
   5 s window.
 
-The Java and Go SDKs sign them over HTTP (the Java mesh, the Envoy Gateway edge), and the TypeScript SDK
-over MCP (the agents demo).
-Binding the receiver changes who a rejection names. A chain forwarded unchanged to another service fails
-`BINDING_MISMATCH` and names no one, instead of reaching the route check and naming its last signer. And
-when the transport authenticates the sender, as mTLS does in the Java mesh, the verifier checks that the
-sender is the last signer and names that authenticated sender in every result. Without one, only an allowed
-request or a `PATH_NOT_ALLOWED` names a suspect: the last signer. Over HTTP a response comes back with a
-stamp of its own that its caller checks.
+The Java and Go SDKs sign them over HTTP (the Java mesh, the Envoy Gateway edge), and
+the TypeScript SDK over MCP (the agents demo).
+
+Who a rejection names depends on the transport. When it authenticates the sender, as
+mTLS does in the Java mesh, the verifier checks that the sender is the last signer
+and names that authenticated sender in every result but a `POLICY_EXPIRED`, which
+names no one, since it is the verifier's own material running out. Without one, only
+an allowed request or a `PATH_NOT_ALLOWED` names a suspect, the last signer: by then
+the signatures, receivers and binding have held, so that service's key really signed
+this request for this receiver. Every other result, a forwarded chain's included,
+names no one.
 
 ### 2.2 Proof of legitimacy: the salted Merkle tree
 
@@ -245,8 +272,9 @@ graph BT
     class ROOT root
 ```
 
-*Illustrative depth-3 tree. The proof for the orange leaf is the three blue
-siblings; the verifier recomputes upward and compares against the pinned root.
+*Illustrative depth-3 tree, whose routes name services alone; a route can also name
+the operation each hop asks for (§3). The proof for the orange leaf is the three
+blue siblings; the verifier recomputes upward and compares against the pinned root.
 The real tree is padded to depth 8.*
 
 The details carry real weight:
@@ -258,7 +286,7 @@ The details carry real weight:
 - **Every leaf has a secret 128-bit salt.** Real path spaces are tiny, so an
   unsalted `gateway/orders/payment` could be confirmed by hashing a handful of
   guesses. With salts, sibling hashes and the root reveal nothing an observer can
-  test guesses against. §3 explains why this is a hard rule, not a preference.
+  test guesses against. §4 explains why this is a hard rule, not a preference.
 - **Proofs are padded to a fixed depth** (8 levels, 256 leaf slots). Each route
   goes in a random slot, and unused slots are filled with random 32-byte values
   that look like any other hash. Proof length and position therefore leak nothing
@@ -273,7 +301,7 @@ The details carry real weight:
   policy key also signs the keyring, which names every service's key, the same way,
   with its own window.
 
-The proof hides the policy, not the request's own route (see §5.2, Inherent).
+The proof hides the policy, not the request's own route (see §6.2, Inherent).
 
 ### 2.3 Why you need both
 
@@ -294,7 +322,97 @@ route you didn't travel, and you can't travel a route that isn't in the tree.
 The exact format is in the [protocol spec](poc-sdks/spec/README.md), and
 [poc-sdks](poc-sdks/README.md#on-the-wire) has a summary.
 
-## 3. Security principles
+## 3. Operations, influence and sessions
+
+The stamps and the tree prove which services a request passed through, and that the
+route is allowed. Four more ideas carry the rest of the protocol: which handler each
+hop was asked to run, what content shaped a request, whether an answer can be
+believed, and how far one organisation trusts another's calls. The known limits rely
+on all four, and each links to the spec section that states it in full.
+
+**Operations.** Over HTTP a service may name its operations, so that a policy can
+allow a route through one of its handlers and not through another. An operation is
+one handler, the code a request runs, and the service lists them in a table,
+`ops-<svc>.json`, by method, path template and, optionally, a query condition. A
+caller that holds the table names the operation in its stamp's `rcv` as
+`service#operation`, so the route records what was asked for: the Java mesh allows
+`gateway/orders#createOrder/payment#pay`. The receiver never takes its operation from
+the request. It works out from its own routing the handler that will run and checks
+the chain against that at check 4, so a chain that names another operation fails
+`BINDING_MISMATCH`. The signed root covers each table as one more route,
+`<svc>/ops:<hash>`, so tables are pinned with the policy. A call's nonce key names
+its caller and the operation, so a caller calls each operation at most once per
+request tree. An operation that acts on one item of many can declare a key in its
+table entry: a `{}` path segment or a query parameter, whose value is at most 128
+characters long by default and never more than 1024. The receiver reads the key value
+from its own route match and the caller from the target it sends; both nonce keys
+and the delivery key (§6.1) gain the value, so a keyed operation is called at most
+once per request tree for each item. A call to a keyed operation with no key value
+fails `BINDING_MISMATCH` and spends nothing, and the Java policy tool lists each
+keyed operation when it builds a policy. The MCP profile has no operations, since a
+tool call's receiver already names one tool
+([operations](poc-sdks/spec/wire.md#operations),
+[nonce keys](poc-sdks/spec/verification.md#freshness-and-replay)).
+
+**Influence.** Influence is a record of what content the context held when an action
+was decided: a ticket's text, a customer's order, a tool's result. It travels with
+each call (`X-Path-Influence` over HTTP), and the call's last stamp commits to it in
+`infl`, so a hop can't drop an entry without breaking the stamp. Each entry has a
+class: `third-party` for content from outside the trust boundary, which may carry
+instructions; `private` for data that must not reach a public destination unless it
+belongs to the destination's owner; `public` for what is already public; and
+`local-untrusted` for content nothing vouches for, such as a response that was not
+attested. An entry may also name an owner, an opaque id of whose data it is, which
+the service that served the data takes from its own records, never from the content
+([influence](poc-sdks/spec/sessions-and-influence.md#influence)).
+
+**The owner-aware rule.** A write to a public destination is refused when its
+influence holds both untrusted content (`third-party` or `local-untrusted`) and
+`private` data that is not the destination owner's, an unknown owner on either side
+counting as someone else's. So untrusted content can still steer a customer's own
+data to that customer, but never someone else's data, or data whose owner nobody
+knows. The service applying the rule takes the destination's owner from its own
+records, never from the request
+([the owner-aware rule](poc-sdks/spec/sessions-and-influence.md#the-owner-aware-rule)).
+
+**Response attestation.** An answer carries a stamp of its own. Over HTTP the
+answering service sends `X-Path-Response`: the labels of what it answered, each a
+class and, where it has one, an owner from its own records, and one more stamp on
+the request's chain, signed for the caller over the status, the body and the labels.
+A service attests only when the request's chain passed the live order at that
+service; and where it confirms its operation a second time as the handler is about
+to run, as the Spring starter does when the chain named one, only an answer whose
+handler it confirmed. A chain that names no operation is still attested. So no
+origin attests, nor a hop where Paztport is off, and neither a refusal nor a request
+that failed in audit mode is attested. The caller adds the labels to its influence
+only when the whole response verifies, and counts any other response as one
+`local-untrusted` entry, never dropped. An MCP server attests a tool's result the
+same way, only for a call that verified
+([who attests](poc-sdks/spec/verification.md#http-requests-and-responses),
+[content labels](poc-sdks/spec/sessions-and-influence.md#content-labels)).
+
+**Sessions between organisations.** Inside one organisation's mesh every service pins
+one policy in advance; across a boundary, the two sides open a session first. Each
+sends its signed root, its policy key, its keyring and a fresh nonce, the partner
+signs its reply, and every stamp in the session carries the session id in `sess`,
+so a chain made for one session fails in any other. The partner has pinned the
+sender's policy key out of band, and opens an **attested** session only when both
+roots are present and verify, the sender's policy key is one it pinned and has signed
+the sender's keyring, and every root and keyring is current; otherwise the session
+is **unsafe**. The sender's egress verifies the internal chain and, in an attested
+session, sends one boundary stamp of its own in its place, with the influence
+blinded to one entry for each class and owner; the partner verifies that stamp and
+applies the owner-aware rule, and the internal route never crosses. An unsafe
+session is graded trust, not a refusal: the egress sends no stamp and no influence,
+and the partner verifies nothing, refuses the endpoints it lists as disabled
+(`UNSAFE_SESSION`) and serves the rest. Either way the partner does not attest its
+replies (§6.2), so the sender counts each one `local-untrusted`. The agents demo's
+client opens the same kind of session with each MCP server, and in an unsafe one
+counts every result `local-untrusted`
+([status](poc-sdks/spec/sessions-and-influence.md#status),
+[between organisations](poc-sdks/spec/sessions-and-influence.md#between-organisations)).
+
+## 4. Security principles
 
 **Security must come from secrets, never from effort.** No part of Paztport's
 security may depend on an attacker having to hash more than honest parties do.
@@ -323,7 +441,7 @@ The one place the bound would bite is exactly what's forbidden: unsalted leaves.
 tiny path space plus "just hash harder" can never be secure. There's no unsalted
 leaf code path anywhere in the codebase, tests included. The quantum view agrees:
 Grover gives only a quadratic speedup against hashes, while Shor breaks Ed25519
-outright, which is why the post-quantum plan (§6) keeps the Merkle tree and swaps
+outright, which is why the post-quantum plan (§7) keeps the Merkle tree and swaps
 only the signatures.
 
 The rest of the principles follow the same discipline:
@@ -343,7 +461,7 @@ The rest of the principles follow the same discipline:
 - **Log identities and verdicts, never secrets.** Service IDs, request IDs, and
   reason codes appear in logs. Private keys, salts, and proof bundles never do.
 
-## 4. How it compares
+## 5. How it compares
 
 The pieces exist, scattered across observability, service meshes, and token
 research. None of them combines proof of route with a private policy of valid
@@ -363,20 +481,20 @@ Paztport borrows chaining from macaroons, identity from the mesh, and learned
 paths from tracing, and adds the piece none of them has: a **cryptographic proof
 that the route taken is in a private, committed policy**.
 
-## 5. Known limits
+## 6. Known limits
 
 The limits come in three parts: what a deployment must supply for Paztport to
 hold, what any design of this kind cannot do, and the shortcuts this repository
 takes.
 
-### 5.1 Using it soundly
+### 6.1 Using it soundly
 
 What Paztport needs from a deployment, and what it deliberately doesn't cover yet.
 
-- **An authenticated transport.** A verifier checks that the last signer is the
-  transport's authenticated sender (`PEER_MISMATCH`) only when it is given one. The
-  Java mesh gives it one: every hop is mutual TLS, and `payment` takes the service
-  named in the client certificate as the sender
+- **The peer check needs mutual TLS in the service's own process.** A verifier checks
+  that the last signer is the transport's authenticated sender (`PEER_MISMATCH`)
+  only when it is given one. The Java mesh gives it one: every hop is mutual TLS, and
+  `payment` takes the service named in the client certificate as the sender
   ([check 12](poc-demos/java-mesh/README.md#the-verification-pipeline)). Each
   service that checks a peer terminates TLS in its own process, and the SDK reads
   the peer from the certificate verified there, first-hand. Behind a sidecar mesh
@@ -385,16 +503,19 @@ What Paztport needs from a deployment, and what it deliberately doesn't cover ye
   sidecar asserts. That is a different trust model, in which the application must be
   reachable only through its sidecar, and the SDKs don't support it today. The
   agents demo runs over stdio, which has no TLS, so there the check is skipped and
-  the last signer is known only by its signature. This also decides who can blame a
-  replica. Without a peer, the instance in a stamp is reported by the service that
-  signed it. The responder refuses a container that doesn't run the named service,
-  but a compromised service can still name any replica of itself. With a peer, a
-  rejection names the sender's own TCP address instead, which the responder resolves
-  to a container on the mesh network, so a replica can only be blamed for what it
-  sent. That rests on the address being the sender's: behind a proxy or NAT it would
-  name the proxy. A certificate is per service, not per container, so blaming one
-  container needs per-instance certificates; until then the responder still checks
-  that the container runs the named service.
+  the last signer is known only by its signature
+  ([the peer check](poc-sdks/spec/verification.md#receivers-the-peer-and-attribution)).
+- **Who a rejection can blame depends on the peer.** Without one, the instance in a
+  stamp is reported by the service that signed it. The responder refuses a container
+  that doesn't run the named service, but a compromised service can still name any
+  replica of itself. With a peer, a rejection names the sender's own TCP address
+  instead, which the responder resolves to a container on the mesh network, so a
+  replica can only be blamed for what it sent. That rests on the address being the
+  sender's: behind a proxy or NAT it would name the proxy. A certificate is per
+  service, not per container, so blaming one container needs per-instance
+  certificates; without them the responder still checks that the container runs the
+  named service
+  ([attribution](poc-sdks/spec/verification.md#receivers-the-peer-and-attribution)).
 - **Key custody is the cluster's.** A Paztport key kept in a Kubernetes Secret is as
   safe as any credential there: anyone who can read that namespace's Secrets, or
   create pods in it (directly or through a Deployment or Job), holds it, as they
@@ -403,31 +524,33 @@ What Paztport needs from a deployment, and what it deliberately doesn't cover ye
   service-account token in pods that don't call the API, encryption at rest, and
   admission control over what may run. What a stolen key can and cannot do is in "A
   service is whoever holds its keys" below.
-- **Duplicate delivery is the application's.** A stamp is good only for its
-  receiver and its request. Where the transport supplies a peer, as the Java mesh
+- **Without a peer, a captured request can be sent again.** A stamp is good only for
+  its receiver and its request. Where the transport supplies a peer, as the Java mesh
   does with mutual TLS, it is good only on the last signer's own connections: a
-  captured request can't be sent again from anywhere else, whatever cache a
-  receiver keeps. Without a peer (the agents demo over stdio, or any deployment
-  without in-process mutual TLS), anyone holding a captured request can resend it
-  to the same receiver within the 5 s window; only the cache of the replica that
-  saw the first sending refuses it, and over HTTP another replica can serve it.
-  The SDKs' caches are in memory, so a service run as several replicas, or restarted,
-  can serve a request its signer sends twice, as a proxy that retries does. That
-  is duplicate delivery, and the receiving application handles it as it handles
-  any retried request, by idempotency keyed on the delivery: the verified chain's
-  `rid`, its last signer and the receiver its last stamp names (with the operation,
-  when it names one, and the key value of a keyed operation) name it, and that
-  stamp's `bind` says which request it was.
-  The Java and Go in-mesh receivers hand the application that key
+  captured request can't be sent again from anywhere else, whatever cache a receiver
+  keeps. Without a peer (the agents demo over stdio, or any deployment without
+  in-process mutual TLS), anyone holding a captured request can resend it to the
+  same receiver within the 5 s window; only the cache of the replica that saw the
+  first sending refuses it, and over HTTP another replica can serve it.
+- **Duplicate delivery is the application's.** The SDKs' caches are in memory, so a
+  service run as several replicas, or restarted, can serve a request its signer
+  sends twice, as a proxy that retries does. That is duplicate delivery, and the
+  receiving application handles it as it handles any retried request, by idempotency
+  keyed on the delivery: the verified chain's `rid`, its last signer and the receiver
+  its last stamp names (with the operation, when it names one, and the key value of a
+  keyed operation) name it, and that stamp's `bind` says which request it was. The
+  Java and Go in-mesh receivers hand the application that key
   (`RequestContext.delivery()` and `Accepted.delivery()` in Java,
-  `Accepted.Delivery()` in Go). A service that must also hold a compromised caller
-  to each key once per request tree, whatever its replica count, can pass its own
-  expiring shared cache to the nonce-cache interface that the Java and Go SDKs
-  expose; neither SDK ships one. A cache that cannot answer gives no verdict:
-  `enforce` refuses the request 503 and `audit` serves it and records the failure
-  ([verification.md](poc-sdks/spec/verification.md#freshness-and-replay)). The
-  TypeScript SDK takes no shared cache because it has none to share: its caches are
-  per session, and a session lives on one replica.
+  `Accepted.Delivery()` in Go)
+  ([replicas and duplicates](poc-sdks/spec/verification.md#freshness-and-replay)).
+- **A shared nonce cache is the deployment's to bring.** A service that must also
+  hold a compromised caller to each key once per request tree, whatever its replica
+  count, can pass its own expiring shared cache to the nonce-cache interface that the
+  Java and Go SDKs expose; neither SDK ships one. A cache that cannot answer gives no
+  verdict: `enforce` refuses the request 503 and `audit` serves it and records the
+  failure ([verification.md](poc-sdks/spec/verification.md#freshness-and-replay)).
+  The TypeScript SDK takes no shared cache because it has none to share: its caches
+  are per session, and a session lives on one replica.
 - **Revocation takes up to a lifetime.** A keyring or root presented when a
   session opens with a partner (the handshake) stays usable by someone replaying it
   until its `notAfter`, so a leaked service key, or a route removed from a policy,
@@ -440,7 +563,7 @@ What Paztport needs from a deployment, and what it deliberately doesn't cover ye
   at once. Choosing the lifetime and running the renewals are the deployment's job.
 - **Async is out of scope.** Queues, caches, and scheduled jobs break the
   linear-chain model (see the async direction in
-  [section 6](#6-where-this-could-go)).
+  [section 7](#7-where-this-could-go)).
 - **The rule judges whose data shaped a write, not who may receive it.** A
   hijacked request that read no private data passes the rule whatever destination
   it names. In the demo, who may receive a refund is the PSP's own payer check
@@ -449,12 +572,13 @@ What Paztport needs from a deployment, and what it deliberately doesn't cover ye
   content shaped. A service whose destinations are not its own records needs a
   check of its own.
 - **The rule judges only the influence the request carries.** `PublicWrites` sees
-  that influence only where the request's chain verified at that hop. On a hop
-  where Paztport is off, after an audit-mode failure, or in an unsafe partner
-  session it may be incomplete or empty, and the rule passes what it cannot see. A partner must
+  that influence only where the request's chain passed the live order at that hop.
+  Where it did not, because Paztport is off on the hop, the chain failed in audit
+  mode or the call came in an unsafe partner session, the influence may be
+  incomplete or empty, and the rule passes what it cannot see. A partner must
   therefore list its public writes in `paztport.partner.unsafe-disabled`.
 
-### 5.2 Limits of the concept
+### 6.2 Limits of the concept
 
 What any design of this kind meets, and what this one has not yet tackled.
 
@@ -508,7 +632,7 @@ What any design of this kind meets, and what this one has not yet tackled.
   keyring, which the egress already holds from the session reply, would attest it;
   that is a spec addition.
 
-### 5.3 Limits of this proof of concept
+### 6.3 Limits of this proof of concept
 
 Engineering shortcuts of this repository, not of the design.
 
@@ -528,11 +652,17 @@ Engineering shortcuts of this repository, not of the design.
   it. A shared, expiring store is optional hardening against a compromised
   caller; duplicate delivery is the receiving application's to handle (see
   "Duplicate delivery is the application's" above).
-- **The admin endpoint is a demo control channel.** `/admin/mode` switches a
-  verifier between `audit` and `enforce`, or turns it off. It is protected only by a shared
-  token (`X-Admin-Token`, set with `PAZTPORT_ADMIN_TOKEN`), and refuses everything
-  when no token is set. A real deployment would put it on a separate management
-  network.
+- **The Spring starter's mode switch is guarded by a token alone.** On a service
+  that verifies requests, the starter registers `/admin/mode`, which switches the
+  verifier between `audit` and `enforce` or turns Paztport off on the hop, only where
+  `paztport.admin-token` is set, and answers only a request whose `X-Admin-Token`
+  matches it (the demo makes a token for each run, as `PAZTPORT_ADMIN_TOKEN`). The
+  starter verifies every path, this one included, unless `paztport.unverified-paths`
+  lists it ([unverified paths](poc-sdks/java/README.md#paztport-spring)); the demo
+  lists `/admin` on each service that has the switch. A real deployment keeps
+  management on a port of its own, out of its callers' reach, as Boot's
+  `management.server.port` does for actuator; the switch is served on the
+  application port, so a deployment that cannot keep it from callers sets no token.
 - **The demo includes a replay harness.** The Java demo's `payment` can retain its
   last request (`/debug/last-request`, only when `PAZTPORT_CAPTURE=true`) so the
   demo can replay and mutate a genuinely valid request. The harness lives in the
@@ -546,7 +676,7 @@ Engineering shortcuts of this repository, not of the design.
   and the mailer's directory are fixtures, and `assistant` is scripted, with no
   model.
 
-## 6. Where this could go
+## 7. Where this could go
 
 These are design directions, except where a bullet says what is built.
 
@@ -590,7 +720,7 @@ These are design directions, except where a bullet says what is built.
   append-only log of roots (in the style of Certificate Transparency) lets partners
   detect a quietly widened policy without seeing its contents.
 
-## 7. Running it
+## 8. Running it
 
 **Prerequisites:** JDK 25 or newer and Maven for the Java side, Docker with Compose
 for the mesh demo, Node 22.19 or newer with npm for the TypeScript side, Go 1.27 or
@@ -612,11 +742,12 @@ concept, Maven running on Java 25 or newer (as `mvn -v` reports it), Docker, Go,
 line naming what is missing, before anything is built. Each folder still builds on
 its own; its README has the commands.
 
-## 8. Repository layout
+## 9. Repository layout
 
 ```
 paztport/
 ├── LICENSE, NOTICE           Apache-2.0, copyright
+├── LICENSING.md              what each jar and image carries, and why
 ├── THIRD-PARTY.txt           runtime dependencies and their licences (generated)
 ├── licenses/                 licence texts the bundling jars carry, and the licence plugin's shared settings
 ├── run                       front door: java-mesh, envoy-gateway, agents-mcp, test, bench
@@ -639,7 +770,7 @@ paztport/
         └── scenarios/        scenario folders: repositories, planted text, scoring data
 ```
 
-## 9. Where to go next
+## 10. Where to go next
 
 - [poc-sdks](poc-sdks/README.md): the SDKs and a summary of the on-the-wire format.
   - [poc-sdks/java](poc-sdks/java/README.md) and
@@ -658,88 +789,8 @@ paztport/
 ## Licence and third-party software
 
 Copyright 2026 The Paztport Authors. Licensed under Apache-2.0 (see
-[LICENSE](LICENSE) and [NOTICE](NOTICE)). Its explicit patent grant protects
-everyone who builds on this, including commercially. The idea is meant to stay
-open: anyone can implement, extend, or sell path attestation, and the only
-request is that improvements flow back into the open where they can.
-
-The repository holds Paztport's source and, in [licenses/](licenses), the text of
-each licence other than Apache-2.0 that a bundled component is declared under, the
-licences [THIRD-PARTY.txt](THIRD-PARTY.txt) lists. The repository bundles no
-third-party code. That list covers the runtime dependencies of both Java trees, each
-with the licence it is used under. All of them are permissive (Apache-2.0, MIT,
-BSD-2-Clause, the MIT-style Bouncy Castle licence) or weak copyleft that is fine to
-redistribute unmodified (EPL-2.0), except JMH (below). Two of them also carry
-Mozilla's Public Suffix List, which is under MPL-2.0: docker-java-transport-zerodep
-holds the list as a file, unmodified, whose own notice says it is under MPL-2.0 and
-where that licence is published, and Guava holds classes generated from the same
-list. The MPL-2.0 text is not in licenses/. Four components offer a choice of
-licence, recorded in [licenses/overrides.properties](licenses/overrides.properties):
-Logback (EPL-2.0 or LGPL-2.1) and Jakarta Annotations (EPL-2.0 or GPL-2.0 with the
-Classpath Exception) are used under EPL-2.0, JNA (Apache-2.0 or LGPL-2.1) under
-Apache-2.0, and HdrHistogram (public domain under CC0, or BSD-2-Clause) under
-BSD-2-Clause.
-Regenerate the list after changing dependencies:
-
-```bash
-(cd poc-sdks/java && mvn install -DskipTests)   # the demo resolves the SDK from here
-poc-sdks/scripts/third-party.sh
-```
-
-The script runs the licence plugin in both Java trees, the SDK and the mesh demo
-(which adds docker-java and its dependencies, Spring Boot's loader, and Spring Boot's
-Actuator and Micrometer's Prometheus registry with their dependencies), and merges
-the two lists into `THIRD-PARTY.txt`, sorted by name without duplicates.
-
-Every jar the build produces carries `META-INF/LICENSE` (the Apache-2.0 text) and
-`META-INF/NOTICE`. The ones that bundle third-party code, the shaded `keygen.jar` and
-`policy-tool.jar` and the mesh demo's nine Spring Boot jars, also carry:
-
-- `META-INF/THIRD-PARTY.txt`: exactly what that jar bundles, each component with the
-  licence it is used under and its Maven Central coordinates. Its header says how
-  to get each component's source (the `-sources.jar` at those coordinates), which
-  EPL-2.0 requires of a binary.
-- `META-INF/licenses/`: the text of each licence in that list other than Apache-2.0,
-  when there is one.
-
-A Boot jar keeps each library whole under `BOOT-INF/lib`, with the library's own
-files. Spring Boot's loader is unpacked at the jar root instead, so the jar's NOTICE
-adds Spring Boot's. The libraries, the test jars of core and http, the bench jar and
-the tools' unshaded module jars bundle nothing and carry just the two files.
-`./run test` checks every one of these jars.
-
-The mesh demo's images are `eclipse-temurin:25.0.5_8-jre` (pinned by digest)
-with one of the jars added, so an image's licences are the base image's (the
-Temurin JRE and its operating system packages) plus those its jar carries. The
-TypeScript packages bundle nothing; npm installs their dependencies as
-published. The Go module depends on nothing beyond Go's standard library.
-
-The Envoy Gateway processor is a Go binary, and Go compiles every module it uses into
-it, so its image carries what the jars carry: in `/licenses/`, the repository's
-LICENSE, a NOTICE that starts with the repository's and adds each module's own, the
-processor's
-[THIRD-PARTY.txt](poc-demos/envoy-gateway/processor/THIRD-PARTY.txt), and each
-module's licence (and patent grant, where it has one) under
-`third-party/<module>@<version>/`. That list names every module the binary is built
-from, Go's standard library included, each under one licence (Apache-2.0, MIT or
-BSD-3-Clause), and every licence file within a module over code the binary holds,
-such as the BSD-3-Clause licence of the package `client_golang` copies in, which the
-image carries at its path. `./run test` checks the list against `go list -deps`, and
-the image build against the built binary, failing for a module with no licence file
-and for a licence file the list does not name. The base is
-distroless, whose own packages carry their copyright files. The measurements'
-upstream, `echo` (the same Dockerfile's target `echo`), is built from Go's standard
-library alone, and its build fails if the binary holds any module; so its image
-carries the repository's LICENSE and NOTICE and, under `third-party/std@<version>/`,
-Go's licence and patent grant.
-
-Bouncy Castle appears in the build for two reasons: the SDK's `keygen` uses it to
-build the mesh's X.509 certificates, and `docker-java` uses it for Docker TLS in the
-responder. None of Paztport's own cryptography uses it; stamps, hashing, salts and
-the certificates' signatures all come from the JDK.
-
-JMH, the benchmark harness, is GPLv2 with the Classpath Exception. `./run bench` runs
-it from the Maven class path beside the bench module's classes, so no jar bundles it.
-It and its two dependencies, JOpt Simple and Apache Commons Math, are in
-THIRD-PARTY.txt as the bench module's runtime dependencies; neither the SDK
-libraries nor the demos use them.
+[LICENSE](LICENSE) and [NOTICE](NOTICE)), whose explicit patent grant protects
+everyone who builds on this, including commercially. The repository bundles no
+third-party code. [THIRD-PARTY.txt](THIRD-PARTY.txt) lists the runtime dependencies
+and the licence each is used under, and [LICENSING.md](LICENSING.md) says what each
+jar and image carries, and how to regenerate the list.
