@@ -441,7 +441,9 @@ hands a session request's body to `HttpSessions.serve`.
   dispatches async work elsewhere, when the first handler the request reaches is
   about to run: where the chain named an operation, the operation is worked out
   again from that handler, and where it differs one warning names both operations
-  and the answer is not attested. Under `enforce` the request is refused
+  and the answer is not attested. For a keyed operation the key value is read
+  again from the request the handler gets, and a different value, or none,
+  counts as another operation. Under `enforce` the request is refused
   `403 {"reason":"BINDING_MISMATCH"}`, and no handler runs for it afterwards;
   since an included handler cannot set the status, Paztport's filter writes that
   refusal once the chain returns, unless the response is already committed. In
@@ -463,8 +465,8 @@ hands a session request's body to `HttpSessions.serve`.
   answers to a chain naming an operation are not attested. A refusal here counts
   as served in the `paztport.request` observation, which ends before the handler
   runs. Spring's method-override filter, `HiddenHttpMethodFilter`
-  (`spring.mvc.hiddenmethod.filter.enabled`), is also refused at start: a service
-  with its own table does not start beside it.
+  (`spring.mvc.hiddenmethod.filter.enabled`), is also refused at start: a
+  service with its own table does not start beside it.
 
   Under `server.servlet.context-path` no operation matches: callers match the
   full raw path, context path included, so such calls are refused at the source.
