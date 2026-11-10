@@ -80,14 +80,15 @@ import org.springframework.web.util.ContentCachingResponseWrapper;
  * the raw request target: a chain naming it is verified with the key value in its nonce key, and one whose target
  * gives none (a percent-encoded segment Spring decoded to reach the handler, say) is refused {@code BINDING_MISMATCH}.
  * Where the chain named an operation and the receiver verified the request with it, under a mode or for attestation
- * alone, the filter records that operation on the request ({@link VerifiedOperation}), so that a later filter which
- * changes the method or the path, and so the handler, by wrapping the request or by dispatching it elsewhere, is
- * caught as the handler is about to run; the answer of a handler caught there is never attested, nor is any answer
- * whose handler the check never saw (one a filter wrote itself, or another registered servlet's), nor one an
- * interceptor wrote when it stopped the request before the handler was reached (Paztport's last interceptor records
- * that it was), while on a chain that names no operation the answer is attested, there being no operation to vouch for.
- * A handler reached by an include cannot set the status, so where the check refuses one, this filter writes the refusal
- * once the chain returns, in place of anything written before it, unless the response is already committed.
+ * alone, the filter records that operation and its key value on the request ({@link VerifiedOperation}), so that a
+ * later filter which changes the method or the path, and so the handler or the item it acts on, by wrapping the request
+ * or by dispatching it elsewhere, is caught as the handler is about to run; the answer of a handler caught there is
+ * never attested, nor is any answer whose handler the check never saw (one a filter wrote itself, or another registered
+ * servlet's), nor one an interceptor wrote when it stopped the request before the handler was reached (Paztport's last
+ * interceptor records that it was), while on a chain that names no operation the answer is attested, there being no
+ * operation to vouch for. A handler reached by an include cannot set the status, so where the check refuses one, this
+ * filter writes the refusal once the chain returns, in place of anything written before it, unless the response is
+ * already committed.
  *
  * <p>A path listed in {@code paztport.unverified-paths} ({@link #unverified}) is not filtered, so it is not observed.
  * None is listed unless the application lists it.
@@ -228,8 +229,9 @@ public final class InboundFilter extends OncePerRequestFilter {
             }
             VerifiedOperation verified = null;
             if (accepted.operation() != null && request.getDispatcherType() == DispatcherType.REQUEST) {
-                // Read as the handler is about to run, which catches a later filter that changes the handler.
-                verified = new VerifiedOperation(accepted.operation(), mode == VerificationMode.ENFORCE);
+                // Read as the handler is about to run, which catches a later filter that changes the handler or item.
+                verified = new VerifiedOperation(accepted.operation(), accepted.key(),
+                        mode == VerificationMode.ENFORCE);
                 request.setAttribute(VerifiedOperation.ATTRIBUTE, verified);
             }
             if (!accepted.attests()) {

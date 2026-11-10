@@ -4,6 +4,7 @@
 package org.paztport.spring.operation;
 
 import jakarta.servlet.DispatcherType;
+import jakarta.servlet.RequestDispatcher;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.util.Objects;
@@ -16,21 +17,23 @@ import org.springframework.web.servlet.HandlerMapping;
 
 /**
  * Checks, as the first handler the request reaches is about to run, that it is the operation the inbound filter
- * verified the request for. The filter works the operation out from the request as it is when the filter runs; a
- * filter after it that changes the method, the path or the parameters by wrapping the request, or that dispatches it
- * elsewhere by a forward, an include or an async dispatch, makes the DispatcherServlet choose another handler. So this
- * works the operation out again, in the same way ({@link OperationResolver#operationOf}), from the handler about to
- * run, the request's method as the handler sees it and the pattern its handler mapping set as
- * {@link HandlerMapping#BEST_MATCHING_PATTERN_ATTRIBUTE}. Without such a filter the two are always the same, since the
- * same mappings answer the same request.
+ * verified the request for, with the key value it was verified with. The filter works the operation out from the
+ * request as it is when the filter runs; a filter after it that changes the method, the path or the parameters by
+ * wrapping the request, or that dispatches it elsewhere by a forward, an include or an async dispatch, makes the
+ * DispatcherServlet choose another handler, or hand the same one another item. So this works the operation out again,
+ * in the same way ({@link OperationResolver#operationOf}), from the handler about to run, the request's method as the
+ * handler sees it and the pattern its handler mapping set as {@link HandlerMapping#BEST_MATCHING_PATTERN_ATTRIBUTE};
+ * and where that operation declares a key, reads the key value again from the request as dispatched, its raw URI and
+ * query as the filter read them (the included target's, for an include), by this service's own table. Without such a
+ * filter the two are always the same, since the same mappings and table answer the same request.
  *
- * <p>Where they differ, one WARN line names both operations, never the path, and the operation is marked contradicted,
- * so the filter attests no answer for it. Under {@code enforce} the request is refused
- * {@code 403 {"reason":"BINDING_MISMATCH"}} and the handler does not run, nor does any handler a filter dispatches the
- * request to afterwards. A handler reached by an include cannot set the status, so there the refusal is marked owed
- * and the inbound filter, which holds the response, writes it once the chain returns. Under {@code audit}, and on a
- * service that verifies only to decide attestation, the request is served unattested, as a request whose chain names
- * another operation is.
+ * <p>Where they differ, one WARN line names the operations, never the path or a key value, and the operation is marked
+ * contradicted, so the filter attests no answer for it. A different or missing key value is treated as another
+ * operation is. Under {@code enforce} the request is refused {@code 403 {"reason":"BINDING_MISMATCH"}} and the handler
+ * does not run, nor does any handler a filter dispatches the request to afterwards. A handler reached by an include
+ * cannot set the status, so there the refusal is marked owed and the inbound filter, which holds the response, writes
+ * it once the chain returns. Under {@code audit}, and on a service that verifies only to decide attestation, the
+ * request is served unattested, as a request whose chain names another operation is.
  *
  * <p>Only the first handler a request reaches, by whatever dispatch but the error dispatch, is checked, where the
  * filter recorded the operation ({@link VerifiedOperation}), which is then marked checked. A forward or include that
@@ -71,14 +74,22 @@ final class DispatchCheck implements HandlerInterceptor {
         String pattern = request.getAttribute(HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE) instanceof String p
                 ? p : null;
         String dispatched = operations.operationOf(handler, request.getMethod(), pattern);
-        if (Objects.equals(dispatched, verified.operation())) {
+        boolean sameOperation = Objects.equals(dispatched, verified.operation());
+        if (sameOperation && Objects.equals(keyValue(request, dispatch, dispatched), verified.key())) {
             return true;
         }
         verified.contradict();
         // Both names come from this service's own table, whose rules allow nothing that could break the line.
-        LOG.warn("the request was verified for the operation {} but the handler about to run is the operation {}: a "
-                + "filter after Paztport's changed its method, path or parameters, or dispatched it elsewhere; {}",
-                name(verified.operation()), name(dispatched), verified.enforced() ? "refused" : "served unattested");
+        String outcome = verified.enforced() ? "refused" : "served unattested";
+        if (sameOperation) {
+            LOG.warn("the request was verified for the operation {} with one key value but the handler about to run "
+                    + "reads another or none: a filter after Paztport's changed its path or parameters, or dispatched "
+                    + "it elsewhere; {}", name(dispatched), outcome);
+        } else {
+            LOG.warn("the request was verified for the operation {} but the handler about to run is the operation "
+                    + "{}: a filter after Paztport's changed its method, path or parameters, or dispatched it "
+                    + "elsewhere; {}", name(verified.operation()), name(dispatched), outcome);
+        }
         if (!verified.enforced()) {
             return true;
         }
@@ -89,6 +100,22 @@ final class DispatchCheck implements HandlerInterceptor {
         }
         Refusals.write(response, VerifiedOperation.REFUSAL);
         return false;
+    }
+
+    /**
+     * The key value of {@code operation} for the request as dispatched: read by this service's own table from the raw
+     * URI and query, as the inbound filter reads them, or for an include from the included target's. Null where the
+     * operation declares no key or the request gives none.
+     */
+    private String keyValue(HttpServletRequest request, DispatcherType dispatch, String operation) {
+        String uri = request.getRequestURI();
+        String query = request.getQueryString();
+        if (dispatch == DispatcherType.INCLUDE
+                && request.getAttribute(RequestDispatcher.INCLUDE_REQUEST_URI) instanceof String included) {
+            uri = included;
+            query = request.getAttribute(RequestDispatcher.INCLUDE_QUERY_STRING) instanceof String q ? q : null;
+        }
+        return operations.table().keyValue(operation, uri, query == null || query.isEmpty() ? null : query);
     }
 
     /** {@code <service>#<operation>}, or {@code none}. */

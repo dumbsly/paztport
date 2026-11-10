@@ -80,7 +80,8 @@ import org.springframework.web.util.ServletRequestPathUtils;
  * no operation. Nor does the context start beside a {@link HiddenHttpMethodFilter}, which changes the request's
  * method after the inbound filter has confirmed the operation for the method sent. Any other filter that changes the
  * method, the path or the parameters after the inbound filter is caught as the handler is about to run
- * ({@link DispatchCheck}), which asks this for the operation of the handler the DispatcherServlet chose.
+ * ({@link DispatchCheck}), which asks this for the operation of the handler the DispatcherServlet chose, and reads a
+ * keyed operation's key value by its {@link #table}.
  */
 public final class OperationResolver implements SmartInitializingSingleton {
 

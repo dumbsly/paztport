@@ -34,7 +34,7 @@ import org.springframework.web.servlet.handler.MappedInterceptor;
  * <ul>
  *   <li>The service's own table must be this service's and covered, or the context does not start. Once the handler
  *       mappings are known, each of its operations must be one of them ({@link OperationResolver}). Each request's
- *       handler is checked, as it is about to run, against the operation the request was verified for
+ *       handler is checked, as it is about to run, against the operation and key value the request was verified for
  *       ({@link DispatchCheck}), and the answer is attested only once the handler was reached ({@link HandlerReached}).
  *   <li>A receiver's table the bundle holds no proof for is set aside, with one line naming the receiver, and calls
  *       to that receiver name no operation: the receiver then needs a route that names none, so this fails closed.
@@ -81,9 +81,9 @@ public class OperationConfiguration {
     }
 
     /**
-     * The check, as the first handler a request reaches is about to run, that it is the operation the inbound filter
-     * verified the request for ({@link DispatchCheck}), on a service that names its own operations. It is an
-     * interceptor so that it sees the handler the DispatcherServlet chose after every filter has run. It is a
+     * The check, as the first handler a request reaches is about to run, that it is the operation, with the key value,
+     * the inbound filter verified the request for ({@link DispatchCheck}), on a service that names its own operations.
+     * It is an interceptor so that it sees the handler the DispatcherServlet chose after every filter has run. It is a
      * {@link MappedInterceptor} bean with no path patterns, so every handler mapping in the context picks it up, one
      * the application declares included, and puts it ahead of the interceptors a {@code WebMvcConfigurer} registers:
      * none of those acts on a request it refuses.

@@ -8,16 +8,16 @@ import org.paztport.core.verify.ReasonCode;
 import org.paztport.http.HttpAnswer;
 
 /**
- * The operation a request was verified as received by, which the inbound filter sets as {@link #ATTRIBUTE} on the
- * request's own dispatch where the chain named an operation and the receiver verified the request with it, under a
- * mode or for attestation alone. The check made as a handler is about to run reads it: it checks the first handler
- * the request reaches, however a later filter dispatched it there, and marks it checked, so a dispatch that handler
- * starts is not checked again; and it marks it contradicted when that handler is another operation's, so the filter
- * attests nothing for it. Paztport's last interceptor marks it reached once every interceptor before it has let the
- * request on to the handler, so an answer an interceptor writes when it stops the request is not attested either. A
- * handler reached by an include cannot set the status, so there the check marks the refusal owed and the filter
- * writes it once the chain returns. Each takes it from here. A request without the attribute had no operation
- * confirmed. It is not for an application to use.
+ * The operation a request was verified as received by, and its key value where it declares a key, which the inbound
+ * filter sets as {@link #ATTRIBUTE} on the request's own dispatch where the chain named an operation and the receiver
+ * verified the request with it, under a mode or for attestation alone. The check made as a handler is about to run
+ * reads it: it checks the first handler the request reaches, however a later filter dispatched it there, and marks it
+ * checked, so a dispatch that handler starts is not checked again; and it marks it contradicted when that handler is
+ * another operation's, or reads another key value, so the filter attests nothing for it. Paztport's last interceptor
+ * marks it reached once every interceptor before it has let the request on to the handler, so an answer an interceptor
+ * writes when it stops the request is not attested either. A handler reached by an include cannot set the status, so
+ * there the check marks the refusal owed and the filter writes it once the chain returns. Each takes it from here. A
+ * request without the attribute had no operation confirmed. It is not for an application to use.
  */
 public final class VerifiedOperation {
 
@@ -28,6 +28,7 @@ public final class VerifiedOperation {
     public static final HttpAnswer REFUSAL = HttpAnswer.refusal(403, ReasonCode.BINDING_MISMATCH);
 
     private final String operation;
+    private final String key;
     private final boolean enforced;
     private boolean checked;
     private boolean reached;
@@ -36,16 +37,23 @@ public final class VerifiedOperation {
 
     /**
      * @param operation the operation the request was verified as received by
+     * @param key the key value the request was verified with, where the operation declares a key; otherwise null
      * @param enforced true where the request was verified under {@code enforce}, so a contradiction is refused
      */
-    public VerifiedOperation(String operation, boolean enforced) {
+    public VerifiedOperation(String operation, String key, boolean enforced) {
         this.operation = Objects.requireNonNull(operation, "operation");
+        this.key = key;
         this.enforced = enforced;
     }
 
     /** The operation the request was verified as received by, never null. */
     public String operation() {
         return operation;
+    }
+
+    /** The key value the request was verified with, or null where the operation declares no key. */
+    public String key() {
+        return key;
     }
 
     /** Whether the request was verified under {@code enforce}, so a contradiction is refused rather than logged. */

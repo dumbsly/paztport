@@ -651,6 +651,32 @@ class DispatchCheckTest {
         }
     }
 
+    /**
+     * A filter after Paztport's that keeps the operation but changes the item, wrapping the request for
+     * {@code /holds/A1} as {@code /holds/B2} or forwarding it there, reaches {@code hold}'s handler with another key
+     * value than the one verified: under {@code enforce} the request is refused, as one reaching another operation
+     * is, and the handler never runs.
+     */
+    @Test
+    void anotherKeyValueIsRefused(@TempDir Path dir) throws Exception {
+        Files.writeString(dir.resolve("ops-holds.json"), HOLDS.toFile());
+        PaymentHandlers.RAN.clear();
+        try (Service payment = capture(Service.start(dir, HoldsApp.class, "payment",
+                List.of(List.of("gateway", "payment#hold"), HOLDS.route()), Service.NO_TABLE,
+                "paztport.verify=true", "paztport.mode=enforce",
+                "paztport.operations.table-path=" + dir.resolve("ops-holds.json")))) {
+            for (String rewrite : List.of("item", "forward-item")) {
+                HttpResponse<String> answer = payment.send("POST", "/holds/A1", "payment#hold", rewrite);
+                assertThat(answer.statusCode()).as(rewrite).isEqualTo(403);
+                assertThat(answer.body()).as(rewrite).isEqualTo("{\"reason\":\"BINDING_MISMATCH\"}");
+                assertThat(attestation(answer)).as(rewrite).isNull();
+            }
+            assertThat(PaymentHandlers.RAN).as("the handler never ran").isEmpty();
+            assertThat(logged.list).hasSize(2).allSatisfy(warning -> assertThat(warning.getFormattedMessage())
+                    .contains("payment#hold").doesNotContain("/holds").doesNotContain("A1").doesNotContain("B2"));
+        }
+    }
+
     private static String attestation(HttpResponse<String> answer) {
         return answer.headers().firstValue(PaztportHeaders.RESPONSE).orElse(null);
     }
@@ -783,11 +809,16 @@ class DispatchCheckTest {
         }
     }
 
-    /** Payment holding items, with {@code hold}'s handler alone. */
+    /** Payment holding items, with {@code hold}'s handler alone and the same filter after Paztport's. */
     @SpringBootConfiguration
     @EnableAutoConfiguration
     @Import(PaymentHandlers.Holds.class)
     static class HoldsApp {
+
+        @Bean
+        FilterRegistrationBean<Rewrite> rewrite() {
+            return new FilterRegistrationBean<>(new Rewrite());
+        }
     }
 
     /** Payment, with its handlers and the same filter after Paztport's. */
@@ -852,7 +883,8 @@ class DispatchCheckTest {
      * {@code forward-async} forwards to {@code /later}, which answers from async work; {@code intercept} passes the
      * request on for payment's own interceptor to stop. On either, {@code buffer}
      * holds the response in its own buffer and copies it once the chain returns, and {@code wrap} passes it on in a
-     * wrapper that does not buffer.
+     * wrapper that does not buffer. On payment holding items, {@code item} turns any path into {@code /holds/B2}, and
+     * {@code forward-item} forwards the request there.
      */
     static final class Rewrite extends OncePerRequestFilter {
 
@@ -860,6 +892,29 @@ class DispatchCheckTest {
 
         /** Payment's {@code refund}, on the same entrance as {@code charge}. */
         private static final String REFUND = "/charge?mode=refund";
+
+        /** Another item of payment's {@code hold}. */
+        private static final String ITEM = "/holds/B2";
+
+        /** {@code request} as if sent to {@code path}. */
+        private static HttpServletRequest withPath(HttpServletRequest request, String path) {
+            return new HttpServletRequestWrapper(request) {
+                @Override
+                public String getRequestURI() {
+                    return path;
+                }
+
+                @Override
+                public StringBuffer getRequestURL() {
+                    return new StringBuffer("http://127.0.0.1" + path);
+                }
+
+                @Override
+                public String getServletPath() {
+                    return path;
+                }
+            };
+        }
 
         @Override
         protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
@@ -874,6 +929,8 @@ class DispatchCheckTest {
                 }, response);
             } else if ("forward".equals(rewrite)) {
                 request.getRequestDispatcher("/orders/123").forward(request, response);
+            } else if ("forward-item".equals(rewrite)) {
+                request.getRequestDispatcher(ITEM).forward(request, response);
             } else if ("include".equals(rewrite)) {
                 request.getRequestDispatcher(REFUND).include(request, response);
             } else if ("include-twice".equals(rewrite)) {
@@ -903,22 +960,9 @@ class DispatchCheckTest {
             } else if ("error".equals(rewrite)) {
                 response.sendError(HttpServletResponse.SC_SERVICE_UNAVAILABLE);
             } else if ("path".equals(rewrite)) {
-                chain.doFilter(new HttpServletRequestWrapper(request) {
-                    @Override
-                    public String getRequestURI() {
-                        return "/orders/123";
-                    }
-
-                    @Override
-                    public StringBuffer getRequestURL() {
-                        return new StringBuffer("http://127.0.0.1/orders/123");
-                    }
-
-                    @Override
-                    public String getServletPath() {
-                        return "/orders/123";
-                    }
-                }, response);
+                chain.doFilter(withPath(request, "/orders/123"), response);
+            } else if ("item".equals(rewrite)) {
+                chain.doFilter(withPath(request, ITEM), response);
             } else {
                 chain.doFilter(request, response);
             }

@@ -84,6 +84,16 @@ public final class Accepted {
         return operation;
     }
 
+    /**
+     * The key value the request's nonce key carried: the one the receiver read from the request target for the keyed
+     * operation the chain named. Null for a refusal, where the chain named no operation, and where that operation
+     * declares no key or the receiver holds no table. An adapter that checks the handler as it runs
+     * ({@link #operation}) checks that it reads this key value too.
+     */
+    public String key() {
+        return key;
+    }
+
     /** The answer to send in place of the handler's, or null when the request is served. */
     public HttpAnswer refusal() {
         return refusal;
