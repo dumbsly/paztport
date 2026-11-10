@@ -173,7 +173,7 @@ flowchart LR
 | `svc` | Service name. The route is rebuilt from these and the `rcv` fields. |
 | `inst` | Instance (container hostname), so a response targets one replica, not a whole service. |
 | `rid` | Request ID, minted by the origin and carried unchanged. |
-| `ts` | When this stamp was signed. The last stamp must be within 5 s of the receiver's clock; the origin within a run window (30 min by default; 30 s for the six services a ticket crosses in the Java mesh). |
+| `ts` | When this stamp was signed. The last stamp must be within 5 s of the receiver's clock; the origin within a run window (30 min by default in the SDKs, for an agent run that reuses one origin; the Spring starter defaults it to the 5 s call window, since inside one mesh a request tree is a single call; the Java mesh sets 30 s for the six services a ticket crosses). |
 | `sess` | The session id, or empty for a chain with no session. |
 | `rcv` | The receiver this stamp was signed for: the next stamp's `svc`, or the chain's receiver. Over HTTP it may also name an operation, `service#operation`. |
 | `bind` | The binding of what *this hop sent*. Over HTTP, `SHA-256(METHOD \n PATH \n BODY)` (`PATH` with its query). |
@@ -683,7 +683,8 @@ These are design directions, except where a bullet says what is built.
 ## 7. Running it
 
 **Prerequisites:** JDK 25 or newer and Maven for the Java side, Docker with Compose
-for the mesh demo, Node 22.19 or newer with npm for the TypeScript side, Go 1.27 or
+for the mesh demo, Node 22.19 or newer with npm for the TypeScript side, Ollama with
+a model pulled (for example `ollama pull qwen3:4b`) for the agents demo, Go 1.27 or
 newer for the Go SDK, staticcheck 2026.2.2 or newer for `./run test`'s checks of the
 Envoy Gateway processor, and unzip for its jar check; for the Envoy Gateway proof of
 concept, Maven running on Java 25 or newer (as `mvn -v` reports it), Docker, Go, kind

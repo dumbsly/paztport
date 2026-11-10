@@ -8,7 +8,7 @@ quarantines offending containers. The idea and the concepts are in the
 Quick start: `./run java-mesh` from the repository root builds the SDK and the mesh
 and runs every scenario. It needs JDK 25 or newer, Maven and Docker with Compose
 ([Running it](#running-it)). A green run ends with `26 passed, 0 failed`; the mesh
-stays up afterwards.
+stays up afterwards, and `docker compose down` in this folder stops it.
 
 Contents: [The system at a glance](#the-system-at-a-glance) · [A request, end to end](#a-request-end-to-end) · [The support-assistant storyline](#the-support-assistant-storyline) · [Least knowledge](#least-knowledge-who-holds-what) · [The verification pipeline](#the-verification-pipeline) · [Response attestation](#response-attestation) · [Threat model](#threat-model) · [Operations](#operations) · [Response](#response-quarantine-not-deletion) · [Modes and rollout](#modes-and-rollout) · [Design choices](#design-choices-and-the-failures-they-avoid) · [Measurements](#measurements) · [Running it](#running-it) · [Configuration](#configuration)
 
@@ -868,6 +868,7 @@ docker compose up -d --build            # the mesh + responder
 ./demo.sh                               # run every scenario, print pass/fail
 docker compose up -d --force-recreate payment   # back to your token (see below)
 ./measure.sh                            # optional: off vs enforce latency + header sizes
+docker compose down                     # stop the mesh and remove its networks
 ```
 
 `measure.sh` switches `payment` between `off` and `enforce` through `/admin/mode`,
@@ -991,7 +992,7 @@ the gateway port is exposed to the host.
 | Variable | Default | Used by |
 |---|---|---|
 | `PAZTPORT_MODE` | `enforce` | `payment` (`off`, `audit`, `enforce`) |
-| `PAZTPORT_MAX_AGE_MS` | `5000` | `payment`: both freshness windows, the last stamp's and the origin's. The callers' response checks use the same property, `paztport.max-age-ms`, with the same default |
+| `PAZTPORT_MAX_AGE_MS` | `5000` | `payment`: the last stamp's freshness window, and the origin's where `PAZTPORT_RUN_MAX_AGE_MS` is unset (Compose sets it, below). The callers' response checks use the same property, `paztport.max-age-ms`, with the same default |
 | `PAZTPORT_ORIGINS` | `gateway`; `psp` for the PSP, which calls nobody | Every service that holds trust material: `paztport.origins` is required there, and the starter does not start without it. The callers' response checks use the same property |
 | `PAZTPORT_UNVERIFIED_PATHS` | what the service serves outside the data path: `/admin,/debug,/actuator` for `payment`, `/actuator` for `orders`, `/admin` for `tickets`, `assistant` and `mailer`, `/debug` for the PSP, none for `gateway` and `search` | Every service: the path prefixes (`paztport.unverified-paths`) the filter leaves unverified, which the starter defaults to none. Each is one first path segment; a malformed entry, a trailing comma included, stops the service starting |
 | `PAZTPORT_PROOF_DEPTH` | `8`; Compose does not pass it through, so set it with `docker compose run -e` | `policy-tool`, `policy-tool-psp` |
