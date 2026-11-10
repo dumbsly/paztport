@@ -262,8 +262,8 @@ refused the same way, and its answer is never attested. Where it confirms its op
 only an answer whose handler it confirmed: an answer written before any handler ran, or by code its routing does not
 see, is not attested. When the operation it supplies has a `key`, it reads the key value from the request target by
 that operation's template ([wire.md](wire.md#operations)); a request with none fails check 4, `BINDING_MISMATCH`, and
-spends no nonce key. A receiver whose chain names no operation reads no key value. A receiver whose chain names no
-operation supplies its own name alone, and the policy says whether a route that names no operation is allowed.
+spends no nonce key. A receiver whose chain names no operation reads no key value and supplies its own name alone,
+and the policy says whether a route that names no operation is allowed.
 
 Only the receiver can confirm its operation: a later verifier sees the operation a chain names, not the handler that
 ran. So where a hop serves a request it does not refuse (in `audit` mode, or without verifying), a chain that names
