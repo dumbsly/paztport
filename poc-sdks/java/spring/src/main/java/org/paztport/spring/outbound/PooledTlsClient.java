@@ -38,7 +38,7 @@ import org.springframework.web.client.RestClient;
  * peer has vanished without closing it, fails the call at the read timeout, as a timeout (from a {@code RestClient},
  * a {@code ResourceAccessException}), instead of holding the calling thread for ever. Spring's own JDK request
  * factory, which Spring Boot 4 gives an SSL bundle, ends a stalled body too, but not as this class promises: a
- * stall after the headers fails the caller's read of the body with an {@code IOException} ("closed"), not as a
+ * stall after the headers fails the caller's read of the body with an {@code IOException}, not as a
  * timeout, and Spring Boot sets no read timeout unless one is configured, so without one the call waits for ever.
  * So the factory here is {@link WholeExchangeRequestFactory}, which reads each response whole within the read
  * timeout ({@link WholeExchange#send}) and fails every stall as a timeout. The egress's calls to the partner and

@@ -22,9 +22,8 @@ imagePullSecrets: []
 # Gateway's own, unless it deploys Envoy in the Gateway's namespace). The NetworkPolicy admits that Gateway's Envoy
 # pods, and no other pod, to the processor's gRPC port: by default it selects them by the labels Envoy Gateway gives
 # a Gateway's own Envoy pods. envoyPodLabels, when set, replaces those labels: with merged gateways
-# (mergeGateways), Envoy Gateway labels Envoy's pods with the GatewayClass only
-# (gateway.envoyproxy.io/owning-gatewayclass), and every Gateway of the class shares them. name is required unless
-# envoyPodLabels is set.
+# (mergeGateways), Envoy's pods do not carry the Gateway's labels, so envoyPodLabels names the labels they carry.
+# name is required unless envoyPodLabels is set.
 gateway:
   name: ""
   envoyNamespace: envoy-gateway-system
@@ -103,7 +102,7 @@ messageTimeout: 500ms
 #   healthyThreshold: passed checks in a row before a replica is let back in.
 # Both thresholds are whole numbers from 1 to 4294967295 (Envoy Gateway's fields are 32 bits), as a number or a
 # string of digits without a leading zero.
-# If every replica fails its check, or too few pass it (fewer than about a third healthy, by default), Envoy's panic
+# If every replica fails its check, or too few pass it (fewer than half healthy, by default), Envoy's panic
 # threshold has it send to all of them, as it would without the check, rather than to none.
 healthCheck:
   timeout: ""

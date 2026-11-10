@@ -336,7 +336,7 @@ func (r *request) requestHeaders(
 // sendTrailers is the processing mode the answer to headers a body follows sets for the rest of the
 // request: request trailers sent, and every other mode as the processor expects it. Envoy v1.40.2 applies
 // a mode_override before it handles the headers answer it comes with, when the filter allows overrides
-// (ext_proc.cc:1900-1922), and takes both body modes from the override as given, the header and trailer
+// (ext_proc.cc:1904-1925), and takes both body modes from the override as given, the header and trailer
 // modes only when not DEFAULT (ext_proc.cc:1759-1778); so the body modes are restated here.
 var sendTrailers = &extprocfilterv3.ProcessingMode{
 	RequestTrailerMode: extprocfilterv3.ProcessingMode_SEND,

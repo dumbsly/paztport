@@ -885,7 +885,7 @@ class HttpReceiverTest {
                 + "classes=-"), traceLines());
     }
 
-    // A refusal is for the caller, who is usually the suspect: the body is the reason alone. The suspect, with
+    // A refusal is for the caller: the body is the reason alone. The suspect, with
     // whatever inst it signed, goes to the event; the trace line, with no peer here, names no suspect.
     @Test
     void theRefusalBodyIsTheReasonAloneWhateverTheSuspectSigned() {

@@ -21,10 +21,11 @@ import java.util.Arrays;
  *       across every RDN, and every value within a multi-valued RDN counts on its own, so {@code CN=a+CN=a} is two.
  *       Only a subject with exactly one names a service.</li>
  *   <li>That value's identifier octet must be exactly {@code 0x0C} (UTF8String) or {@code 0x13} (PrintableString),
- *       and the value well formed for its type: the two encodings of a DirectoryString RFC 5280 requires conforming
- *       CAs to use (section 4.1.2.6 for the subject, as 4.1.2.4 for the issuer), so the others need no decoding of
- *       their own. Any other identifier names no service: a constructed or high-tag-number form, and TeletexString,
- *       UniversalString, BMPString, IA5String and GeneralString, among others.</li>
+ *       and the value well formed for its type: the two encodings of a DirectoryString RFC 5280 has conforming CAs
+ *       use for new certificates (section 4.1.2.6 for the subject, as 4.1.2.4 for the issuer; a legacy name may keep
+ *       TeletexString, BMPString or UniversalString), so the others need no decoding of their own. Any other
+ *       identifier names no service: a constructed or high-tag-number form, and TeletexString, UniversalString,
+ *       BMPString, IA5String and GeneralString, among others.</li>
  *   <li>The headers walked (the {@code Name}, each RDN, each attribute, its OBJECT IDENTIFIER and its value) must be
  *       DER: definite lengths in their shortest form, each within its parent, and nothing after a {@code Name} read
  *       on its own. Nothing inside a value is walked, so what another attribute's value holds is never checked.</li>

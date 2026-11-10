@@ -35,7 +35,7 @@ type Header struct {
 
 // HeaderValue returns a received header's value without the optional whitespace around it, and reports
 // whether the header is present. HTTP's optional whitespace is space and horizontal tab (RFC 9110,
-// section 5.5), and only those are trimmed: a value with any other character around its token, such as
+// section 5.6.3), and only those are trimmed: a value with any other character around its token, such as
 // a no-break space, keeps it, and reads as no token. A value of nothing else is absent.
 //
 // Which value of a repeated header to pass is the caller's: Paztport reads the first.

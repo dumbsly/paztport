@@ -69,8 +69,9 @@ class SubjectServiceTest {
         assertEquals("orders", SubjectService.of(name(rdn(attribute(CN, 0x13, ascii("orders"))))));
     }
 
-    // RFC 5280 (4.1.2.4, 4.1.2.6) has conforming CAs use only UTF8String and PrintableString, so the other
-    // DirectoryString choices name no service, however readable their text.
+    // RFC 5280 (4.1.2.4, 4.1.2.6) has conforming CAs use UTF8String and PrintableString for new certificates, and
+    // only a legacy name may keep TeletexString, BMPString or UniversalString, so the other DirectoryString
+    // choices name no service, however readable their text.
     @Test
     void aBmpStringCommonNameNamesNoService() {
         assertEquals("", SubjectService.of(name(rdn(attribute(CN, 0x1E,

@@ -197,7 +197,7 @@
                                         <replacement>file://${paztport.root}/licenses/missing/$0</replacement>
                                     </licenseUrlReplacement>
                                 </licenseUrlReplacements>
-                                <!-- Named as in licenses/: the plugin puts the licence name before the file name. -->
+                                <!-- Named as in licenses/: everything up to the last " - " of a file name is dropped. -->
                                 <licenseUrlFileNameSanitizers>
                                     <licenseUrlFileNameSanitizer>
                                         <regexp>^.*\s-\s</regexp>

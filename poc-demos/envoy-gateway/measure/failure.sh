@@ -263,8 +263,8 @@ case_before() {
 }
 
 # case_after: the readings again (kept in ECHO_AFTER and ENVOY_AFTER), and what each added: what the processor
-# decided, what Envoy counted (its own 500s, for a full circuit breaker, are cluster_rq_active_overflow), and echo's
-# behavioural line.
+# decided, what Envoy counted (its own 500s, for a full circuit breaker, are counted in cluster_rq_active_overflow, the
+# harness's label for Envoy's upstream_rq_active_overflow on the processor's cluster), and echo's behavioural line.
 case_after() {
   local outcomes
   outcomes=$(outcomes_by_pod) && ENVOY_AFTER=$(envoy_extproc_stats) || return 1
@@ -950,8 +950,9 @@ suite_failure() {
   failure_rate && orders_rate FAILURE_ORDERS_RATE "$FAILURE_ORDERS_RATE" &&
     FAILURE_ORDERS_RATE_USED="$ORDERS_RATE_USED" && echo_primed && envoy_admin || return 1
   echo "  Envoy fails closed: a request whose stream to the processor fails is refused with Envoy's own 500, or 504" \
-    "when the processor did not answer within messageTimeout (message_timeouts); of those 500s, the ones its" \
-    "circuit breaker on the processor's cluster refused (past 1024 at a time) are cluster_rq_active_overflow. A" \
+    "when the processor did not answer within messageTimeout (message_timeouts, an ext_proc filter stat); of" \
+    "those 500s, the ones its circuit breaker on the processor's cluster refused (past 1024 at a time) are" \
+    "cluster_rq_active_overflow, the harness's label for Envoy's upstream_rq_active_overflow. A" \
     "route Envoy Gateway has turned into a direct response is refused before the filter, which counts none of it"
   UNDO="failure_undo"
   for step in failure_kill failure_slow failure_down_endpoint failure_service failure_roll failure_orders; do

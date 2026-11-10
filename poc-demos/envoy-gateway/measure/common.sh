@@ -1029,7 +1029,9 @@ print(("yes" if failed else "no") if seen else "unread")' "$1" <<<"$json"
 # out, and let through for failing open), its cluster's requests refused for a full circuit breaker or timed out,
 # and its cluster's connections: none made for want of a healthy processor, failed, or closed by the processor with
 # requests on them; and its cluster's active health checks: passed, failed, or failed for want of a connection; as
-# "<name>=<n>" words, the names shortened.
+# "<name>=<n>" words. The ext_proc filter's stats (streams_started, streams_failed, message_timeouts,
+# failure_mode_allowed) keep Envoy's names; the cluster's are the harness's labels: cluster_rq_* for Envoy's
+# upstream_rq_* counters (active_overflow, pending_overflow, timeout), cluster_cx_* for upstream_cx_*.
 envoy_extproc_stats() {
   envoy_admin || return 1
   curl -sf "http://$ENVOY_ADMIN/stats" | awk -F': ' '
