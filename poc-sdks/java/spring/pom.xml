@@ -39,13 +39,6 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-autoconfigure</artifactId>
         </dependency>
-        <dependency>
-            <!-- Build time only: writes META-INF/spring-configuration-metadata.json from PaztportProperties, so
-                 IDEs complete and describe the paztport.* properties. Optional, so it never reaches a consumer. -->
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-configuration-processor</artifactId>
-            <optional>true</optional>
-        </dependency>
 
         <dependency>
             <!-- ObservationRegistry, in which the filters and the interceptor record each verification result.
@@ -95,13 +88,21 @@
 
     <build>
         <plugins>
-            <!-- Since JDK 23 javac runs annotation processors only when asked: this one writes the configuration
-                 metadata of PaztportProperties. -->
+            <!-- Since JDK 23 javac runs annotation processors only when asked; naming the configuration processor
+                 on the processor path asks for it. It writes META-INF/spring-configuration-metadata.json from
+                 PaztportProperties, so IDEs complete and describe the paztport.* properties. It is no dependency
+                 of this module, so it stays out of the third-party list. -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
                 <configuration>
-                    <proc>full</proc>
+                    <annotationProcessorPaths>
+                        <path>
+                            <groupId>org.springframework.boot</groupId>
+                            <artifactId>spring-boot-configuration-processor</artifactId>
+                            <version>${spring.boot.version}</version>
+                        </path>
+                    </annotationProcessorPaths>
                 </configuration>
             </plugin>
             <!-- Mockito attaches byte-buddy's agent at runtime. Allowing that up front keeps the JVM's
