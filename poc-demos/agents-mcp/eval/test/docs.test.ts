@@ -200,13 +200,12 @@ describe("the documents follow the code", () => {
     }
   });
 
-  it("theTermsNoteIsDatedAndHedged", () => {
+  it("theTermsNoteIsHedged", () => {
     for (const text of [EVAL_README, DEMO_README]) {
       expect(text).toMatch(/not legal advice/i);
       expect(text).toContain("Mistral");
     }
-    expect(EVAL_README).toContain("2026-10-24");
-    expect(EVAL_README).toMatch(/not (been )?verified|unverified/i);
+    expect(EVAL_README).toMatch(/check your provider's terms/i);
   });
 });
 

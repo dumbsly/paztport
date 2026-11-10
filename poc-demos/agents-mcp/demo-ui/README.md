@@ -83,4 +83,4 @@ To use a hosted model, start the demo with `--agent-dir` pointing at your own pi
 
 Mistral's hosted API is not permitted for this demo. The page lists it as not permitted and the server refuses to start a run with it.
 
-A run deliberately sends planted instructions to a model. Whether that is allowed depends on the provider's terms, and on the licence for a local model. The summary of what we found, with dates, links and what we could not check, is in the [eval README](../eval/README.md#model-providers-and-terms). It is not legal advice.
+A run deliberately sends planted instructions to a model. Whether that is allowed depends on the provider's terms, and on the licence for a local model. Check them before you test; the [eval README](../eval/README.md#model-providers-and-terms) says how this project handles providers. This is not legal advice.

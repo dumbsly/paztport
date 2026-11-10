@@ -5,6 +5,10 @@ A small mesh of Spring Boot services that uses the Java SDK
 quarantines offending containers. The idea and the concepts are in the
 [root README](../../README.md).
 
+Quick start: `./run java-mesh` from the repository root builds the SDK and the mesh and runs every scenario. It needs
+JDK 25 or newer, Maven and Docker with Compose ([Running it](#running-it)). A green run ends with
+`26 passed, 0 failed`; the mesh stays up afterwards.
+
 Contents: [The system at a glance](#the-system-at-a-glance) · [A request, end to end](#a-request-end-to-end) · [The support-assistant storyline](#the-support-assistant-storyline) · [Least knowledge](#least-knowledge-who-holds-what) · [The verification pipeline](#the-verification-pipeline) · [Response attestation](#response-attestation) · [Threat model](#threat-model) · [Operations](#operations) · [Response](#response-quarantine-not-deletion) · [Modes and rollout](#modes-and-rollout) · [Design choices](#design-choices-and-the-failures-they-avoid) · [Measurements](#measurements) · [Running it](#running-it) · [Configuration](#configuration)
 
 ## The system at a glance
@@ -400,7 +404,7 @@ flowchart TD
     S8 -->|no| R8["403 BINDING_MISMATCH"]
     S8 -->|yes| S9["9. influence parses and the<br/>last stamp commits to it?"]
     S9 -->|no| R9["403 INFLUENCE_MISMATCH"]
-    S9 -->|yes| S10["10. rid, last svc, rcv<br/>never seen before?"]
+    S9 -->|yes| S10["10. rid, last svc, rcv, and a keyed<br/>operation's key value,<br/>never seen before?"]
     S10 -->|seen| R10["403 REPLAY"]
     S10 -->|new| S11["11. route rebuilt from stamps + payment<br/>walks the proof to the pinned root?"]
     S11 -->|no| R11["403 PATH_NOT_ALLOWED"]
@@ -416,24 +420,12 @@ flowchart TD
 
 Notes on the ordering:
 
-- The order is the protocol's ([verification.md](../../poc-sdks/spec/verification.md#the-live-order)).
-  Cheap structural checks run first. The signatures run before anything trusts a
-  field. Freshness and binding run before the replay cache is touched, which is why
-  a body altered on a replayed request reports `BINDING_MISMATCH` and an aged one
-  reports `EXPIRED`.
-- **A wrong receiver is a binding failure.** Each stamp signs the hop it was
-  handed to, so a chain forwarded unchanged to `payment` fails at check 4, before
-  the route is looked at.
-- **A wrong operation is a binding failure too.** The last stamp's `rcv` may be
-  `svc#operation`, and it must equal the operation the receiver confirms for the
-  request. A mismatch (row 15b) is check 4's `BINDING_MISMATCH`.
-- A missing or unparseable **proof** gives `PATH_NOT_ALLOWED`, not `CHAIN_MISSING`:
-  without a valid proof you can't show membership. `CHAIN_MISSING` is reserved for
-  the chain.
-- **Check 12 is the peer check.** `payment` requires a client certificate from the
-  mesh CA, and takes the service it names (its common name, when it has exactly
-  one) as the sender. The chain's last signer must be that service. It runs last,
-  so every other check keeps its code.
+- The order is the protocol's ([verification.md](../../poc-sdks/spec/verification.md#the-live-order)), which
+  gives the reason for each check's place and the code each failure returns. A wrong receiver, or a wrong operation
+  (row 15b), is a binding failure at check 4, before the route is looked at; a missing or unparseable proof is
+  `PATH_NOT_ALLOWED`, and `CHAIN_MISSING` is for the chain alone. Check 12 is the peer check: `payment` requires a
+  client certificate from the mesh CA, and the chain's last signer must be the service it names (its common name,
+  when it has exactly one).
 - Every rejection returns a 403 whose body is the reason code alone,
   `{"reason":"<code>"}`, and publishes an event for the responder. Influence that
   can't be read is never dropped: where verification hasn't refused the request
@@ -471,6 +463,11 @@ keyring, the root and the pin, so each checks every response it gets.
   request that failed in `audit`, is answered without an attestation. `gateway` is
   the origin: it starts each request tree with no chain and no influence, whatever
   a request carries, and never attests.
+- **Where the chain named an operation, only an answer whose handler was reached and confirmed is attested.** An
+  answer a filter wrote itself, or that an interceptor wrote before the handler ran, or whose handler differs from
+  the operation the stamp named, goes out unattested. A chain that names no operation is still attested. The
+  Spring starter does this ([`InboundFilter`](../../poc-sdks/java/spring/src/main/java/org/paztport/spring/InboundFilter.java));
+  the concept is in [Operations, influence and sessions](../../README.md#3-operations-influence-and-sessions).
 - A verified response's labels become influence on whatever the caller does next.
   Any other response, unattested, failing or a refusal, still reaches the caller,
   and adds one `local-untrusted` influence entry, so content nobody vouched for
@@ -481,9 +478,8 @@ keyring, the root and the pin, so each checks every response it gets.
   chain's last stamp names, with the operation when it names one. An operation
   with a key adds the key value before `req` or `resp`. So a service calls a given
   receiver, or a given operation of it, at most once per request tree, and an
-  operation with a key at most once per request tree for each key value; calls to
-  two operations of one receiver spend two keys, and so do calls for two items of
-  one keyed operation.
+  operation with a key at most once per request tree for each key value
+  ([Operations](#operations)).
 
 ## Threat model
 
@@ -504,6 +500,10 @@ the policy key or the CA key. Its goal is to get `payment` to act on a request.
 | Hold a chain and use it later | Stamps older than the freshness window | 7: `EXPIRED` |
 | Send another service's fresh chain from its own connection | The last signer must be the service its client certificate names | `PEER_MISMATCH` (the SDK's mutual TLS test) |
 | Send a hop a forged chain, so that its response stamp becomes one the attacker can start a chain with | A hop attests only a chain that passed the live order there, and `gateway`, the origin, never attests | No `X-Path-Response` (the SDK's attestation tests) |
+| Code in `orders`, on a valid route, signs a call to an operation that route does not allow | The route rebuilt from the stamps (`gateway/orders#getOrder/payment#pay`) is not a leaf | 15a: `PATH_NOT_ALLOWED` |
+| Name the operation the route allows, but send the call to another | `payment` takes the operation from the handler Spring dispatches to; the stamp names another | 15b: `BINDING_MISMATCH` |
+| Call a keyed operation twice for one item | The key value is in the nonce key, so the second call repeats the first's | 16b: `REPLAY` |
+| Write the item in percent-encoding, to give it a second spelling | A key value is read only from characters written out in the path; an encoded one gives none | 16c: `BINDING_MISMATCH` |
 | Keep attacking | Instance isolated and replaced after a threshold | 9: quarantine |
 
 **Not defended by design:** a compromised hop that sits on a *valid* route can
@@ -518,7 +518,8 @@ a request came in through ([Operations](#operations)).
 ## Operations
 
 `orders` and `payment` name their operations, so a route can allow one operation of
-a service and not another. Each publishes an operation table beside
+a service and not another
+([the idea](../../README.md#3-operations-influence-and-sessions)). Each publishes an operation table beside
 `policy/paths.yaml`, in the format the [spec](../../poc-sdks/spec/wire.md#operations)
 gives:
 
@@ -957,7 +958,7 @@ printing `payment`'s trace line for scenario 1:
 | 16b | the same item twice in one request (`A1`, `A1`) | the second hold `403` `REPLAY` |
 | 16c | code in orders, in through `holdItems`, calls `/holds/%41` | 403 `BINDING_MISMATCH` |
 
-Rows 15a to 16c are the [operations](#operations) checks; they run after row 10.
+The numbers are ids, not the run order. Rows 15a to 16c are the [operations](#operations) checks; they run after row 10.
 Rows 11 to 14 are the [support-assistant storyline](#the-support-assistant-storyline).
 They run after those and before row 9, which needs the quarantine and ends the run:
 

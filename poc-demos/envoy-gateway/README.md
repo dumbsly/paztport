@@ -10,6 +10,13 @@ This is the proof of concept, its behavioural checks, the harness for its measur
 [findings](#findings), the [gotchas](#gotchas-and-how-each-is-handled), [how to operate it](#operating-it), its
 [limits](#limits), and the [measurements](#measurements) themselves.
 
+Quick start: `./run envoy-gateway` builds everything, brings up the cluster and runs the checks; it needs Java 25 and
+Maven, Docker, Go, kind, kubectl and Helm ([Prerequisites](#prerequisites)), takes a few minutes and pushes nothing to
+any registry. A green run ends with `12 passed, 0 failed` ([The checks](#the-checks)), and the cluster stays up until
+`poc-demos/envoy-gateway/envoy-gateway.sh down` removes it ([Running it](#running-it)).
+
+Contents: [What the measurements showed](#what-the-measurements-showed) · [Running it](#running-it) · [Measuring it](#measuring-it) · [Prerequisites](#prerequisites) · [Layout](#layout) · [The processor](#the-processor) · [The cluster](#the-cluster) · [The chart](#the-chart) · [The checks](#the-checks) · [What the cluster showed](#what-the-cluster-showed) · [Findings](#findings) · [Gotchas](#gotchas-and-how-each-is-handled) · [Operating it](#operating-it) · [Limits](#limits) · [The path](#the-path) · [Why ext_proc now](#why-ext_proc-now-and-a-dynamic-module-later) · [What is kind-specific](#what-is-kind-specific) · [The processor in Envoy configured directly](#the-processor-in-envoy-configured-directly) · [Measurements](#measurements)
+
 ## What the measurements showed
 
 The answers to the nine questions this proof of concept was built to ask, for someone deciding whether to put Paztport
@@ -309,7 +316,9 @@ listener), and the EnvoyProxy, which gives Envoy its upstream client certificate
 mesh CA). Envoy Gateway presents that one certificate on every upstream connection that has a BackendTLSPolicy, to
 the processor and to `orders` alike. `kind/backends.yaml` runs java-mesh's `orders` (two replicas) and `payment` as
 they are, verifying every request in enforce mode with `edge` as the one origin, each with its own keys and
-certificate mounted at the paths java-mesh uses. `kind/routes.yaml` holds two HTTPRoutes to `orders`: `orders`,
+certificate mounted at the paths java-mesh uses. No operation tables are configured here, so routes and receivers
+are service-level (`orders`, not `orders#getOrder`); java-mesh's [Operations](../java-mesh/README.md#operations) show them
+configured. `kind/routes.yaml` holds two HTTPRoutes to `orders`: `orders`,
 which the processor maps to the receiver `orders`, and `orders-unmapped` (host `unmapped.example`), which the processor
 is attached to but does not map, and their BackendTrafficPolicy `orders-routes`, as a cluster's operator would have
 one. It retries only a connection that failed or a stream refused, where `orders` never saw the request, and it
@@ -687,7 +696,8 @@ What the checks and the measurements found, beyond the numbers.
 - **A shared, expiring nonce store** across a backend's replicas, as optional hardening against a compromised caller.
 - **A verifying front** and **partner entry** at the edge, and **client stamps**, a client signing its own requests
   (the DPoP and passkey shape).
-- **Chains that start only at an ingress or an approved trigger,** with `audit` stamping (above).
+- **Chains that start only at an ingress or an approved trigger,** with `audit` stamping (both defined in the
+  chainless-request item under [Findings](#findings)).
 - **`routingType: Service`, or a fix in Envoy Gateway,** for the leak on recovery.
 
 ## Why ext_proc now, and a dynamic module later
