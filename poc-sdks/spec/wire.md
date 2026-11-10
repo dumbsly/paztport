@@ -479,11 +479,9 @@ The allowed routes are the leaves of a salted Merkle tree. A verifier pins only 
 | Padding | Every unused slot holds 32 random bytes, which look like any other leaf hash. |
 
 Why: the `0x00` and `0x01` prefixes stop a 64-byte node from passing as a leaf (the second-preimage attack). A
-real route space is small, so an unsalted leaf could be confirmed by hashing a few guesses: the salt is a
-secret, not extra effort. A fixed depth means a proof's length says nothing about how many routes exist, and
-random slots mean its `dirs` say nothing about where in the policy a route sits. A builder MUST NOT build a tree
-with an unsalted leaf, MUST NOT reuse salts across builds, and MUST choose slots from a cryptographic random
-source, never in policy order.
+fixed depth means a proof's length says nothing about how many routes exist, and random slots mean its `dirs` say
+nothing about where in the policy a route sits. A builder MUST NOT build a tree with an unsalted leaf, MUST NOT reuse
+salts across builds, and MUST choose slots from a cryptographic random source, never in policy order.
 
 ### Proof object
 

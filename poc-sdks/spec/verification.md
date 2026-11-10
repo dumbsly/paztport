@@ -116,7 +116,7 @@ for two items of one keyed operation.
 the last signer's own connections; these hold whatever cache a receiver keeps. The nonce cache adds one thing: it
 refuses the last signer's second sending of a request within the window, but only where the cache saw the first. A
 service run as several replicas, each with its own cache, or whose cache is lost when it restarts, can serve a second
-sending. That is duplicate delivery, as a proxy's retry is, and the receiving application handles it as it handles any
+sending. That is duplicate delivery, as a client's retry is, and the receiving application handles it as it handles any
 retried request, by idempotency keyed on the delivery: the verified chain's `rid`, its last signer and the receiver its
 last stamp names, with the operation when it names one, and the key value when that operation has one, name it, the
 last stamp's `bind` says which request it was, and, with a peer, no one but that signer can send it. A service that
@@ -301,8 +301,9 @@ So, for the peer check, a service's client certificate:
 The receiver reads `peer.svc` from the subject exactly as the certificate encodes it: the subject's DER bytes
 within the certificate's `TBSCertificate`, which are the bytes the CA's signature covers. It MUST NOT read it from a
 string rendering of the subject, nor from a subject its X.509 library has parsed and encoded again, since a
-re-encoding can make a subject the steps below refuse look well formed. Implementations that follow these steps
-read the same name from the same certificate:
+re-encoding can make a subject the steps below refuse look well formed (the JDK's `X500Principal`, for one,
+encodes a non-DER subject again as DER). Implementations that follow these steps read the same name from the same
+certificate:
 
 1. **Finding the subject.** The `TBSCertificate`'s encoding is one `SEQUENCE` (identifier octet `0x30`) with
    nothing after it. Within it the receiver passes over, in order: the version, present exactly when the first
@@ -347,8 +348,8 @@ from the certificate.
 
 A partner also binds each session to the peer that opened it: the certificate issuer's distinguished name and the
 service the certificate names ([sessions-and-influence.md](sessions-and-influence.md#over-http)). The issuer is
-compared as text, in RFC 2253 form, so issuers are told apart by name, not by the CA's key. Only the partner that
-recorded it compares it, so two implementations need not write it byte for byte alike, but one partner MUST write
+compared as text, as an RFC 4514 string, so issuers are told apart by name, not by the CA's key. Only the partner
+that recorded it compares it, so two implementations need not write it byte for byte alike, but one partner MUST write
 it the same way every time. A certificate whose issuer name is empty, or that names no single service, opens no
 session and matches none.
 

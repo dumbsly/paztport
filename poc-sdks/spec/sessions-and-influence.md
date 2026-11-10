@@ -201,7 +201,7 @@ session is the same.
 
 **Sessions are kept by id, each bound to the peer that opened it.** HTTP has no connection to hold a session, so
 the server records, with each session, the peer the TLS layer authenticated: the client certificate's issuer (its
-RFC 2253 name) and its subject's common name, the service, never a name in the body. Over MCP nothing
+RFC 4514 string) and its subject's common name, the service, never a name in the body. Over MCP nothing
 changes: one session per connection, as [above](#the-handshake).
 
 - **A handshake adds a session and replaces none.** So clients that share a certificate, such as replicas, each
