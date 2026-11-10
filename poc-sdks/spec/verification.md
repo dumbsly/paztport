@@ -146,7 +146,7 @@ something the request or the destination says. Over HTTP that name, without any 
 to its influence. An egress names its partner's entry service by configuration
 ([sessions-and-influence.md](sessions-and-influence.md#between-organisations)). (The Java and Go SDKs
 take the name from the URL's host by default, its ASCII letters in lower case; a host that is not ASCII gets no
-name: [Java SDK README](../java/README.md#paztport-spring).)
+name: [Java SDK README](../java/README.md#outbound-calls-and-response-checks).)
 
 **The peer check.** A transport that authenticates the sender (mTLS, for example) SHOULD pass it as `peer`. Check
 12 then requires the last signer to be that sender. Only `svc` is compared: a certificate is issued per

@@ -866,7 +866,7 @@ Over HTTP a service sends an event as a `POST` to its responder's `/events` path
 the body and `Content-Type: application/json`. An event MUST NOT change the verdict it reports: a responder that is
 down, slow or refuses the event leaves the refusal as it was. A sender that waits for the responder before
 answering the refusal SHOULD bound that wait, so that a slow responder cannot hold refusals up (the Java SDK
-waits at most `paztport.event-timeout-ms`; see the [Java SDK README](../java/README.md#paztport-spring)). The
+waits at most `paztport.event-timeout-ms`; see the [Java SDK README](../java/README.md#timeouts)). The
 responder answers `200` when it accepts an event and `403` when it refuses one, with the same body for every
 refusal, so the answer tells a sender nothing about the allowed signers, the keyrings or the window.
 

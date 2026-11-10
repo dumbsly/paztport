@@ -553,7 +553,7 @@ entry-key form: it holds its entry service's key and a current reply certificate
 offline. It checks at startup that its keyring verifies under its own pin and holds that key, and that the
 certificate names it and has not expired. It does not attest what it answers. In the Java SDK, partner mode
 (`paztport.partner.enabled`) replaces the inbound filter with one that has no modes and sends no responder
-events; its properties are in the [Java SDK README](../java/README.md#paztport-spring).
+events; its properties are in the [Java SDK README](../java/README.md#partner-mode).
 
 What the partner can still learn: the boundary proof is the same on every request over that route, so it can
 count and cluster requests by route. It also sees each request's classes and owners, which the rule needs. It does
