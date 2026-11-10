@@ -438,8 +438,8 @@ class InboundFilterTest {
         }
     }
 
-    // A refusal is for the caller: the body is the reason alone. The suspect, with
-    // whatever inst it signed, goes to the event; the trace line, with no peer here, names no suspect.
+    // A refusal is for the caller: the body is the reason alone. The suspect, with whatever inst it
+    // signed, goes to the event; the trace line, with no peer here, names no suspect.
     @Test
     void theRefusalBodyIsTheReasonAloneWhateverTheSuspectSigned() throws Exception {
         String inst = "ord\"1\\";

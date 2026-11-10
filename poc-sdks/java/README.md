@@ -141,7 +141,7 @@ The caller is never told it. `Accepted.delivery()` is the request's `Delivery`
 the operation when it names one, the `key` value of a keyed operation, null when
 there is none, and the last stamp's `bind`), or null unless its chain passed the
 live order at this in-mesh hop; it is the key for the application's own idempotency
-handling, which a duplicate delivery needs (a proxy's retry reaches another replica
+handling, which a duplicate delivery needs (a client's retry reaches another replica
 with its own cache). The same key and `bind` is the same request sent again by that
 signer; the same key with another `bind` is a different request under a reused key,
 to refuse; a user's second click is a new `rid`. A `NonceCache` that cannot answer,
@@ -683,7 +683,7 @@ starter it is `HttpCaller.builder(...).receivers(Map)`. A name is a service, nev
 operation: a call names the operation from the receiver's table
 ([Operations](#operations), above), so a name holding `#` is refused. A host is
 taken from `URI.getHost()`, and the SDK puts its ASCII letters in lower case and
-changes nothing else (a key that is not ASCII is refused when the table is built), and
+changes nothing else (a key that is not ASCII is refused when the table is built).
 Spring Boot reads a map key in brackets as written inside them:
 - An IPv6 host keeps its brackets, so its key is written in two pairs:
   `paztport.receiver-names.[[::1]]=orders`, or `"[[::1]]"` in YAML or JSON.

@@ -519,8 +519,8 @@ the policy key or the CA key. Its goal is to get `payment` to act on a request.
 still misuse that route. If `orders` were compromised, it could alter what it sends
 to `payment`. It would sign the altered request itself, so the misuse is
 attributable to it, but it isn't prevented. Attestation constrains **position**,
-not **trustworthiness**. Where services name their operations, a node's place is
-the operation a request came in through ([Operations](#operations)).
+not **trustworthiness**. Where services name their operations, that position is the
+operation a request came in through ([Operations](#operations)).
 
 ## Operations
 
@@ -817,9 +817,9 @@ What the numbers say:
   Ed25519 verify. Of the primitives, nearly all the cost is Ed25519: a verify per
   stamp, and a signature per stamp a hop adds.
 - **Stock JDK Ed25519 is the slow part.** Optimised native implementations, which
-  this repository doesn't benchmark, do tens of microseconds.
-  A hot-path deployment would swap the signature implementation; the Merkle
-  machinery wouldn't change.
+  this repository doesn't benchmark, do tens of microseconds. A hot-path
+  deployment would swap the signature implementation; the Merkle machinery
+  wouldn't change.
 - **The chain grows by about 462 B per stamp, on average** (924 B over two). The proof is a fixed 615 B whatever
   the route length. `X-Path-Influence` is absent when there is no influence, as
   here. The response headers were not measured: `X-Path-Response` carries one

@@ -142,9 +142,9 @@ have been invented)", ACM SIGOPS Operating Systems Review 22(4), 1988). Either w
 the malicious request looks identical to a legitimate one: same headers, same body
 shape, same authenticated caller.
 
-What differs is the request's **history**. An illicit route leaves a fingerprint
-even when the request itself is clean. Paztport turns that history into a
-credential, and makes it unforgeable.
+An illicit route leaves a fingerprint in the request's **history** even when the
+request itself is clean. Paztport turns that history into a credential, and makes
+it unforgeable.
 
 ## 2. Two proofs that bind together
 
@@ -409,13 +409,12 @@ counts every result `local-untrusted`
 
 ## 4. Security principles
 
-**Every route leaf carries a secret, random 128-bit salt, and no unsalted leaf
-exists.** So a route can't be confirmed by hashing guesses: guessing a salted leaf
-means brute-forcing its salt, roughly `2¹²⁸` work. There's no unsalted leaf code
-path anywhere in the codebase, tests included.
+**Every route leaf carries a secret, random 128-bit salt.** So a route can't be
+confirmed by hashing guesses: guessing a salted leaf means brute-forcing its salt,
+roughly `2¹²⁸` work. There's no unsalted leaf code path anywhere in the codebase,
+tests included.
 
-Signatures are Ed25519 and hashes are SHA-256, relied on for their standard
-properties:
+Signatures and hashes are relied on for their standard properties:
 
 - Stamps are **Ed25519** signatures, whose security rests on discrete log on
   Curve25519.
@@ -555,8 +554,8 @@ What any design of this kind meets, and what this one has not yet tackled.
   deployment. That proof belongs to the workload-identity layer: attestation that
   issues identities only to approved workloads (SPIFFE/SPIRE, for one), signed
   images checked at admission, and admission rules on who may run a service's pods.
-  Because the peer check binds each stamp to its TLS peer, once TLS identity
-  is attested a copy holding a stolen stamping key is refused at the next hop with a
+  Because the peer check binds each stamp to its TLS peer, once TLS identity is
+  attested a copy holding a stolen stamping key is refused at the next hop with a
   peer; offline verification has no peer to check.
 - **Influence is only as complete as the instrumented path.** Content that reaches a
   component outside an attested hop (a cache, a side channel, training data, a
@@ -643,10 +642,10 @@ These are design directions, except where a bullet says what is built.
 
 - **Post-quantum.** Keep the Merkle tree and swap Ed25519 stamps for hash-based
   signatures. SLH-DSA (FIPS 205) is stateless, but at ~8–50 KB per signature, one
-  stamp as `X-Path-Chain` encodes it is larger than Tomcat's default 8 KB header
-  limit with any parameter set, and two stamps with the smallest are larger than
-  Node's default 16 KiB; those limits can be raised. XMSS and LMS are smaller but
-  stateful, and reusing a key is catastrophic. Signing isn't behind a swap
+  stamp as `X-Path-Chain` encodes it, with any parameter set, is larger than
+  Tomcat's default 8 KB header limit, and two stamps with the smallest are larger
+  than Node's default 16 KiB; those limits can be raised. XMSS and LMS are smaller
+  but stateful, and reusing a key is catastrophic. Signing isn't behind a swap
   interface yet. Making it swappable would take a `StampSigner` / `StampVerifier`
   interface, an algorithm tag in `keyring.json` and alongside each `sig`, and, for
   XMSS or LMS, a signer with persisted key state. The interface is cheap; managing

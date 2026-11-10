@@ -123,8 +123,8 @@ func TestServiceOfOneCommonName(t *testing.T) {
 }
 
 // TestServiceOfOtherStringTypes names no service for a common name of any type but UTF8String and
-// PrintableString, however readable its text: RFC 5280 has conforming CAs use those two for new certificates, and
-// only a legacy name may keep TeletexString, BMPString or UniversalString.
+// PrintableString, however readable its text: RFC 5280 has conforming CAs use those two for new
+// certificates, and only a legacy name may keep TeletexString, BMPString or UniversalString.
 func TestServiceOfOtherStringTypes(t *testing.T) {
 	for _, tc := range []struct {
 		name  string

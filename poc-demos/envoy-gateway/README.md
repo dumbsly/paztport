@@ -334,9 +334,9 @@ backends:
 - `SERVER_FORWARDHEADERSSTRATEGY=NONE`. On Kubernetes, Spring Boot otherwise trusts `X-Forwarded-For` from any private
   address, and the peer's instance that a refusal's event names would be whatever the client put there (check 10).
 - `MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE=health,prometheus`, for `/actuator/prometheus`.
-- On `payment`, Actuator's SSL metrics and SSL health check are left out: they read every SSL bundle's files (the
-  health check at each `/actuator/health`, which it would answer `DOWN`), and `payment` also
-  defines one for the PSP, which this proof of concept leaves out.
+- On `payment`, Actuator's SSL metrics and SSL health check are left out; they read every SSL bundle's files: the health
+  check at each `/actuator/health`, which it would answer `DOWN`; and `payment` also defines one for the PSP, which this
+  proof of concept leaves out.
 
 ## The chart
 
@@ -355,13 +355,12 @@ its Service, and:
   runs every second, and two failures in a row leave the replica out of Envoy's endpoints (`healthCheck` in the
   values). If every replica fails, Envoy's panic threshold has it send to all of them again;
 - a BackendTLSPolicy, so that Envoy checks the processor's certificate against the mesh CA;
-- a NetworkPolicy that admits the Gateway's Envoy pods, by Envoy Gateway's labels, and no other pod to the gRPC port.
-  It needs a network plugin that enforces NetworkPolicy (kind's does; on EKS, the VPC CNI with network policy
-  enabled; on AKS, Azure Network Policy Manager, Cilium or Calico). With merged gateways Envoy's pods do not carry
-  the Gateway's labels, so the policy admits nothing and the edge refuses every request until `gateway.envoyPodLabels`
-  names the labels they carry. The
-  admin port (`/metrics`, `/readyz` and `/livez`, read only) is open to every pod by default; in production set
-  `adminFrom` to the Prometheus namespace;
+- a NetworkPolicy that admits the Gateway's Envoy pods, by Envoy Gateway's labels, and no other pod to the gRPC port. It
+  needs a network plugin that enforces NetworkPolicy (kind's does; on EKS, the VPC CNI with network policy enabled; on
+  AKS, Azure Network Policy Manager, Cilium or Calico). With merged gateways Envoy's pods do not carry the Gateway's
+  labels, so the policy admits nothing and the edge refuses every request until `gateway.envoyPodLabels` names the
+  labels they carry. The admin port (`/metrics`, `/readyz` and `/livez`, read only) is open to every pod by default; in
+  production set `adminFrom` to the Prometheus namespace;
 - a BackendTrafficPolicy on the same routes, and on no other, that sets their request buffer's limit
   (`requestBuffer.limit`) to `bodyLimit`, the processor's own body limit. Envoy buffers a request's whole body before
   the processor stamps it; the request buffer is a filter Envoy runs ahead of the processor's, and refuses a longer
@@ -541,24 +540,23 @@ What the checks and the measurements found, beyond the numbers.
   case, 172465 500s, most of them (`cluster_rq_pending_overflow` +167584) from its circuit breaker once 1024 waited on
   connections that could not open (`cluster_rq_pending_overflow` and `cluster_rq_active_overflow` are the harness's
   labels for Envoy's `upstream_rq_pending_overflow` and `upstream_rq_active_overflow` counters on the processor's
-  cluster), and 66199 504s at the `messageTimeout`. It costs a slower recovery, the first 200 to
-  a probe 2.51 s after two replicas were asked for against 0.92 s, and the last error 3.63 s after against 0.73 s, and
-  Envoy no longer balances across the processor's pods itself: kube-proxy balances its few long-lived HTTP/2
-  connections, which in the run split 58.3% and 41.7%, and nothing keeps them even. It is also Gateway-wide, for every
-  route. The default, routing to endpoints, leaks; `failure` reports it as a FAIL, and the run exits 1 for it.
+  cluster), and 66199 504s at the `messageTimeout`. It costs a slower recovery, the first 200 to a probe 2.51 s after
+  two replicas were asked for against 0.92 s, and the last error 3.63 s after against 0.73 s, and Envoy no longer
+  balances across the processor's pods itself: kube-proxy balances its few long-lived HTTP/2 connections, which in the
+  run split 58.3% and 41.7%, and nothing keeps them even. It is also Gateway-wide, for every route. The default, routing
+  to endpoints, leaks; `failure` reports it as a FAIL, and the run exits 1 for it.
 - **Envoy's circuit breaker on the processor's cluster sheds load.** The processor's cluster sets no limit of its own
   (only `max_retries`, in Envoy's configuration as the run read it), so Envoy's default of 1024 requests at a time
-  applies, and the chart leaves it. Past it Envoy refuses with its own 500 (`cluster_rq_active_overflow`; the 500 is
-  the `ext_proc` filter's `status_on_error` default), failing closed. Measured: one replica offered 15000/s refused
-  172975 that way while stamping every request that came back 200;
-  on `orders` at 3000/s Envoy refused 9598 of 60001 while the processors stamped only 50403 in 20 s, about 2500 a
-  second, far under what two replicas sustained on `echo`; and three steps that rolled the backends under load counted
-  4439 (rotation's last), 3818 (`route`'s last overlap step) and 1592 (its old way). A reading of the `orders` case and
-  the rolling steps, not measured: Envoy holds a request's stream to the processor open until the response's headers,
-  since the filter is sent them, so a slow backend holds the processor's streams as well, and enough of them in flight
-  fill the 1024 while the processor itself is idle. The run does not give the number in flight: at the accepted rate,
-  the `orders` case's p50 of 350 ms gives about 880 and its p90 of 596 ms about 1500 (both over every response, the
-  circuit breaker's 500s included).
+  applies, and the chart leaves it. Past it Envoy refuses with its own 500 (`cluster_rq_active_overflow`; the 500 is the
+  `ext_proc` filter's `status_on_error` default), failing closed. Measured: one replica offered 15000/s refused 172975
+  that way while stamping every request that came back 200; on `orders` at 3000/s Envoy refused 9598 of 60001 while the
+  processors stamped only 50403 in 20 s, about 2500 a second, far under what two replicas sustained on `echo`; and three
+  steps that rolled the backends under load counted 4439 (rotation's last), 3818 (`route`'s last overlap step) and 1592
+  (its old way). A reading of the `orders` case and the rolling steps, not measured: Envoy holds a request's stream to
+  the processor open until the response's headers, since the filter is sent them, so a slow backend holds the
+  processor's streams as well, and enough of them in flight fill the 1024 while the processor itself is idle. The run
+  does not give the number in flight: at the accepted rate, the `orders` case's p50 of 350 ms gives about 880 and its
+  p90 of 596 ms about 1500 (both over every response, the circuit breaker's 500s included).
 - **A replica slow on its gRPC port is invisible to readiness.** A replica slowed by 600 ms on port 9002 alone kept
   answering `/readyz` (19 of 19 probes) and stayed ready. Readiness cannot see such a replica: the gRPC port takes only
   mutual TLS with Envoy's certificate, which the kubelet cannot present, so its probe never goes through that port.
@@ -670,7 +668,7 @@ What the checks and the measurements found, beyond the numbers.
   watch**.
 - **What to watch.** `paztport_edge_requests_total` by outcome, `paztport_edge_material_seconds_left`, and, from
   Envoy, the `ext_proc` filter's `streams_failed` and `message_timeouts` and the processor's cluster's
-  `cluster_rq_active_overflow`; and the backends' reasons other than `OK`.
+  `upstream_rq_active_overflow`; and the backends' reasons other than `OK`.
 
 ## Limits
 
