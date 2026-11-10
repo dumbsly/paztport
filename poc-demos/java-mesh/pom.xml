@@ -119,7 +119,7 @@
                         <execution>
                             <id>bundled-licences</id>
                             <configuration>
-                                <overrideUrl>file://${paztport.root}/licenses/overrides.properties</overrideUrl>
+                                <overrideFile>${paztport.root}/licenses/overrides.properties</overrideFile>
                             </configuration>
                         </execution>
                     </executions>

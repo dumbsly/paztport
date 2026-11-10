@@ -117,7 +117,7 @@
                 <plugin>
                     <groupId>org.codehaus.mojo</groupId>
                     <artifactId>license-maven-plugin</artifactId>
-                    <version>2.8.0</version>
+                    <version>2.9.0</version>
                     <configuration>
                         <excludedScopes>test,system,provided</excludedScopes>
                         <excludedGroups>^org\.paztport</excludedGroups>
@@ -141,7 +141,7 @@
                                 <!-- The one licence each dual-licensed component is used under. The plugin warns
                                      for each component the file names and a build lacks, so only the executions
                                      that list one read it: this one, and the mesh demo's bundled-licences. -->
-                                <overrideUrl>file://${paztport.root}/licenses/overrides.properties</overrideUrl>
+                                <overrideFile>${paztport.root}/licenses/overrides.properties</overrideFile>
                             </configuration>
                         </execution>
                         <!-- A module whose jar bundles its dependencies declares this plugin to give that jar
