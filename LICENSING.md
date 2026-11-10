@@ -67,21 +67,19 @@ published. The Go module depends on nothing beyond Go's standard library.
 The Envoy Gateway processor is a Go binary, and Go compiles every module it uses into
 it, so its image carries what the jars carry: in `/licenses/`, the repository's
 LICENSE, a NOTICE that starts with the repository's and adds each module's own, the
-processor's
-[THIRD-PARTY.txt](poc-demos/envoy-gateway/processor/THIRD-PARTY.txt), and each
-module's licence (and patent grant, where it has one) under
+processor's [THIRD-PARTY.txt](poc-demos/envoy-gateway/processor/THIRD-PARTY.txt), and
+each module's licence (and patent grant, where it has one) under
 `third-party/<module>@<version>/`. That list names every module the binary is built
 from, Go's standard library included, each under one licence (Apache-2.0, MIT or
 BSD-3-Clause), and every licence file within a module over code the binary holds,
 such as the BSD-3-Clause licence of the package `client_golang` copies in, which the
 image carries at its path. `./run test` checks the list against `go list -deps`, and
 the image build against the built binary, failing for a module with no licence file
-and for a licence file the list does not name. The base is
-distroless, whose own packages carry their copyright files. The measurements'
-upstream, `echo` (the same Dockerfile's target `echo`), is built from Go's standard
-library alone, and its build fails if the binary holds any module; so its image
-carries the repository's LICENSE and NOTICE and, under `third-party/std@<version>/`,
-Go's licence and patent grant.
+and for a licence file the list does not name. The base is distroless, whose own
+packages carry their copyright files. The measurements' upstream, `echo` (the same
+Dockerfile's target `echo`), is built from Go's standard library alone, and its build
+fails if the binary holds any module; so its image carries the repository's LICENSE
+and NOTICE and, under `third-party/std@<version>/`, Go's licence and patent grant.
 
 ## Bouncy Castle and JMH
 

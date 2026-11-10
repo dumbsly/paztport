@@ -437,16 +437,16 @@ is listed here only if the service is to answer it without a chain.
 
 ### Modes and events
 
-`paztport.mode` is `enforce` (the default), `audit` or `off`, and
-`/admin/mode` switches it at run time. The first two are the protocol's
-[modes](../spec/verification.md#modes-and-refusals): `enforce` refuses a request
-that fails, and `audit` runs every check, refuses nothing (influence it can't
-read aside) and reports each failure as an event with `audit: true`. `off` is not
-a protocol mode but a deployment switch: the hop is not running Paztport. It
-verifies nothing, attests nothing and sends no events, though it still carries the
-chain and influence so its own calls are stamped, and its callers count its
-responses `local-untrusted`. It is the baseline to measure Paztport against. A
-value the starter cannot read is `enforce`.
+`paztport.mode` is `enforce` (the default), `audit` or `off`, and `/admin/mode`
+switches it at run time. The first two are the protocol's
+[modes](../spec/verification.md#modes-and-refusals): `enforce` refuses a request that
+fails, and `audit` runs every check, refuses nothing (influence it can't read aside)
+and reports each failure as an event with `audit: true`. `off` is not a protocol mode
+but a deployment switch: the hop is not running Paztport. It verifies nothing,
+attests nothing and sends no events, though it still carries the chain and influence
+so its own calls are stamped, and its callers count its responses `local-untrusted`.
+It is the baseline to measure Paztport against. A value the starter cannot read is
+`enforce`.
 
 A request that fails verification under `audit` or `enforce` is reported as an event,
 logged as a `PAZTPORT_EVENT` line. Where `paztport.responder-url` is set it is also

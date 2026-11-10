@@ -69,7 +69,7 @@ public enum ReasonCode {
      */
     INFLUENCE_DENIED,
     /**
-     * No check of the live order: in an unsafe session, the call reached an endpoint or tool disabled there. 403.
+     * No check of the live order: in an unsafe session, the call reached an endpoint disabled there. 403.
      */
     UNSAFE_SESSION,
     /**

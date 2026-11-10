@@ -342,7 +342,9 @@ the chain against that at check 4, so a chain that names another operation fails
 `BINDING_MISMATCH`. The signed root covers each table as one more route,
 `<svc>/ops:<hash>`, so tables are pinned with the policy. A call's nonce key names
 its caller and the operation, so a caller calls each operation at most once per
-request tree. An operation that acts on one item of many can declare a key in its
+request tree.
+
+An operation that acts on one item of many can declare a key in its
 table entry: a `{}` path segment or a query parameter, whose value is at most 128
 characters long by default and never more than 1024. The receiver reads the key value
 from its own route match and the caller from the target it sends; both nonce keys
@@ -381,8 +383,10 @@ class and, where it has one, an owner from its own records, and one more stamp o
 the request's chain, signed for the caller over the status, the body and the labels.
 A service attests only when the request's chain passed the live order at that
 service; and where it confirms its operation a second time as the handler is about
-to run, as the Spring starter does when the chain named one, only an answer whose
-handler it confirmed. A chain that names no operation is still attested. So no
+to run, as the Spring starter does when the chain named one and it recorded the
+operation on the request's own dispatch, only an answer whose handler it confirmed.
+A chain that names no operation is still attested, and so is a forward the starter
+verifies afresh ([Java README](poc-sdks/java/README.md#response-attestation)). So no
 origin attests, nor a hop where Paztport is off, and neither a refusal nor a request
 that failed in audit mode is attested. The caller adds the labels to its influence
 only when the whole response verifies, and counts any other response as one

@@ -5,9 +5,10 @@ A small mesh of Spring Boot services that uses the Java SDK
 quarantines offending containers. The idea and the concepts are in the
 [root README](../../README.md).
 
-Quick start: `./run java-mesh` from the repository root builds the SDK and the mesh and runs every scenario. It needs
-JDK 25 or newer, Maven and Docker with Compose ([Running it](#running-it)). A green run ends with
-`26 passed, 0 failed`; the mesh stays up afterwards.
+Quick start: `./run java-mesh` from the repository root builds the SDK and the mesh
+and runs every scenario. It needs JDK 25 or newer, Maven and Docker with Compose
+([Running it](#running-it)). A green run ends with `26 passed, 0 failed`; the mesh
+stays up afterwards.
 
 Contents: [The system at a glance](#the-system-at-a-glance) · [A request, end to end](#a-request-end-to-end) · [The support-assistant storyline](#the-support-assistant-storyline) · [Least knowledge](#least-knowledge-who-holds-what) · [The verification pipeline](#the-verification-pipeline) · [Response attestation](#response-attestation) · [Threat model](#threat-model) · [Operations](#operations) · [Response](#response-quarantine-not-deletion) · [Modes and rollout](#modes-and-rollout) · [Design choices](#design-choices-and-the-failures-they-avoid) · [Measurements](#measurements) · [Running it](#running-it) · [Configuration](#configuration)
 
@@ -420,12 +421,14 @@ flowchart TD
 
 Notes on the ordering:
 
-- The order is the protocol's ([verification.md](../../poc-sdks/spec/verification.md#the-live-order)), which
-  gives the reason for each check's place and the code each failure returns. A wrong receiver, or a wrong operation
-  (row 15b), is a binding failure at check 4, before the route is looked at; a missing or unparseable proof is
-  `PATH_NOT_ALLOWED`, and `CHAIN_MISSING` is for the chain alone. Check 12 is the peer check: `payment` requires a
-  client certificate from the mesh CA, and the chain's last signer must be the service it names (its common name,
-  when it has exactly one).
+- The order is the protocol's
+  ([verification.md](../../poc-sdks/spec/verification.md#the-live-order)), which
+  gives the reason for each check's place and the code each failure returns. A wrong
+  receiver, or a wrong operation (row 15b), is a binding failure at check 4, before
+  the route is looked at; a missing or unparseable proof is `PATH_NOT_ALLOWED`, and
+  `CHAIN_MISSING` is for the chain alone. Check 12 is the peer check: `payment`
+  requires a client certificate from the mesh CA, and the chain's last signer must
+  be the service it names (its common name, when it has exactly one).
 - Every rejection returns a 403 whose body is the reason code alone,
   `{"reason":"<code>"}`, and publishes an event for the responder. Influence that
   can't be read is never dropped: where verification hasn't refused the request
@@ -463,11 +466,17 @@ keyring, the root and the pin, so each checks every response it gets.
   request that failed in `audit`, is answered without an attestation. `gateway` is
   the origin: it starts each request tree with no chain and no influence, whatever
   a request carries, and never attests.
-- **Where the chain named an operation, only an answer whose handler was reached and confirmed is attested.** An
-  answer a filter wrote itself, or that an interceptor wrote before the handler ran, or whose handler differs from
-  the operation the stamp named, goes out unattested. A chain that names no operation is still attested. The
-  Spring starter does this ([`InboundFilter`](../../poc-sdks/java/spring/src/main/java/org/paztport/spring/InboundFilter.java));
-  the concept is in [Operations, influence and sessions](../../README.md#3-operations-influence-and-sessions).
+- **Where the chain named an operation and the filter recorded it on the request's
+  own dispatch, only an answer whose handler was reached and confirmed is
+  attested.** An answer a filter wrote itself, or that an interceptor wrote before
+  the handler ran, or whose handler differs from the operation the stamp named, goes
+  out unattested. A chain that names no operation is still attested, and so is the
+  answer to a forward the filter verifies afresh, which records no operation
+  ([Response attestation](../../poc-sdks/java/README.md#response-attestation)); no
+  unverified handler forwards in this mesh. The Spring starter does this
+  ([`InboundFilter`](../../poc-sdks/java/spring/src/main/java/org/paztport/spring/InboundFilter.java));
+  the concept is in [Operations, influence and
+  sessions](../../README.md#3-operations-influence-and-sessions).
 - A verified response's labels become influence on whatever the caller does next.
   Any other response, unattested, failing or a refusal, still reaches the caller,
   and adds one `local-untrusted` influence entry, so content nobody vouched for
@@ -518,10 +527,10 @@ a request came in through ([Operations](#operations)).
 ## Operations
 
 `orders` and `payment` name their operations, so a route can allow one operation of
-a service and not another
-([the idea](../../README.md#3-operations-influence-and-sessions)). Each publishes an operation table beside
-`policy/paths.yaml`, in the format the [spec](../../poc-sdks/spec/wire.md#operations)
-gives:
+a service and not another ([the
+idea](../../README.md#3-operations-influence-and-sessions)). Each publishes an
+operation table beside `policy/paths.yaml`, in the format the
+[spec](../../poc-sdks/spec/wire.md#operations) gives:
 
 | Table | Operations |
 |---|---|
@@ -958,9 +967,10 @@ printing `payment`'s trace line for scenario 1:
 | 16b | the same item twice in one request (`A1`, `A1`) | the second hold `403` `REPLAY` |
 | 16c | code in orders, in through `holdItems`, calls `/holds/%41` | 403 `BINDING_MISMATCH` |
 
-The numbers are ids, not the run order. Rows 15a to 16c are the [operations](#operations) checks; they run after row 10.
-Rows 11 to 14 are the [support-assistant storyline](#the-support-assistant-storyline).
-They run after those and before row 9, which needs the quarantine and ends the run:
+The numbers are ids, not the run order. Rows 15a to 16c are the
+[operations](#operations) checks; they run after row 10. Rows 11 to 14 are the
+[support-assistant storyline](#the-support-assistant-storyline). They run after
+those and before row 9, which needs the quarantine and ends the run:
 
 | # | Scenario | Expected |
 |---|---|---|
