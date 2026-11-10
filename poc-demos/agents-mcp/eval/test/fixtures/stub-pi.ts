@@ -14,7 +14,7 @@
 //   break-transcript / break-events  replace that run file with a directory, then print
 //   break-events-ignore   as break-events, but ignores SIGTERM and then hangs
 //   logs        appends a line to the extension's events log and the server's outcome log, then prints
-//   provider-error  what pi 1.5.0 --mode json does when the model provider fails: a tool call (with its
+//   provider-error  what pi 1.5.2 --mode json does when the model provider fails: a tool call (with its
 //               outcome record, as the mock server writes it), then a final assistant message with
 //               stopReason "error" and an errorMessage, agent_end, and exit 0
 //   provider-error-early  the same with no tool call and no outcome record

@@ -5,7 +5,7 @@ import { readFileSync, realpathSync, statSync } from "node:fs";
 import { sep } from "node:path";
 import type { ExtensionContext, SessionEntry } from "@earendil-works/pi-coding-agent";
 
-/** What restoring influence reads of pi's session (all on pi 1.5.0's ReadonlySessionManager). */
+/** What restoring influence reads of pi's session (all on pi 1.5.2's ReadonlySessionManager). */
 export type SessionView = Pick<ExtensionContext["sessionManager"], "getBranch" | "getEntry" | "getHeader" | "getSessionDir">;
 
 type Lookup = (id: string) => SessionEntry | undefined;
