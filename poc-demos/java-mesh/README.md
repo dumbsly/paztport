@@ -478,9 +478,12 @@ keyring, the root and the pin, so each checks every response it gets.
   `PAZTPORT_TRACE response rid=… from=… reason=… receiver=…` line.
 - The response's nonce key is `<rid>|<last rcv>|resp`, and a request's is
   `<rid>|<last svc>|<last rcv>|req`, `<last rcv>` being the receiver the request
-  chain's last stamp names, with the operation when it names one. So a service
-  calls a given receiver, or a given operation of it, at most once per request
-  tree, and calls to two operations of one receiver spend two keys.
+  chain's last stamp names, with the operation when it names one. An operation
+  with a key adds the key value before `req` or `resp`. So a service calls a given
+  receiver, or a given operation of it, at most once per request tree, and an
+  operation with a key at most once per request tree for each key value; calls to
+  two operations of one receiver spend two keys, and so do calls for two items of
+  one keyed operation.
 
 ## Threat model
 

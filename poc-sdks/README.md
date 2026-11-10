@@ -13,7 +13,7 @@ policy, verification, influence and sessions. The demos in
   protocol's packages, and `paztporthttp` with its `wire` and `boundary` packages.
 - [spec](spec/README.md): the written protocol spec and the shared conformance vectors: `v3.json`, which every SDK
   replays (the Java and Go SDKs all of it but the MCP profile), `http-v3.json`, which the Java and Go SDKs
-  replay (Go leaves out `operations`), and `events.json` and `json.json`, which all three replay.
+  replay, and `events.json` and `json.json`, which all three replay.
 - `scripts/`: the name, link and jar checks that `./run test` runs, the tests for `./run`,
   and `third-party.sh`, which regenerates `THIRD-PARTY.txt` from both Java trees.
 

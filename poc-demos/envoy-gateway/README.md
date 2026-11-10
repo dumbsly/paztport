@@ -509,7 +509,7 @@ What the checks and the measurements found, beyond the numbers.
   does. On it, 50 such requests were each served once, Envoy retrying none, and with an `orders` container killed under
   load, Envoy made 356 retries after 364 failed connections, and every stamp was served once. A request the edge sends
   twice is duplicate delivery, which the backend's application handles by idempotency keyed on the delivery (the
-  verified chain's `rid`, last signer and last receiver, with the last stamp's `bind` to tell a different request under
+  verified chain's `rid`, last signer and last receiver, and the key value of a keyed operation, with the last stamp's `bind` to tell a different request under
   a reused key). A shared, expiring nonce store across replicas is optional hardening: it holds a compromised caller to
   each key once per request tree whatever the replica count, but it does not make a retry safe, as the retry is then
   refused `REPLAY`.

@@ -106,12 +106,14 @@ is in. `isPaztport` says whether a name is Paztport's: any that begins with
 `X-Path-`, in any ASCII case. `RequestBinding` computes `bind` over the method, the
 raw path plus `?` and the raw query when there is one, and the body. `HttpWire` encodes the headers and
 decodes them to the JSON text they carry, builds a request's verify input (nonce
-key `<rid>|<last svc>|<last rcv>|req`), computes a response's result hash over its
+key `<rid>|<last svc>|<last rcv>|req`, or `<rid>|<last svc>|<last rcv>|<key value>|req` for a keyed operation),
+computes a response's result hash over its
 status and body, and checks a response's attestation against the chain the caller
-sent (nonce key `<rid>|<last rcv>|resp`), `<last rcv>` naming the operation when
-the last stamp names one. A service therefore calls a given receiver, or a given
-operation of it, at most once per request tree, and calls to two operations of one
-receiver spend two keys. `HttpSessions` fixes the handshake's names (`PATH`,
+sent (nonce key `<rid>|<last rcv>|resp`, or `<rid>|<last rcv>|<key value>|resp` for a keyed operation), `<last rcv>`
+naming the operation when the last stamp names one. A service therefore calls a given receiver, or a given
+operation of it, at most once per request tree, and an operation with a key at most once per request tree for each
+key value. Calls to two operations of one receiver spend two keys, and so do calls for two items of one keyed
+operation. `HttpSessions` fixes the handshake's names (`PATH`,
 `/paztport/session`, and the error codes `INVALID_PARAMS` and `NO_SESSION`) and
 writes `{"error":"<code>"}`; core reads the bodies, a request with
 `SessionRequest.parse(byte[])` and a reply with `Sessions.checkReply(byte[],
@@ -130,7 +132,7 @@ verification result the decision rests on, or null where none ran, for an
 adapter to report; `PartnerAccepted.result()` is the same for a partner's call.
 The caller is never told it. `Accepted.delivery()` is the request's `Delivery`
 (`rid`, the last signer's `svc`, the receiver the last stamp names as `rcv`, with the operation when it names one,
-and the last stamp's `bind`), or null unless its chain passed the live order at this in-mesh hop; it is the key for the
+the `key` value of a keyed operation, null when there is none, and the last stamp's `bind`), or null unless its chain passed the live order at this in-mesh hop; it is the key for the
 application's own idempotency handling, which a duplicate delivery needs (a
 proxy's retry reaches another replica with its own cache). The same key and
 `bind` is the same request sent again by that signer; the same key with another
