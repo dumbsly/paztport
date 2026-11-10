@@ -215,7 +215,7 @@ public record OperationTable(String service, List<Operation> operations) {
         if (k.get("segment") != null) {
             long v = JsonFields.integer(k, "segment");
             if (v < 1 || v > Integer.MAX_VALUE) {
-                throw new IllegalArgumentException("a key segment must be 1 or more");
+                throw new IllegalArgumentException("a key segment must be from 1 to the number of {} segments");
             }
             segment = (int) v;
         }

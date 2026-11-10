@@ -266,6 +266,13 @@ class OperationTableTest {
     }
 
     @Test
+    void aSegmentBeyondAnIntIsRefusedByTheRangeRule() {
+        String text = file("items", "1", keyedOp("{\"segment\":2147483648}", "reserve", "/items/{}/reserve"));
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class, () -> OperationTable.read(text));
+        assertEquals("a key segment must be from 1 to the number of {} segments", e.getMessage());
+    }
+
+    @Test
     void refusesAQueryKeyNamedByItsEntrancesCondition() {
         String text = file("p", "1",
                 op("POST", "charge", "/charge"),
