@@ -100,6 +100,8 @@ write_paths() { # writes policy/paths.yaml with the given extra route flag
     echo "  - [gateway, orders#createOrder]"
     echo "  - [gateway, orders#purchase, payment#charge]"
     echo "  - [gateway, orders#purchase]"
+    echo "  - [gateway, orders#holdItems, payment#hold]"
+    echo "  - [gateway, orders#holdItems]"
     echo "  - [gateway, orders#getOrder]"
     echo "  - [gateway, search]"
     echo "  - [payment, psp]"
@@ -259,6 +261,28 @@ check_reason "15a operation: getOrder steered to pay" 403 PATH_NOT_ALLOWED
 mreq POST "https://gateway:8080/checkout" -H 'Content-Type: application/json' -d '{}'
 mreq POST "https://orders:8080/attack/misname"
 check_reason "15b operation: pay named, charge called" 403 BINDING_MISMATCH
+
+# 16 — a keyed operation: payment's hold is called once per request tree for each item, the item being the second
+# segment of /holds/<item>. A service-level or operation-level replay key would allow one hold per request tree.
+mreq POST "https://gateway:8080/holds" -H 'Content-Type: application/json' -d '{"items":["A1","B2"]}'
+if [ "$CODE" = "200" ] && printf '%s' "$BODY" | grep -qF '"item":"A1","status":200' \
+  && printf '%s' "$BODY" | grep -qF '"item":"B2","status":200' && ! printf '%s' "$BODY" | grep -q reason; then
+  record PASS "16a keys: two items held" "HTTP 200, A1 and B2 held"
+else
+  record FAIL "16a keys: two items held" "expected HTTP 200 with A1 and B2 held, got $CODE ($BODY)"
+fi
+# 16b — the same item twice in one request tree: the second call repeats the first's key
+mreq POST "https://gateway:8080/holds" -H 'Content-Type: application/json' -d '{"items":["A1","A1"]}'
+if [ "$CODE" = "200" ] && printf '%s' "$BODY" | grep -qF '"item":"A1","status":200' \
+  && printf '%s' "$BODY" | grep -qF '"item":"A1","status":403,"reason":"REPLAY"'; then
+  record PASS "16b keys: one item twice" "HTTP 200, A1 held, then 403 REPLAY"
+else
+  record FAIL "16b keys: one item twice" "expected A1 held then 403/REPLAY, got $CODE ($BODY)"
+fi
+# 16c — the item's letter percent-encoded (/holds/%41): the handler would read it as A, but the key value must be
+# written out in the path, so payment finds none and refuses the call
+mreq POST "https://orders:8080/attack/encoded-hold"
+check_reason "16c keys: an encoded item" 403 BINDING_MISMATCH
 
 # 11 — alice pays for order 123: gateway->orders->payment, then payment, the shop's egress, charges the
 # PSP across the boundary in an attested session, which registers her card to her.

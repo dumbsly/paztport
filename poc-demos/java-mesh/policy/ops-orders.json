@@ -19,6 +19,11 @@
       "method": "POST",
       "name": "purchase",
       "template": "/purchase"
+    },
+    {
+      "method": "POST",
+      "name": "holdItems",
+      "template": "/holds"
     }
   ],
   "service": "orders",

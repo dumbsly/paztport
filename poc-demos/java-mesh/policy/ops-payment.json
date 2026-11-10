@@ -14,6 +14,14 @@
       "method": "POST",
       "name": "refund",
       "template": "/refund"
+    },
+    {
+      "key": {
+        "segment": 1
+      },
+      "method": "POST",
+      "name": "hold",
+      "template": "/holds/{}"
     }
   ],
   "service": "payment",

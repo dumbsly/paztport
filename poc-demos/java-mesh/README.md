@@ -524,8 +524,8 @@ gives:
 
 | Table | Operations |
 |---|---|
-| [`policy/ops-orders.json`](policy/ops-orders.json) | `createOrder` `POST /orders`, `findOrders` `GET /orders`, `getOrder` `GET /orders/{}`, `purchase` `POST /purchase` |
-| [`policy/ops-payment.json`](policy/ops-payment.json) | `pay` `POST /pay`, `charge` `POST /charge`, `refund` `POST /refund` |
+| [`policy/ops-orders.json`](policy/ops-orders.json) | `createOrder` `POST /orders`, `findOrders` `GET /orders`, `getOrder` `GET /orders/{}`, `purchase` `POST /purchase`, `holdItems` `POST /holds` |
+| [`policy/ops-payment.json`](policy/ops-payment.json) | `pay` `POST /pay`, `charge` `POST /charge`, `refund` `POST /refund`, `hold` `POST /holds/{}`, keyed by the item |
 
 The routes say which operation each hop invokes: a checkout is
 `gateway/orders#createOrder/payment#pay`, a purchase
@@ -563,6 +563,20 @@ from `orders`' `/attack/*` endpoints (enabled only when `ATTACK_ENABLED=true`):
   binding and the route would pass. This is `orders`' second call to `payment` in
   the request tree, so the replay check would still stop it there, but the same
   redirect made on its one honest call would have passed every check.
+
+`payment`'s `hold` is a keyed operation: its table entry names path segment 1 as the
+key, so the item in `/holds/<item>` is the key value, and a request tree may call
+`hold` once for each item. Three more rows show it:
+
+- **16a**, **16b**: holding `A1` and `B2` through the gateway succeeds, two calls to
+  one operation that spend two keys. Holding `A1` twice does not: `orders` makes both
+  calls, and `payment` refuses the second as `REPLAY`, which the reply shows against
+  its item.
+- **16c**: code in `orders`, in through `holdItems`, calls `/holds/%41`, naming
+  `payment#hold` and attaching the route's own proof. Spring dispatches the request
+  to `hold`, but a key value is only read from characters written out in the path,
+  so `payment` finds none and refuses: `403 BINDING_MISMATCH`. Writing the item in
+  percent-encoding would otherwise have given each item a second spelling.
 
 The operations are configured in `docker-compose.yml` alone. The Envoy Gateway
 demo runs the same jars on their `application.yml`, so there they stay
@@ -939,8 +953,11 @@ printing `payment`'s trace line for scenario 1:
 | 10 | add `[gateway, search, payment#pay]`, rebuild root | scenario 4 now returns 200: policy drives behaviour |
 | 15a | code in orders, in through `getOrder`, steers a call to payment's `pay` | 403 `PATH_NOT_ALLOWED` |
 | 15b | code in orders names payment's `pay` but calls `/charge` | 403 `BINDING_MISMATCH` |
+| 16a | two items held through the gateway (`A1`, `B2`) | 200, both held |
+| 16b | the same item twice in one request (`A1`, `A1`) | the second hold `403` `REPLAY` |
+| 16c | code in orders, in through `holdItems`, calls `/holds/%41` | 403 `BINDING_MISMATCH` |
 
-Rows 15a and 15b are the [operations](#operations) checks; they run after row 10.
+Rows 15a to 16c are the [operations](#operations) checks; they run after row 10.
 Rows 11 to 14 are the [support-assistant storyline](#the-support-assistant-storyline).
 They run after those and before row 9, which needs the quarantine and ends the run:
 
@@ -954,12 +971,12 @@ They run after those and before row 9, which needs the quarantine and ends the r
 | 14a | an unsafe session at the PSP: a refund | 403 `UNSAFE_SESSION` |
 | 14b | the same session: a charge | 200 `CHARGED` |
 
-`demo.sh` ends with `23 passed, 0 failed`. Row 12 depends on row 11, because the
+`demo.sh` ends with `26 passed, 0 failed`. Row 12 depends on row 11, because the
 charge is what registers alice's card to her.
 
 The attacks run inside the mesh, from `search`'s `/attack/*` endpoints (enabled
 only when `ATTACK_MODE=true`), so every one reaches `payment` over `search`'s own
-TLS connection, presenting `search`'s certificate. Rows 15a and 15b run from
+TLS connection, presenting `search`'s certificate. Rows 15a, 15b and 16c run from
 `orders`' (enabled only when `ATTACK_ENABLED=true`), presenting `orders`'. Only
 the gateway port is exposed to the host.
 
@@ -976,7 +993,7 @@ the gateway port is exposed to the host.
 | `PAZTPORT_RENEW` | unset, so a rebuild; Compose does not pass it through, so set it with `docker compose run -e` | `policy-tool`, `policy-tool-psp`: `true` renews the root and the keyring, keeping the tree and the bundles |
 | `PAZTPORT_REPLY_CERT_DAYS` | `7`; Compose does not pass it through, so set it with `docker compose run -e` | `policy-tool-psp`: the lifetime, in days from the run, of the reply certificate it writes |
 | `ATTACK_MODE` | `false` | search |
-| `ATTACK_ENABLED` | unset, so off; Compose sets `true` | `orders`: its `/attack/*` endpoints, for rows 15a and 15b |
+| `ATTACK_ENABLED` | unset, so off; Compose sets `true` | `orders`: its `/attack/*` endpoints, for rows 15a, 15b and 16c |
 | `PAZTPORT_OPERATIONS_TABLEPATH` | unset; Compose sets `/config/policy/ops-<svc>.json` | `orders`, `payment`: the service's own [operation table](#operations), whose operation each request it gets must name, if it names one |
 | `PAZTPORT_OPERATIONS_RECEIVERTABLES` | unset; Compose sets the tables of the receivers each calls | `gateway` (orders'), `assistant` (orders', payment's), `orders` (payment's), `search` (payment's, used only once the policy is widened) |
 | `PAZTPORT_ADMIN_TOKEN` | empty, so `/admin/mode` is not registered | `payment`, `tickets`, `assistant`, `mailer` (the demo generates one per run) |

@@ -10,9 +10,9 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 /**
- * Holds the last inbound chain orders served through {@code getOrder} and the last it served through
- * {@code createOrder}, so the attack endpoints can steer a call to payment from either. It exists only when
- * {@code attack.enabled=true}, and models code in orders reusing the chains it was handed.
+ * Holds the last inbound chain orders served through {@code getOrder}, the last through {@code createOrder} and
+ * the last through {@code holdItems}, so the attack endpoints can steer a call to payment from any of them. It exists
+ * only when {@code attack.enabled=true}, and models code in orders reusing the chains it was handed.
  */
 @Component
 @ConditionalOnProperty(name = "attack.enabled", havingValue = "true")
@@ -20,9 +20,14 @@ public class StolenChainStore {
 
     private final AtomicReference<List<Stamp>> getOrder = new AtomicReference<>();
     private final AtomicReference<List<Stamp>> createOrder = new AtomicReference<>();
+    private final AtomicReference<List<Stamp>> holdItems = new AtomicReference<>();
 
     public void recordGetOrder(List<Stamp> chain) {
         record(getOrder, chain);
+    }
+
+    public void recordHoldItems(List<Stamp> chain) {
+        record(holdItems, chain);
     }
 
     public void recordCreateOrder(List<Stamp> chain) {
@@ -37,6 +42,11 @@ public class StolenChainStore {
     /** The last chain served through {@code createOrder}, or null before any. */
     public List<Stamp> createOrder() {
         return createOrder.get();
+    }
+
+    /** The last chain served through {@code holdItems}, or null before any. */
+    public List<Stamp> holdItems() {
+        return holdItems.get();
     }
 
     private static void record(AtomicReference<List<Stamp>> last, List<Stamp> chain) {

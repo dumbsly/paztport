@@ -3,6 +3,7 @@
 
 package org.paztport.orders;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -32,6 +33,10 @@ public class OrdersController {
 
     /** A purchase as the gateway sends it, with the customer its token named. */
     public record Purchase(String customer, String order, String card) {
+    }
+
+    /** The items a customer asks to hold. */
+    public record Holds(List<String> items) {
     }
 
     private final RestClient http;
@@ -109,5 +114,34 @@ public class OrdersController {
                 .exchange((request, response) -> ResponseEntity.status(response.getStatusCode())
                         .contentType(MediaType.APPLICATION_JSON)
                         .body(response.getBody().readAllBytes()));
+    }
+
+    /**
+     * Asks payment to hold each item, in order, and answers each item's status. The hold is keyed by item, so
+     * payment takes one call per item in a request tree: an item named twice is held the first time and refused
+     * {@code 403 REPLAY} the second. A refusal is reported against its item, with the reason payment gave, not thrown.
+     */
+    @PostMapping("/holds")
+    public Map<String, Object> holdItems(@RequestBody Holds holds) {
+        stolenChains.ifAvailable(store -> store.recordHoldItems(RequestContext.inboundChain()));
+        List<Map<String, Object>> results = new ArrayList<>();
+        for (String item : holds.items()) {
+            // exchange applies no status handlers, so a refusal downstream is reported rather than thrown.
+            Map<String, Object> result = new LinkedHashMap<>();
+            result.put("item", item);
+            http.post()
+                    .uri(paymentUrl + "/holds/" + item)
+                    .exchange((request, response) -> {
+                        int status = response.getStatusCode().value();
+                        result.put("status", status);
+                        if (response.getStatusCode().isError()) {
+                            Map<?, ?> refusal = response.bodyTo(Map.class);
+                            result.put("reason", refusal == null ? null : refusal.get("reason"));
+                        }
+                        return null;
+                    });
+            results.add(result);
+        }
+        return Map.of("holds", results);
     }
 }

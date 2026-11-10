@@ -3,6 +3,8 @@ paths:
   - [gateway, orders#createOrder]
   - [gateway, orders#purchase, payment#charge]
   - [gateway, orders#purchase]
+  - [gateway, orders#holdItems, payment#hold]
+  - [gateway, orders#holdItems]
   - [gateway, orders#getOrder]
   - [gateway, search]
   - [payment, psp]

@@ -39,6 +39,8 @@ public class AttackController {
                     .getBytes(StandardCharsets.UTF_8);
     // The proof the attacker attaches: of the one route on which orders may call payment's pay.
     private static final String CREATE_ORDER_PAY = Routes.join(List.of("gateway", "orders#createOrder", "payment#pay"));
+    // The proof of the one route on which orders may call payment's hold.
+    private static final String HOLD_ITEMS_HOLD = Routes.join(List.of("gateway", "orders#holdItems", "payment#hold"));
 
     private final RestClient rawClient; // no interceptor, so full header control; still orders' certificate
     private final Stamper stamper;
@@ -73,7 +75,7 @@ public class AttackController {
             return ResponseEntity.status(428)
                     .body("{\"reason\":\"NO_STOLEN_CHAIN\",\"hint\":\"call gateway GET /orders/123 first\"}");
         }
-        return steer(stolen, "/pay", PAY_BODY);
+        return steer(stolen, "payment#pay", "/pay", PAY_BODY, CREATE_ORDER_PAY);
     }
 
     /**
@@ -89,21 +91,38 @@ public class AttackController {
             return ResponseEntity.status(428)
                     .body("{\"reason\":\"NO_STOLEN_CHAIN\",\"hint\":\"call gateway POST /checkout first\"}");
         }
-        return steer(stolen, "/charge", CHARGE_BODY);
+        return steer(stolen, "payment#pay", "/charge", CHARGE_BODY, CREATE_ORDER_PAY);
     }
 
     /**
-     * Signs a stamp for {@code payment#pay} onto {@code stolen}, binding a POST of {@code body} to {@code path}, and
-     * sends it there with the proof of {@link #CREATE_ORDER_PAY}. Without that proof it sends nothing, so a refusal
-     * is never for a proof the bundle lacked.
+     * Scenario 16c: in through {@code holdItems}, the code names {@code payment#hold} and sends the call to
+     * {@code /holds/%41}, the item {@code A} with its letter percent-encoded. The stamp binds that request and the
+     * proof is the route's own, but the key value of a keyed operation must be spelt out in the path: payment finds
+     * none here and refuses the call, so an encoded segment is no way round the once-per-item key.
      */
-    private ResponseEntity<String> steer(List<Stamp> stolen, String path, byte[] body) {
-        MerkleProof proof = proofs.proofFor(CREATE_ORDER_PAY);
+    @PostMapping("/attack/encoded-hold")
+    public ResponseEntity<String> encodedHold() {
+        List<Stamp> stolen = stolenChains.holdItems();
+        if (stolen == null) {
+            return ResponseEntity.status(428)
+                    .body("{\"reason\":\"NO_STOLEN_CHAIN\",\"hint\":\"call gateway POST /holds first\"}");
+        }
+        return steer(stolen, "payment#hold", "/holds/%41", new byte[0], HOLD_ITEMS_HOLD);
+    }
+
+    /**
+     * Signs a stamp for {@code operation} of payment onto {@code stolen}, binding a POST of {@code body} to
+     * {@code path}, and sends it there with the proof of {@code route}. Without that proof it sends nothing, so a
+     * refusal is never for a proof the bundle lacked.
+     */
+    private ResponseEntity<String> steer(List<Stamp> stolen, String operation, String path, byte[] body,
+            String route) {
+        MerkleProof proof = proofs.proofFor(route);
         if (proof == null) {
-            return ResponseEntity.status(409).body("{\"reason\":\"NO_PROOF\",\"route\":\"" + CREATE_ORDER_PAY + "\"}");
+            return ResponseEntity.status(409).body("{\"reason\":\"NO_PROOF\",\"route\":\"" + route + "\"}");
         }
         String bind = RequestBinding.compute("POST", path, body);
-        List<Stamp> chain = stamper.next(stolen, "payment#pay", bind, List.of(), null).chain();
+        List<Stamp> chain = stamper.next(stolen, operation, bind, List.of(), null).chain();
         return rawClient.post()
                 .uri(paymentUrl + path)
                 .headers(h -> {

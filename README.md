@@ -83,7 +83,7 @@ It works end to end. In the [Java mesh demo](poc-demos/java-mesh/README.md), a
 request with a perfectly valid body, sent by a service that is legitimately on the
 network, is **rejected purely because of where it came from**, and the offending
 container is **quarantined and replaced automatically**. All the scenarios and a
-circuit-breaker check pass (`demo.sh` reports 23 checks), and the overhead has been
+circuit-breaker check pass (`demo.sh` reports 26 checks), and the overhead has been
 measured.
 
 The demo also tells a story across two organisations. A customer's support ticket
