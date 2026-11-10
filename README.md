@@ -690,7 +690,7 @@ concept, Maven running on Java 25 or newer (as `mvn -v` reports it), Docker, Go,
 0.33, kubectl 1.36 and Helm 4.3 or newer, and python3 for its measurements. macOS and Linux; on Windows use WSL.
 
 ```bash
-./run test        # the name and link checks, the TypeScript type checks, gofmt, go vet and staticcheck, every suite, a check of the built jars and of the processor's third-party list; no Docker and no model
+./run test        # the name, link and Java import checks, the TypeScript type checks, gofmt, go vet and staticcheck, every suite, a check of the built jars and of the processor's third-party list; no Docker and no model
 ./run java-mesh   # build the Java SDK and the mesh demo, then run every scenario
 ./run envoy-gateway  # the edge processor on Envoy Gateway in a local kind cluster, and its checks; the cluster stays up
 ./run envoy-gateway measure  # the measurement suites, on a cluster of their own; needs python3
@@ -713,7 +713,7 @@ paztport/
 ├── run                       front door: java-mesh, envoy-gateway, agents-mcp, test, bench
 ├── poc-sdks/
 │   ├── spec/                 the protocol spec, and vectors/: v3.json, which every SDK replays (Java and Go all of it but the MCP profile); http-v3.json, Java's and Go's; events.json, all three's; json.json, TypeScript's but its http bindings, Java's and Go's but the MCP profile's sections
-│   ├── scripts/              name check, link check, jar check, tests for ./run, THIRD-PARTY.txt regeneration
+│   ├── scripts/              name check, link check, import check, jar check, tests for ./run, THIRD-PARTY.txt regeneration
 │   ├── java/                 core, http, spring (paztport-core, paztport-http, paztport-spring), tools/keygen, tools/policy-tool, tools/bench
 │   ├── typescript/           core, mcp (@paztport/core, @paztport/mcp), policy-tool
 │   └── go/                   one module: the protocol's packages, and paztporthttp with wire and boundary
