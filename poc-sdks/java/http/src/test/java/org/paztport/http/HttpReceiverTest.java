@@ -48,7 +48,6 @@ import org.paztport.core.stamp.Stamp;
 import org.paztport.core.stamp.Stamper;
 import org.paztport.core.verify.InMemoryNonceCache;
 import org.paztport.core.verify.NonceCache;
-import org.paztport.core.verify.NonceCacheUnavailableException;
 import org.paztport.core.verify.Peer;
 import org.paztport.core.verify.PinnedKeyring;
 import org.paztport.core.verify.PinnedRoot;
