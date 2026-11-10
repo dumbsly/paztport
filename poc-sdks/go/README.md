@@ -101,8 +101,9 @@ The packages decide; the code that embeds them carries out what they decide:
   under `audit`, and with no mode, it serves the request unverified and
   unattested, with the chain and the influence as received.
 - **Offers the delivery key.** `Accepted.Delivery()` gives the `Delivery` (`RID`,
-  `Svc`, `Rcv`, `Bind`) of a request whose chain was verified at this hop, and false
-  otherwise. A duplicate delivery, such as a proxy's retry to another replica,
+  `Svc`, `Rcv`, `Key`, `Bind`) of a request whose chain was verified at this hop, and false
+  otherwise. `Rcv` names the operation when the last stamp does, and `Key` is the key value of a keyed
+  operation, "" when there is none. A duplicate delivery, such as a proxy's retry to another replica,
   is the application's to handle by idempotency keyed on it: the same key and
   `Bind` is the same request sent again by that signer, and the same key with
   another `Bind` is a different request under a reused key, to refuse.
