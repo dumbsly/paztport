@@ -19,14 +19,19 @@ a caller, a partner and an egress. It replays `spec/vectors/v3.json` and
 - **Confirming the operation over HTTP.** The SDK reads operation tables
   (`policy.ReadOperationTable`), but the receiver does not work out from its
   routing which operation a request invokes. An embedder that names operations
-  supplies `svc#operation` as the receiver itself, in the `Receiver`'s `Name`, and
-  confirms the operation on its own side. The `Receiver`, given its own table in
-  `Operations`, reads the key value of the operation `Name` names from the
-  request's target, and refuses `BINDING_MISMATCH` a keyed operation's request that gives none. The
-  `Caller`, given the receivers' tables in `Operations`, names the operation and
-  its key value from the target in `Stamp`; without a table for a receiver it names
-  the service. The verifier accepts `svc#operation` in a stamp's `rcv`. A
-  `Receivers` map names services only, and a response's `src` is the service.
+  supplies `svc#operation` as the receiver itself, in the `Receiver`'s `Name`,
+  and confirms the operation on its own side. The `Receiver`, given its own
+  table in `Operations`, reads the key value of the operation `Name` names from
+  the request's target, and refuses `BINDING_MISMATCH` a keyed operation's
+  request that gives none. The `Caller`, given the receivers' tables in
+  `Operations`, names the operation and its key value from the target in
+  `Stamp`; without a table for a receiver it names the service. An embedder may
+  still pass `svc#operation` with no table held; that call reads no key value,
+  so for a keyed operation the caller's response key is the unkeyed one and its
+  own check refuses the second item's response `REPLAY`; hold the receiver's
+  table to call a keyed operation per item. The verifier accepts `svc#operation`
+  in a stamp's `rcv`. A `Receivers` map names services only, and a response's
+  `src` is the service.
 - **Tools.** It has no keygen or policy tool: it generates no keys, builds no
   route tree and writes no files. The Java and TypeScript SDKs' keygens and policy
   tools write the keys, keyrings, roots, proof bundles and reply certificates it

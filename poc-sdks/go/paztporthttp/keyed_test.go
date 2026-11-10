@@ -409,6 +409,27 @@ func TestCallerBareCallerKeepsOncePerTree(t *testing.T) {
 	}
 }
 
+// TestCallerTableOfAnotherServiceIsRefused signs nothing where the table held under a receiver's service is
+// another service's.
+func TestCallerTableOfAnotherServiceIsRefused(t *testing.T) {
+	p := newKeyedPolicy(t, "gateway/orders#reserve")
+	signed := 0
+	c := p.callerFor(t, newRecordingNonces(), &signed)
+	payment := ordersKeyed(t)
+	payment.Service = "payment"
+	c.Operations = map[string]policy.OperationTable{"orders": payment}
+	o, err := c.Stamp("POST", "/items/A1/reserve", "orders", nil, nil, nil)
+	if err == nil {
+		t.Fatalf("Stamp = %+v, want an error", o)
+	}
+	if signed != 0 || o.Headers != nil || o.Sent != nil {
+		t.Fatalf("signed %d times, Outbound %+v; want nothing", signed, o)
+	}
+	if !strings.HasSuffix(err.Error(), "; nothing is sent") {
+		t.Errorf("the error %q does not end with the usual words", err)
+	}
+}
+
 // TestCallerOperationTableMatching names an unkeyed operation, accepts a receiver naming the operation the
 // call matches, and refuses a call no operation matches or a receiver naming another, signing nothing.
 func TestCallerOperationTableMatching(t *testing.T) {

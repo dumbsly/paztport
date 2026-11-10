@@ -143,7 +143,12 @@ type Caller struct {
 	// stamp's rcv and, where that operation declares a key, reads the call's key value from the target, so
 	// that the call is made once per request tree for each item. A receiver it holds no table for is named
 	// by its service alone, and called once per request tree. Each table must be covered by the signed root
-	// ([policy.OperationTable.CoveredBy]): a caller must not use a table the root does not cover.
+	// ([policy.OperationTable.CoveredBy]): a caller must not use a table the root does not cover. Each must
+	// be held under its own Service, or [Caller.Stamp] refuses the calls to that service.
+	//
+	// An embedder may still pass "svc#operation" with no table held; that call reads no key value, so for a
+	// keyed operation the caller's response key is the unkeyed one and its own check refuses the second
+	// item's response REPLAY; hold the receiver's table to call a keyed operation per item.
 	Operations map[string]policy.OperationTable
 }
 
@@ -208,7 +213,12 @@ type Received struct {
 // holds the table, it refuses a call no operation matches, a receiver naming another operation than the
 // call matches, and a call to a keyed operation that gives no key value, such as a percent-encoded
 // segment. Nothing is signed in any of these cases, and the error of the last two names the receiver and
-// operation, never the target or any value of the call.
+// operation, never the target or any value of the call. It refuses, too, every call to a service whose
+// table it holds under another service's name, signing nothing.
+//
+// An embedder may still pass "svc#operation" with no table held; that call reads no key value, so for a
+// keyed operation the caller's response key is the unkeyed one and its own check refuses the second item's
+// response REPLAY; hold the receiver's table to call a keyed operation per item.
 func (c *Caller) Stamp(
 	method, target, receiver string, body []byte, inbound stamp.Chain, infl []influence.Entry,
 ) (Outbound, error) {
@@ -256,6 +266,10 @@ func (c *Caller) operate(method, target, receiver string) (named, key string, er
 	table, ok := c.Operations[service]
 	if !ok {
 		return receiver, "", nil
+	}
+	if table.Service != service {
+		return "", "", fmt.Errorf("paztport http: the operation table held for %s is another service's; nothing is sent",
+			service)
 	}
 	path, query, _ := strings.Cut(target, "?")
 	operation, matched := table.Match(method, path, query)

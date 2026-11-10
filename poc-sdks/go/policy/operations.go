@@ -22,6 +22,9 @@ import (
 //
 // A template is "/", or "/" and non-empty segments joined with "/", each "{}", which matches any one
 // non-empty segment, or literal text, which matches itself.
+//
+// A table is built with [ReadOperationTable] or [LoadOperationTable], which check every rule of a table; a
+// table built by hand is not validated.
 type OperationTable struct {
 	// Service is the service the table is for: a route node holding no '#'.
 	Service string
