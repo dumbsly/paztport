@@ -8661,6 +8661,26 @@
         "key" : null
       }
     }, {
+      "name" : "a query key repeated under an encoded name",
+      "table" : "{\n  \"operations\": [\n    {\n      \"key\": {\n        \"segment\": 1\n      },\n      \"method\": \"POST\",\n      \"name\": \"reserve\",\n      \"template\": \"/items/{}/reserve\"\n    },\n    {\n      \"key\": {\n        \"query\": \"line\"\n      },\n      \"method\": \"GET\",\n      \"name\": \"getLine\",\n      \"template\": \"/lines\"\n    },\n    {\n      \"key\": {\n        \"maxLength\": 256,\n        \"segment\": 1\n      },\n      \"method\": \"GET\",\n      \"name\": \"getRecord\",\n      \"template\": \"/records/{}\"\n    },\n    {\n      \"method\": \"POST\",\n      \"name\": \"createOrder\",\n      \"template\": \"/orders\"\n    }\n  ],\n  \"service\": \"orders\",\n  \"v\": 1\n}\n",
+      "method" : "GET",
+      "path" : "/lines",
+      "query" : "%6Cine=B&line=L7",
+      "expected" : {
+        "operation" : "getLine",
+        "key" : null
+      }
+    }, {
+      "name" : "a query holding a semicolon",
+      "table" : "{\n  \"operations\": [\n    {\n      \"key\": {\n        \"segment\": 1\n      },\n      \"method\": \"POST\",\n      \"name\": \"reserve\",\n      \"template\": \"/items/{}/reserve\"\n    },\n    {\n      \"key\": {\n        \"query\": \"line\"\n      },\n      \"method\": \"GET\",\n      \"name\": \"getLine\",\n      \"template\": \"/lines\"\n    },\n    {\n      \"key\": {\n        \"maxLength\": 256,\n        \"segment\": 1\n      },\n      \"method\": \"GET\",\n      \"name\": \"getRecord\",\n      \"template\": \"/records/{}\"\n    },\n    {\n      \"method\": \"POST\",\n      \"name\": \"createOrder\",\n      \"template\": \"/orders\"\n    }\n  ],\n  \"service\": \"orders\",\n  \"v\": 1\n}\n",
+      "method" : "GET",
+      "path" : "/lines",
+      "query" : "x=1;line=B&line=L7",
+      "expected" : {
+        "operation" : "getLine",
+        "key" : null
+      }
+    }, {
       "name" : "an operation with no key",
       "table" : "{\n  \"operations\": [\n    {\n      \"key\": {\n        \"segment\": 1\n      },\n      \"method\": \"POST\",\n      \"name\": \"reserve\",\n      \"template\": \"/items/{}/reserve\"\n    },\n    {\n      \"key\": {\n        \"query\": \"line\"\n      },\n      \"method\": \"GET\",\n      \"name\": \"getLine\",\n      \"template\": \"/lines\"\n    },\n    {\n      \"key\": {\n        \"maxLength\": 256,\n        \"segment\": 1\n      },\n      \"method\": \"GET\",\n      \"name\": \"getRecord\",\n      \"template\": \"/records/{}\"\n    },\n    {\n      \"method\": \"POST\",\n      \"name\": \"createOrder\",\n      \"template\": \"/orders\"\n    }\n  ],\n  \"service\": \"orders\",\n  \"v\": 1\n}\n",
       "method" : "POST",

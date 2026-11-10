@@ -614,6 +614,8 @@ class VectorsHttpV3Export {
             {"a query key absent", "GET", "/lines", null, "getLine", null},
             {"a query key repeated", "GET", "/lines", "line=L7&line=L8", "getLine", null},
             {"a query key with no value", "GET", "/lines", "line", "getLine", null},
+            {"a query key repeated under an encoded name", "GET", "/lines", "%6Cine=B&line=L7", "getLine", null},
+            {"a query holding a semicolon", "GET", "/lines", "x=1;line=B&line=L7", "getLine", null},
             {"an operation with no key", "POST", "/orders", null, "createOrder", null}};
         for (String[] k : keyCases) {
             ObjectNode c = keys.addObject();

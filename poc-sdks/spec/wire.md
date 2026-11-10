@@ -625,16 +625,20 @@ parameter with distinct values, so at most one holds. A call no operation matche
 ([verification.md](verification.md#freshness-and-replay)), and an operation with a `key` at most once per request
 tree for each key value: the key names the item a call acts on. A call's key value is read from its raw target, as
 matching reads it: for `segment`, the path segment that `{}` matches; for `query`, the value of the parameter of
-that name, which the raw query holds exactly once. The call has a key value only when that text is one or more of
-the characters `A` to `Z`, `a` to `z`, `0` to `9`, `-`, `.`, `_` and `~`, is neither `.` nor `..`, and is at most
-`maxLength` characters long. Those characters read the same percent-decoded or not, so the value is the one the
-handler reads, and none of them is the `|` that separates a nonce key's parts. Values are compared exactly.
+that name, which the raw query holds exactly once, and only when no parameter name in the raw query holds `%` and
+the raw query holds no `;`: a server decodes parameter names, and some split a query at `;`, so either could give
+the handler another parameter of the key's name than the one read here. The call has a key value only when that text
+is one or more of the characters `A` to `Z`, `a` to `z`, `0` to `9`, `-`, `.`, `_` and `~`, is neither `.` nor `..`,
+and is at most `maxLength` characters long. Those characters read the same percent-decoded or not, so the value is
+the one the handler reads, and none of them is the `|` that separates a nonce key's parts. Values are compared
+exactly.
 
 A service declares a key only for an operation whose handler takes two different values to be two different items:
 one that reads `ABC` and `abc`, or `7` and `007`, as one item would act on it twice under two keys. It declares none
 where each call's effect is itself the harm, such as sending one message, so that a caller makes that call once per
 request tree. The key is the receiver's choice, signed by the policy owner through the hash below: a caller chooses
-the item, but only for an operation its receiver has opened to that choice.
+the item, but only for an operation its receiver has opened to that choice. A handler reads a query key from the
+query alone, never from a form body.
 
 **The hash and its route.** `opsHash = b64url(H(utf8("operations\n" ‖ JCS(table))))`, where `table` is the table
 as read. The signed root covers a table as the route `<svc>/ops:<opsHash>`. A service and its callers MUST NOT

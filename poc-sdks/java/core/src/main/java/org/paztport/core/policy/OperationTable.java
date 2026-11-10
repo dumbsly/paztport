@@ -328,8 +328,9 @@ public record OperationTable(String service, List<Operation> operations) {
      * The key value of a call to {@code operation}, read from the raw target as {@link #match} reads it, or null when
      * the operation is unknown or declares no key, or the call gives none: the path does not match the operation's
      * template; for a query key, the raw query (null for none) does not hold the parameter exactly once with a
-     * value; or the text is not one or more of {@code A-Z a-z 0-9 - . _ ~}, is {@code .} or {@code ..}, or is
-     * longer than the key's limit. Nothing is percent-decoded, so an encoded value gives none.
+     * value, a parameter name in it holds {@code %} or it holds {@code ;}, since a server decodes names and some
+     * split a query at {@code ;}; or the text is not one or more of {@code A-Z a-z 0-9 - . _ ~}, is {@code .} or
+     * {@code ..}, or is longer than the key's limit. Nothing is percent-decoded, so an encoded value gives none.
      */
     public String keyValue(String operation, String rawPath, String rawQuery) {
         Operation op = operation(operation);
@@ -349,13 +350,15 @@ public record OperationTable(String service, List<Operation> operations) {
                     value = path[i];
                 }
             }
-        } else if (rawQuery != null) {
+        } else if (rawQuery != null && rawQuery.indexOf(';') < 0) {
             int count = 0;
-            for (String pair : rawQuery.split("&", -1)) {
-                int eq = pair.indexOf('=');
-                if ((eq < 0 ? pair : pair.substring(0, eq)).equals(op.key().query())) {
+            for (Parameter p : parameters(rawQuery)) {
+                if (p.name().indexOf('%') >= 0) {
+                    return null;
+                }
+                if (p.name().equals(op.key().query())) {
                     count++;
-                    value = eq < 0 ? "" : pair.substring(eq + 1);
+                    value = p.value();
                 }
             }
             if (count != 1) {
@@ -396,19 +399,37 @@ public record OperationTable(String service, List<Operation> operations) {
         }
         int count = 0;
         String value = null;
-        if (rawQuery != null) {
-            for (String pair : rawQuery.split("&", -1)) {
-                int eq = pair.indexOf('=');
-                if ((eq < 0 ? pair : pair.substring(0, eq)).equals(parameter)) {
-                    count++;
-                    value = eq < 0 ? "" : pair.substring(eq + 1);
-                }
+        for (Parameter p : parameters(rawQuery)) {
+            if (p.name().equals(parameter)) {
+                count++;
+                value = p.value();
             }
         }
         if (count > 1) {
             return false;
         }
         return op.query() == null || (count == 1 && op.query().value().equals(value));
+    }
+
+    /** A parameter of a raw query: its name and its value, {@code ""} where it has no {@code =}, neither decoded. */
+    private record Parameter(String name, String value) {
+    }
+
+    /**
+     * The parameters of a raw query, null for none, in order: split at each {@code &}, and each at its first
+     * {@code =} into a name and a value, nothing decoded. {@link #match} and {@link #keyValue} both read it so.
+     */
+    private static List<Parameter> parameters(String rawQuery) {
+        List<Parameter> parameters = new ArrayList<>();
+        if (rawQuery == null) {
+            return parameters;
+        }
+        for (String pair : rawQuery.split("&", -1)) {
+            int eq = pair.indexOf('=');
+            parameters.add(eq < 0 ? new Parameter(pair, "") : new Parameter(pair.substring(0, eq),
+                    pair.substring(eq + 1)));
+        }
+        return parameters;
     }
 
     /**

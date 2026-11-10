@@ -438,8 +438,9 @@ func (t OperationTable) Keyed(operation string) bool {
 // KeyValue returns the key value of a call to operation, read from the raw target as [OperationTable.Match]
 // reads it, and whether the call gives one. It gives none when the operation is unknown or declares no key; the
 // path does not match the operation's template; for a query key, rawQuery ("" for none) does not hold the
-// parameter exactly once with a value; or the text is not one or more of A-Z a-z 0-9 - . _ ~, is "." or "..",
-// or is longer than the key's limit. Nothing is percent-decoded, so an encoded value gives none.
+// parameter exactly once with a value, a parameter name in it holds '%' or it holds ';', since a server
+// decodes names and some split a query at ';'; or the text is not one or more of A-Z a-z 0-9 - . _ ~, is "."
+// or "..", or is longer than the key's limit. Nothing is percent-decoded, so an encoded value gives none.
 func (t OperationTable) KeyValue(operation, rawPath, rawQuery string) (string, bool) {
 	op := t.operation(operation)
 	if op == nil || op.Key == nil || !strings.HasPrefix(rawPath, "/") {
@@ -462,12 +463,17 @@ func (t OperationTable) KeyValue(operation, rawPath, rawQuery string) (string, b
 			}
 		}
 	} else {
+		if strings.Contains(rawQuery, ";") {
+			return "", false
+		}
 		count := 0
-		for _, pair := range strings.Split(rawQuery, "&") {
-			name, v, _ := strings.Cut(pair, "=")
-			if name == op.Key.Query {
+		for _, p := range parameters(rawQuery) {
+			if strings.Contains(p.name, "%") {
+				return "", false
+			}
+			if p.name == op.Key.Query {
 				count++
-				value = v
+				value = p.value
 			}
 		}
 		if count != 1 {
@@ -505,17 +511,34 @@ func (t OperationTable) queryAllows(op *Operation, rawQuery string) bool {
 		return true
 	}
 	count, value := 0, ""
-	for _, pair := range strings.Split(rawQuery, "&") {
-		name, v, _ := strings.Cut(pair, "=")
-		if name == parameter {
+	for _, p := range parameters(rawQuery) {
+		if p.name == parameter {
 			count++
-			value = v
+			value = p.value
 		}
 	}
 	if count > 1 {
 		return false
 	}
 	return op.Query == nil || (count == 1 && op.Query.Value == value)
+}
+
+// queryParameter is a parameter of a raw query: its name and its value, "" where it has no '=', neither decoded.
+type queryParameter struct {
+	name, value string
+}
+
+// parameters returns the parameters of a raw query in order: split at each '&', and each at its first '='
+// into a name and a value, nothing decoded. [OperationTable.Match] and [OperationTable.KeyValue] both read
+// it so.
+func parameters(rawQuery string) []queryParameter {
+	pairs := strings.Split(rawQuery, "&")
+	out := make([]queryParameter, 0, len(pairs))
+	for _, pair := range pairs {
+		name, value, _ := strings.Cut(pair, "=")
+		out = append(out, queryParameter{name, value})
+	}
+	return out
 }
 
 func segmentsMatch(template, path []string) bool {

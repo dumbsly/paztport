@@ -169,6 +169,27 @@ func TestOperationTableKeyed(t *testing.T) {
 	}
 }
 
+// TestOperationTableQueryKeyValue reads a query key: a server decodes parameter names, and some split a
+// query at ';', so the handler could read another line than the one counted, and the key gives none then.
+// Values of other parameters are not restricted.
+func TestOperationTableQueryKeyValue(t *testing.T) {
+	table := readTable(t, vectors.Load(t, "http-v3.json").Get("operations").Get("keyed").Get("file").Str())
+	for query, want := range map[string]string{
+		"line=A":            "A",
+		"line=A&q=%41":      "A",
+		"%6Cine=B&line=A":   "",
+		"x=1;line=B&line=A": "",
+		"a%5B%5D=1&line=A":  "",
+	} {
+		if got, ok := table.KeyValue("getLine", "/lines", query); got != want || ok != (want != "") {
+			t.Errorf("KeyValue(%q) = %q, %v, want %q", query, got, ok, want)
+		}
+	}
+	if operation, ok := table.Match("GET", "/lines", "%6Cine=B&line=A"); !ok || operation != "getLine" {
+		t.Errorf("Match = %q, %v, want getLine", operation, ok)
+	}
+}
+
 // TestOperationTableCoveredBy holds a table to the signed root: the bundle holds a proof of its route that
 // verifies against the root with the proof's rootId.
 func TestOperationTableCoveredBy(t *testing.T) {

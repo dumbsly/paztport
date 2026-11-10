@@ -322,6 +322,21 @@ class OperationTableTest {
         assertNull(t.keyValue("reserve", "/other/A1/reserve", null));
     }
 
+    /**
+     * A server decodes parameter names, and some split a query at {@code ;}, so the handler could read another
+     * {@code line} than the one counted: a query key gives none then. Values of other parameters are not restricted.
+     */
+    @Test
+    void noQueryKeyValueWhereANameIsEncodedOrTheQuerySplitsAtSemicolons() {
+        OperationTable t = keyed();
+
+        assertNull(t.keyValue("getLine", "/lines", "%6Cine=B&line=A"));
+        assertNull(t.keyValue("getLine", "/lines", "x=1;line=B&line=A"));
+        assertNull(t.keyValue("getLine", "/lines", "a%5B%5D=1&line=A"));
+        assertEquals("A", t.keyValue("getLine", "/lines", "line=A&q=%41"));
+        assertEquals("getLine", t.match("GET", "/lines", "%6Cine=B&line=A"));
+    }
+
     @Test
     void raisedMaxLength() {
         OperationTable t = OperationTable.read(file("items", "1",
