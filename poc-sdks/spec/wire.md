@@ -656,14 +656,13 @@ it.
 **Confirming it.** The receiver does not take its operation from the request. When its operation has a `key`, it
 reads the key value from the request target by that operation's template, as it works out the operation, and never
 from anything else the request says; a request whose chain names that operation and which has no key value fails
-check 4, `BINDING_MISMATCH`. Its operation is the handler its
-framework will run: it works that out from its own routing and supplies it as part of `receiver`
-([verification.md](verification.md#http-requests-and-responses)), so a chain that names another operation fails
-check 4. A service that names operations MUST route each request that names one to a single handler by its
-method, path and query condition alone, and a receiver whose routing would run another handler refuses the
-request. A service's own operation is therefore named under the previous hop's signature and confirmed by the
-service, never claimed by it: code running in a service can name only the operation it invokes on the next hop,
-which that hop confirms in turn.
+check 4, `BINDING_MISMATCH`. Its operation is the handler its framework will run: it works that out from its own
+routing and supplies it as part of `receiver` ([verification.md](verification.md#http-requests-and-responses)), so a
+chain that names another operation fails check 4. A service that names operations MUST route each request that names
+one to a single handler by its method, path and query condition alone, and a receiver whose routing would run
+another handler refuses the request. A service's own operation is therefore named under the previous hop's signature
+and confirmed by the service, never claimed by it: code running in a service can name only the operation it invokes
+on the next hop, which that hop confirms in turn.
 
 ## The signed root
 

@@ -416,7 +416,8 @@ What Paztport needs from a deployment, and what it deliberately doesn't cover ye
   is duplicate delivery, and the receiving application handles it as it handles
   any retried request, by idempotency keyed on the delivery: the verified chain's
   `rid`, its last signer and the receiver its last stamp names (with the operation,
-  when it names one, and the key value of a keyed operation) name it, and that stamp's `bind` says which request it was.
+  when it names one, and the key value of a keyed operation) name it, and that
+  stamp's `bind` says which request it was.
   The Java and Go in-mesh receivers hand the application that key
   (`RequestContext.delivery()` and `Accepted.delivery()` in Java,
   `Accepted.Delivery()` in Go). A service that must also hold a compromised caller

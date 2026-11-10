@@ -29,9 +29,10 @@ checks with the live verifier; the agents demo's `npm run verify` uses it.
 
 It implements protocol v3, as the [spec](../spec/README.md) defines it, for MCP
 only. The TypeScript SDK has no HTTP binding and no delivery key (the Java and Go
-SDKs have both), and it neither names nor confirms operations over HTTP, nor reads their keys (the Java
-SDK does all three; the Go SDK names operations and reads their keys, but does not confirm them). Its verifier does accept an operation
-in an `rcv`.
+SDKs have both), and it neither names nor confirms operations over HTTP, nor
+reads their keys (the Java SDK does all three; the Go SDK names operations and
+reads their keys, but does not confirm them). Its verifier does accept an
+operation in an `rcv`.
 
 - **v3 only.** The live and offline chain verifiers take v3 stamps only: a stamp's `v` must be 3, and a
   chain holding any other is malformed, `CHAIN_MISSING`.

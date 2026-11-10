@@ -9,7 +9,8 @@ MCP profile: stamps and chains, policy material, the live and offline verifiers,
 the owner-aware rule, sessions, responder events, and v3 over HTTP at a receiver,
 a caller, a partner and an egress. It replays `spec/vectors/v3.json` and
 `json.json` but their sections that belong to the
-[MCP profile](../spec/README.md#the-mcp-profile), and `http-v3.json` and `events.json` in full. It leaves out:
+[MCP profile](../spec/README.md#the-mcp-profile), and `http-v3.json` and
+`events.json` in full. It leaves out:
 
 - **The MCP profile**, local steps included.
 - **Any integration.** It sends nothing, logs nothing, publishes no events and
@@ -105,13 +106,14 @@ The packages decide; the code that embeds them carries out what they decide:
   Under `enforce` the adapter sends `paztporthttp.Unavailable()` (503, no body);
   under `audit`, and with no mode, it serves the request unverified and
   unattested, with the chain and the influence as received.
-- **Offers the delivery key.** `Accepted.Delivery()` gives the `Delivery` (`RID`,
-  `Svc`, `Rcv`, `Key`, `Bind`) of a request whose chain was verified at this hop, and false
-  otherwise. `Rcv` names the operation when the last stamp does, and `Key` is the key value of a keyed
-  operation, "" when there is none. A duplicate delivery, such as a proxy's retry to another replica,
-  is the application's to handle by idempotency keyed on it: the same key and
-  `Bind` is the same request sent again by that signer, and the same key with
-  another `Bind` is a different request under a reused key, to refuse.
+- **Offers the delivery key.** `Accepted.Delivery()` gives the `Delivery`
+  (`RID`, `Svc`, `Rcv`, `Key`, `Bind`) of a request whose chain was verified at
+  this hop, and false otherwise. `Rcv` names the operation when the last stamp
+  does, and `Key` is the key value of a keyed operation, "" when there is none.
+  A duplicate delivery, such as a proxy's retry to another replica, is the
+  application's to handle by idempotency keyed on it: the same key and `Bind` is
+  the same request sent again by that signer, and the same key with another
+  `Bind` is a different request under a reused key, to refuse.
 - **Attests and checks answers.** It sends the `X-Path-Response` header that
   `Accepted.Attest` gives for the handler's complete answer. As a caller, it reads
   each response whole and passes it to `Caller.Check` before anything reads it.

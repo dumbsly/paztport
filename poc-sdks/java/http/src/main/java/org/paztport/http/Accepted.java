@@ -76,9 +76,10 @@ public final class Accepted {
      * The operation a served request was verified as received by, the operation part of {@code <service>#<operation>}:
      * the one the adapter said the request will be dispatched to, where the chain named an operation and the live
      * order ran on the request, under a mode or for attestation alone, whether or not it passed. Null where the chain
-     * named none, so the request was verified under the service alone, where nothing was verified, and for a refusal.
-     * An adapter whose framework can change the handler after this was decided checks, as the handler runs, that it
-     * is still this operation's.
+     * named none, so the request was verified under the service alone, where nothing was verified, and for a refusal;
+     * null also for a keyed operation whose target gave no key value, the request then being verified under the bare
+     * name. An adapter whose framework can change the handler after this was decided checks, as the handler runs, that
+     * it is still this operation's.
      */
     public String operation() {
         return operation;

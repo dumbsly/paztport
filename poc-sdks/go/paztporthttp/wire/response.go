@@ -45,8 +45,8 @@ type ResponseCheck struct {
 //     influence, the proof sent, no peer, that binding as the one expected and the nonce key
 //     <rid>|<last rcv>|resp, where last rcv is sent's last rcv whole, with the operation when it names
 //     one, or <rid>|<last rcv>|<key>|resp when key is not empty, so that a call is made once per request
-//     tree for each item of a keyed operation. The route is the request's own, so the proof the caller sent proves it, and the response stamp
-//     must be by the service that rcv names, signed for the caller.
+//     tree for each item of a keyed operation. The route is the request's own, so the proof the caller
+//     sent proves it, and the response stamp must be by the service that rcv names, signed for the caller.
 //
 // The response stamp is read only by the verifier, so its live order answers for it, from its policy
 // check on. A sent chain that has no wire form, so that no request carried it, reaches the verifier as

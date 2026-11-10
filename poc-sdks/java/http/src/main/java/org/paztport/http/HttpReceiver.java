@@ -208,7 +208,8 @@ public final class HttpReceiver {
          * This service's own operation table, covered by the signed root, where it names its operations; null for
          * none. It is read only for the key value of the dispatched operation where that operation declares a key:
          * the operation itself is the adapter's to say ({@link InboundRequest#operation}). Without it no key value is
-         * read, so a chain naming a keyed operation is verified with the operation's unkeyed nonce key.
+         * read, so a chain naming a keyed operation is verified with the operation's unkeyed nonce key, and the
+         * delivery's key is null.
          */
         public Builder operations(OperationTable own) {
             this.table = own;

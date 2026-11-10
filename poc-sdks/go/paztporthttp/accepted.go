@@ -54,12 +54,12 @@ type attester struct {
 	chain   stamp.Chain
 }
 
-// Delivery names the delivery of a request that was verified at this hop: the rid its first stamp
-// carries, the signer and receiver of its last stamp, the key value the request's nonce key carried where
-// that receiver names a keyed operation, and the request binding of its last stamp. It is false for a request that was not
-// verified, such as one at an origin, with the hop off, that failed in audit mode or whose nonce cache
-// could not answer. Two deliveries of one request give the same key, so the application can tell a
-// request it has already handled.
+// Delivery names the delivery of a request that was verified at this hop: the rid its first stamp carries,
+// the signer and receiver of its last stamp, the key value the request's nonce key carried where that
+// receiver names a keyed operation, and the request binding of its last stamp. It is false for a request
+// that was not verified, such as one at an origin, with the hop off, that failed in audit mode or whose
+// nonce cache could not answer. Two deliveries of one request give the same key, so the application can
+// tell a request it has already handled.
 func (a Accepted) Delivery() (Delivery, bool) {
 	if !a.Verified || len(a.Inbound) == 0 {
 		return Delivery{}, false
@@ -75,10 +75,10 @@ func (a Accepted) Delivery() (Delivery, bool) {
 //
 // The key (RID, Svc, Rcv, Key) names the delivery, and with a peer (mutual TLS) no one but that signer can
 // send it. Key is "" unless Rcv names an operation that declares a key, so two items of one keyed operation
-// in one request tree, like two operations of one receiver, are two keys. The same key and Bind is the same
-// request sent again by that signer. The same key with another Bind is a different request under a reused
-// key, to refuse. A user's second click or a client's own resend is a new rid, and needs the application's
-// own idempotency key.
+// in one request tree, like two operations of one receiver, are two keys; it is "" too where the receiver
+// holds no table ([Receiver.Operations]). The same key and Bind is the same request sent again by that
+// signer. The same key with another Bind is a different request under a reused key, to refuse. A user's
+// second click or a client's own resend is a new rid, and needs the application's own idempotency key.
 type Delivery struct {
 	RID, Svc, Rcv, Key, Bind string
 }

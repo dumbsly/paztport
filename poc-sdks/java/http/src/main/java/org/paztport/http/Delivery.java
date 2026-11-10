@@ -19,7 +19,8 @@ package org.paztport.http;
  * @param svc the last signer's service name
  * @param rcv the receiver the last stamp names, with the operation when it names one
  * @param key the key value the receiver read from the request target for the operation {@code rcv} names, where
- *     that operation declares a key; null when {@code rcv} names no operation or one with no key
+ *     that operation declares a key; null when {@code rcv} names no operation or one with no key, and when the
+ *     receiver holds no table
  * @param bind the last stamp's binding of the request's method, target and body
  */
 public record Delivery(String rid, String svc, String rcv, String key, String bind) {

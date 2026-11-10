@@ -41,6 +41,7 @@ type Receiver struct {
 	// <rid>|<last svc>|<last rcv>|<key value>|req: a request tree may call the operation once for each
 	// item. The table must be covered by the signed root ([policy.OperationTable.CoveredBy]): a service
 	// must not use a table the root does not cover. Its Service must be this receiver's, or Accept panics.
+	// Without it no key value is read, and every [Delivery] has Key "".
 	Operations *policy.OperationTable
 }
 
