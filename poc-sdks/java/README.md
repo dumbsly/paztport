@@ -523,12 +523,13 @@ An operation may declare a key, the item it acts on
 ([the key value](../spec/wire.md#operations)). The inbound filter hands the receiver
 this service's own table, so `paztport.operations.table-path` alone makes keys work:
 the receiver reads a keyed operation's key value from the raw request target, a chain
-naming that operation is verified with the value in its nonce key, and a request
-whose target gives none (a percent-encoded segment Spring decoded to reach the
-handler, say) is refused `403 {"reason":"BINDING_MISMATCH"}` before any nonce key is
-spent. A caller that holds the receiver's table
-(`paztport.operations.receiver-tables`) reads the key value from the target it sends,
-and a call with none fails with `IllegalArgumentException` before anything is signed
+naming that operation is verified with the value in its nonce key, and a chain naming
+it whose target gives none (a percent-encoded segment Spring decoded to reach the
+handler, say) fails `BINDING_MISMATCH` before any nonce key is spent: refused
+`403 {"reason":"BINDING_MISMATCH"}` under `enforce`, served unattested elsewhere. A
+caller that holds the receiver's table (`paztport.operations.receiver-tables`) reads
+the key value from the target it sends, and a call with none fails with
+`IllegalArgumentException` before anything is signed
 ([paztport-http](#paztport-http)).
 
 A service routes by method, path and query alone, and a request whose routing a

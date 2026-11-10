@@ -658,7 +658,7 @@ Engineering shortcuts of this repository, not of the design.
   `paztport.admin-token` is set, and answers only a request whose `X-Admin-Token`
   matches it (the demo makes a token for each run, as `PAZTPORT_ADMIN_TOKEN`). The
   starter verifies every path, this one included, unless `paztport.unverified-paths`
-  lists it ([unverified paths](poc-sdks/java/README.md#paztport-spring)); the demo
+  lists it ([unverified paths](poc-sdks/java/README.md#unverified-paths)); the demo
   lists `/admin` on each service that has the switch. A real deployment keeps
   management on a port of its own, out of its callers' reach, as Boot's
   `management.server.port` does for actuator; the switch is served on the
