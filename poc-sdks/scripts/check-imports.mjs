@@ -6,24 +6,25 @@
 // unqualified in code (strings, character literals and comments left out), or where javadoc resolves it: the
 // target of {@link}, {@linkplain}, {@value}, @see, @throws or @exception in a /** */ comment, and the parameter
 // types in such a reference. An import of any other form (a wildcard, a module import) is not checked, so it fails
-// too. Reads the repository's Java files (tracked, or new and not ignored). Usage: node check-imports.mjs [repo root]
+// too. Markdown doc comments (///) are read as plain comments, so a name used only there is reported. Reads the
+// repository's Java files (tracked, or new and not ignored). Usage: node check-imports.mjs [repo root]
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 const root = resolve(process.argv[2] ?? join(import.meta.dirname, "../.."));
 
 const files = execFileSync("git", ["ls-files", "--cached", "--others", "--exclude-standard", "-z", "--", "*.java"], { cwd: root, encoding: "utf8" })
   .split("\0")
-  .filter((f) => f !== "");
+  .filter((f) => f !== "" && existsSync(join(root, f)));
 if (files.length === 0) {
   console.error(`check-imports: no Java files at ${root}; is this the repository root?`);
   process.exit(1);
 }
 
-const SINGLE = /^[ \t]*import[ \t]+(static[ \t]+)?([\w$.]+)[ \t]*;[ \t]*$/;
+const SINGLE = /^[ \t]*import[ \t]+(static[ \t]+)?([\w$.]+)[ \t]*;[ \t]*(?:\/\/.*)?$/;
 const PACKAGE = /^[ \t]*package[ \t]+([\w.]+)[ \t]*;/m;
-const DOC_REF = /\{@(?:link|linkplain|value)\s+([^}]*)\}|@(?:see|throws|exception)\s+(\S+(?:\([^)]*\))?)/g;
+const DOC_REF = /\{@(?:link|linkplain|value)\s+([^}]*)\}|@(?:see|throws|exception)\s+([\w$.#]+(?:\([^)]*\))?)/g;
 const IDENT = /[A-Za-z_$][\w$]*/g;
 
 /** The code with every comment and literal blanked, and the doc comments' text. */
@@ -50,7 +51,9 @@ function split(text) {
           end = n;
           break;
         }
-        if (text[end - 1] !== "\\") {
+        let slashes = 0;
+        while (text[end - 1 - slashes] === "\\") slashes += 1;
+        if (slashes % 2 === 0) {
           end += 3;
           break;
         }
@@ -88,7 +91,7 @@ function codeNames(code) {
 function docNames(docs) {
   const names = new Set();
   for (const doc of docs) {
-    for (const m of doc.matchAll(DOC_REF)) {
+    for (const m of doc.replace(/\n[ \t]*\*+/g, "\n").matchAll(DOC_REF)) {
       const ref = (m[1] ?? m[2] ?? "").trim();
       const head = /^[\w$]+/.exec(ref);
       if (head) names.add(head[0]);
@@ -109,7 +112,7 @@ for (const file of files) {
   const pkg = PACKAGE.exec(text)?.[1] ?? "";
   const imports = [];
   const body = text
-    .split("\n")
+    .split(/\r?\n/)
     .map((line, index) => {
       if (/^[ \t]*import\b/.test(line)) imports.push({ line, where: `${file}:${index + 1}` });
       return /^[ \t]*(import|package)\b/.test(line) ? "" : line;
@@ -121,7 +124,7 @@ for (const file of files) {
   for (const { line, where } of imports) {
     const m = SINGLE.exec(line);
     if (!m) {
-      problems.push(`${where}: ${line.trim()} (not a single-type or single-member import, so not checked)`);
+      problems.push(`${where}: ${line.trim()} (not of the form import [static] a.b.C;, so not checked)`);
       continue;
     }
     const isStatic = m[1] !== undefined;
