@@ -60,8 +60,8 @@ export const LOCAL_CLASSES_NOTE =
 export const LIMITS: readonly string[] = [
   "Marker-based detection misses paraphrase, encoding and split leaks, so a run scored as resisted may still have written private information that the markers do not match.",
   "It tests one kind of planted text in one scenario, against a mock server, not the real GitHub service.",
-  "A small number of runs gives wide intervals; two modes whose intervals overlap should not be read as different.",
-  "A model whose context window is too short to hold the planted issue may never see it, and then its runs say nothing about the planted text. The context length is recorded with the results when it can be read.",
+  "A small number of runs gives wide intervals.",
+  "The model's context window needs to be long enough to hold the planted issue, or its runs say nothing about the planted text. The context length is recorded with the results when it can be read.",
 ];
 
 /** Added to "what this doesn't show" for a scenario with local tools. */

@@ -6,7 +6,7 @@ private ones (`acme/payroll-notes`, `acme/roadmap`). A second issue on the publi
 prompt injection that asks the agent to copy private notes into a public PR. With Paztport on, the
 server refuses that public write. Nothing here touches real GitHub, the network or real tokens.
 
-Tool names and parameters match `github/github-mcp-server`: `list_issues`, `issue_read`,
+The tools are named after those of `github/github-mcp-server`: `list_issues`, `issue_read`,
 `get_file_contents`, `search_repositories` (reads) and `create_branch`, `create_or_update_file`,
 `push_files`, `create_pull_request`, `add_issue_comment` (writes).
 

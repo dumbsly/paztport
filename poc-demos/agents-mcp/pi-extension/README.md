@@ -96,10 +96,10 @@ two processes, the mock GitHub server and the docs server, as in the mock server
 on session start and stop on shutdown. `/new`, `/resume`, `/fork` and reload restart them, each with
 a new server session.
 
-Tools are registered as `mcp__<id>__<tool>`, with `id` as an alias. That is pi's own MCP naming:
-characters outside `[A-Za-z0-9_]` become `_`. A name longer than 64 characters, or one this extension
-already gave a different tool, is cut and ends in `_` plus 8 hex characters of a hash of the server
-id and tool name, so it is at most 64 characters and unique.
+Tools are registered as `mcp__<id>__<tool>`, with `id` as an alias. pi names MCP tools the same
+way: characters outside `[A-Za-z0-9_]` become `_`. This extension also cuts a name longer than 64
+characters, or one it already gave a different tool, and ends it in `_` plus 8 hex characters of a hash
+of the server id and tool name, so it is at most 64 characters and unique.
 
 ## Modes
 
@@ -150,8 +150,9 @@ sent.
   per class**. A refusal or local failure is marked `refused: true`: the extension wrote its text and
   recorded no influence for it. Details never hold keys, signatures, chains, proofs, hashes or
   content. pi stores them with the session. pi-ai's provider converters (such as Anthropic and
-  OpenAI) send only the content. A provider that forwards pi's whole context does receive
-  `details`, though: pi's test faux provider and the `pi-messages` API both do.
+  OpenAI) send only the content. A provider that is handed pi's whole context does receive
+  `details`, though: pi's test faux provider passes the whole context to the function that writes its
+  replies, and the `pi-messages` API posts it whole.
 - **Keys.** If `clientDir`, the config file or any pin resolves inside pi's working directory, the
   extension refuses to start. It registers no tools, raises an
   error, and logs `refused_start` to the events log when one is configured. The one exception is a
@@ -395,8 +396,8 @@ changed it to, which is what the tool runs with.
   error result holding one of the local refusal texts, count for nothing, as they did live.
 - **Tool descriptions and server instructions are not tracked.** Descriptions and schemas from
   `tools/list` are not recorded as influence, and neither are MCP server `instructions` or
-  descriptions that pi puts in the system prompt (for servers in its own `mcp.json`). Poisoning there
-  goes unnoticed.
+  descriptions that pi puts in the system prompt (for the servers in its own `mcp.json` that have
+  `codemode` or `deferred` tools). Poisoning there goes unnoticed.
 - **The `bash` check is conservative, not a guarantee.** It refuses what it cannot work out, but it
   works from the command text and the files as they are when it looks. It does not run the command or
   model what each program does.

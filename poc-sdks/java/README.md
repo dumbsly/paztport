@@ -240,16 +240,16 @@ They log through slf4j.
 ## paztport-spring
 
 Glue, configured through `paztport.*` properties. It is built for Spring Boot 4.1
-(Spring Framework 7) and does not run on Boot 3: it uses classes Boot 3 doesn't
-have, such as `org.springframework.boot.restclient.RestClientCustomizer`.
+(Spring Framework 7) and does not run on Boot 3: it uses Boot 4 packages Boot 3
+doesn't have, such as `org.springframework.boot.restclient`.
 
 No SDK type is a JSON tree, and the SDK has no JSON library at compile or runtime
 scope, so it works beside whichever Jackson the application uses: Boot 4's web
 layer and `RestClient` use Jackson 3 (`tools.jackson`). An SDK value's JSON, such
 as `Opening.toJson()`, goes to Spring MVC or a `RestClient` as that `String`,
-labelled `application/json`, so it is written exactly as it stands; a body goes to
-the SDK as the bytes or text it arrived in, as the starter's handshake endpoint
-hands a session request's body to `HttpSessions.serve`.
+labelled `application/json`; a body goes to the SDK as the bytes or text it arrived
+in, as the starter's handshake endpoint hands a session request's body to
+`HttpSessions.serve`.
 
 ### Quick start
 
@@ -457,12 +457,11 @@ service with a responder and no event key does not start.
 Every refusal, in the mesh and at a partner, is `{"reason":"<code>"}` and nothing
 else, with `403` (or `400` for unreadable influence). The one exception is the `503`
 with an empty body that a request gets under `enforce` when the nonce cache cannot
-answer. The caller, who is usually the suspect, is never told who is suspected. The
-event carries the attribution, `suspectSvc` and `suspectInst`. The
-`PAZTPORT_TRACE request` line names only the authenticated peer's service
-(`peer=<svc> (mTLS)`, or `peer=none`), not its address and not a suspect without a
-peer. A partner sends no events, so for its refusals that trace line is all that is
-kept: the peer's service, and no instance.
+answer. The caller is never told who is suspected. The event carries the
+attribution, `suspectSvc` and `suspectInst`. The `PAZTPORT_TRACE request` line names
+only the authenticated peer's service (`peer=<svc> (mTLS)`, or `peer=none`), not its
+address and not a suspect without a peer. A partner sends no events, so for its
+refusals that trace line is all that is kept: the peer's service, and no instance.
 
 An optional `ReceivedRequestListener` hook lets an application observe each request
 the filter receives. The SDK captures nothing itself: the mesh demo's request
@@ -683,9 +682,9 @@ configuration: nothing a request or a destination says changes it. Outside the
 starter it is `HttpCaller.builder(...).receivers(Map)`. A name is a service, never an
 operation: a call names the operation from the receiver's table
 ([Operations](#operations), above), so a name holding `#` is refused. A host is
-matched as `URI.getHost()` gives it, its ASCII letters in lower case and nothing else
-(a key that is not ASCII is refused when the table is built), and Spring Boot reads a
-map key in brackets as written inside them:
+taken from `URI.getHost()`, and the SDK puts its ASCII letters in lower case and
+changes nothing else (a key that is not ASCII is refused when the table is built), and
+Spring Boot reads a map key in brackets as written inside them:
 - An IPv6 host keeps its brackets, so its key is written in two pairs:
   `paztport.receiver-names.[[::1]]=orders`, or `"[[::1]]"` in YAML or JSON.
 - A trailing dot is not normalised: `orders.` and `orders` are different hosts,
@@ -933,9 +932,9 @@ Micrometer observation, so an application with Spring Boot's observation and
 metrics auto-configurations (Actuator, for one) gets a timer for each, with no
 setting of the starter's. Where the context has no `ObservationRegistry` bean the
 starter records into `ObservationRegistry.NOOP` and the application runs exactly
-as before; with Boot's observation auto-configuration but no meter registry, the
-registry has no meter handler and nothing becomes a meter. The names, keys and
-values are those of `PaztportObservation`:
+as before; with Boot's observation auto-configuration but without Micrometer's
+metrics on the classpath, the registry has no meter handler and nothing becomes a
+meter. The names, keys and values are those of `PaztportObservation`:
 
 | Observation | Recorded by | Keys | Values |
 |---|---|---|---|

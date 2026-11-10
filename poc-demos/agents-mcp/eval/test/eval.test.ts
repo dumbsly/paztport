@@ -417,7 +417,7 @@ describe("runEval", { timeout: 60_000 }, () => {
     expect(md).toContain(`- Machine: ${platform()} ${release()}, ${arch()}`);
     expect(md).toContain(`${Math.round(totalmem() / 2 ** 30)} GB memory`);
     expect(md).toContain("- Ollama: version 0.12.3, model digest sha256-abc123, context length 8192 tokens (the model's num_ctx parameter)");
-    expect(md).toContain("A model whose context window is too short to hold the planted issue may never see it");
+    expect(md).toContain("The model's context window needs to be long enough to hold the planted issue");
   });
 
   it("theContextLengthFallsBackToOllamaContextLengthAndOtherwiseIsNotRecorded", async () => {

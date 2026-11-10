@@ -8,7 +8,7 @@ To run many runs and get a table with confidence intervals, use the command-line
 
 - Node 22.19 or newer.
 - The dependencies installed: `npm ci` in `poc-sdks/typescript`, then in `poc-demos/agents-mcp/`.
-- [Ollama](https://ollama.com), running (`ollama serve`), with at least one model pulled, for example `ollama pull qwen3:4b`. Any model Ollama lists can be chosen on the page. Small models often ignore the planted text and some do not call tools reliably, so which model you pick changes what you see.
+- [Ollama](https://ollama.com), running (`ollama serve`), with at least one model pulled, for example `ollama pull qwen3:4b`. Any model Ollama lists can be chosen on the page. Which model you pick changes what you see.
 
 ## Run it
 
@@ -81,6 +81,6 @@ Local models through Ollama are the default and the only choice unless you opt i
 
 To use a hosted model, start the demo with `--agent-dir` pointing at your own pi agent directory, where your provider is already configured. The page then lists the hosted models from that directory's `models.json` and shows a terms note beside them. With a hosted model, the run's prompts, the planted text and the tool results are sent to the provider under its terms. Read them first. The demo removes the usual provider API key variables from pi's environment unless you passed `--agent-dir`.
 
-Mistral's hosted API is not permitted for this demo. The page lists it as not permitted and the server refuses to start a run with it.
+Mistral's terms bar vulnerability, penetration or similar testing of its products, so the eval does not run against its hosted API. The page lists Mistral as not permitted and the server refuses to start a run with it.
 
 A run deliberately sends planted instructions to a model. Whether that is allowed depends on the provider's terms, and on the licence for a local model. Check them before you test; the [eval README](../eval/README.md#model-providers-and-terms) says how this project handles providers. This is not legal advice.
