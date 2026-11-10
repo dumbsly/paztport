@@ -4,13 +4,13 @@
 package org.paztport.http.internal;
 
 /**
- * Makes an event field safe to put in a log line. The suspect and {@code rid}
- * come from stamps, which say whatever their signer chose, and the
- * {@code PAZTPORT_EVENT} line is what operators and the demo read, so a raw
- * newline would let a signer write lines of its own. Control and
- * line-separator characters are written as unicode escapes and the value is
- * capped in length. Only what is logged changes; what is signed, verified and
- * acted on stays as received.
+ * Makes a value safe to put in a log line. The suspect and {@code rid} in an
+ * event or trace line come from stamps, which say whatever their signer chose,
+ * and the {@code PAZTPORT_EVENT} and {@code PAZTPORT_TRACE} lines are what an
+ * operator, or a tool that parses them, reads, so a raw newline would let a
+ * signer write lines of its own. Control and line-separator characters are
+ * written as unicode escapes and the value is capped in length. Only what is
+ * logged changes; what is signed, verified and acted on stays as received.
  */
 public final class LogSafe {
 

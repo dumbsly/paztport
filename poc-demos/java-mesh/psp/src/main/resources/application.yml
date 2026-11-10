@@ -23,8 +23,10 @@ spring:
 
 paztport:
   service-name: psp
-  # The PSP calls nobody, so no response is checked against it; the property is
-  # required wherever the trust material is set, and names the PSP itself.
+  # Required wherever the trust material is set. At a partner it checks only
+  # the responses to the service's own calls, and the PSP calls nobody, so it
+  # names the PSP itself; who may start a chain in a session is
+  # partner.client-origins, below.
   origins: ${PAZTPORT_ORIGINS:psp}
   # The demo's opening check, under /debug, is not a call in a session.
   unverified-paths: ${PAZTPORT_UNVERIFIED_PATHS:/debug}

@@ -105,7 +105,8 @@ public class TrustConfiguration {
     ResponseVerifier paztportResponseVerifier(PaztportProperties props) {
         if (props.getOrigins() == null || props.getOrigins().isEmpty()) {
             throw new IllegalStateException("paztport.origins is not set: a service holding trust material names "
-                    + "the entry points it accepts, for example paztport.origins=gateway");
+                    + "the origins it accepts, for example paztport.origins=gateway (at a partner they check only "
+                    + "its own calls' responses, and paztport.partner.client-origins governs entry)");
         }
         long runMaxAgeMs = props.getRunMaxAgeMs() != null ? props.getRunMaxAgeMs() : props.getMaxAgeMs();
         Path keyringFile = Path.of(props.getKeyringPath());

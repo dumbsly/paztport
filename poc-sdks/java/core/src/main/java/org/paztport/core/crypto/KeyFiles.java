@@ -18,8 +18,8 @@ import org.paztport.core.encoding.Base64Url;
 /**
  * Reads, and writes, the key files keygen writes: a private key as base64url of the PKCS#8 encoding, the policy
  * pin as base64url of the SPKI, with the surrounding JSON whitespace (space, tab, line feed and carriage return)
- * ignored and nothing else. Every service, tool and demo loads its keys through here so the file format has a
- * single reader.
+ * ignored and nothing else. The Spring starter and the tools load their keys through here, so the Java SDK has one
+ * reader of the format; an embedder that loads keys itself can do the same.
  */
 public final class KeyFiles {
 

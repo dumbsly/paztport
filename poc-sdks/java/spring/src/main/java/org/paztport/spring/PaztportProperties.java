@@ -7,8 +7,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.paztport.http.PartnerSessions;
-import org.paztport.http.boundary.BoundaryClient;
-import org.paztport.spring.outbound.PooledTlsClient;
 import org.springframework.beans.factory.InitializingBean;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
@@ -34,7 +32,7 @@ public class PaztportProperties implements InitializingBean {
     /** If set, rejection events are also POSTed to this responder URL. */
     private String responderUrl;
 
-    /** Private key that signs events sent to the responder; required when {@code responderUrl} is set. */
+    /** Private key that signs events sent to the responder; required when paztport.responder-url is set. */
     private String eventKeyPath;
 
     /**
@@ -48,14 +46,14 @@ public class PaztportProperties implements InitializingBean {
 
     /**
      * How long a call may wait for its answer, in milliseconds; positive. It is the read timeout of the client
-     * {@code paztport.tls-bundle} makes, and so of every call on the shared {@code RestClient.Builder}, and of the
-     * egress's calls to the partner: a peer that takes a call and never answers fails it as a timeout rather than
-     * holding the calling thread for ever. {@link PooledTlsClient} and {@link BoundaryClient} say exactly what it
-     * bounds on each. Generous, so that a slow but working peer is not cut off.
+     * paztport.tls-bundle makes, and so of every call on the shared RestClient.Builder, and of the egress's calls to
+     * the partner: a peer that takes a call and never answers fails it as a timeout rather than holding the calling
+     * thread for ever. PooledTlsClient and BoundaryClient say exactly what it bounds on each. Generous, so that a
+     * slow but working peer is not cut off.
      */
     private long readTimeoutMs = 30_000;
 
-    /** Shared token for {@code /admin/mode}; unset or blank disables the endpoint. */
+    /** Shared token for /admin/mode; unset or blank disables the endpoint. */
     private String adminToken;
 
     /** Path to this service's private key (stamping services only). */
@@ -81,10 +79,10 @@ public class PaztportProperties implements InitializingBean {
      */
     public static class Overlap {
 
-        /** Paths to further keyring.json files to pin beside {@code paztport.keyring-path}, in this order. */
+        /** Paths to further keyring.json files to pin beside paztport.keyring-path, in this order. */
         private List<String> keyringPaths = List.of();
 
-        /** Paths to further root.json files to pin beside {@code paztport.root-path}, in this order. */
+        /** Paths to further root.json files to pin beside paztport.root-path, in this order. */
         private List<String> rootPaths = List.of();
 
         public List<String> getKeyringPaths() {
@@ -106,7 +104,7 @@ public class PaztportProperties implements InitializingBean {
 
     private final Overlap overlap = new Overlap();
 
-    /** Path to this service's proofs-&lt;svc&gt;.json (calling services). */
+    /** Path to this service's proof bundle (calling services), named for it: proofs-orders.json for orders. */
     private String proofsPath;
 
     /**
@@ -155,44 +153,43 @@ public class PaztportProperties implements InitializingBean {
     private long maxAgeMs = 5000;
 
     /**
-     * How old the origin's stamp may be, in milliseconds; null means {@code maxAgeMs}, because inside one mesh a
-     * request tree is a single call.
+     * How old the origin's stamp may be, in milliseconds; unset means paztport.max-age-ms, because inside one mesh
+     * a request tree is a single call.
      */
     private Long runMaxAgeMs;
 
     /**
-     * Allowed origin service names. Required wherever the trust material ({@code keyring-path}, {@code root-path} and
-     * {@code policy-key-path}) is set: a service must say which entry points it accepts.
+     * Allowed origin service names. Required wherever the trust material (keyring-path, root-path and
+     * policy-key-path) is set: a service must say which entry points it accepts. At a partner they check only the
+     * responses to its own calls, and paztport.partner.client-origins governs entry.
      */
     private List<String> origins = List.of();
 
     /**
-     * Path prefixes that are neither verified nor attested, each one first path segment: {@code /} and then letters,
-     * digits, {@code . _ ~ -}, and not {@code .} or {@code ..}. An entry that is blank, or has a second {@code /},
-     * a {@code ;}, a {@code %} or a {@code \}, fails start-up, since a trailing comma would otherwise leave an empty
-     * entry and so every path unverified. Empty by default, so every path is verified, actuator included; a service
-     * whose probes or scrapes reach the application port lists their paths here, or serves them on Boot's
-     * management port.
+     * Path prefixes that are neither verified nor attested, each one first path segment: "/" and then letters,
+     * digits, ".", "_", "~" or "-", and not "." or "..". An entry that is blank, or has a second "/", a ";", a "%" or
+     * a "\", fails start-up, since a trailing comma would otherwise leave an empty entry and so every path
+     * unverified. Empty by default, so every path is verified, actuator included; a service whose probes or scrapes
+     * reach the application port lists their paths here, or serves them on Boot's management port.
      */
     private List<String> unverifiedPaths = List.of();
 
     /**
      * The policy names of the services this one calls, by the host it calls them at, where that host is not the
-     * name: {@code paztport.receiver-names.orders-internal=orders} stamps a call to {@code https://orders-internal/x}
-     * for {@code orders}. A host not listed is its own name, and hosts match with their ASCII letters in lower
-     * case, as {@code URI.getHost()} gives them, so a key that is not ASCII is refused. An IPv6 host keeps its
-     * brackets, so its key is {@code [[::1]]}, since Boot reads a bracketed key as written inside the brackets, and
-     * a trailing dot is kept.
+     * name: paztport.receiver-names.orders-internal=orders stamps a call to https://orders-internal/x for orders. A
+     * host not listed is its own name, and hosts match with their ASCII letters in lower case, as URI.getHost() gives
+     * them, so a key that is not ASCII is refused. An IPv6 host keeps its brackets, so its key is "[[::1]]", since
+     * Boot reads a bracketed key as written inside the brackets, and a trailing dot is kept.
      */
     private Map<String, String> receiverNames = new LinkedHashMap<>();
 
     /**
-     * The Spring Boot SSL bundle ({@code spring.ssl.bundle.*}) this service presents on its outbound calls and on
-     * its events to the responder; unset, they go without a client certificate. Under mutual TLS every receiver
-     * requires one, and takes the service it names as the sender. {@code false} is the same as unset, as Boot reads
-     * a property condition, so a test or profile can switch off a bundle an inherited configuration names: there is
-     * then no {@code PooledTlsClient}, and the service's calls and its events both go without the starter's TLS
-     * client. The egress's {@code paztport.boundary.tls-bundle} is its own and unaffected.
+     * The Spring Boot SSL bundle (spring.ssl.bundle.*) this service presents on its outbound calls and on its
+     * events to the responder; unset, they go without a client certificate. Under mutual TLS every receiver requires
+     * one, and takes the service it names as the sender. "false" is the same as unset, as Boot reads a property
+     * condition, so a test or profile can switch off a bundle an inherited configuration names: there is then no
+     * PooledTlsClient, and the service's calls and its events both go without the starter's TLS client. The
+     * egress's paztport.boundary.tls-bundle is its own and unaffected.
      */
     private String tlsBundle;
 
@@ -206,15 +203,15 @@ public class PaztportProperties implements InitializingBean {
      */
     public static class Boundary {
 
-        /** The partner's entry service: the boundary stamp's receiver and the {@code src} of what it answers. */
+        /** The partner's entry service: the boundary stamp's receiver and the "src" of what it answers. */
         private String partner;
 
         /** The partner's base URL, a scheme and an authority only; setting it makes this service the egress. */
         private String url;
 
         /**
-         * The Spring Boot SSL bundle presented to the partner. It is its own, apart from {@code paztport.tls-bundle},
-         * so that the partner's CA is trusted only on calls to the partner, and this organisation's only inside it.
+         * The Spring Boot SSL bundle presented to the partner. It is its own, apart from paztport.tls-bundle, so
+         * that the partner's CA is trusted only on calls to the partner, and this organisation's only inside it.
          */
         private String tlsBundle;
 
@@ -294,23 +291,26 @@ public class PaztportProperties implements InitializingBean {
      */
     public static class Partner {
 
-        /** Makes this service answer {@code POST /paztport/session}; it needs everything else here. */
+        /**
+         * Makes this service a partner's entry, which answers POST /paztport/session; it then needs reply-cert-path,
+         * client-policy-key-paths and client-origins too.
+         */
         private boolean enabled = false;
 
         /**
-         * Path to {@code reply-cert.json}: the policy key's certificate for this service's key, the one at
-         * {@code paztport.key-path}, which signs session replies. Clients accept a reply only until its
-         * {@code notAfter}, so it is reissued before then.
+         * Path to reply-cert.json: the policy key's certificate for this service's key, the one at
+         * paztport.key-path, which signs session replies. Clients accept a reply only until its notAfter, so it is
+         * reissued before then.
          */
         private String replyCertPath;
 
-        /** Paths to the {@code policy.pub} of each organisation whose sessions may be attested. */
+        /** Paths to the policy.pub of each organisation whose sessions may be attested. */
         private List<String> clientPolicyKeyPaths = List.of();
 
         /** The service names allowed to start a chain in a client's attested session. */
         private List<String> clientOrigins = List.of();
 
-        /** What an unsafe session may not do, as {@code METHOD /path}; the reply tells the client. */
+        /** What an unsafe session may not do, as "METHOD /path"; the reply tells the client. */
         private List<String> unsafeDisabled = List.of();
 
         /** How many sessions one client certificate may hold at once; its least recently used goes first. */

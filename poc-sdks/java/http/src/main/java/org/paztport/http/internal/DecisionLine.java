@@ -13,8 +13,8 @@ import org.paztport.http.RequestContext;
 
 /**
  * The {@code PAZTPORT_TRACE decision} line, which the public-write rule and the partner's unsafe-session gate both
- * log, built in one place so that operators and the demo read one format wherever it comes from. It holds no state
- * and is not for an application to use.
+ * log, built in one place so that an operator, or a tool that parses the trace, reads one format wherever it comes
+ * from. It holds no state and is not for an application to use.
  */
 public final class DecisionLine {
 

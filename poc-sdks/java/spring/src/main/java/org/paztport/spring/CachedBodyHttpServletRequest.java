@@ -24,8 +24,10 @@ import java.util.Map;
 
 /**
  * Reads the request body once into memory so it can be hashed for binding in the
- * filter and still read again by the controller. Fine for the small bodies in this
- * POC.
+ * filter and still read again by the controller. The inbound and partner filters
+ * read every request they filter this way, whether or not the service verifies, and
+ * hold its body whole, with no cap on its size: a service that accepts large bodies
+ * needs a size limit in front of them.
  *
  * <p>Once the body's stream has been read the container no longer parses a
  * {@code POST} form body into parameters, so this serves them from the cached

@@ -60,7 +60,9 @@ func NewInboundRequest(method, target string, body []byte, header func(name stri
 // spec's for a request at its receiver: receiver in the route, the expected binding req's own (none when
 // it has none, which never matches), the tokens of its headers (an absent header none), the nonce key
 // <rid>|<last svc>|<last rcv>|req from the chain (none when it does not read, which the verifier refuses
-// first) and peer. The verifier reads the chain again for itself, as it must.
+// first) and peer. Where the chain names a keyed operation, the receiver completes the input in readKey:
+// the nonce key becomes <rid>|<last svc>|<last rcv>|<key value>|req, or, where the target gives no key
+// value, the receiver is the service alone. The verifier reads the chain again for itself, as it must.
 func requestInput(req InboundRequest, receiver string, peer *verify.Peer) (verify.Input, stamp.Chain) {
 	in := verify.Input{Receiver: receiver, ReceiverInRoute: true, Peer: peer}
 	if bind, err := wire.Bind(req.Method, req.Target, req.Body); err == nil {

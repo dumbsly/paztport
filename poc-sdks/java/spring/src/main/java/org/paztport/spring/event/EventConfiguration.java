@@ -21,7 +21,8 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /**
- * The bean that reports attestation events: to the responder, signed, where there is one, otherwise to the log.
+ * The bean that reports verification events ({@code AttestationEvent}), where {@code paztport.verify=true}: to the
+ * log, and to the responder, signed, where there is one.
  * {@link PaztportAutoConfiguration} imports it; it is not for an application to use directly.
  */
 @Configuration(proxyBeanMethods = false)
