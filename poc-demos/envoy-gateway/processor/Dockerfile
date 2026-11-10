@@ -14,9 +14,9 @@
 #
 #   docker build -f poc-demos/envoy-gateway/processor/Dockerfile --target echo -t paztport-echo:dev .
 #
-# Each base is pinned by the digest of its index. golang:1.27.3 at 2026-10-21 (docker-library/repo-info,
-# repos/golang/remote/1.27.3.md at 7f748ed); distroless static-debian12:nonroot as uploaded on 2026-08-21.
-FROM golang:1.27.3@sha256:f20d83a83e18dbd2a4714b8ffd4b30b287b6243962dd75608e86abcc63ba4efc AS build
+# Each base is pinned by the digest of its index. golang:1.27.4 at 2026-11-10 (docker-library/repo-info,
+# repos/golang/remote/1.27.4.md at 2d1d058); distroless static-debian13:nonroot as uploaded on 2026-10-31.
+FROM golang:1.27.4@sha256:08bcb99a38f85a265f9a93d1d3323e2440eec333380f3ea26ee0dec9264bb41c AS build
 ENV CGO_ENABLED=0 GOTOOLCHAIN=local GOFLAGS=-mod=readonly
 WORKDIR /src/poc-demos/envoy-gateway/processor
 COPY poc-sdks/go/ /src/poc-sdks/go/
@@ -38,7 +38,7 @@ RUN go build -trimpath -ldflags='-s -w' -o /out/echo ./cmd/echo \
  && cp /src/LICENSE /src/NOTICE /out/echo-licenses/ \
  && cp "$(go env GOROOT)/LICENSE" "$(go env GOROOT)/PATENTS" "$std/"
 
-FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab AS echo
+FROM gcr.io/distroless/static-debian13:nonroot@sha256:25ac8f0c3b2334a9eb05452266bd4697864a8c8ef0ef71e5e6480d7f92868329 AS echo
 COPY --from=echo-build /out/echo /echo
 COPY --from=echo-build /out/echo-licenses/ /licenses/
 USER 65532:65532
@@ -46,7 +46,7 @@ EXPOSE 8080
 ENTRYPOINT ["/echo"]
 
 # The processor's image, the default target.
-FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
+FROM gcr.io/distroless/static-debian13:nonroot@sha256:25ac8f0c3b2334a9eb05452266bd4697864a8c8ef0ef71e5e6480d7f92868329
 COPY --from=build /out/processor /processor
 COPY --from=build /out/licenses/ /licenses/
 USER 65532:65532
