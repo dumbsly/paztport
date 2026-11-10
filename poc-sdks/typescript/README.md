@@ -16,6 +16,28 @@ One test reads a keyring written by the Java keygen, from `PAZTPORT_JAVA_KEYRING
 or else the Java demo's `out/keys/keyring.json`. With neither it skips; `./run test`
 writes one and names it, so there it always runs.
 
+| Package | What it holds |
+| --- | --- |
+| [`@paztport/core`](#paztportcore) | The protocol, with no transport. |
+| [`@paztport/mcp`](#paztportmcp) | The MCP transport on top of core: the `tools/call` binding, the client side and the server side. |
+| [`@paztport/policy-tool`](#policy-tool) | `paztport-keygen` and `paztport-policy`, which write the keys, keyrings, roots and proof bundles the other two read. |
+
+A server checks a received `tools/call` with `verifyCall`. `params` is the call's params object as received, and
+`keyrings`, `roots`, `sess` and `policyNotAfter` come from the server's own pinned policy material:
+
+```ts
+import { NONCE_TTL_MS, NonceCache } from "@paztport/core";
+import { verifyCall } from "@paztport/mcp";
+
+const nonces = new NonceCache(NONCE_TTL_MS);   // remembers the nonce keys spent
+const config = { keyrings, roots, allowedOrigins: ["session"], sess, nonces, now: Date.now(), policyNotAfter };
+const checked = verifyCall(params, { serverId: "github" }, config);
+if (!checked.result.ok) throw new Error(checked.result.reason);   // a reason code, such as BINDING_MISMATCH
+// checked.influence holds the call's influence entries, and only when the call verified
+```
+
+`verifyCall` derives the receiver (`mcp:github.<tool>`), the binding and the nonce key itself, and never throws.
+
 ## @paztport/core
 
 The protocol, with no transport: base64url, Ed25519 and SHA-256 helpers, canonical JSON, v3 stamps and chains, the
@@ -36,17 +58,20 @@ operation in an `rcv`.
 
 - **v3 only.** The live and offline chain verifiers take v3 stamps only: a stamp's `v` must be 3, and a
   chain holding any other is malformed, `CHAIN_MISSING`.
-- **Tokens in, tokens out.** The SDK has no JSON library: it reads every Paztport object from bytes with its own
-  strict reader, and writes it as its JCS bytes ([wire.md](../spec/wire.md#json)). `writeToken` writes an
+- **Tokens in, tokens out.** The SDK has no JSON library: it reads every Paztport object from bytes with its
+  own strict reader, and writes it as its JCS bytes ([wire.md](../spec/wire.md#json)). `writeToken` writes an
   object's token, the base64url of those bytes, and `readToken` reads one; `readWireBytes` reads wire bytes,
-  `readFile` a file, and `printFile` writes the file format. The three readers throw `MalformedJson`, naming the
-  reading `step`, for bytes they refuse. Each object has a reader that takes its token and refuses anything but
-  exactly its members: `readChain`, `readProof`, `readInfluence`, `readAttestation`, `readLocalDecision`,
-  `readSessionRequest`, `readSessionReply`, `readKeyring`, `readRoot` and `readLocalRules`, and for files
-  `readKeyringFile`, `readRootFile`, `readReplyCertFile`, `readProofBundleFile` and `readLocalRulesFile`. The
-  verifiers take tokens as received (`verifyChain`'s chain, proof and influence, `verifyResponse`'s attestation
-  and `checkSessionReply`'s reply), so a token that does not read is the typed rejection of the check that reads
-  it. `canonicalize` is JCS for content Paztport only hashes, every number written as RFC 8785 writes a binary64.
+  `readFile` a file, and `printFile` writes the file format.
+- **Readers.** The three readers throw `MalformedJson`, naming the reading `step`, for bytes they refuse. Each
+  object has a reader that takes its token and refuses anything but exactly its members: `readChain`,
+  `readProof`, `readInfluence`, `readAttestation`, `readLocalDecision`, `readSessionRequest`,
+  `readSessionReply`, `readKeyring`, `readRoot` and `readLocalRules`, and for files `readKeyringFile`,
+  `readRootFile`, `readReplyCertFile`, `readProofBundleFile` and `readLocalRulesFile`.
+- **Verifiers take tokens.** The verifiers take tokens as received (`verifyChain`'s chain, proof and
+  influence, `verifyResponse`'s attestation and `checkSessionReply`'s reply), so a token that does not read is
+  the typed rejection of the check that reads it.
+- **Canonicalising.** `canonicalize` is JCS for content Paztport only hashes, every number written as RFC 8785
+  writes a binary64.
 - **The receiver.** Every v3 stamp names the hop it was handed to, and the verifier checks each `rcv` against
   the next stamp and the last against `receiver`. An `rcv` is a service's name or `svc#operation` (check 4
   accepts either for a hop's next service, and takes the last `rcv` as exactly `receiver`). A live call or
@@ -57,54 +82,62 @@ operation in an `rcv`.
   result but `POLICY_EXPIRED`. No transport in this repository supplies one: the MCP wrappers (`verifyCall`,
   `verifyMcpResponse`, `McpServerSession.checkCall`) pass no peer, because stdio has no TLS, so for MCP over
   stdio the live order ends at check 11, and the peer check is core's (`verifyChain`).
-- **The policy's window.** A verifier config pins one or more keyrings (`keyrings`, each a `PinnedKeyring`) and
-  roots (`roots`, each a `PinnedRoot`), each with its own `notAfter`, so a rollover can pin the old and the new
-  together. Live, only those current at `now` are used: a stamp verifies under any key the current keyrings give
-  its service, and a proof against a current root with its `rootId`. A live config also requires
-  `policyNotAfter`, the earlier of the latest keyring and the latest root `notAfter` (`pinnedNotAfter`); past it
-  every chain is `POLICY_EXPIRED`, before the live order's checks. Offline, a keyring or root counts for a record
-  no later than its `notAfter` (`Infinity` for none), and a record for which no keyring, or no root, counts is
-  `POLICY_EXPIRED`. Every live verifier here is per session, pinning that session's one keyring and root: the
-  server's call check takes the client root's and `clientKeyringNotAfter` (`earliestNotAfter`), and the client's
-  response check the server root's and, in the entry-key form, `serverKeyringNotAfter` (`serverPolicyNotAfter`).
-  `createEventVerifier` takes `keyrings` too, a non-empty array it copies at construction, and accepts a signer any
-  of them has a key for.
+- **The replay cache.** `NonceCache` is a concrete in-memory class, and `VerifierConfig.nonces` takes that
+  class rather than an interface: its `seenBefore` is synchronous and has no failure path, so a verifier in
+  this SDK keeps its nonce keys in the memory of the process that runs it.
+- **The policy's window.** A verifier config pins one or more keyrings (`keyrings`, each a `PinnedKeyring`)
+  and roots (`roots`, each a `PinnedRoot`), each with its own `notAfter`, so a rollover can pin the old and
+  the new together.
+- **Live checks.** Live, only those current at `now` are used: a stamp verifies under any key the current keyrings
+  give its service, and a proof against a current root with its `rootId`. A live config also requires
+  `policyNotAfter`, the earlier of the latest keyring and the latest root `notAfter` (`pinnedNotAfter`); past
+  it every chain is `POLICY_EXPIRED`, before the live order's checks.
+- **Offline.** Offline, a keyring or root counts for a record no later than its `notAfter` (`Infinity` for
+  none), and a record for which no keyring, or no root, counts is `POLICY_EXPIRED`.
+- **Per-session verifiers.** Every live verifier here is per session, pinning that session's one keyring and
+  root: the server's call check takes the client root's and `clientKeyringNotAfter` (`earliestNotAfter`), and
+  the client's response check the server root's and, in the entry-key form, `serverKeyringNotAfter`
+  (`serverPolicyNotAfter`).
+- **Event verifiers.** `createEventVerifier` takes `keyrings` too, a non-empty array it copies at
+  construction, and accepts a signer any of them has a key for.
 - **Signed keyrings.** A keyring is signed by its policy key (`signKeyring`, `verifyKeyring`), and the session
   request carries the signature as `clientKeyringSig`, with the keyring's `notAfter` as `clientKeyringNotAfter`.
   A request without the signature, or with one that is `null`, not a string or empty, is malformed and opens no
   session (`InvalidParams`, JSON-RPC `-32602`). One whose signature is wrong is unsafe live and not attested
   offline.
 - **Handshakes judge the windows, live.** `sessionStatus` takes the server's own keyring window and `now`, and
-  opens a session unsafe when either side's root or keyring is past its `notAfter`, so a server whose own material
-  has expired degrades to unsafe sessions. `verifySessionReply` (the client's live check) refuses the server's
-  root, and in the entry-key form its keyring, when expired, as `BAD_SIGNATURE`. `isAttestedSession` checks a
-  recorded handshake offline at the record's time: each root and keyring, on either side, counts only up to its
-  `notAfter`. A root or keyring without a `notAfter` is malformed: `readRoot`, `readRootFile` and `readSessionRequest`
-  refuse it, and `verifyRoot` and `verifyKeyring` never accept it.
-- **A record set's checks are core's.** `recordedSession` reads a recorded handshake: attested at a time, at all
-  (at the earliest of its limits) and the `policyNotAfter` a response in it is checked with, undefined where the
-  server's signatures do not verify, which check 0 refuses (`POLICY_EXPIRED`).
-  `callInSession` limits a recorded call to its session (`OUTSIDE_SESSION`), `newRecordSet` holds a record set's
-  spent keys and its response cache that never forgets, and `verifyRecordedLocalStep` checks a recorded local step
-  ([the MCP profile](../spec/README.md#the-mcp-profile)) with its signers given. The agents demo's `verify` calls them.
-- **The handshake's pieces are core's.** `readSessionRequest` reads a request from its token, with exactly its
-  members (a missing `clientKeyringSig` is refused, as in the Java SDK), `sessionRequest` and `replacementRequest`
-  write one, and `buildSessionReply` answers it in the entry-key form. `readSessionReply` reads a reply from its
-  token, and `checkSessionReply` is the client's check of a reply's token, returning a `ReplyCheck` (`ATTESTED`,
-  `UNSAFE`, `MALFORMED_REPLY`, `PIN_MISMATCH` or `BAD_SIGNATURE`). A service that loads its own keyring and root
-  checks them with `checkOwnMaterial` and warns near their end with `expiryWarnings` (`WARN_WITHIN_MS`,
-  `describeNotAfter`).
-- **The server's decision is core's.** `decideServerCall` is a server's decision on a tool call once its chain has
+  opens a session unsafe when either side's root or keyring is past its `notAfter`, so a server whose own
+  material has expired degrades to unsafe sessions. `verifySessionReply` (the client's live check) refuses the
+  server's root, and in the entry-key form its keyring, when expired, as `BAD_SIGNATURE`.
+- **Handshakes judged offline.** `isAttestedSession` checks a recorded handshake offline at the record's time:
+  each root and keyring, on either side, counts only up to its `notAfter`.
+- **A missing `notAfter`.** A root or keyring without a `notAfter` is malformed: `readRoot`, `readRootFile`
+  and `readSessionRequest` refuse it, and `verifyRoot` and `verifyKeyring` never accept it.
+- **Checking a record set.** `recordedSession` reads a recorded handshake: attested at a time, at all (at the
+  earliest of its limits) and the `policyNotAfter` a response in it is checked with, undefined where the
+  server's signatures do not verify, which check 0 refuses (`POLICY_EXPIRED`). `callInSession` limits a
+  recorded call to its session (`OUTSIDE_SESSION`), `newRecordSet` holds a record set's spent keys and its
+  response cache that never forgets, and `verifyRecordedLocalStep` checks a recorded local step ([the MCP
+  profile](../spec/README.md#the-mcp-profile)) with its signers given. The agents demo's `verify` calls them.
+- **The handshake's pieces.** `readSessionRequest` reads a request from its token, with exactly its members (a
+  missing `clientKeyringSig` is refused, as in the Java SDK), `sessionRequest` and `replacementRequest` write
+  one, and `buildSessionReply` answers it in the entry-key form. `readSessionReply` reads a reply from its
+  token, and `checkSessionReply` is the client's check of a reply's token, returning a `ReplyCheck`
+  (`ATTESTED`, `UNSAFE`, `MALFORMED_REPLY`, `PIN_MISMATCH` or `BAD_SIGNATURE`). A service that loads its own
+  keyring and root checks them with `checkOwnMaterial` and warns near their end with `expiryWarnings`
+  (`WARN_WITHIN_MS`, `describeNotAfter`).
+- **The server's decision.** `decideServerCall` is a server's decision on a tool call once its chain has
   verified: in an attested session the influence rule decides over the client's influence and every class the
-  server has served (`publicWriteDecision` is the rule for a write), and otherwise the tools disabled when unsafe
-  are refused. `sanitiseVerdictReason` makes a server's refusal reason safe to show, since it reaches the model,
-  `labelToEntry` turns a verified response's label into the influence entry a client records, and
-  `shapedOnlyByTrusted` says whether influence holds no untrusted content. `mintOrigin` takes the origin name as
-  `svc`, which the policy and its receivers' allowed origins must carry too. `mintOrigin` and `stampToolCall`
-  refuse a signing name or a receiver that is not a route node (`requireStampableNames`), since such a stamp could
-  never verify, and `stampLocalStep` refuses a signing name that is not one (the tool in its `local:<tool>`
-  receiver is data: an unlisted tool's refusal verifies without a route proof); `signStamp`, the low-level
-  builder, does not, so a test can still build a bad stamp.
+  server has served (`publicWriteDecision` is the rule for a write), and otherwise the tools disabled when
+  unsafe are refused. `sanitiseVerdictReason` makes a server's refusal reason safe to show, since it reaches
+  the model, `labelToEntry` turns a verified response's label into the influence entry a client records, and
+  `shapedOnlyByTrusted` says whether influence holds no untrusted content.
+- **Stamping names.** `mintOrigin` takes the origin name as `svc`, which the policy and its receivers' allowed
+  origins must carry too. `mintOrigin` and `stampToolCall` refuse a signing name or a receiver that is not a
+  route node (`requireStampableNames`), since such a stamp could never verify, and `stampLocalStep` refuses a
+  signing name that is not one (the tool in its `local:<tool>` receiver is data: an unlisted tool's refusal
+  verifies without a route proof); `signStamp`, the low-level builder, does not, so a test can still build a
+  bad stamp.
 
 ## @paztport/mcp
 

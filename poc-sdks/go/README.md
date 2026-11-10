@@ -19,20 +19,7 @@ a caller, a partner and an egress. It replays `spec/vectors/v3.json` and
   and verdicts. The adapter for a server or a gateway is the embedder's.
 - **Confirming the operation over HTTP.** The SDK reads operation tables
   (`policy.ReadOperationTable`), but the receiver does not work out from its
-  routing which operation a request invokes. An embedder that names operations
-  supplies `svc#operation` as the receiver itself, in the `Receiver`'s `Name`,
-  and confirms the operation on its own side. The `Receiver`, given its own
-  table in `Operations`, reads the key value of the operation `Name` names from
-  the request's target, and refuses `BINDING_MISMATCH` a keyed operation's
-  request that gives none. The `Caller`, given the receivers' tables in
-  `Operations`, names the operation and its key value from the target in
-  `Stamp`; without a table for a receiver it names the service. An embedder may
-  still pass `svc#operation` with no table held; that call reads no key value,
-  so for a keyed operation the caller's response key is the unkeyed one and its
-  own check refuses the second item's response `REPLAY`; hold the receiver's
-  table to call a keyed operation per item. The verifier accepts `svc#operation`
-  in a stamp's `rcv`. A `Receivers` map names services only, and a response's
-  `src` is the service.
+  routing which operation a request invokes. Confirming it is the embedder's.
 - **Tools.** It has no keygen or policy tool: it generates no keys, builds no
   route tree and writes no files. The Java and TypeScript SDKs' keygens and policy
   tools write the keys, keyrings, roots, proof bundles and reply certificates it
@@ -64,7 +51,10 @@ replace github.com/dumbsly/paztport/poc-sdks/go => ../path/to/poc-sdks/go
 
 - `keys`: Ed25519 keys as the spec encodes them, key files and pins.
 - `policy`: the signed keyring, signed root and reply certificate, routes, the
-  salted Merkle tree and proof bundles, and their files.
+  salted Merkle tree and proof bundles, and their files; and operation tables
+  (`OperationTable`, read with `ReadOperationTable` or `LoadOperationTable`),
+  which map a request to its operation with `Match` and to a keyed operation's
+  key value with `KeyValue`.
 - `stamp`: stamps and chains, the prompt and response bindings, and the `Stamper`
   that starts, extends and answers chains and stamps the boundary call.
 - `influence`: influence entries and content labels, the commitment, the
@@ -106,6 +96,20 @@ The packages decide; the code that embeds them carries out what they decide:
   Under `enforce` the adapter sends `paztporthttp.Unavailable()` (503, no body);
   under `audit`, and with no mode, it serves the request unverified and
   unattested, with the chain and the influence as received.
+- **Names and confirms operations.** An embedder that names operations
+  supplies `svc#operation` as the receiver itself, in the `Receiver`'s `Name`,
+  and confirms the operation on its own side. The `Receiver`, given its own
+  table in `Operations`, reads the key value of the operation `Name` names from
+  the request's target, and refuses `BINDING_MISMATCH` a keyed operation's
+  request that gives none. The `Caller`, given the receivers' tables in
+  `Operations`, names the operation and its key value from the target in
+  `Stamp`; without a table for a receiver it names the service. An embedder may
+  still pass `svc#operation` with no table held; that call reads no key value,
+  so for a keyed operation the caller's response key is the unkeyed one and its
+  own check refuses the second item's response `REPLAY`; hold the receiver's
+  table to call a keyed operation per item. The verifier accepts `svc#operation`
+  in a stamp's `rcv`. A `Receivers` map names services only, and a response's
+  `src` is the service.
 - **Offers the delivery key.** `Accepted.Delivery()` gives the `Delivery`
   (`RID`, `Svc`, `Rcv`, `Key`, `Bind`) of a request whose chain was verified at
   this hop, and false otherwise. `Rcv` names the operation when the last stamp
