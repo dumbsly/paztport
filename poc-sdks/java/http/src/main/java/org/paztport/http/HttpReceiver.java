@@ -47,12 +47,12 @@ import org.slf4j.LoggerFactory;
  *   <li>{@code ENFORCE}: verify, publish an event and refuse {@code 403 {"reason":"<code>"}} on failure.</li>
  * </ul>
  *
- * A nonce cache that cannot answer gives no verdict, so there is no event and no reason code. Under {@code ENFORCE}
+ * <p>A nonce cache that cannot answer gives no verdict, so there is no event and no reason code. Under {@code ENFORCE}
  * the request is refused 503 with an empty body ({@link HttpAnswer#unavailable}) and never reaches the handler; under
  * {@code AUDIT}, and on a receiver with no mode, it is served with its chain unverified and its answer unattested.
  * One warning names the cause's class and nothing else, and {@link Accepted#cacheFailure} carries the failure.
  *
- * The influence the handler starts from is the verified entries when the request verified, and otherwise the
+ * <p>The influence the handler starts from is the verified entries when the request verified, and otherwise the
  * entries as received. Influence that cannot be read is never dropped, because dropping it could hide private data
  * from the rule: in every mode, a non-origin service refuses it {@code 400 {"reason":"INFLUENCE_MISMATCH"}}.
  *

@@ -7,7 +7,17 @@ import { canonicalize, writeWire } from "../encoding/jcs.ts";
 import { readToken, type JsonValue } from "../encoding/json.ts";
 import { array, exactly, object, str } from "../internal/fields.ts";
 
+/**
+ * What kind of content an influence entry records (spec sessions-and-influence.md, Influence): content from outside
+ * the trust boundary, data that must not reach a public destination unless its owner's, content already public, or
+ * content the client cannot vouch for.
+ */
 export type InfluenceClass = "third-party" | "private" | "public" | "local-untrusted";
+/**
+ * One record of content that shaped a call: its class, `src` naming the source (`server:<serverId>`, say), `h`
+ * identifying the content, and, when it came from a label, the label's `cid` and any `owner`, a non-empty opaque id
+ * of whose data it is.
+ */
 export type InfluenceEntry = { cls: InfluenceClass; src: string; h: string; cid?: string; owner?: string };
 
 function cmp(a: string, b: string): number {

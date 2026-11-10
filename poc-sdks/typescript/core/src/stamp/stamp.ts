@@ -7,17 +7,31 @@ import { readToken, type JsonValue } from "../encoding/json.ts";
 import { isProtocolText } from "../encoding/json-rules.ts";
 import { array, exactly, int, object, str } from "../internal/fields.ts";
 
+/** A v3 stamp (spec wire.md, Stamps): one hop's signature over what it sent, linked to the stamp before it. */
 export type Stamp = {
   v: 3;
+  /** The signing service, whose key the verifier looks up by this name. */
   svc: string;
+  /** The signer's instance, as the signer reports it: signed, but only the signer vouches for it. */
   inst: string;
+  /** The request id, minted at the origin and carried unchanged by every stamp. */
   rid: string;
+  /** When this stamp was signed, in ms since the Unix epoch. */
   ts: number;
+  /** The session id, or "" for a chain with no session. */
   sess: string;
+  /**
+   * The receiver this stamp was signed for: the next stamp's svc, or for the last stamp the chain's receiver. Over
+   * HTTP it may name the operation invoked there, as `<service>#<operation>`.
+   */
   rcv: string;
+  /** The binding of what this hop sent (spec wire.md, Bindings). */
   bind: string;
+  /** The commitment to the influence entries this hop sent under, or "" for none. */
   infl: string;
+  /** The previous stamp's sig, exactly as written, or "" at the origin. */
   prev: string;
+  /** The base64url Ed25519 signature, by svc's key, over the signed bytes (signingBytes). */
   sig: string;
 };
 

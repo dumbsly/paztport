@@ -19,6 +19,7 @@ const HASHED: Rules = {
   },
 };
 
+/** The writer's rules for Paztport's own objects: it refuses what a reader refuses, with MalformedJson. */
 export const PROTOCOL: Rules = {
   protocol: true,
   refuse: (why) => {

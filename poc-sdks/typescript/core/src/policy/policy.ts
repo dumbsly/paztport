@@ -13,6 +13,10 @@ import type { SignedRoot } from "./root.ts";
 
 export const DEFAULT_DEPTH = 8;
 
+/**
+ * A service's `proofs-<svc>.json` (spec wire.md, Proof bundles): the service, the `rootId` of the root its proofs
+ * were built under, and the proofs it attaches to the calls it sends, by route.
+ */
 export type ProofBundle = { service: string; rootId: string; proofs: Record<string, MerkleProof> };
 
 /** "v" + 12 lowercase hex of 6 random bytes: a fresh label per build, compared and never derived. */

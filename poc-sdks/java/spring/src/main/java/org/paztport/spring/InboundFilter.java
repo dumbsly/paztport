@@ -80,15 +80,36 @@ import org.springframework.web.util.ContentCachingResponseWrapper;
  * the raw request target: a chain naming it is verified with the key value in its nonce key, and one whose target
  * gives none (a percent-encoded segment Spring decoded to reach the handler, say) is refused {@code BINDING_MISMATCH}.
  * Where the chain named an operation and the receiver verified the request with it, under a mode or for attestation
- * alone, the filter records that operation and its key value on the request ({@link VerifiedOperation}), so that a
- * later filter which changes the method or the path, and so the handler or the item it acts on, by wrapping the request
- * or by dispatching it elsewhere, is caught as the handler is about to run; the answer of a handler caught there is
- * never attested, nor is any answer whose handler the check never saw (one a filter wrote itself, or another registered
- * servlet's), nor one an interceptor wrote when it stopped the request before the handler was reached (Paztport's last
- * interceptor records that it was), while on a chain that names no operation the answer is attested, there being no
- * operation to vouch for. A handler reached by an include cannot set the status, so where the check refuses one, this
- * filter writes the refusal once the chain returns, in place of anything written before it, unless the response is
- * already committed.
+ * alone, the filter records that operation and its key value on the request ({@link VerifiedOperation}), and the
+ * dispatch check reads them as the first handler the request reaches is about to run.
+ *
+ * <p>Apart from the cases above, in which nothing is attested (a handler that throws, a forward behind another
+ * filter's wrapper, an async response), an answer is attested only when:
+ *
+ * <ul>
+ *   <li>the receiver attests it: the chain passed the live order here;</li>
+ *   <li>the response is not committed when the answer is finished; and</li>
+ *   <li>where the chain named an operation, its handler was checked as it was about to run, was reached, and was not
+ *       contradicted: it is the recorded operation and, for a keyed operation, reads the recorded key value.</li>
+ * </ul>
+ *
+ * <p>The reasons:
+ *
+ * <ul>
+ *   <li>A response stamp is shaped like a request stamp, so attesting a chain nobody checked would let whoever sent it
+ *       mint stamps under this service's key ({@link HttpReceiver}).</li>
+ *   <li>A committed response has gone out with what the container sent, which the handler did not finish with.</li>
+ *   <li>Only the handler confirmed vouches for the operation. A later filter that changes the method, the path or the
+ *       parameters, and so the handler or the item it acts on, by wrapping the request or by dispatching it
+ *       elsewhere, is caught as the handler is about to run, which marks the record contradicted. An answer whose
+ *       handler the check never saw (one a filter wrote itself, or another registered servlet's) is not the
+ *       operation's, nor is one an interceptor wrote when it stopped the request before the handler was reached:
+ *       Paztport's last interceptor records that it was.</li>
+ * </ul>
+ *
+ * <p>A chain that names no operation is still attested, there being no operation to vouch for. A handler reached by
+ * an include cannot set the status, so where the check refuses one, this filter writes the refusal once the chain
+ * returns, in place of anything written before it, unless the response is already committed.
  *
  * <p>A path listed in {@code paztport.unverified-paths} ({@link #unverified}) is not filtered, so it is not observed.
  * None is listed unless the application lists it.
@@ -118,6 +139,13 @@ public final class InboundFilter extends OncePerRequestFilter {
      * @param origin true for an entry point ({@code paztport.origin=true}), which ignores the inbound chain and
      *     influence and never attests
      * @param receiver this service's name
+     * @param modeHolder where the current {@link VerificationMode} is read, once per request; needed where
+     *     {@code verifyRequests}, otherwise unused and may be null
+     * @param publisher where the event for each request that fails verification under a mode goes; needed where
+     *     {@code verifyRequests}, otherwise unused and may be null, since a failure that only withholds the
+     *     attestation is not reported
+     * @param listener offered every request before any verification ({@link ReceivedRequestListener}), or null for
+     *     none
      * @param stamper this service's stamper, or null where it has no stamp key and so cannot attest
      * @param operations what tells each request's operation, and holds this service's own table for a keyed
      *     operation's key value, or null where this service names none; a chain that names an operation is then
@@ -230,6 +258,9 @@ public final class InboundFilter extends OncePerRequestFilter {
             VerifiedOperation verified = null;
             if (accepted.operation() != null && request.getDispatcherType() == DispatcherType.REQUEST) {
                 // Read as the handler is about to run, which catches a later filter that changes the handler or item.
+                // Recorded only on the request's own dispatch, which comes before any handler: the filter verifies a
+                // forward or include only where it is not already filtering the request (one an unverified path's
+                // handler starts, say), and by then a handler has run, so the first handler is past checking.
                 verified = new VerifiedOperation(accepted.operation(), accepted.key(),
                         mode == VerificationMode.ENFORCE);
                 request.setAttribute(VerifiedOperation.ATTRIBUTE, verified);

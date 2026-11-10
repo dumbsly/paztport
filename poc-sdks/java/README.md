@@ -104,13 +104,14 @@ has one, the authenticated peer.
 ## paztport-http
 
 v3 over HTTP, with no web framework. `PaztportHeaders` names the five headers:
-`X-Path-Chain`, `X-Path-Proof`, `X-Path-Influence`, the response's
-`X-Path-Response`, and `SESSION`, `X-Path-Session`, which names the session a call
-is in. `isPaztport` says whether a name is Paztport's: any that begins with
-`X-Path-`, in any ASCII case. `RequestBinding` computes `bind` over the method, the
-raw path plus `?` and the raw query when there is one, and the body. `HttpWire`
-encodes the headers and decodes them to the JSON text they carry, builds a request's
-verify input (nonce key `<rid>|<last svc>|<last rcv>|req`, or
+`CHAIN` (`X-Path-Chain`), `PROOF` (`X-Path-Proof`), `INFLUENCE`
+(`X-Path-Influence`), the response's `RESPONSE` (`X-Path-Response`), and `SESSION`
+(`X-Path-Session`), which names the session a call is in. `isPaztport` says whether
+a name is Paztport's: any that begins with `X-Path-`, in any ASCII case.
+`RequestBinding` computes `bind` over the method, the raw path plus `?` and the raw
+query when there is one, and the body. `HttpWire` encodes the headers and decodes
+them to the JSON text they carry, builds a request's verify input (nonce key
+`<rid>|<last svc>|<last rcv>|req`, or
 `<rid>|<last svc>|<last rcv>|<key value>|req` for a keyed operation), computes a
 response's result hash over its status and body, and checks a response's attestation
 against the chain the caller sent (nonce key `<rid>|<last rcv>|resp`, or

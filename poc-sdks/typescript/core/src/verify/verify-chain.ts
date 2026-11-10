@@ -7,7 +7,9 @@ import type { NonceCache } from "./nonce.ts";
 import type { VerifyResult } from "./reason.ts";
 import { isNotAfter } from "../policy/validity.ts";
 
+/** The default call window: how far the last stamp's ts may be from now, either way (check 7). */
 export const CALL_MAX_AGE_MS = 5000;
+/** The default run lifetime: how long before now the origin's ts may be (check 7). */
 export const RUN_MAX_AGE_MS = 1_800_000;
 /**
  * The least time a nonce cache remembers a key, whatever the call window; the verifier also refuses a cache that
@@ -25,6 +27,7 @@ export type Peer = { svc: string; inst: string };
 export type VerifyInput = {
   /** The chain's token. */
   chain: string;
+  /** The binding of what was received, which the last stamp's bind must equal (check 8). */
   expectedBind: string;
   /** The influence list's token. */
   influence: string;
@@ -48,22 +51,33 @@ export type PinnedKeyring = { keys: Readonly<Record<string, string>>; notAfter: 
 /** A signed root the verifier pins: its bytes, its `rootId` and its `notAfter`, as for a pinned keyring. */
 export type PinnedRoot = { root: Uint8Array; rootId: string; notAfter: number };
 
+/**
+ * What a verifier checks one chain against, besides the chain's own input: the pinned material, the session, the
+ * nonce cache and key, the clock and the age limits.
+ */
 export type VerifierConfig = {
   /** One or more keyrings; only those current at `now` are used. */
   keyrings: readonly PinnedKeyring[];
   /** One or more roots; only those current at `now` are used. */
   roots: readonly PinnedRoot[];
+  /** The services a chain may start at (check 3). */
   allowedOrigins: readonly string[];
+  /** The session every stamp must carry (check 6), or "" for none. */
   sess: string;
+  /** The replay cache the nonce key is checked against and recorded in (check 10). */
   nonces: NonceCache;
+  /** This chain's nonce key, as the transport forms it. */
   nonceKey: string;
+  /** The time to verify at, in ms since the Unix epoch. */
   now: number;
   /**
    * The earlier of the latest keyring notAfter and the latest root notAfter (ms, inclusive; `pinnedNotAfter`), past
    * which nothing verifies; none, or anything but an integer in [0, 2^53 − 1], fails closed.
    */
   policyNotAfter: number | undefined;
+  /** The call window in ms; CALL_MAX_AGE_MS when omitted. */
   callMaxAgeMs?: number;
+  /** The run lifetime in ms; RUN_MAX_AGE_MS when omitted. */
   runMaxAgeMs?: number;
 };
 

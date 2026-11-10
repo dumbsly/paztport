@@ -6,7 +6,9 @@ package org.paztport.http.wire;
 /** The wire header names. */
 public final class PaztportHeaders {
 
+    /** A request's chain of stamps, origin first, whose last stamp names the receiver and binds the request. */
     public static final String CHAIN = "X-Path-Chain";
+    /** The proof of a request's full route, the receiving service included, against the signed root. */
     public static final String PROOF = "X-Path-Proof";
     /** The influence entries a request commits to. */
     public static final String INFLUENCE = "X-Path-Influence";

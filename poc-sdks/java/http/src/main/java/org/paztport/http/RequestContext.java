@@ -49,6 +49,14 @@ public final class RequestContext {
     private RequestContext() {
     }
 
+    /**
+     * Sets the chain this scope's outbound calls are stamped after, in place of the one {@link #accept} stored. A
+     * chain set this way is carried but never verified: {@link #verifiedChain} stays as the receiver left it, so
+     * nothing that signs on the strength of a verified chain (the egress's boundary stamp, the trusted-record rule)
+     * relies on it, and every receiver the chain reaches verifies it as it would any other. Only a call made inside a
+     * scope reads it, and the next scope opened on this thread starts without it. It is for code that starts work from
+     * a chain it holds: a test, or a harness that sends a captured chain on to show how receivers refuse it.
+     */
     public static void setInboundChain(List<Stamp> chain) {
         INBOUND.set(chain);
     }

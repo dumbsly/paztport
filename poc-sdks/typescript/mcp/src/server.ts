@@ -64,10 +64,18 @@ export type ServerPolicy = {
   clientOrigins: readonly string[];
 };
 
+/**
+ * The session a server holds for its connection, from the last handshake: one per connection, replaced by the next
+ * handshake.
+ */
 export type Session = {
+  /** The session id. */
   sess: string;
+  /** Whether calls in it are verified ("attested") or not ("unsafe"), as the handshake reply said. */
   status: "attested" | "unsafe";
+  /** The client's handshake request: its root, policy key and keyring, which the session's calls verify against. */
   request: SessionRequest;
+  /** The session's own replay cache, which a new handshake replaces. */
   nonces: NonceCache;
   /** Every class this server has attested in a response in this session (sticky). */
   served: Set<InfluenceClass>;

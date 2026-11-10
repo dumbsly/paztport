@@ -7,6 +7,11 @@ import { writeToken } from "../encoding/jcs.ts";
 import { readToken, type JsonValue } from "../encoding/json.ts";
 import { array, exactly, object, str } from "../internal/fields.ts";
 
+/**
+ * A proof that one route is a leaf of a signed root (spec wire.md, Proof object): the leaf's salt, the sibling hashes
+ * from the leaf's level up, `dirs` saying at each level whether the working hash is the left (`L`) or right (`R`)
+ * input, and the `rootId` of the root it proves against.
+ */
 export type MerkleProof = { leafSalt: string; siblings: string[]; dirs: string; rootId: string };
 
 export const SALT_BYTES = 16;

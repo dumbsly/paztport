@@ -132,6 +132,8 @@ final class CachedBodyHttpServletRequest extends HttpServletRequestWrapper {
             return null;
         }
         spent = true;
+        // With no encoding named, the container decodes a form's parameters as ISO-8859-1, the servlet default; the
+        // fields are decoded the same way, since this serves them in its place.
         Charset charset = encoding(StandardCharsets.ISO_8859_1);
         if (form == null || !charset.equals(form.charset())) {
             Map<String, List<String>> merged = new LinkedHashMap<>();
@@ -225,6 +227,8 @@ final class CachedBodyHttpServletRequest extends HttpServletRequestWrapper {
 
     @Override
     public BufferedReader getReader() {
+        // With no encoding named this reader reads UTF-8, as JSON exchanged between systems is (RFC 8259 section
+        // 8.1), not ISO-8859-1, the servlet default the form fields above follow.
         Charset charset = encoding(StandardCharsets.UTF_8);
         return new BufferedReader(new InputStreamReader(new ByteArrayInputStream(unread()), charset));
     }

@@ -8,13 +8,23 @@ import { canonicalize } from "../encoding/jcs.ts";
 import { readFile, readToken, type JsonValue } from "../encoding/json.ts";
 import { array, exactly, object } from "../internal/fields.ts";
 
+/** What a folder rule lets a local tool call do under its path: read files, write them, or run a program there. */
 export type FolderAccess = "read" | "write" | "exec";
+/**
+ * One folder of a client's local rules: its path (relative to the workspace, or absolute), what a call may do under
+ * it, the class a read there records (`label`; a read of a folder with none records local-untrusted), and whether a
+ * write there goes to a public or a private destination, which a rule that allows writing must say.
+ */
 export type FolderRule = {
   path: string;
   access: FolderAccess[];
   label?: "private" | "public" | "third-party";
   destination?: "public" | "private";
 };
+/**
+ * A client's local rules (`rules.json`, pinned under the signed root as `rules:<rulesHash>`): its folders, and the
+ * programs a call may run by name; NEVER_PROGRAMS stay refused even when listed.
+ */
 export type LocalRules = { v: 1; folders: FolderRule[]; programs: string[] };
 
 /** Route prefix under which a session's local rules are pinned. */
