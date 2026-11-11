@@ -119,7 +119,7 @@ tables are under [Measurements](#measurements).
    NetworkPolicy admits only the Gateway's Envoy pods to it (check 6): the processor signs for whoever reaches it.
    Even so, a stamp taken from it is refused `PEER_MISMATCH` from any connection but Envoy's (check 7). Anyone who can
    read the Secret or mount it in a pod is the edge, as for any service ([limits of the
-   concept](../../README.md#52-limits-of-the-concept)).
+   concept](../../docs/limits.md#limits-of-the-concept)).
 
    The edge's key was rotated at 1000/s in three overlap steps, one run each, and no request was refused for the
    key. The processor's step cost no error; the two backend steps cost 1084 and 171 non-200s, which
