@@ -10,6 +10,16 @@ system. A request from that part carries its valid credentials, so a service tha
 asks only *who are you?* (the payment service, the customer database, the admin
 panel) does what it's told.
 
+This repository holds the Paztport protocol, written as a
+[spec](poc-sdks/spec/README.md) (version 3); SDKs in Java and Go, which carry it
+over HTTP, and in TypeScript, which carries it over MCP, the protocol AI agents
+use to call tools; and three demos: a small
+[mesh of Spring Boot services](poc-demos/java-mesh/README.md), Paztport at an
+[Envoy Gateway](poc-demos/envoy-gateway/README.md) edge on a local Kubernetes
+cluster, and an [AI agent's MCP calls](poc-demos/agents-mcp/README.md).
+It is a proof of concept: nothing is published to a package registry, and nothing
+has been audited. Claude, an AI model, wrote all of its code and documentation.
+
 ## The idea in plain terms
 
 Think about how a passport works. Every border you cross stamps it, and customs at
@@ -32,108 +42,79 @@ Paztport defines the event and when it may be acted on, not the response. In the
 demo, a responder acts on it by moving the machine into isolation and replacing it
 with a clean copy, automatically, within seconds.
 
-## Why it matters
+## Concepts
 
-- **It catches the attacks that look normal.** Paztport rejects a request from a
-  hijacked internal service because of where it came from.
-- **It shrinks what a break-in is worth.** A compromised component can only do
-  what its legitimate position in the system allows. An attacker who takes over
-  the search service gets the search service, not the payment system behind it.
-- **It keeps your blueprint private.** Paztport checks routes without ever
-  publishing them. The same design is meant to let two organisations trust each
-  other's calls without swapping architecture diagrams.
-- **It makes an automatic response possible.** The signed events name the
-  offending machine where the evidence allows, so a responder can act on them. The
-  demo's responder isolates the machine rather than deleting it, so investigators
-  get a live specimen while a clean replacement keeps the service running. If the
-  same service keeps tripping, it stops and calls a human rather than risk tearing
-  down healthy machines after a bad deploy.
-- **It covers an AI agent's tool calls.** The
-  [agents demo](poc-demos/agents-mcp/README.md) stamps an agent's MCP calls, and
-  the server refuses the write a planted prompt injection asks for, by the
-  owner-aware rule ([§3](#3-operations-influence-and-sessions));
+<!--
+Note for the author: this section is yours to write, in your own words. A
+first-time reader reaches it straight after the plain-terms idea, and the
+sections below use these terms: origin, stamp, chain, receiver, proof, root,
+keyring, the live order of checks, the `audit` and `enforce` modes, responder
+and event, influence, and session. Until this section exists, each term gets a
+one-clause definition where it is first used; those inline definitions will be
+indexed here, with their lines, so you can find them and fold them in. Defined
+once here, the terms let the rest of the README lean on them.
+-->
+
+## What it does
+
+- It limits what a break-in is worth. A compromised component can do only what
+  its legitimate position in the system allows: an attacker who takes over the
+  search service gets the search service, not the payment system behind it.
+  Paztport doesn't make the compromised machine trustworthy; it limits how far
+  the compromise can travel. [Known limits](docs/limits.md) lists what it needs
+  from a deployment and what it cannot do.
+- It carries calls between organisations. The two sides first open a session,
+  exchanging the signed fingerprints of their policies. In an attested session,
+  which a partner opens only with a sender whose policy-signing key it pinned in
+  advance, the sender's last internal service checks the request's stamps and
+  sends one stamp of its own in their place, so the internal route stays inside.
+  The Java and Go SDKs implement this over HTTP; in the Java mesh, a payment
+  provider plays the second organisation
+  ([between organisations](poc-sdks/spec/sessions-and-influence.md#between-organisations)).
+- It covers an AI agent's tool calls. The
+  [agents demo](poc-demos/agents-mcp/README.md) stamps each call an agent makes to
+  an MCP server. A planted prompt injection asks the agent to copy private notes
+  into a public pull request, and with Paztport on, the server refuses that write
+  by the owner-aware rule: a write to a public destination is refused when the
+  content behind it includes untrusted text together with private data not known
+  to belong to the destination's owner
+  ([the owner-aware rule](poc-sdks/spec/sessions-and-influence.md#the-owner-aware-rule)).
   [Where this could go](docs/directions.md) says what is still open.
-- **It's cheap.** Checking a request is a few Ed25519 verifications and SHA-256
-  hashes, and the demos measure what that costs. In the
+- It is checked end to end. The Java mesh's `demo.sh` makes 26 checks, among them
+  forged stamps, replays, altered bodies, expired requests, routes the policy does
+  not list, `audit` mode (which records the verdict and lets a failing request
+  through, where `enforce` refuses it), and the quarantine with its circuit
+  breaker; a green run ends `26 passed, 0 failed`
+  ([the scenarios](poc-demos/java-mesh/README.md#running-it)).
+- Its cost is measured. Checking a request takes a few Ed25519 verifications and
+  SHA-256 hashes. In the
   [Java mesh](poc-demos/java-mesh/README.md#measurements), `enforce` adds about
   1.9 ms at the median with one hop enforcing, most of it stock-JDK Ed25519. The
   [Envoy Gateway](poc-demos/envoy-gateway/README.md#measurements) processor adds
   0.35 ms at the median at 1000 requests a second.
-- **It's open.** There's no vendor and no lock-in. It's Apache-2.0 code built on
-  standard primitives, Ed25519 and SHA-256 (the Java keygen tool also uses Bouncy
-  Castle, to write X.509 certificates).
 
-It's also honest about its limits. Paztport doesn't make a compromised machine
-trustworthy; it limits how far a compromise can travel. The full list is in
-[Known limits](docs/limits.md).
-
-## What's in this repository
-
-A working proof of concept of **path attestation**. A request has to prove the
-route it took through a system, and the destination accepts it only if that route
-is one the system allows. The allowed routes are committed to a salted Merkle tree,
-so a service checks a request against one signed root hash. It never holds, and
-never reveals, the full map of valid paths.
-
-It works end to end. In the [Java mesh demo](poc-demos/java-mesh/README.md), a
-request with a perfectly valid body, sent by a service that is legitimately on the
-network, is **rejected purely because of where it came from**, and the offending
-container is **quarantined and replaced automatically**. All the scenarios and a
-circuit-breaker check pass (`demo.sh` reports 26 checks, among them forged,
-replayed, expired and spliced requests, routes the policy does not list, audit
-mode, and the quarantine with its circuit breaker), and
-the overhead has been measured.
-
-The demo also tells a story across two organisations. A customer's support ticket
-passes through a ticket service, which labels the text as third-party, to an
-assistant, which is a **scripted stand-in for a hijacked model, with no model in
-it**. It reads the customer's private order and tries a refund (at a payment
-provider that is a second organisation, reached through a boundary attestation)
-and an email. An honest ticket is refunded and emailed. A malicious ticket asks
-for Alice's data to go to Mallory, and is refused at the mailer and at the
-provider from the influence the requests carry, though every hop was a legitimate
-position on an allowed route. See
-[the support-assistant storyline](poc-demos/java-mesh/README.md#the-support-assistant-storyline).
-
-The [Envoy Gateway proof of concept](poc-demos/envoy-gateway/README.md) puts Paztport
-at a Kubernetes edge, on a local kind cluster. A Go `ext_proc` processor, installed
-by its own Helm chart, stamps each request entering an Envoy Gateway as the origin
-service `edge`, and the Java mesh's `orders` and `payment` verify it. Its checks show
-that a chain a client sends is replaced at the edge, not believed, that a request
-sent around the edge is refused, and that a stamp taken from the processor is refused
-from any connection but Envoy's. Its README also records what one full measurement
-run showed: the processor's cost under load, how the edge fails and recovers, and
-rotating the edge's key.
-
-The [agents demo](poc-demos/agents-mcp/README.md) carries the same chains over MCP,
-with the TypeScript SDK. An extension to the pi coding agent intercepts each tool
-call the agent makes to a mock GitHub MCP server and stamps it, verifies each
-response, and tracks the influence of what the agent has read. One issue on a
-public repository carries a prompt injection that asks the agent to copy private
-notes into a public pull request, and with Paztport on, the server refuses that
-write by the owner-aware rule ([§3](#3-operations-influence-and-sessions)). The
-model runs locally through Ollama, and an eval runs the agent many times in each
-setting, with Paztport on and off and with and without the planted issue, and scores
-each run from the server's outcome log.
-
-The idea is offered freely. The code is Apache-2.0, and every cryptographic
-primitive the SDKs use comes from each language's standard library (the JDK,
-Node's `node:crypto`, Go's `crypto` packages), so anyone can lift it into their own
-stack. The Java keygen tool uses Bouncy Castle to write X.509 certificates.
+The code is Apache-2.0. Every cryptographic primitive the SDKs use comes from each
+language's standard library (the JDK, Node's `node:crypto`, Go's `crypto`
+packages); the Java keygen tool also uses Bouncy Castle, to write X.509
+certificates.
 
 ---
 
 ## Contents
 
-1. [The problem: a caller's identity covers one hop](#1-the-problem-a-callers-identity-covers-one-hop)
-2. [Two proofs that bind together](#2-two-proofs-that-bind-together)
-3. [Operations, influence and sessions](#3-operations-influence-and-sessions)
-4. [Security principles](#4-security-principles)
-5. [Known limits](#5-known-limits)
-6. [Where this could go](#6-where-this-could-go)
-7. [Running it](#7-running-it)
-8. [Repository layout](#8-repository-layout)
-9. [Where to go next](#9-where-to-go-next)
+- [The idea in plain terms](#the-idea-in-plain-terms)
+- [Concepts](#concepts)
+- [What it does](#what-it-does)
+- [1. The problem: a caller's identity covers one hop](#1-the-problem-a-callers-identity-covers-one-hop)
+- [2. Two proofs that bind together](#2-two-proofs-that-bind-together)
+- [3. Operations, influence and sessions](#3-operations-influence-and-sessions)
+- [4. Security principles](#4-security-principles)
+- [What the demos show](#what-the-demos-show)
+- [5. Known limits](#5-known-limits)
+- [6. Where this could go](#6-where-this-could-go)
+- [7. Running it](#7-running-it)
+- [8. Repository layout](#8-repository-layout)
+- [9. Where to go next](#9-where-to-go-next)
 
 ---
 
@@ -455,6 +436,49 @@ The other principles:
   stamps.
 - **Log identities and verdicts, never secrets.** Service IDs, request IDs, and
   reason codes appear in logs. Private keys, salts, and proof bundles never do.
+
+## What the demos show
+
+It works end to end. In the [Java mesh demo](poc-demos/java-mesh/README.md), a
+request with a perfectly valid body, sent by a service that is legitimately on the
+network, is **rejected purely because of where it came from**, and the offending
+container is **quarantined and replaced automatically**. All the scenarios and a
+circuit-breaker check pass (`demo.sh` reports 26 checks, among them forged,
+replayed, expired and spliced requests, routes the policy does not list, audit
+mode, and the quarantine with its circuit breaker), and
+the overhead has been measured.
+
+The demo also tells a story across two organisations. A customer's support ticket
+passes through a ticket service, which labels the text as third-party, to an
+assistant, which is a **scripted stand-in for a hijacked model, with no model in
+it**. It reads the customer's private order and tries a refund (at a payment
+provider that is a second organisation, reached through a boundary attestation)
+and an email. An honest ticket is refunded and emailed. A malicious ticket asks
+for Alice's data to go to Mallory, and is refused at the mailer and at the
+provider from the influence the requests carry, though every hop was a legitimate
+position on an allowed route. See
+[the support-assistant storyline](poc-demos/java-mesh/README.md#the-support-assistant-storyline).
+
+The [Envoy Gateway proof of concept](poc-demos/envoy-gateway/README.md) puts Paztport
+at a Kubernetes edge, on a local kind cluster. A Go `ext_proc` processor, installed
+by its own Helm chart, stamps each request entering an Envoy Gateway as the origin
+service `edge`, and the Java mesh's `orders` and `payment` verify it. Its checks show
+that a chain a client sends is replaced at the edge, not believed, that a request
+sent around the edge is refused, and that a stamp taken from the processor is refused
+from any connection but Envoy's. Its README also records what one full measurement
+run showed: the processor's cost under load, how the edge fails and recovers, and
+rotating the edge's key.
+
+The [agents demo](poc-demos/agents-mcp/README.md) carries the same chains over MCP,
+with the TypeScript SDK. An extension to the pi coding agent intercepts each tool
+call the agent makes to a mock GitHub MCP server and stamps it, verifies each
+response, and tracks the influence of what the agent has read. One issue on a
+public repository carries a prompt injection that asks the agent to copy private
+notes into a public pull request, and with Paztport on, the server refuses that
+write by the owner-aware rule ([§3](#3-operations-influence-and-sessions)). The
+model runs locally through Ollama, and an eval runs the agent many times in each
+setting, with Paztport on and off and with and without the planted issue, and scores
+each run from the server's outcome log.
 
 ## 5. Known limits
 
