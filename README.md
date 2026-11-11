@@ -25,10 +25,12 @@ request inside a system the same kind of passport:
   system fits together. That includes a partner, and an attacker who gets inside.
 
 When a request turns up with the wrong history, it's refused. That holds even when
-its credentials are valid and its contents look perfectly normal. The machine that
-sent it can then be moved into isolation and replaced with a clean copy,
-automatically, within seconds: in the demo, a responder does exactly that, acting on
-the signed events the rejection produces.
+its credentials are valid and its contents look perfectly normal. The refusal can
+also produce a signed event that, where the evidence allows, names the machine that
+sent the request; the caller is never told. What happens next is your choice:
+Paztport defines the event and when it may be acted on, not the response. In the
+demo, a responder acts on it by moving the machine into isolation and replacing it
+with a clean copy, automatically, within seconds.
 
 ## Why it matters
 
@@ -40,12 +42,12 @@ the signed events the rejection produces.
 - **It keeps your blueprint private.** Paztport checks routes without ever
   publishing them. The same design is meant to let two organisations trust each
   other's calls without swapping architecture diagrams.
-- **It makes an automatic response possible and keeps the evidence.** The signed
-  events name the offending machine, so a responder can act on them. The demo's
-  responder isolates the machine rather than deleting it, so investigators get a
-  live specimen while a clean replacement keeps the service running. If the same
-  service keeps tripping, it stops and calls a human rather than risk tearing down
-  healthy machines after a bad deploy.
+- **It makes an automatic response possible.** The signed events name the
+  offending machine where the evidence allows, so a responder can act on them. The
+  demo's responder isolates the machine rather than deleting it, so investigators
+  get a live specimen while a clean replacement keeps the service running. If the
+  same service keeps tripping, it stops and calls a human rather than risk tearing
+  down healthy machines after a bad deploy.
 - **It covers an AI agent's tool calls.** The
   [agents demo](poc-demos/agents-mcp/README.md) stamps an agent's MCP calls, and
   the server refuses the write a planted prompt injection asks for, by the
