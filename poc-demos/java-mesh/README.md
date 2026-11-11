@@ -475,8 +475,8 @@ keyring, the root and the pin, so each checks every response it gets.
   ([Response attestation](../../poc-sdks/java/README.md#response-attestation)); no
   unverified handler forwards in this mesh. The Spring starter does this
   ([`InboundFilter`](../../poc-sdks/java/spring/src/main/java/org/paztport/spring/InboundFilter.java));
-  the concept is in [Operations, influence and
-  sessions](../../README.md#3-operations-influence-and-sessions).
+  the concept is in [Response
+  attestation](../../README.md#response-attestation).
 - A verified response's labels become influence on whatever the caller does next.
   Any other response, unattested, failing or a refusal, still reaches the caller,
   and adds one `local-untrusted` influence entry, so content nobody vouched for
@@ -526,7 +526,7 @@ operation a request came in through ([Operations](#operations)).
 
 `orders` and `payment` name their operations, so a route can allow one operation of
 a service and not another ([the
-idea](../../README.md#3-operations-influence-and-sessions)). Each publishes an
+idea](../../README.md#operations)). Each publishes an
 operation table beside `policy/paths.yaml`, in the format the
 [spec](../../poc-sdks/spec/wire.md#operations) gives:
 
