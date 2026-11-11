@@ -56,7 +56,7 @@ with a clean copy, automatically, within seconds.
 - **It's cheap.** Checking a request is a few Ed25519 verifications and SHA-256
   hashes, and the demos measure what that costs. In the
   [Java mesh](poc-demos/java-mesh/README.md#measurements), `enforce` adds about
-  1.9 ms at the median for one verifying hop, most of it stock-JDK Ed25519. The
+  1.9 ms at the median with one hop enforcing, most of it stock-JDK Ed25519. The
   [Envoy Gateway](poc-demos/envoy-gateway/README.md#measurements) processor adds
   0.35 ms at the median at 1000 requests a second.
 - **It's open.** There's no vendor and no lock-in. It's Apache-2.0 code built on
@@ -79,9 +79,9 @@ It works end to end. In the [Java mesh demo](poc-demos/java-mesh/README.md), a
 request with a perfectly valid body, sent by a service that is legitimately on the
 network, is **rejected purely because of where it came from**, and the offending
 container is **quarantined and replaced automatically**. All the scenarios and a
-circuit-breaker check pass (`demo.sh` reports 26 checks: forged, replayed,
-expired and spliced requests, routes the policy does not list, the injection and
-operation scenarios, audit mode, and the quarantine with its circuit breaker), and
+circuit-breaker check pass (`demo.sh` reports 26 checks, among them forged,
+replayed, expired and spliced requests, routes the policy does not list, audit
+mode, and the quarantine with its circuit breaker), and
 the overhead has been measured.
 
 The demo also tells a story across two organisations. A customer's support ticket
@@ -502,8 +502,9 @@ What Paztport needs from a deployment, and what it deliberately doesn't cover ye
   captured request can't be sent again from anywhere else, whatever cache a receiver
   keeps. Without a peer (the agents demo over stdio, or any deployment without
   in-process mutual TLS), anyone holding a captured request can resend it to the
-  same receiver within the 5 s window; only the cache of the replica that saw the
-  first sending refuses it, and over HTTP another replica can serve it.
+  same receiver within the call window (5 s by default); only the cache of the
+  replica that saw the first sending refuses it, and over HTTP another replica can
+  serve it.
 - **Duplicate delivery is the application's.** The SDKs' caches are in memory, so a
   service run as several replicas, or restarted, can serve a request its signer
   sends twice, as a proxy that retries does. That is duplicate delivery, and the
@@ -618,11 +619,11 @@ Engineering shortcuts of this repository, not of the design.
   `keyring.json` as mounted, without verifying the keyring against the policy pin
   or checking its `notAfter`, both of which the mesh services do. Anyone who could
   replace that file could name their own event signer.
-- **The nonce cache is in memory, per replica,** and forgets a key after 15 s, at
-  least twice the 5 s window. It has no size cap, so a flood within that time grows
-  it. A shared, expiring store is optional hardening against a compromised
-  caller; duplicate delivery is the receiving application's to handle (see
-  "Duplicate delivery is the application's" above).
+- **The nonce cache is in memory, per replica,** and forgets a key after the nonce
+  TTL (15 s by default, never under twice the call window). It has no size cap, so
+  a flood within that time grows it. A shared, expiring store is optional hardening
+  against a compromised caller; duplicate delivery is the receiving application's to
+  handle (see "Duplicate delivery is the application's" above).
 - **The Spring starter's mode switch is guarded by a token alone.** On a service
   that verifies requests, the starter registers `/admin/mode`, which switches the
   verifier between `audit` and `enforce` or turns Paztport off on the hop, only where

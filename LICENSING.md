@@ -11,9 +11,9 @@ and the only request is that improvements flow back into the open where they can
 
 The repository holds Paztport's source and, in [licenses/](licenses), the text of
 each licence other than Apache-2.0 that a bundled component is declared under, the
-licences [THIRD-PARTY.txt](THIRD-PARTY.txt) lists. The repository bundles no
-third-party code. That list covers the runtime dependencies of both Java trees, each
-with the licence it is used under. All of them are permissive (Apache-2.0, MIT,
+licences [THIRD-PARTY.txt](THIRD-PARTY.txt) lists. The source tree contains no
+third-party code; the built jars named below bundle some. That list covers the
+runtime dependencies of both Java trees, each with the licence it is used under. All of them are permissive (Apache-2.0, MIT,
 BSD-2-Clause, the MIT-style Bouncy Castle licence) or weak copyleft that is fine to
 redistribute unmodified (EPL-2.0), except JMH (below). Two of them also carry
 Mozilla's Public Suffix List, which is under MPL-2.0: docker-java-transport-zerodep
