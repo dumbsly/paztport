@@ -955,11 +955,11 @@ At 1000/s on `orders-adopt`, one run a step.
 | 3, `orders` then `payment` into `enforce` | 150001 | 253 (500) | 95.209 s | `orders` `OK` 135465; `payment` `OK` 131146; no `EXPIRED`; `CHAIN_MISSING` 0 |
 
 In step 2, Envoy served the route with the filter by 10.51 s into the run (0.70 s into the change) and started its
-streams only from then, so the 79733 are fewer than the run's 90000 requests. In step 3, 249 of the 253 500s came within
-5.44 s of the first, in the run's seconds +18, +23 and +24, around the two rollouts; the other four were single 500s at
-+109, +111, +112 and +113 s, long after the change was done (at +18.84 s), which is why the window is the whole span.
-After step 3, `orders` counted `response checked CHAIN_MISSING` 4066 (payment's responses before it ran Paztport). A
-request straight to `orders`, past the Gateway: 403 `CHAIN_MISSING`.
+streams only once it did, so the 79733 are fewer than the run's 90000 requests. In step 3, 249 of the 253 500s came
+within 5.44 s of the first, in the run's seconds +18, +23 and +24, around the two rollouts; the other four were single
+500s at +109, +111, +112 and +113 s, long after the change was done (at +18.84 s), which is why the window is the whole
+span. After step 3, `orders` counted `response checked CHAIN_MISSING` 4066 (payment's responses before it ran Paztport).
+A request straight to `orders`, past the Gateway: 403 `CHAIN_MISSING`.
 
 ### `route`
 
