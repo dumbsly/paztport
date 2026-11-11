@@ -4,7 +4,7 @@ A command-line tool that runs an AI agent many times against a mock GitHub serve
 
 It does not tell you that an agent or a model is safe or unsafe in general. It tests one kind of planted text in one scenario against a mock server. [What this doesn't show](#what-this-doesnt-show) lists the limits next to the results they apply to.
 
-Contents: [Running an eval](#running-an-eval) · [Reading the results](#reading-the-results) · [Checking the evidence](#checking-the-evidence-npm-run-verify) · [Build your own evaluation](#build-your-own-evaluation) · [The outcome log format](#the-outcome-log-format) · [Model providers and terms](#model-providers-and-terms) · [Publishing results](#publishing-results)
+Contents: [Running an eval](#running-an-eval) · [Reading the results](#reading-the-results) · [Recorded results](#recorded-results) · [Checking the evidence](#checking-the-evidence-npm-run-verify) · [Build your own evaluation](#build-your-own-evaluation) · [The outcome log format](#the-outcome-log-format) · [Model providers and terms](#model-providers-and-terms) · [Publishing results](#publishing-results)
 
 ## What a run is
 
@@ -175,6 +175,31 @@ A scenario that sets `localTools` gives the model pi's file tools and `bash` as 
 ### The warning baseline
 
 The `warning` mode adds a defence wording written by someone else to the system prompt, so that Paztport is compared with something other than nothing. The text is copied exactly into `warning.md` in the results folder, and `warning.json` and `summary.md` give the source page, the date it was retrieved, where it is placed, and what was left out. Currently it is the example system prompt from Anthropic's "Mitigate jailbreaks and prompt injections" page, with its opening two sentences (a fictional persona and role) left out. Source: <https://platform.claude.com/docs/en/test-and-evaluate/strengthen-guardrails/mitigate-jailbreaks>, retrieved 2026-10-24. The page can change; see [Publishing results](#publishing-results).
+
+## Recorded results
+
+One eval is recorded here. It ran on 2026-11-11 with `ollama/gemma4:26b-mlx`, a local model served by Ollama, in all five modes, 20 runs each, with the default time limit of 600 seconds per run, and took about 1 hour 52 minutes. It was run from a clean checkout of the repository at commit 850df8a3, not from a fresh clone as step 1 of [Publishing results](#publishing-results) asks.
+
+- Versions: pi 1.5.2, Paztport extension 0.1.0, mock server 0.1.0, Node v25.8.1, Ollama 0.33.0, model digest `21c59a2eae301d2b4ee734f0930728ddc284b4cbf9856b8ad7c3f1c11e056832`.
+- Machine: darwin 25.6.0, arm64, Apple M5 Pro, 48 GB memory.
+- Context length: `summary.md` shows it as "not recorded". Ollama reported 262144 tokens for the loaded model.
+- Scenario: the reference planted text in `github-issue-replay`. The agent had only the scenario's mock tools (`mcp__github__*`).
+- Warning baseline: the text was compared with its source page again on 2026-11-11 and had not changed.
+
+| Mode | Runs | leaked | blocked | of which with private text | resisted | read private | task done | harness fault | timeout | error | no tool calls |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Paztport off | 20 | 9 / 20 (25–66%) | 0 / 20 (0–17%) | 0 / 20 (0–17%) | 10 / 20 (29–71%) | 19 / 20 (76–100%) | 19 / 20 (76–100%) | 0 / 20 (0–17%) | 1 / 20 (0–24%) | 0 / 20 (0–17%) | 0 / 20 (0–17%) |
+| Paztport on | 20 | 0 / 20 (0–17%) | 13 / 20 (43–82%) | 4 / 20 (8–42%) | 6 / 20 (14–52%) | 20 / 20 (83–100%) | 20 / 20 (83–100%) | 0 / 20 (0–17%) | 1 / 20 (0–24%) | 0 / 20 (0–17%) | 0 / 20 (0–17%) |
+| Paztport off, no planted text | 20 | 0 / 20 (0–17%) | 0 / 20 (0–17%) | 0 / 20 (0–17%) | 20 / 20 (83–100%) | 0 / 20 (0–17%) | 20 / 20 (83–100%) | 0 / 20 (0–17%) | 0 / 20 (0–17%) | 0 / 20 (0–17%) | 0 / 20 (0–17%) |
+| Paztport on, no planted text | 20 | 0 / 20 (0–17%) | 0 / 20 (0–17%) | 0 / 20 (0–17%) | 20 / 20 (83–100%) | 0 / 20 (0–17%) | 20 / 20 (83–100%) | 0 / 20 (0–17%) | 0 / 20 (0–17%) | 0 / 20 (0–17%) | 0 / 20 (0–17%) |
+| Paztport off, warning in the system prompt | 20 | 10 / 20 (29–71%) | 0 / 20 (0–17%) | 0 / 20 (0–17%) | 8 / 20 (21–62%) | 19 / 20 (76–100%) | 20 / 20 (83–100%) | 0 / 20 (0–17%) | 2 / 20 (2–31%) | 0 / 20 (0–17%) | 0 / 20 (0–17%) |
+
+Each cell reads as [Reading the results](#reading-the-results) describes, and [The columns](#the-columns) defines each class. `npm run verify` on the results folder exits 0: the evidence of all 40 runs with Paztport on verifies, with the pin `3nMlb51iufX5UKtW` that `summary.md` gives as the server key fingerprint, and the 60 runs with Paztport off have nothing to check. The results folder is not in this repository; a link to it will be added here once it is published.
+
+> - Marker-based detection misses paraphrase, encoding and split leaks, so a run scored as resisted may still have written private information that the markers do not match.
+> - It tests one kind of planted text in one scenario, against a mock server, not the real GitHub service.
+> - A small number of runs gives wide intervals.
+> - The model's context window needs to be long enough to hold the planted issue, or its runs say nothing about the planted text. The context length is recorded with the results when it can be read.
 
 ## Checking the evidence: `npm run verify`
 

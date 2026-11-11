@@ -87,29 +87,29 @@ not.
 Where each term is defined now: the heading, then the line as committed (text
 written here moves every line below it down).
 - stamp: used first in The idea in plain terms (57); defined in Proof
-  of travel (188).
-- chain, origin, receiver: Proof of travel (188, 189, 190).
+  of travel (190).
+- chain, origin, receiver: Proof of travel (190, 191, 192).
 - responder: used first in The idea in plain terms (70); defined in
-  Proof of travel, after the bullets (240).
+  Proof of travel, after the bullets (242).
 - event: used first in The idea in plain terms (67); defined in Proof
-  of travel, after the bullets (240).
+  of travel, after the bullets (242).
 - session, policy: What it does (124); the session's `sess`
-  field in the stamp table (211).
-- `audit` and `enforce`: What it does (142, 143).
-- influence: the stamp table's `infl` row (214); its classes in Influence
-  (391).
-- call window, run window: the stamp table's `ts` row (210).
-- peer check, nonce cache: Proof of travel, last bullet (233, 235).
-- root, policy key, proof: Proof of legitimacy (250, 251, 252).
+  field in the stamp table (213).
+- `audit` and `enforce`: What it does (144, 145).
+- influence: the stamp table's `infl` row (216); its classes in Influence
+  (393).
+- call window, run window: the stamp table's `ts` row (212).
+- peer check, nonce cache: Proof of travel, last bullet (235, 237).
+- root, policy key, proof: Proof of legitimacy (252, 253, 254).
 - policy tool, proof bundles, keyring: Proof of legitimacy, the tree bullets
-  (314, 327, 328).
-- live order: Why you need both (348).
-- operation, request tree: Operations (366, 378).
+  (316, 329, 330).
+- live order: Why you need both (350).
+- operation, request tree: Operations (368, 380).
 - attested: used first in What it does (125); defined in Sessions
-  (434).
-- unsafe, partner, egress: Sessions (436, 447, 449).
-- circuit breaker (the demo responder's): What the demos show (498).
-- `ext_proc` and pi (demo jargon): What the demos show (514, 528).
+  (436).
+- unsafe, partner, egress: Sessions (438, 449, 451).
+- circuit breaker (the demo responder's): What the demos show (500).
+- `ext_proc` and pi (demo jargon): What the demos show (516, 530).
 -->
 
 ## What it does
@@ -133,9 +133,11 @@ written here moves every line below it down).
   owners, so there [the owner-aware rule](#the-owner-aware-rule) reduces to
   untrusted content plus any private data; the Java mesh's
   [support-assistant storyline](poc-demos/java-mesh/README.md#the-support-assistant-storyline)
-  exercises its owner clause. No result of the demo's
-  [eval](poc-demos/agents-mcp/eval/README.md), which runs the agent many times,
-  is recorded in this repository yet.
+  exercises its owner clause. In the demo's one recorded
+  [eval](poc-demos/agents-mcp/eval/README.md#recorded-results), 20 runs per
+  setting on a local model, 9 of 20 runs leaked the private notes with Paztport
+  off and none with it on, and without the planted issue Paztport refused
+  nothing.
   [Where this could go](docs/directions.md) says what is still open.
 - It is checked end to end. The Java mesh's `demo.sh` makes 26 checks, among them
   forged stamps, replays, altered bodies, expired requests, routes the policy does
