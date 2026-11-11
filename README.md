@@ -60,28 +60,29 @@ not.
 Where each term is defined now: the heading, then the line as committed (text
 written here moves every line below it down).
 - stamp: used first in The idea in plain terms (30); defined in Proof
-  of travel (174).
-- chain, origin, receiver: Proof of travel (174, 175, 176).
+  of travel (175).
+- chain, origin, receiver: Proof of travel (175, 176, 177).
 - responder: used first in The idea in plain terms (43); defined in
-  Proof of travel, after the bullets (225).
+  Proof of travel, after the bullets (226).
 - event: used first in The idea in plain terms (40); defined in Proof
-  of travel, after the bullets (225).
-- session, policy: What it does (96); the session's `sess`
-  field in the stamp table (197).
-- `audit` and `enforce`: What it does (109, 110).
-- influence: the stamp table's `infl` row (200); its classes in Influence
+  of travel, after the bullets (226).
+- session, policy: What it does (97); the session's `sess`
+  field in the stamp table (198).
+- `audit` and `enforce`: What it does (110, 111).
+- influence: the stamp table's `infl` row (201); its classes in Influence
   (373).
-- call window, run window: the stamp table's `ts` row (196).
-- peer check, nonce cache: Proof of travel, last bullet (218, 220).
-- root, policy key, proof: Proof of legitimacy (235, 236, 237).
+- call window, run window: the stamp table's `ts` row (197).
+- peer check, nonce cache: Proof of travel, last bullet (219, 221).
+- root, policy key, proof: Proof of legitimacy (236, 237, 238).
 - policy tool, proof bundles, keyring: Proof of legitimacy, the tree bullets
-  (299, 312, 313).
-- live order: Why you need both (333).
-- operation, request tree: Operations (351, 360).
-- partner, attested, egress, unsafe: Sessions (413, 415,
-  416, 420).
-- circuit breaker (the demo responder's): What the demos show (469).
-- `ext_proc` and pi (demo jargon): What the demos show (485, 499).
+  (300, 313, 314).
+- live order: Why you need both (334).
+- operation, request tree: Operations (352, 361).
+- attested: used first in What it does (98); defined in Sessions
+  (416).
+- unsafe, partner, egress: Sessions (418, 429, 431).
+- circuit breaker (the demo responder's): What the demos show (480).
+- `ext_proc` and pi (demo jargon): What the demos show (496, 510).
 -->
 
 ## What it does
@@ -191,7 +192,7 @@ flowchart LR
 |---|---|
 | `v` | Version, always `3`. |
 | `svc` | Service name. The route is rebuilt from these and the `rcv` fields. |
-| `inst` | The signer's instance, as the signer reports it (in the Java mesh, its container's hostname), so a responder can act on one replica, not a whole service. |
+| `inst` | The signer's instance, as the signer reports it (in the Java mesh, its container's hostname), so whoever acts on a failed check can act on one replica, not a whole service. |
 | `rid` | Request ID, minted by the origin and carried unchanged. |
 | `ts` | When this stamp was signed. The last stamp must be within the **call window** (5 s by default) of the receiver's clock, and the origin's within the **run window** (30 min by default, for an agent run that reuses one origin; inside one mesh, where a request is a single call rather than a run, the origin may be held to the call window too). |
 | `sess` | The id of the session the chain was stamped in, or empty for a chain with no session, as inside one mesh. |
@@ -361,8 +362,7 @@ operation at most once per **request tree**, the calls made under one origin's
 request ID; an operation that acts on one item of many can declare a key, the path
 segment or query parameter that names the item, and is then called once per item.
 Over MCP there are no operations, since a tool call's receiver already names one
-tool
-([operations](poc-sdks/spec/wire.md#operations),
+tool ([operations](poc-sdks/spec/wire.md#operations),
 [nonce keys](poc-sdks/spec/verification.md#freshness-and-replay)).
 
 #### Influence
@@ -408,24 +408,35 @@ server attests a tool's result the same way, only for a call that verified
 #### Sessions
 
 Inside one organisation's mesh every service pins one policy in advance; across a
-trust boundary the two sides open a session first. Each sends its signed root,
-policy key, keyring and a fresh nonce; the side that receives the calls, the
-**partner**, signs its reply; and every stamp in the session carries the session
-id in `sess`, so a chain made for one session fails in any other. A partner opens
-an **attested** session only with a sender whose policy key it pinned in advance.
-In one, the sender's last internal service, its **egress**, checks the request's
-stamps and sends one stamp of its own in their place, so the internal route stays
-inside. That stamp commits to the request's influence blinded to one entry for
-each class and owner, which is all the partner needs to apply the owner-aware
-rule. A session that is not attested is **unsafe**: graded trust, not a refusal,
-in which the sender signs no stamp and sends no influence, and the partner
-verifies nothing, refuses the endpoints it lists as disabled (`UNSAFE_SESSION`)
-and serves the rest. Either way, a partner does not attest its replies (see
-[Limits of the concept](docs/limits.md#limits-of-the-concept)), so the sender
-counts each one `local-untrusted`. Over MCP a client opens a session with a server
-before its first call, and in an unsafe one counts every result `local-untrusted`
+trust boundary the two sides open a session first: an MCP client with a server
+before its first call, or one organisation with another over HTTP. Each sends its
+signed root, policy key, keyring and a fresh nonce; the side that receives the
+calls signs its reply; and every stamp in the session carries the session id in
+`sess`, so a chain made for one session fails in any other. The receiving side
+opens an **attested** session only when the sender's policy key is one it pinned
+in advance, the sender's root and keyring verify under that key, and both sides'
+roots and keyrings are current. Otherwise the session is **unsafe**: graded trust,
+not a refusal, in which the receiving side verifies nothing, refuses what it lists
+as disabled (`UNSAFE_SESSION`) and serves the rest
 ([status](poc-sdks/spec/sessions-and-influence.md#status),
-[between organisations](poc-sdks/spec/sessions-and-influence.md#between-organisations)).
+[unsafe sessions](poc-sdks/spec/sessions-and-influence.md#unsafe-sessions)).
+
+Over MCP, in an attested session the server attests the result of each call that
+verified ([Response attestation](#response-attestation)). The client counts a
+result that does not verify, and every result in an unsafe session, as
+`local-untrusted`.
+
+Between organisations, the receiving organisation, the **partner**, must not see
+the sender's internal chain. In an attested session the sender's last internal
+service, its **egress**, verifies the request's chain and sends one stamp of its
+own in its place, so the internal route stays inside. That stamp commits to the
+request's influence blinded to one entry for each class and owner, which is all
+the partner needs to apply the owner-aware rule. In an unsafe session the egress
+signs no stamp and sends no influence. Either way, a partner does not attest its
+replies (see [Limits of the concept](docs/limits.md#limits-of-the-concept)), so
+the egress counts each one `local-untrusted`. The Java and Go SDKs implement
+this; the TypeScript SDK does not
+([between organisations](poc-sdks/spec/sessions-and-influence.md#between-organisations)).
 
 ### Design rules
 
