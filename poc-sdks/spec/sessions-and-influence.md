@@ -557,8 +557,8 @@ events; its properties are in the [Java SDK README](../java/README.md#partner-mo
 
 What the partner can still learn: the boundary proof is the same on every request over that route, so it can
 count and cluster requests by route. It also sees each request's classes and owners, which the rule needs. It does
-not see the sources behind them: those cross only as blinded commitments that the sender can open. The root
-README's known limits cover these.
+not see the sources behind them: those cross only as blinded commitments that the sender can open. The
+[known limits](../../docs/limits.md#limits-of-the-concept) cover these.
 
 ### Blinded influence
 
