@@ -54,11 +54,14 @@ with a clean copy, automatically, within seconds.
   owner-aware rule ([§3](#3-operations-influence-and-sessions));
   [§6](#6-where-this-could-go) says what is still open.
 - **It's cheap.** Checking a request is a few Ed25519 verifications and SHA-256
-  hashes; the demos measure what that costs
-  ([Java mesh](poc-demos/java-mesh/README.md#measurements),
-  [Envoy Gateway](poc-demos/envoy-gateway/README.md#measurements)).
+  hashes, and the demos measure what that costs. In the
+  [Java mesh](poc-demos/java-mesh/README.md#measurements), `enforce` adds about
+  1.9 ms at the median for one verifying hop, most of it stock-JDK Ed25519. The
+  [Envoy Gateway](poc-demos/envoy-gateway/README.md#measurements) processor adds
+  0.35 ms at the median at 1000 requests a second.
 - **It's open.** There's no vendor and no lock-in. It's Apache-2.0 code built on
-  standard primitives, Ed25519 and SHA-256.
+  standard primitives, Ed25519 and SHA-256 (the Java keygen tool also uses Bouncy
+  Castle, to write X.509 certificates).
 
 It's also honest about its limits. Paztport doesn't make a compromised machine
 trustworthy; it limits how far a compromise can travel. The full list is in
@@ -76,8 +79,10 @@ It works end to end. In the [Java mesh demo](poc-demos/java-mesh/README.md), a
 request with a perfectly valid body, sent by a service that is legitimately on the
 network, is **rejected purely because of where it came from**, and the offending
 container is **quarantined and replaced automatically**. All the scenarios and a
-circuit-breaker check pass (`demo.sh` reports 26 checks), and the overhead has been
-measured.
+circuit-breaker check pass (`demo.sh` reports 26 checks: forged, replayed,
+expired and spliced requests, routes the policy does not list, the injection and
+operation scenarios, audit mode, and the quarantine with its circuit breaker), and
+the overhead has been measured.
 
 The demo also tells a story across two organisations. A customer's support ticket
 passes through a ticket service, which labels the text as third-party, to an
@@ -112,8 +117,9 @@ setting, with Paztport on and off and with and without the planted issue, and sc
 each run from the server's outcome log.
 
 The idea is offered freely. The code is Apache-2.0, and every cryptographic
-primitive comes from each language's standard library (the JDK, Node's
-`node:crypto`, Go's `crypto` packages), so anyone can lift it into their own stack.
+primitive the SDKs use comes from each language's standard library (the JDK,
+Node's `node:crypto`, Go's `crypto` packages), so anyone can lift it into their own
+stack. The Java keygen tool uses Bouncy Castle to write X.509 certificates.
 
 ---
 
@@ -146,14 +152,15 @@ shape, same authenticated caller.
 
 An illicit route leaves a fingerprint in the request's **history** even when the
 request itself is clean. Paztport turns that history into a credential, and makes
-it unforgeable.
+it unforgeable without a hop's own key.
 
 ## 2. Two proofs that bind together
 
 A request is accepted only if it proves **two** things: that it really travelled
 the route it claims (*proof of travel*), and that the route is one the system
-allows (*proof of legitimacy*). Either proof alone is breakable. Together they
-aren't.
+allows (*proof of legitimacy*). Either proof alone leaves a hole. Together, a
+request can neither claim a route it did not travel nor travel a route the policy
+does not list.
 
 ### 2.1 Proof of travel: the stamp chain
 
@@ -173,9 +180,9 @@ flowchart LR
 |---|---|
 | `v` | Version, always `3`. |
 | `svc` | Service name. The route is rebuilt from these and the `rcv` fields. |
-| `inst` | Instance (container hostname), so a response targets one replica, not a whole service. |
+| `inst` | Instance (container hostname), so a responder can act on one replica, not a whole service. |
 | `rid` | Request ID, minted by the origin and carried unchanged. |
-| `ts` | When this stamp was signed. The last stamp must be within 5 s of the receiver's clock; the origin within a run window (30 min by default in the core SDKs, for an agent run that reuses one origin; the Spring starter defaults it to the 5 s call window, since inside one mesh a request tree is a single call; the Java mesh sets 30 s for the six services a ticket crosses). |
+| `ts` | When this stamp was signed. The last stamp must be within the call window (5 s by default) of the receiver's clock; the origin within a run window (30 min by default in the core SDKs, for an agent run that reuses one origin; the Spring starter defaults it to the 5 s call window, since inside one mesh a request tree is a single call; the Java mesh sets 30 s for the six services a ticket crosses). |
 | `sess` | The session id, or empty for a chain with no session. |
 | `rcv` | The receiver this stamp was signed for: the next stamp's `svc`, or the chain's receiver. Over HTTP it may also name an operation, `service#operation`. |
 | `bind` | The binding of what *this hop sent*. Over HTTP, `SHA-256(METHOD \n PATH \n BODY)` (`PATH` with its query). |
@@ -200,8 +207,8 @@ Why it's built this way:
   matches.
 - **Receiver binding, request binding and, with mTLS, the peer check** stop anyone
   but the signer using a stamp; a nonce cache refuses the signer's second sending on
-  the replica that saw the first, and forgets a key after 15 s, at least twice the
-  5 s window.
+  the replica that saw the first, and forgets a key after the nonce TTL (15 s by
+  default, and never under twice the call window).
 
 The Java and Go SDKs sign them over HTTP (the Java mesh, the Envoy Gateway edge), and
 the TypeScript SDK over MCP (the agents demo).
@@ -268,7 +275,7 @@ graph BT
 *Illustrative depth-3 tree, whose routes name services alone; a route can also name
 the operation each hop asks for (§3). The proof for the orange leaf is the three
 blue siblings; the verifier recomputes upward and compares against the pinned root.
-The real tree is padded to depth 8.*
+The policy tool pads the real tree to depth 8 by default (`PAZTPORT_PROOF_DEPTH`).*
 
 The details carry real weight:
 
@@ -280,7 +287,8 @@ The details carry real weight:
   enumerate, so an unsalted `gateway/orders/payment` could be confirmed by hashing
   guesses. With salts, sibling hashes and the root reveal nothing an observer can
   test guesses against. No leaf goes unsalted (§4).
-- **Proofs are padded to a fixed depth** (8 levels, 256 leaf slots). Each route
+- **Proofs are padded to a fixed depth** (8 levels and 256 leaf slots by default,
+  set by `PAZTPORT_PROOF_DEPTH` in the policy tool). Each route
   goes in a random slot, and unused slots are filled with random 32-byte values
   that look like any other hash. Proof length and position therefore leak nothing
   about how many routes exist or where in the policy one sits.
@@ -413,8 +421,9 @@ counts every result `local-untrusted`
 
 **Every route leaf carries a secret, random 128-bit salt.** So a route can't be
 confirmed by hashing guesses: guessing a salted leaf means brute-forcing its salt,
-roughly `2¹²⁸` work. There's no unsalted leaf code path anywhere in the codebase,
-tests included.
+roughly `2¹²⁸` work. The leaf hash takes a salt as an argument, so there is no
+leaf function without one; the policy tool always draws a random 16-byte salt for
+each leaf, and a proof on the wire must carry a 16-byte `leafSalt`.
 
 Signatures and hashes are relied on for their standard properties:
 
@@ -757,7 +766,9 @@ Copyright 2026 The Paztport Authors. Licensed under Apache-2.0 (see
 [LICENSE](LICENSE) and [NOTICE](NOTICE)). Its patent grant (section 3) licenses
 each contributor's patent claims that their contribution infringes, to everyone who
 uses the code, commercially included, and ends for anyone who sues over them. The
-repository bundles no third-party code. [THIRD-PARTY.txt](THIRD-PARTY.txt) lists the
+source tree contains no third-party code, but some built jars (the shaded tool jars
+and the demo's Spring Boot jars) bundle libraries; [LICENSING.md](LICENSING.md)
+says which. [THIRD-PARTY.txt](THIRD-PARTY.txt) lists the
 runtime dependencies and the licence each is used under, and
 [LICENSING.md](LICENSING.md) says what each jar and image carries, and how to
 regenerate the list.
