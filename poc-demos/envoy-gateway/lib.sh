@@ -160,12 +160,19 @@ wait_edge() {
     k -n "$NS" wait --for=condition=Ready pod/checks --timeout=120s
 }
 
-# Logs. Each snapshot is every line so far; added <before> <now> prints the lines in now that before lacks.
+# Logs. Each snapshot is every line so far; added <before> <now> prints the lines in now that before lacks. It
+# compares whole lines, not positions: orders and the processor run two pods each, whose logs interleave in a
+# snapshot. Every line carries a timestamp, so a new line never repeats an old one. awk keeps before's lines in a
+# hash; grep -F -f with each of them as a pattern took minutes once the processor's log held thousands of lines.
 processor_log() { kn logs -l app.kubernetes.io/name=paztport-processor --tail=-1 --prefix 2>/dev/null; }
 traces() { kn logs -l "app=$1" --tail=-1 --prefix 2>/dev/null | grep -F 'PAZTPORT_TRACE request'; }
 events() { kn logs -l "app=$1" --tail=-1 --prefix 2>/dev/null | grep -F 'PAZTPORT_EVENT'; }
 added() {
-  if [ -z "$1" ]; then printf '%s\n' "$2"; else grep -vxF -f <(printf '%s\n' "$1") <<<"$2"; fi
+  if [ -z "$1" ]; then
+    printf '%s\n' "$2"
+  else
+    awk 'NR == FNR { seen[$0]; next } !($0 in seen)' <(printf '%s\n' "$1") - <<<"$2"
+  fi
 }
 
 # await <var> <pattern> <before> <command...>: runs command (a log snapshot) again and again, until the lines it
