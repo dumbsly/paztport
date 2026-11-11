@@ -93,12 +93,14 @@ What Paztport needs from a deployment, and what it deliberately doesn't cover ye
   registers a card's owner only from a charge the shop vouched for and no untrusted
   content shaped. A service whose destinations are not its own records needs a
   check of its own.
-- **The rule judges only the influence the request carries.** `PublicWrites` sees
-  that influence only where the request's chain passed the live order at that hop.
-  Where it did not, because Paztport is off on the hop, the chain failed in audit
-  mode or the call came in an unsafe partner session, the influence may be
-  incomplete or empty, and the rule passes what it cannot see. A partner must
-  therefore list its public writes in `paztport.partner.unsafe-disabled`.
+- **The rule judges only the influence the request carries.** The service applying
+  it (in the Java SDK, through the `PublicWrites` bean) sees that influence only
+  where the request's chain passed the live order at that hop. Where it did not,
+  because Paztport is off on the hop, the chain failed in audit mode or the call
+  came in an unsafe partner session, the influence may be incomplete or empty, and
+  the rule passes what it cannot see. A partner must therefore list its public
+  writes among the endpoints it refuses in an unsafe session (in the Java SDK,
+  `paztport.partner.unsafe-disabled`).
 
 ## Limits of the concept
 

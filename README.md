@@ -21,6 +21,33 @@ MCP server. It is a proof of concept: nothing is published to a package registry
 and nothing has been audited. Claude, an AI model, wrote all of its code and
 documentation ([How it was built](#how-it-was-built)).
 
+## Quick start
+
+`./run java-mesh` builds the Java SDK and the mesh demo, then runs every
+scenario. It needs Maven on Java 25 or newer, and Docker, its daemon running,
+with Compose. A green run ends `26 passed, 0 failed`, and the mesh stays up.
+`./run test` runs the repository's checks and every suite, with no Docker and no
+model. [Running it](#running-it) has the other demos and what each command needs.
+
+## Contents
+
+- [Quick start](#quick-start)
+- [The idea in plain terms](#the-idea-in-plain-terms)
+- [Concepts](#concepts)
+- [What it does](#what-it-does)
+- [How it works](#how-it-works)
+  - [The problem](#the-problem)
+  - [Two proofs](#two-proofs)
+  - [Beyond routes](#beyond-routes)
+  - [Design rules](#design-rules)
+- [What the demos show](#what-the-demos-show)
+- [What it doesn't do](#what-it-doesnt-do)
+- [Running it](#running-it)
+- [Repository layout](#repository-layout)
+- [Where to go next](#where-to-go-next)
+- [How it was built](#how-it-was-built)
+- [Licence and third-party software](#licence-and-third-party-software)
+
 ## The idea in plain terms
 
 Think about how a passport works. Every border you cross stamps it, and customs at
@@ -32,7 +59,7 @@ request inside a system the same kind of passport:
 - **The destination checks the whole itinerary**, not just the last hop. A payment
   request is accepted only if it arrived by a route on the approved list.
 - **The approved list stays sealed.** Each service holds a single fingerprint of
-  it, so it can check a route without anyone ever seeing the full map of how the
+  it, so it can check a route without any service holding the full map of how the
   system fits together. That includes a partner, and an attacker who gets inside.
 
 When a request turns up with the wrong history, it's refused. That holds even when
@@ -59,30 +86,30 @@ not.
 
 Where each term is defined now: the heading, then the line as committed (text
 written here moves every line below it down).
-- stamp: used first in The idea in plain terms (30); defined in Proof
-  of travel (175).
-- chain, origin, receiver: Proof of travel (175, 176, 177).
-- responder: used first in The idea in plain terms (43); defined in
-  Proof of travel, after the bullets (226).
-- event: used first in The idea in plain terms (40); defined in Proof
-  of travel, after the bullets (226).
-- session, policy: What it does (97); the session's `sess`
-  field in the stamp table (198).
-- `audit` and `enforce`: What it does (110, 111).
-- influence: the stamp table's `infl` row (201); its classes in Influence
-  (373).
-- call window, run window: the stamp table's `ts` row (197).
-- peer check, nonce cache: Proof of travel, last bullet (219, 221).
-- root, policy key, proof: Proof of legitimacy (236, 237, 238).
+- stamp: used first in The idea in plain terms (57); defined in Proof
+  of travel (188).
+- chain, origin, receiver: Proof of travel (188, 189, 190).
+- responder: used first in The idea in plain terms (70); defined in
+  Proof of travel, after the bullets (240).
+- event: used first in The idea in plain terms (67); defined in Proof
+  of travel, after the bullets (240).
+- session, policy: What it does (124); the session's `sess`
+  field in the stamp table (211).
+- `audit` and `enforce`: What it does (142, 143).
+- influence: the stamp table's `infl` row (214); its classes in Influence
+  (391).
+- call window, run window: the stamp table's `ts` row (210).
+- peer check, nonce cache: Proof of travel, last bullet (233, 235).
+- root, policy key, proof: Proof of legitimacy (250, 251, 252).
 - policy tool, proof bundles, keyring: Proof of legitimacy, the tree bullets
-  (300, 313, 314).
-- live order: Why you need both (334).
-- operation, request tree: Operations (352, 361).
-- attested: used first in What it does (98); defined in Sessions
-  (416).
-- unsafe, partner, egress: Sessions (418, 429, 431).
-- circuit breaker (the demo responder's): What the demos show (480).
-- `ext_proc` and pi (demo jargon): What the demos show (496, 510).
+  (314, 327, 328).
+- live order: Why you need both (348).
+- operation, request tree: Operations (366, 378).
+- attested: used first in What it does (125); defined in Sessions
+  (434).
+- unsafe, partner, egress: Sessions (436, 447, 449).
+- circuit breaker (the demo responder's): What the demos show (498).
+- `ext_proc` and pi (demo jargon): What the demos show (514, 528).
 -->
 
 ## What it does
@@ -102,8 +129,13 @@ written here moves every line below it down).
   [agents demo](poc-demos/agents-mcp/README.md) stamps each call an agent makes to
   an MCP server. A planted prompt injection asks the agent to copy private notes
   into a public pull request, and with Paztport on, the server refuses that write
-  by [the owner-aware rule](#the-owner-aware-rule), since untrusted text and
-  private data not known to belong to the destination's owner both shaped it.
+  because untrusted text and private data both shaped it. The demo's data has no
+  owners, so there [the owner-aware rule](#the-owner-aware-rule) reduces to
+  untrusted content plus any private data; the Java mesh's
+  [support-assistant storyline](poc-demos/java-mesh/README.md#the-support-assistant-storyline)
+  exercises its owner clause. No result of the demo's
+  [eval](poc-demos/agents-mcp/eval/README.md), which runs the agent many times,
+  is recorded in this repository yet.
   [Where this could go](docs/directions.md) says what is still open.
 - It is checked end to end. The Java mesh's `demo.sh` makes 26 checks, among them
   forged stamps, replays, altered bodies, expired requests, routes the policy does
@@ -111,10 +143,11 @@ written here moves every line below it down).
   through, where **`enforce`** refuses it), and the responder's quarantine with
   its limit on how often it acts; a green run ends `26 passed, 0 failed`
   ([the scenarios](poc-demos/java-mesh/README.md#running-it)).
-- Its cost is measured. Checking a request takes a few Ed25519 verifications and
-  SHA-256 hashes. In the
+- Its cost is measured, on one host. Checking a request takes a few Ed25519
+  verifications and SHA-256 hashes. In the
   [Java mesh](poc-demos/java-mesh/README.md#measurements), `enforce` adds about
-  1.9 ms at the median with one hop enforcing, most of it stock-JDK Ed25519. The
+  1.9 ms at the median with one hop enforcing, most of it stock-JDK Ed25519, and
+  that section ends with its caveats. The
   [Envoy Gateway](poc-demos/envoy-gateway/README.md#measurements) processor adds
   0.35 ms at the median at 1000 requests a second.
 
@@ -122,26 +155,6 @@ The code is Apache-2.0. Every cryptographic primitive the SDKs use comes from ea
 language's standard library (the JDK, Node's `node:crypto`, Go's `crypto`
 packages); the Java keygen tool also uses Bouncy Castle, to write X.509
 certificates.
-
----
-
-## Contents
-
-- [The idea in plain terms](#the-idea-in-plain-terms)
-- [Concepts](#concepts)
-- [What it does](#what-it-does)
-- [How it works](#how-it-works)
-  - [The problem](#the-problem)
-  - [Two proofs](#two-proofs)
-  - [Beyond routes](#beyond-routes)
-  - [Design rules](#design-rules)
-- [What the demos show](#what-the-demos-show)
-- [What it doesn't do](#what-it-doesnt-do)
-- [Running it](#running-it)
-- [Repository layout](#repository-layout)
-- [Where to go next](#where-to-go-next)
-- [How it was built](#how-it-was-built)
-- [Licence and third-party software](#licence-and-third-party-software)
 
 ---
 
@@ -207,7 +220,8 @@ Why it's built this way:
 - Chaining through `prev = sig` makes the chain tamper-evident. Remove, reorder, or
   insert a stamp and some `prev` stops matching, or some signature stops verifying.
 - Ed25519 rather than an HMAC means verifiers need only *public* keys. No shared
-  secret is ever distributed, and a compromised verifier can't forge stamps.
+  secret is ever distributed, and a compromised verifier can't forge other
+  services' stamps.
 - The receiver binding, `rcv`, makes each stamp good only for the hop it was handed
   to: the next service, or the chain's receiver. A chain forwarded unchanged to any
   other service fails `BINDING_MISMATCH` before its route is looked at. Over HTTP
@@ -355,14 +369,18 @@ service lists them in an operation table, by method, path template and, optional
 a query condition, and the signed root covers each table, so tables are pinned with
 the policy. A caller that holds the table names the operation in its stamp's `rcv`
 as `service#operation`, so the route records what was asked for: the Java mesh
-allows `gateway/orders#createOrder/payment#pay`. The receiver never takes its
+allows `gateway/orders#createOrder/payment#pay`. A receiver must not take its
 operation from the request: it works out from its own routing which handler will
-run, and a chain that names another fails `BINDING_MISMATCH`. A caller calls each
-operation at most once per **request tree**, the calls made under one origin's
-request ID; an operation that acts on one item of many can declare a key, the path
-segment or query parameter that names the item, and is then called once per item.
-Over MCP there are no operations, since a tool call's receiver already names one
-tool ([operations](poc-sdks/spec/wire.md#operations),
+run, and a chain that names another fails `BINDING_MISMATCH`. The
+[Spring starter](poc-sdks/java/README.md#operations) does this from Spring's
+handler mappings; the [Go SDK](poc-sdks/go/README.md#what-the-embedder-does)
+reads the tables and names operations, and leaves confirming them to the code
+that embeds it. A caller calls each operation at most once per **request tree**,
+the calls made under one origin's request ID; an operation that acts on one item
+of many can declare a key, the path segment or query parameter that names the
+item, and is then called once per item. Over MCP there are no operations, since a
+tool call's receiver already names one tool
+([operations](poc-sdks/spec/wire.md#operations),
 [nonce keys](poc-sdks/spec/verification.md#freshness-and-replay)).
 
 #### Influence
@@ -460,7 +478,7 @@ this; the TypeScript SDK does not
   entry points. So a compromised internal service can't start a chain that
   verifies, or forge an entry point's stamp.
 - Never trust a claimed field. The route is rebuilt from the stamps' signed
-  fields, never from a claimed one; a receiver's operation comes from its own
+  fields, never from a claimed one; a receiver's operation must come from its own
   routing, and a destination's owner from the deciding service's own records,
   never from the request.
 - Log identities and verdicts, never secrets. Service IDs, request IDs and reason
@@ -516,8 +534,7 @@ run at a time. An eval (`npm run eval`) runs the agent many times in each of fiv
 settings: Paztport on and off with the planted issue, on and off without it, and
 off with a published defence wording added to the system prompt. It scores each
 run from the mock server's record of the tool calls, never from what the model
-says it did. No eval result is recorded in this repository yet
-([the eval](poc-demos/agents-mcp/eval/README.md)).
+says it did ([the eval](poc-demos/agents-mcp/eval/README.md)).
 
 ## What it doesn't do
 
@@ -653,7 +670,8 @@ the results.
 The work went in stages: a design for each piece, then a plan that split it into
 tasks, then the tasks one at a time. Each task was reviewed on its own, and each
 branch was reviewed as a whole before it was merged. The designs, plans and
-reviews are kept outside this repository and are not linked from it.
+reviews are kept outside this repository and are not linked from it, so that the
+repository stands on its own and leans on no document a reader cannot see.
 
 What you can check for yourself:
 
@@ -661,13 +679,16 @@ What you can check for yourself:
   `poc-sdks/spec/vectors/` are recorded answers that the Java, TypeScript and Go
   SDKs replay, each the parts for the transports it speaks, so the three
   implementations are held to one set of answers.
-- `./run test` runs the repository's own checks (`check-names.sh`, which fails on
-  a tracked file that names the folders the designs, plans and reviews are kept
-  in, or the tool that drove the work; `check-links.mjs`, which fails on a
-  Markdown link to a missing file or heading; `check-imports.mjs`, which fails on
-  a Java import the file does not need), the TypeScript type checks,
+- `./run test` runs the repository's own checks, the TypeScript type checks,
   gofmt, go vet and staticcheck, every suite of the three SDKs and the demos, and a
-  check of what the built jars carry. It needs no Docker and no model.
+  check of what the built jars carry. It needs no Docker and no model. The
+  repository's own checks are three scripts. `check-names.sh` fails on a tracked
+  file that names where the designs, plans and reviews are kept: the private
+  workspace folder, a path into a `docs/specs` or `docs/plans` folder (where its
+  designs and plans sit), or the workflow plugin that ran the tasks, whose notes
+  folder bears its name. None of those is in the repository. `check-links.mjs`
+  fails on a Markdown link to a missing file or heading, and `check-imports.mjs`
+  on a Java import the file does not need.
 - The Java mesh and Envoy Gateway READMEs say how their numbers were measured, on
   which host and with which versions, and the Envoy Gateway README names the run
   they come from. The measurement scripts are in the repository; their raw results
