@@ -1,6 +1,8 @@
 # Where this could go
 
-These are directions for Paztport beyond this proof of concept.
+This file collects where Paztport could go beyond this proof of concept. It
+builds on [How it works](../README.md#how-it-works) in the README and uses its
+terms.
 
 These are design directions, except where a bullet says what is built.
 

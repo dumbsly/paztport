@@ -2,7 +2,11 @@
 
 This is the register of what Paztport does not do on its own. It lists what a
 deployment must supply for Paztport to hold, what any design of this kind cannot
-do, and what this proof of concept leaves out.
+do, and what this proof of concept leaves out. It uses the terms the README's
+[How it works](../README.md#how-it-works) introduces, among them the peer check,
+influence and the egress. "The rule" below is
+[the owner-aware rule](../README.md#the-owner-aware-rule), and the PSP is the
+payment provider in the [Java mesh](../poc-demos/java-mesh/README.md).
 
 ## Using it soundly
 

@@ -2,8 +2,7 @@
 
 The agent/MCP demo: an npm workspace that uses the TypeScript SDK
 ([poc-sdks/typescript](../../poc-sdks/typescript/README.md)). The idea it follows is
-"AI agents and MCP" in the root README's
-[Where this could go](../../docs/directions.md).
+"AI agents and MCP" in [Where this could go](../../docs/directions.md).
 
 | Folder | What it holds |
 |---|---|
