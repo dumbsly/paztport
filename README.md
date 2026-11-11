@@ -10,7 +10,7 @@ system. A request from that part carries its valid credentials, so a service tha
 asks only *who are you?* (the payment service, the customer database, the admin
 panel) does what it's told.
 
-This repository holds the Paztport protocol, written as a
+This repository holds Paztport, a protocol for path attestation, written as a
 [spec](poc-sdks/spec/README.md) (version 3); SDKs in Java and Go, which carry it
 over HTTP, and in TypeScript, which carries it over MCP, the protocol AI agents
 use to call tools; and three demos: a small
@@ -46,10 +46,11 @@ with a clean copy, automatically, within seconds.
 
 <!--
 Note for the author: this section is yours to write, in your own words. A
-first-time reader reaches it straight after the plain-terms idea, and the
-sections below use these terms: origin, stamp, chain, receiver, proof, root,
-keyring, the live order of checks, the `audit` and `enforce` modes, responder
-and event, influence, and session. Until this section exists, each term gets a
+first-time reader reaches it straight after the plain-terms idea. The opening
+names the technique, path attestation, without defining it, and the sections
+below use these terms: origin, stamp, chain, receiver, proof, root, keyring, the
+live order of checks, the `audit` and `enforce` modes, responder and event,
+influence, and session. Until this section exists, each term gets a
 one-clause definition where it is first used; those inline definitions will be
 indexed here, with their lines, so you can find them and fold them in. Defined
 once here, the terms let the rest of the README lean on them.
