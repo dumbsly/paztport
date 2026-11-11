@@ -755,16 +755,17 @@ when the whole mesh runs:
 
 ## Measurements
 
-Measured on a single host, an Apple M5 Pro under macOS 26.6.2 (Docker Desktop, the
-services on Temurin 25.0.5, a JDK 25 runtime), with k6 driving the legitimate path at 10 virtual
-users, via [measure.sh](measure.sh), mutual TLS on every hop. `payment` is
-switched between `off`, where Paztport is off on that hop, and `enforce`, with
-everything else identical. Each mode first gets a 10 s warm-up that is thrown
-away, so neither carries most of the JVMs' and the connections' warm-up. Then
-three rounds each run both modes for 20 s, the leading mode alternating (`off`
-then `enforce`, `enforce` then `off`, `off` then `enforce`), so drift over the
-session doesn't favour one mode. The table gives each mode's median over its three
-runs, with the three runs' range. No request failed in any run.
+Measured on a single host, an Apple M5 Pro under macOS 26.6.2 (Docker Desktop,
+the services on Temurin 25.0.5, a JDK 25 runtime), with k6 driving the
+legitimate path at 10 virtual users, via [measure.sh](measure.sh), mutual TLS on
+every hop. `payment` is switched between `off`, where Paztport is off on that
+hop, and `enforce`, with everything else identical. Each mode first gets a 10 s
+warm-up that is thrown away, so neither carries most of the JVMs' and the
+connections' warm-up. Then three rounds each run both modes for 20 s, the
+leading mode alternating (`off` then `enforce`, `enforce` then `off`, `off` then
+`enforce`), so drift over the session doesn't favour one mode. The table gives
+each mode's median over its three runs, with the three runs' range. No request
+failed in any run.
 
 | | p50 | p99 | mean | max |
 |---|---|---|---|---|
@@ -808,12 +809,12 @@ What the numbers say:
   stamps), which in `off` finds no stamp and stops at once. At the micro-benchmark
   costs in the table above, those five verifies and one signature come to about
   1.4 ms of Ed25519 (5 × 233.8 + 221.9 = 1390.8 µs), about 70% of the difference.
-  The remainder, about 0.5 ms, isn't broken down. Candidates
-  are the other work `enforce` adds (reading the chain and proof headers, the
-  nonce check, encoding the response stamp and `orders`' parse of it), queueing
-  among the 10 users, and a gap between the benchmark, run natively, and the same
-  work in Docker Desktop's VM on this host. The request binding, at 0.07 µs, is
-  too small to count.
+  The remainder, about 0.5 ms, isn't broken down. Candidates are the other work
+  `enforce` adds (reading the chain and proof headers, the nonce check, encoding
+  the response stamp and `orders`' parse of it), queueing among the 10 users,
+  and a gap between the benchmark, run natively, and the same work in Docker
+  Desktop's VM on this host. The request binding, at 0.07 µs, is too small to
+  count.
 - **The proof of legitimacy is effectively free.** Its walk costs about 1% of one
   Ed25519 verify. Of the primitives, nearly all the cost is Ed25519: a verify per
   stamp, and a signature per stamp a hop adds.
@@ -821,10 +822,10 @@ What the numbers say:
   this repository doesn't benchmark, do tens of microseconds. A hot-path
   deployment would swap the signature implementation; the Merkle machinery
   wouldn't change.
-- **The chain grows by about 473 B per stamp, on average** (946 B over two). The proof is a fixed 615 B whatever
-  the route length. `X-Path-Influence` is absent when there is no influence, as
-  here. The response headers were not measured: `X-Path-Response` carries one
-  stamp plus its labels.
+- **The chain grows by about 473 B per stamp, on average** (946 B over two). The
+  proof is a fixed 615 B whatever the route length. `X-Path-Influence` is absent
+  when there is no influence, as here. The response headers were not measured:
+  `X-Path-Response` carries one stamp plus its labels.
 
 Caveats:
 
