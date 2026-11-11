@@ -527,9 +527,12 @@ for Paztport to hold:
   7 days by default, so a leaked key or a removed route stays usable that long
   unless a new policy key is pinned
   ([using it soundly](docs/limits.md#using-it-soundly)).
-- The owner-aware rule sees only the influence a request carries, counts content's
-  presence rather than its effect, and judges whose data shaped a write, not who
-  may receive it ([using it soundly](docs/limits.md#using-it-soundly),
+- The owner-aware rule judges only the influence a request carries, and passes what
+  it cannot see: where a chain did not pass the live order (Paztport off on a hop,
+  a chain that failed in `audit` mode, a call in an unsafe partner session), that
+  influence may be incomplete or empty. The rule also counts content's presence
+  rather than its effect, and judges whose data shaped a write, not who may
+  receive it ([using it soundly](docs/limits.md#using-it-soundly),
   [limits of the concept](docs/limits.md#limits-of-the-concept)).
 - The proof hides the policy, not a request's own route: whoever verifies a chain
   learns the route it took
