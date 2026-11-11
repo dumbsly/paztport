@@ -13,14 +13,14 @@ The repository holds Paztport's source and, in [licenses/](licenses), the text o
 each licence other than Apache-2.0 that a bundled component is declared under, the
 licences [THIRD-PARTY.txt](THIRD-PARTY.txt) lists. The source tree contains no
 third-party code; the built jars named below bundle some. That list covers the
-runtime dependencies of both Java trees, each with the licence it is used under. All of them are permissive (Apache-2.0, MIT,
-BSD-2-Clause, the MIT-style Bouncy Castle licence) or weak copyleft that is fine to
-redistribute unmodified (EPL-2.0), except JMH (below). Two of them also carry
-Mozilla's Public Suffix List, which is under MPL-2.0: docker-java-transport-zerodep
-holds the list as a file, unmodified, whose own notice says it is under MPL-2.0 and
-where that licence is published, and Guava holds public-suffix classes that its
-documentation ties to the same list. The MPL-2.0 text is not in licenses/. Four
-components offer a choice of licence, recorded in
+runtime dependencies of both Java trees, each with the licence it is used under. All
+of them are permissive (Apache-2.0, MIT, BSD-2-Clause, the MIT-style Bouncy Castle
+licence) or weak copyleft that is fine to redistribute unmodified (EPL-2.0), except
+JMH (below). Two of them also carry Mozilla's Public Suffix List, which is under
+MPL-2.0: docker-java-transport-zerodep holds the list as a file, unmodified, whose
+own notice says it is under MPL-2.0 and where that licence is published, and Guava
+holds public-suffix classes that its documentation ties to the same list. The MPL-2.0
+text is not in licenses/. Four components offer a choice of licence, recorded in
 [licenses/overrides.properties](licenses/overrides.properties): Logback (EPL-2.0 or
 LGPL-2.1) and Jakarta Annotations (EPL-2.0 or GPL-2.0 with the Classpath Exception)
 are used under EPL-2.0, JNA (Apache-2.0 or LGPL-2.1-or-later) under Apache-2.0, and
