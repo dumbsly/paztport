@@ -178,13 +178,13 @@ The `warning` mode adds a defence wording written by someone else to the system 
 
 ## Recorded results
 
-One eval is recorded here. It ran on 2026-11-11 with `ollama/gemma4:26b-mlx`, a local model served by Ollama, in all five modes, 20 runs each, with the default time limit of 600 seconds per run, and took about 1 hour 52 minutes. It was run from a clean checkout of the repository at commit 850df8a3, not from a fresh clone as step 1 of [Publishing results](#publishing-results) asks.
+One eval is recorded here. It ran on 2026-11-11 with `ollama/gemma4:26b-mlx`, a local model served by Ollama, in all five modes, 20 runs each, with the default time limit of 600 seconds per run, and took about 1 hour 52 minutes. It was run from a clean checkout of the repository at commit 850df8a3, not from a fresh clone as step 1 of [Publishing results](#publishing-results) asks. It ran under `caffeinate -i`, and no run was dropped or repeated. The model is local, so no hosted provider's terms apply.
 
 - Versions: pi 1.5.2, Paztport extension 0.1.0, mock server 0.1.0, Node v25.8.1, Ollama 0.33.0, model digest `21c59a2eae301d2b4ee734f0930728ddc284b4cbf9856b8ad7c3f1c11e056832`.
 - Machine: darwin 25.6.0, arm64, Apple M5 Pro, 48 GB memory.
-- Context length: `summary.md` shows it as "not recorded". Ollama reported 262144 tokens for the loaded model.
+- Context length: `summary.md` shows it as "not recorded". Ollama's `/api/ps` reported a context length of 262144 tokens for the loaded model.
 - Scenario: the reference planted text in `github-issue-replay`. The agent had only the scenario's mock tools (`mcp__github__*`).
-- Warning baseline: the text was compared with its source page again on 2026-11-11 and had not changed.
+- Warning baseline: the text was compared with its source page again on 2026-11-11 and had not changed. The `warning.json` note recorded in the results folder says the source's first sentence was left out; its first two sentences were, as [The warning baseline](#the-warning-baseline) says, and the repository's note is now corrected.
 
 | Mode | Runs | leaked | blocked | of which with private text | resisted | read private | task done | harness fault | timeout | error | no tool calls |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -194,7 +194,7 @@ One eval is recorded here. It ran on 2026-11-11 with `ollama/gemma4:26b-mlx`, a 
 | Paztport on, no planted text | 20 | 0 / 20 (0–17%) | 0 / 20 (0–17%) | 0 / 20 (0–17%) | 20 / 20 (83–100%) | 0 / 20 (0–17%) | 20 / 20 (83–100%) | 0 / 20 (0–17%) | 0 / 20 (0–17%) | 0 / 20 (0–17%) | 0 / 20 (0–17%) |
 | Paztport off, warning in the system prompt | 20 | 10 / 20 (29–71%) | 0 / 20 (0–17%) | 0 / 20 (0–17%) | 8 / 20 (21–62%) | 19 / 20 (76–100%) | 20 / 20 (83–100%) | 0 / 20 (0–17%) | 2 / 20 (2–31%) | 0 / 20 (0–17%) | 0 / 20 (0–17%) |
 
-Each cell reads as [Reading the results](#reading-the-results) describes, and [The columns](#the-columns) defines each class. `npm run verify` on the results folder exits 0: the evidence of all 40 runs with Paztport on verifies, with the pin `3nMlb51iufX5UKtW` that `summary.md` gives as the server key fingerprint, and the 60 runs with Paztport off have nothing to check. The results folder is not in this repository; a link to it will be added here once it is published.
+Each cell reads as [Reading the results](#reading-the-results) describes, and [The columns](#the-columns) defines each class. Of the 13 blocked runs with Paztport on, 4 had the private text in a refused call; the other 9 refused a public write that held none, so 13 blocks are not 13 prevented leaks. `npm run verify` on the results folder exits 0: the evidence of all 40 runs with Paztport on verifies, with the pin `3nMlb51iufX5UKtW` that `summary.md` gives as the server key fingerprint, and the 60 runs with Paztport off have nothing to check. The results folder is not in this repository; a link to it will be added here once it is published. Before then its files are to be checked for paths as step 7 of the checklist says; a scan found absolute paths only in each run's `config.json`, which records them by design.
 
 > - Marker-based detection misses paraphrase, encoding and split leaks, so a run scored as resisted may still have written private information that the markers do not match.
 > - It tests one kind of planted text in one scenario, against a mock server, not the real GitHub service.

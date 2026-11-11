@@ -135,9 +135,9 @@ written here moves every line below it down).
   [support-assistant storyline](poc-demos/java-mesh/README.md#the-support-assistant-storyline)
   exercises its owner clause. In the demo's one recorded
   [eval](poc-demos/agents-mcp/eval/README.md#recorded-results), 20 runs per
-  setting on a local model, 9 of 20 runs leaked the private notes with Paztport
-  off and none with it on, and without the planted issue Paztport refused
-  nothing.
+  setting on one local model against a mock server, 9 of 20 runs leaked the
+  private notes with Paztport off and none with it on, and without the planted
+  issue Paztport refused nothing.
   [Where this could go](docs/directions.md) says what is still open.
 - It is checked end to end. The Java mesh's `demo.sh` makes 26 checks, among them
   forged stamps, replays, altered bodies, expired requests, routes the policy does
