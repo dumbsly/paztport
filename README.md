@@ -18,7 +18,8 @@ use to call tools; and three demos: a small
 [Envoy Gateway](poc-demos/envoy-gateway/README.md) edge on a local Kubernetes
 cluster, and an [AI agent's MCP calls](poc-demos/agents-mcp/README.md).
 It is a proof of concept: nothing is published to a package registry, and nothing
-has been audited. Claude, an AI model, wrote all of its code and documentation.
+has been audited. Claude, an AI model, wrote all of its code and documentation
+([How it was built](#how-it-was-built)).
 
 ## The idea in plain terms
 
@@ -51,9 +52,33 @@ names the technique, path attestation, without defining it, and the sections
 below use these terms: origin, stamp, chain, receiver, proof, root, keyring, the
 live order of checks, the `audit` and `enforce` modes, responder and event,
 influence, and session. Until this section exists, each term gets a
-one-clause definition where it is first used; those inline definitions will be
-indexed here, with their lines, so you can find them and fold them in. Defined
-once here, the terms let the rest of the README lean on them.
+one-clause definition where it is first used, indexed below so you can find them
+and fold them in. Defined once here, the terms let the rest of the README lean
+on them.
+
+Where each term is defined now: the heading, then the line as committed (text
+written here moves every line below it down).
+- stamp: used first in The idea in plain terms (30) and What it does
+  (96); defined in Proof of travel (177).
+- chain, origin, receiver: Proof of travel (177, 178, 179).
+- responder: used first in The idea in plain terms (43); defined in the
+  stamp table's `inst` row (197).
+- event: used first in The idea in plain terms (40); defined in Proof of
+  travel, after the bullets (228).
+- session: What it does (92); its `sess` field in the stamp table (200).
+- policy: What it does (93).
+- `audit` and `enforce`: What it does (112).
+- influence: the stamp table's `infl` row (203); its classes in Influence
+  (375).
+- call window, run window: the stamp table's `ts` row (199).
+- peer check, nonce cache: Proof of travel, last bullet (221, 223).
+- root, policy key, proof: Proof of legitimacy (235, 236, 237).
+- policy tool, proof bundles, keyring: Proof of legitimacy, the tree bullets
+  (299, 312, 313).
+- live order: Why you need both (336).
+- operation, request tree: Operations (354, 363).
+- circuit breaker (the demo responder's): What the demos show (466).
+- `ext_proc` and pi (demo jargon): What the demos show (482, 496).
 -->
 
 ## What it does
@@ -113,11 +138,12 @@ certificates.
   - [Beyond routes](#beyond-routes)
   - [Design rules](#design-rules)
 - [What the demos show](#what-the-demos-show)
-- [5. Known limits](#5-known-limits)
-- [6. Where this could go](#6-where-this-could-go)
-- [7. Running it](#7-running-it)
-- [8. Repository layout](#8-repository-layout)
-- [9. Where to go next](#9-where-to-go-next)
+- [What it doesn't do](#what-it-doesnt-do)
+- [Running it](#running-it)
+- [Repository layout](#repository-layout)
+- [Where to go next](#where-to-go-next)
+- [How it was built](#how-it-was-built)
+- [Licence and third-party software](#licence-and-third-party-software)
 
 ---
 
@@ -428,66 +454,98 @@ its first call, and in an unsafe one counts every result `local-untrusted`
 
 ## What the demos show
 
-It works end to end. In the [Java mesh demo](poc-demos/java-mesh/README.md), a
-request with a perfectly valid body, sent by a service that is legitimately on the
-network, is **rejected purely because of where it came from**, and the offending
-container is **quarantined and replaced automatically**. All the scenarios and a
-circuit-breaker check pass (`demo.sh` reports 26 checks, among them forged,
-replayed, expired and spliced requests, routes the policy does not list, audit
-mode, and the quarantine with its circuit breaker), and
-the overhead has been measured.
+The [Java mesh](poc-demos/java-mesh/README.md) runs Spring Boot services on mutual
+TLS under Docker Compose, with a responder and a payment provider that stands in
+for a second organisation. In its headline case, `search`, a
+service legitimately on the network, adds its own stamp to a real chain and sends
+it on to `payment`. The request is valid in every other respect, and it is refused
+`PATH_NOT_ALLOWED` because of where it came from: the policy's only route through
+`search` is `gateway → search`. The demo's responder acts on the signed events
+`payment` sends it. After three refusals from one container within a minute, it
+moves that container to an isolated network, where it keeps running for
+inspection, and starts a clean copy in its place. Its circuit breaker allows at
+most two quarantines of one service in ten minutes by default; past that, the
+responder stops acting and logs `ESCALATE` for a person to take over, since a
+legitimate route missing from the policy would make every replica of a service
+look guilty. A support-assistant storyline runs customers' tickets through a
+scripted stand-in for a hijacked model, with no model in it. An honest ticket is
+refunded and emailed; one asking for Alice's data to go to Mallory is refused at
+the mailer and at the payment provider by
+[the owner-aware rule](#the-owner-aware-rule), though every hop was on an allowed
+route ([the scenarios](poc-demos/java-mesh/README.md#running-it),
+[the responder](poc-demos/java-mesh/README.md#response-quarantine-not-deletion),
+[the storyline](poc-demos/java-mesh/README.md#the-support-assistant-storyline)).
 
-The demo also tells a story across two organisations. A customer's support ticket
-passes through a ticket service, which labels the text as third-party, to an
-assistant, which is a **scripted stand-in for a hijacked model, with no model in
-it**. It reads the customer's private order and tries a refund (at a payment
-provider that is a second organisation, reached through a boundary attestation)
-and an email. An honest ticket is refunded and emailed. A malicious ticket asks
-for Alice's data to go to Mallory, and is refused at the mailer and at the
-provider from the influence the requests carry, though every hop was a legitimate
-position on an allowed route. See
-[the support-assistant storyline](poc-demos/java-mesh/README.md#the-support-assistant-storyline).
+The [Envoy Gateway proof of concept](poc-demos/envoy-gateway/README.md) puts
+Paztport at a Kubernetes edge, on a local kind cluster. A Go processor, which
+Envoy calls over gRPC for each request through its external processing filter
+(`ext_proc`), and which its own Helm chart installs, stamps each request entering
+the gateway as the origin service `edge`; the Java mesh's `orders` and `payment`
+verify it. Its checks show that a chain a client sends is replaced at the edge,
+not believed, that a request sent around the edge is refused, and that a stamp
+taken from the processor is refused from any connection but Envoy's. Its
+measurement run also tested failure. A processor container killed under load cost
+under a second of refused requests and let none through unstamped. With every
+replica gone, Envoy Gateway's default routing let requests through unstamped as
+the processor came back, which backends in `enforce` refuse; routing Envoy to the
+processor's Service let none through
+([what the measurements showed](poc-demos/envoy-gateway/README.md#what-the-measurements-showed),
+which also covers adding routes and rotating the edge's key).
 
-The [Envoy Gateway proof of concept](poc-demos/envoy-gateway/README.md) puts Paztport
-at a Kubernetes edge, on a local kind cluster. A Go `ext_proc` processor, installed
-by its own Helm chart, stamps each request entering an Envoy Gateway as the origin
-service `edge`, and the Java mesh's `orders` and `payment` verify it. Its checks show
-that a chain a client sends is replaced at the edge, not believed, that a request
-sent around the edge is refused, and that a stamp taken from the processor is refused
-from any connection but Envoy's. Its README also records what one full measurement
-run showed: the processor's cost under load, how the edge fails and recovers, and
-rotating the edge's key.
+The [agents demo](poc-demos/agents-mcp/README.md) carries chains over MCP, with
+the TypeScript SDK. An extension to pi, a coding agent, stamps each tool call the
+agent makes to a mock GitHub MCP server, verifies each response, and tracks the
+influence of what the agent has read. Its default scenario holds the planted issue
+that [What it does](#what-it-does) describes. The model runs locally through
+Ollama unless you point the demo at a hosted one, and a local web page shows one
+run at a time. An eval (`npm run eval`) runs the agent many times in each of five
+settings: Paztport on and off with the planted issue, on and off without it, and
+off with a published defence wording added to the system prompt. It scores each
+run from the mock server's record of the tool calls, never from what the model
+says it did. No eval result is recorded in this repository yet
+([the eval](poc-demos/agents-mcp/eval/README.md)).
 
-The [agents demo](poc-demos/agents-mcp/README.md) carries the same chains over MCP,
-with the TypeScript SDK. An extension to the pi coding agent intercepts each tool
-call the agent makes to a mock GitHub MCP server and stamps it, verifies each
-response, and tracks the influence of what the agent has read. One issue on a
-public repository carries a prompt injection that asks the agent to copy private
-notes into a public pull request, and with Paztport on, the server refuses that
-write by [the owner-aware rule](#the-owner-aware-rule). The
-model runs locally through Ollama, and an eval runs the agent many times in each
-setting, with Paztport on and off and with and without the planted issue, and scores
-each run from the server's outcome log.
+## What it doesn't do
 
-## 5. Known limits
+The most important limits, each linked to its entry in
+[docs/limits.md](docs/limits.md), which also lists what a deployment must supply
+for Paztport to hold:
 
-What a deployment must supply, what any design of this kind cannot do, and what this
-proof of concept leaves out are listed in [docs/limits.md](docs/limits.md).
+- A compromised service on an allowed route can still misuse that route: Paztport
+  checks a request's position, not whether the services on its route behave
+  ([limits of the concept](docs/limits.md#limits-of-the-concept)).
+- Whoever holds a service's keys is that service. Proving that a workload is a
+  legitimate deployment is left to the workload-identity layer
+  ([limits of the concept](docs/limits.md#limits-of-the-concept)).
+- The peer check needs mutual TLS ended in the service's own process. The SDKs do
+  not support a sidecar mesh, where TLS ends in a proxy beside the service
+  ([using it soundly](docs/limits.md#using-it-soundly)).
+- Without a peer, anyone holding a captured request can send it again to the same
+  receiver within the call window, and only the replica that saw it first refuses
+  it ([using it soundly](docs/limits.md#using-it-soundly)).
+- A keyring or root shown in a session handshake can be replayed until it expires,
+  7 days by default, so a leaked key or a removed route stays usable that long
+  unless a new policy key is pinned
+  ([using it soundly](docs/limits.md#using-it-soundly)).
+- The owner-aware rule sees only the influence a request carries, counts content's
+  presence rather than its effect, and judges whose data shaped a write, not who
+  may receive it ([using it soundly](docs/limits.md#using-it-soundly),
+  [limits of the concept](docs/limits.md#limits-of-the-concept)).
+- The proof hides the policy, not a request's own route: whoever verifies a chain
+  learns the route it took
+  ([limits of the concept](docs/limits.md#limits-of-the-concept)).
+- The SDKs' nonce caches are in memory, one per replica, so a request sent twice
+  can be served twice by another replica or after a restart; the receiving
+  application must handle duplicate delivery
+  ([using it soundly](docs/limits.md#using-it-soundly)).
+- Queues, caches and scheduled jobs are out of scope: they break the model of one
+  linear chain ([using it soundly](docs/limits.md#using-it-soundly)).
+- This proof of concept keeps keys and certificates in files or Kubernetes
+  Secrets, with no workload attestation, and its responder controls Docker through
+  the host's socket
+  ([limits of this proof of concept](docs/limits.md#limits-of-this-proof-of-concept)).
 
-## 6. Where this could go
-
-The directions beyond this proof of concept are in [docs/directions.md](docs/directions.md).
-
-## 7. Running it
-
-**Prerequisites:** JDK 25 or newer and Maven for the Java side, Docker with Compose
-for the mesh demo, Node 22.19 or newer with npm for the TypeScript side, Ollama,
-running, with a model pulled (for example `ollama pull qwen3:4b`) for the agents
-demo, Go 1.27 or newer for the Go SDK, staticcheck 2026.2.2 or newer for
-`./run test`'s checks of the Envoy Gateway processor, and unzip for its jar check;
-for the Envoy Gateway proof of concept, Maven running on Java 25 or newer (as
-`mvn -v` reports it), Docker, Go, kind
-0.33, kubectl 1.36 and Helm 4.3 or newer, and python3 for its measurements. macOS and Linux; on Windows use WSL.
+## Running it
 
 ```bash
 ./run test        # the name, link and Java import checks, the TypeScript type checks, gofmt, go vet and staticcheck, every suite, a check of the built jars and of the processor's third-party list; no Docker and no model
@@ -498,12 +556,27 @@ for the Envoy Gateway proof of concept, Maven running on Java 25 or newer (as
 ./run bench       # time the primitives a verifying hop pays for (JMH, a few minutes); not part of test
 ```
 
-`./run` with no argument prints its usage. A missing prerequisite stops it with one
-line naming what is missing, before anything is built; Ollama is the exception,
-which `./run agents-mcp` only reports as reachable or not. Each folder still builds
-on its own; its README has the commands.
+What each command needs, at the lowest versions `./run` accepts:
 
-## 8. Repository layout
+- `./run test`: Maven, running on Java 25 or newer (as `mvn -v` reports it);
+  Node 22.19 or newer, with npm; Go 1.27 or newer; staticcheck 2026.2.2 or newer;
+  and unzip, for the jar check.
+- `./run java-mesh`: Maven on Java 25 or newer, and Docker, its daemon running,
+  with Compose.
+- `./run envoy-gateway`: Maven on Java 25 or newer; Docker, its daemon running;
+  Go 1.27 or newer; kind 0.33, kubectl 1.36 and Helm 4.3, or newer. With
+  `measure`, also python3 3.9 or newer.
+- `./run agents-mcp`: Node 22.19 or newer, with npm; and Ollama, running, with a
+  model pulled (for example `ollama pull qwen3:4b`).
+- `./run bench`: Maven on Java 25 or newer.
+
+`./run` runs on macOS and Linux; on Windows use WSL. With no argument it prints
+its usage. A missing prerequisite stops it with one line naming what is missing,
+before anything is built; Ollama is the exception, which `./run agents-mcp` only
+reports as reachable or not. Each folder still builds on its own; its README has
+the commands.
+
+## Repository layout
 
 ```
 paztport/
@@ -511,6 +584,7 @@ paztport/
 ├── LICENSING.md              what each jar and image carries, and why
 ├── THIRD-PARTY.txt           runtime dependencies and their licences (generated)
 ├── licenses/                 licence texts the bundling jars carry, and the licence plugin's shared settings
+├── docs/                     limits.md, the known limits in full; directions.md, where this could go
 ├── run                       front door: java-mesh, envoy-gateway, agents-mcp, test, bench
 ├── poc-sdks/
 │   ├── spec/                 the protocol spec, and vectors/: v3.json, which every SDK replays (Java and Go all of it but the MCP profile); http-v3.json, Java's and Go's; events.json, all three's; json.json, TypeScript's but its http bindings, Java's and Go's but the MCP profile's sections
@@ -531,7 +605,7 @@ paztport/
         └── scenarios/        scenario folders: repositories, planted text, scoring data
 ```
 
-## 9. Where to go next
+## Where to go next
 
 - [poc-sdks](poc-sdks/README.md): the SDKs and a summary of the on-the-wire format.
   - [poc-sdks/java](poc-sdks/java/README.md) and
@@ -546,6 +620,40 @@ paztport/
   - [poc-demos/envoy-gateway](poc-demos/envoy-gateway/README.md): the edge processor at
     an Envoy Gateway, its chart, and the checks on a local kind cluster.
   - [poc-demos/agents-mcp](poc-demos/agents-mcp/README.md): the agent and MCP demo.
+- [docs/limits.md](docs/limits.md): the known limits in full: what a deployment
+  must supply, what any design of this kind cannot do, and what this proof of
+  concept leaves out.
+- [docs/directions.md](docs/directions.md): where Paztport could go beyond this
+  proof of concept, among them post-quantum signatures, production agent runtimes,
+  async boundaries and scale.
+
+## How it was built
+
+Claude, an AI model made by Anthropic, wrote all of the code and documentation in
+this repository. The author set the goals, made the design decisions and reviewed
+the results.
+
+The work went in stages: a design for each piece, then a plan that split it into
+tasks, then the tasks one at a time. Each task was reviewed on its own, and each
+branch was reviewed as a whole before it was merged. The designs, plans and
+reviews are kept outside this repository and are not linked from it.
+
+What you can check for yourself:
+
+- The [conformance vectors](poc-sdks/spec/README.md#conformance) in
+  `poc-sdks/spec/vectors/` are recorded answers that the Java, TypeScript and Go
+  SDKs replay, each the parts for the transports it speaks, so the three
+  implementations are held to one set of answers.
+- `./run test` runs the repository's own checks (`check-names.sh`, which fails on
+  a tracked file that names the private workspace; `check-links.mjs`, which fails
+  on a Markdown link to a missing file or heading; `check-imports.mjs`, which
+  fails on a Java import the file does not need), the TypeScript type checks,
+  gofmt, go vet and staticcheck, every suite of the three SDKs and the demos, and a
+  check of what the built jars carry. It needs no Docker and no model.
+- The Java mesh and Envoy Gateway READMEs say how their numbers were measured, on
+  which host and with which versions, and the Envoy Gateway README names the run
+  they come from. The measurement scripts are in the repository; their raw results
+  stay on the machine that ran them and are not committed.
 
 ## Licence and third-party software
 
