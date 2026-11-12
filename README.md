@@ -45,6 +45,8 @@ lot.
 
 ## `</human>`
 
+[![test](https://github.com/dumbsly/paztport/actions/workflows/test.yml/badge.svg)](https://github.com/dumbsly/paztport/actions/workflows/test.yml)
+
 **A passport for requests.** The "zt" stands for zero trust.
 
 Most security asks one question at the door: *who are you?* Paztport asks a
@@ -56,15 +58,15 @@ asks only *who are you?* (the payment service, the customer database, the admin
 panel) does what it's told.
 
 This repository holds Paztport, a protocol for path attestation, written as a
-[spec](poc-sdks/spec/README.md) (version 3). SDKs in Java and Go carry it over
-HTTP, and one in TypeScript carries it over MCP, the protocol AI agents use to
-call tools. Three demos run it: a small
+[spec](poc-sdks/spec/README.md) (version 3). SDKs in Java and Go carry it over HTTP,
+and one in TypeScript carries it over MCP, the protocol AI agents use to call tools.
+Three demos run it: a small
 [mesh of Spring Boot services](poc-demos/java-mesh/README.md), an
 [Envoy Gateway](poc-demos/envoy-gateway/README.md) edge on a local Kubernetes
-cluster, and an [AI agent](poc-demos/agents-mcp/README.md) calling a mock GitHub
-MCP server. It is a proof of concept: nothing is published to a package registry,
-and nothing has been audited. Claude, an AI model, wrote all of its code and
-documentation ([How it was built](#how-it-was-built)).
+cluster, and an [AI agent](poc-demos/agents-mcp/README.md) calling a mock GitHub MCP
+server. It is a proof of concept: nothing is published to a package registry, and
+nothing has been audited. Claude, an AI model, wrote all of its code and, outside
+the block above, all of its documentation ([How it was built](#how-it-was-built)).
 
 ## Quick start
 
@@ -78,8 +80,8 @@ model. [Running it](#running-it) has the other demos and what each command needs
 
 - [Quick start](#quick-start)
 - [The idea in plain terms](#the-idea-in-plain-terms)
-- [Concepts](#concepts)
 - [What it does](#what-it-does)
+- [Concepts](#concepts)
 - [How it works](#how-it-works)
   - [The problem](#the-problem)
   - [Two proofs](#two-proofs)
@@ -115,6 +117,52 @@ sent the request; the caller is never told. What happens next is your choice:
 Paztport defines the event and when it may be acted on, not the response. In the
 demo, a responder acts on it by moving the machine into isolation and replacing it
 with a clean copy, automatically, within seconds.
+
+## What it does
+
+- It limits what a break-in is worth. A compromised component keeps its position and
+  nothing more: the calls its routes allow, once for each live request that reaches
+  it, though it chooses what those calls carry. An attacker who takes over the
+  search service gets the search service, not the payment system behind it, and one
+  who takes over `orders` can ask `payment` to pay only inside a request that came
+  in to create an order. Paztport doesn't make the compromised machine trustworthy;
+  it limits how far the compromise can travel, and
+  [What it doesn't do](#what-it-doesnt-do) says what it leaves open.
+- It carries calls between organisations, with the sender's internal route kept
+  inside. The Java and Go SDKs implement this over HTTP; in the Java mesh, a payment
+  provider plays the second organisation ([Sessions](#sessions)).
+- It covers an AI agent's tool calls. The
+  [agents demo](poc-demos/agents-mcp/README.md) stamps each call an agent makes to
+  an MCP server. A planted prompt injection asks the agent to copy private notes
+  into a public pull request, and with Paztport on, the server refuses that write
+  because untrusted text and private data both shaped it. The demo's data has no
+  owners, so there [the owner-aware rule](#the-owner-aware-rule) reduces to
+  untrusted content plus any private data; the Java mesh's
+  [support-assistant storyline](poc-demos/java-mesh/README.md#the-support-assistant-storyline)
+  exercises its owner clause. In the demo's one recorded
+  [eval](poc-demos/agents-mcp/eval/README.md#recorded-results), 20 runs per setting
+  on one local model against a mock server, 9 of 20 runs leaked the private notes
+  with Paztport off and none with it on, and without the planted issue Paztport
+  refused nothing. With it, 9 of the 13 refusals stopped a public write that held no
+  private text: the rule judges what shaped a write, not what the write holds.
+  [Where this could go](docs/directions.md) says what is still open.
+- It is checked end to end. The Java mesh's `demo.sh` makes 26 checks, among them
+  forged stamps, replays, altered bodies, expired requests, routes the policy does
+  not list, `audit` mode, and the responder's quarantine with its limit on how often
+  it acts; a green run ends `26 passed, 0 failed`
+  ([the scenarios](poc-demos/java-mesh/README.md#running-it)).
+- Its cost is measured, on one host. Checking a request takes a few Ed25519
+  verifications and SHA-256 hashes. In the
+  [Java mesh](poc-demos/java-mesh/README.md#measurements), `enforce` adds about
+  1.9 ms at the median with one hop enforcing, most of it stock-JDK Ed25519, and
+  that section ends with its caveats. The
+  [Envoy Gateway](poc-demos/envoy-gateway/README.md#measurements) processor adds
+  0.35 ms at the median at 1000 requests a second.
+
+The code is Apache-2.0. Every cryptographic primitive the SDKs use comes from each
+language's standard library (the JDK, Node's `node:crypto`, Go's `crypto`
+packages); the Java keygen tool also uses Bouncy Castle, to write X.509
+certificates.
 
 ## Concepts
 
@@ -167,11 +215,12 @@ it. **Influence** is the record of the content that shaped a call: a ticket's te
 a customer's order, a tool's result. Each entry has a class, such as `third-party`
 for content from outside the trust boundary, which may carry instructions, or
 `private` for data that must not reach a public destination, and may name whose data
-it is, its **owner**. The call's stamp commits to its influence, so no hop can drop
-an entry unnoticed. The **owner-aware rule** reads that record: a write to a public
-destination is refused when untrusted content and someone else's private data both
-shaped it. An answer can carry a stamp of its own (**response attestation**), and a
-caller counts an answer that does not verify as untrusted content.
+it is, its **owner**. The call's stamp commits to its influence, so no entry can be
+dropped on the way, though the hop that signs decides what it forwards. The
+**owner-aware rule** reads that record: a write to a public destination is refused
+when untrusted content and someone else's private data both shaped it. An answer can
+carry a stamp of its own (**response attestation**), and a caller counts an answer
+that does not verify as untrusted content.
 
 **Between parties.** Inside one organisation the pinned root is enough. Across a
 trust boundary, between an AI agent and a tool server or between two organisations,
@@ -183,49 +232,6 @@ nothing and serves only what it has not disabled. Between organisations the
 receiving side is the **partner**, and in an attested session the sender's last
 internal service, its **egress**, puts one stamp of its own in place of the internal
 chain, so the partner never sees the internal route.
-
-## What it does
-
-- It limits what a break-in is worth. A compromised component can do only what
-  its legitimate position in the system allows: an attacker who takes over the
-  search service gets the search service, not the payment system behind it.
-  Paztport doesn't make the compromised machine trustworthy; it limits how far
-  the compromise can travel. [Known limits](docs/limits.md) lists what it needs
-  from a deployment and what it cannot do.
-- It carries calls between organisations, with the sender's internal route kept
-  inside. The Java and Go SDKs implement this over HTTP; in the Java mesh, a payment
-  provider plays the second organisation ([Sessions](#sessions)).
-- It covers an AI agent's tool calls. The
-  [agents demo](poc-demos/agents-mcp/README.md) stamps each call an agent makes to
-  an MCP server. A planted prompt injection asks the agent to copy private notes
-  into a public pull request, and with Paztport on, the server refuses that write
-  because untrusted text and private data both shaped it. The demo's data has no
-  owners, so there [the owner-aware rule](#the-owner-aware-rule) reduces to
-  untrusted content plus any private data; the Java mesh's
-  [support-assistant storyline](poc-demos/java-mesh/README.md#the-support-assistant-storyline)
-  exercises its owner clause. In the demo's one recorded
-  [eval](poc-demos/agents-mcp/eval/README.md#recorded-results), 20 runs per
-  setting on one local model against a mock server, 9 of 20 runs leaked the
-  private notes with Paztport off and none with it on, and without the planted
-  issue Paztport refused nothing.
-  [Where this could go](docs/directions.md) says what is still open.
-- It is checked end to end. The Java mesh's `demo.sh` makes 26 checks, among them
-  forged stamps, replays, altered bodies, expired requests, routes the policy does
-  not list, `audit` mode, and the responder's quarantine with its limit on how often
-  it acts; a green run ends `26 passed, 0 failed`
-  ([the scenarios](poc-demos/java-mesh/README.md#running-it)).
-- Its cost is measured, on one host. Checking a request takes a few Ed25519
-  verifications and SHA-256 hashes. In the
-  [Java mesh](poc-demos/java-mesh/README.md#measurements), `enforce` adds about
-  1.9 ms at the median with one hop enforcing, most of it stock-JDK Ed25519, and
-  that section ends with its caveats. The
-  [Envoy Gateway](poc-demos/envoy-gateway/README.md#measurements) processor adds
-  0.35 ms at the median at 1000 requests a second.
-
-The code is Apache-2.0. Every cryptographic primitive the SDKs use comes from each
-language's standard library (the JDK, Node's `node:crypto`, Go's `crypto`
-packages); the Java keygen tool also uses Bouncy Castle, to write X.509
-certificates.
 
 ---
 
@@ -550,24 +556,27 @@ does not
 ## What the demos show
 
 The [Java mesh](poc-demos/java-mesh/README.md) runs Spring Boot services on mutual
-TLS under Docker Compose, with a responder and a payment provider that stands in
-for a second organisation. In its headline case, `search`, a
-service legitimately on the network, adds its own stamp to a real chain and sends
-it on to `payment`. The request is valid in every other respect, and it is refused
-`PATH_NOT_ALLOWED` because of where it came from: the policy's only route through
-`search` is `gateway → search`. The demo's responder acts on the signed events
-`payment` sends it. After three refusals from one container within a minute, it
-moves that container to an isolated network, where it keeps running for
-inspection, and starts a clean copy in its place. Its circuit breaker allows at
-most two quarantines of one service in ten minutes by default; past that, the
-responder stops acting and logs `ESCALATE` for a person to take over, since a
-legitimate route missing from the policy would make every replica of a service
-look guilty. A support-assistant storyline runs customers' tickets through a
-scripted stand-in for a hijacked model, with no model in it. An honest ticket is
-refunded and emailed; one asking for Alice's data to go to Mallory is refused at
-the mailer and at the payment provider by
-[the owner-aware rule](#the-owner-aware-rule), though every hop was on an allowed
-route ([the scenarios](poc-demos/java-mesh/README.md#running-it),
+TLS under Docker Compose, with a responder and a payment provider that stands in for
+a second organisation. Its headline cases are ones an allowlist of who may call whom
+would let through. `orders` may call `payment`, but code in `orders` that a request
+reached through `getOrder`, a read, and that calls `payment`'s `pay` is refused
+`PATH_NOT_ALLOWED`: `orders` may pay only inside a request that came in to create an
+order. A support-assistant storyline runs customers' tickets through a scripted
+stand-in for a hijacked model, with no model in it; the assistant may ask `payment`
+for a refund, and only for a request that came in as a ticket. An honest ticket is
+refunded and emailed; one asking for Alice's data to go to Mallory is refused at the
+mailer and at the payment provider by [the owner-aware rule](#the-owner-aware-rule),
+though every hop was on an allowed route. The mesh also refuses what an allowlist
+would: `search`, a service legitimately on the network, adds its own stamp to a real
+chain and sends it on to `payment`, and is refused `PATH_NOT_ALLOWED`, since the
+policy's only route through `search` is `gateway → search`. The demo's responder
+acts on the signed events `payment` sends it. After three refusals from one
+container within a minute, it moves that container to an isolated network, where it
+keeps running for inspection, and starts a clean copy in its place. Its circuit
+breaker allows at most two quarantines of one service in ten minutes by default;
+past that, the responder stops acting and logs `ESCALATE` for a person to take over,
+since a legitimate route missing from the policy would make every replica of a
+service look guilty ([the scenarios](poc-demos/java-mesh/README.md#running-it),
 [the responder](poc-demos/java-mesh/README.md#response-quarantine-not-deletion),
 [the storyline](poc-demos/java-mesh/README.md#the-support-assistant-storyline)).
 
@@ -605,9 +614,13 @@ The most important limits, each linked to its section of
 [docs/limits.md](docs/limits.md), which also lists what a deployment must supply
 for Paztport to hold:
 
-- A compromised service on an allowed route can still misuse that route: Paztport
-  checks a request's position, not whether the services on its route behave
-  ([limits of the concept](docs/limits.md#limits-of-the-concept)).
+- A compromised service on an allowed route keeps that route. On each live request
+  that reaches it, it can make the calls its route allows with arguments it chooses,
+  and forward only the part of the request's influence it chooses; an attacker who
+  can send requests through the entry point can trigger as many as the entry point
+  lets in. Paztport checks a request's position, not whether the services on its
+  route behave ([limits of the concept](docs/limits.md#limits-of-the-concept);
+  [where this could go](docs/directions.md) has what could narrow it).
 - Whoever holds a service's keys is that service. Proving that a workload is a
   legitimate deployment is left to the workload-identity layer
   ([limits of the concept](docs/limits.md#limits-of-the-concept)).
@@ -635,6 +648,10 @@ for Paztport to hold:
   can be served twice by another replica or after a restart; the receiving
   application must handle duplicate delivery
   ([using it soundly](docs/limits.md#using-it-soundly)).
+- A caller makes each operation at most once per request tree, or once per item for
+  an operation that declares a key, so a request that loops back to an operation is
+  refused `REPLAY`, and so is an application's retry of a call that was delivered,
+  on the replica that saw it ([Operations](#operations)).
 - Queues, caches and scheduled jobs are out of scope: they break the model of one
   linear chain ([using it soundly](docs/limits.md#using-it-soundly)).
 - This proof of concept keeps keys and certificates in files or Kubernetes
@@ -775,8 +792,9 @@ paztport/
 ## How it was built
 
 Claude, an AI model made by Anthropic, wrote all of the code and documentation in
-this repository. The author set the goals, made the design decisions and reviewed
-the results.
+this repository, except the `<human>` block at the top of this README, which the
+author wrote. The author set the goals, made the design decisions and reviewed the
+results.
 
 The work went in stages: a design for each piece, then a plan that split it into
 tasks, then the tasks one at a time. Each task was reviewed on its own, and each
@@ -793,14 +811,9 @@ What you can check for yourself:
 - `./run test` runs the repository's own checks, the TypeScript type checks, gofmt,
   go vet and staticcheck, every suite of the three SDKs and the demos, and a check
   of what the built jars carry. It needs no Docker and no model. The repository's
-  own checks are three scripts. `check-names.sh` fails on a tracked file that names
-  where the designs, plans and reviews are kept: the private workspace folder, a
-  path into a `docs/specs` or `docs/plans` folder (where its designs and plans sit),
-  or the workflow plugin that ran the tasks, whose notes folder bears its name. None
-  of those is named in the repository except by the check itself, which writes each
-  with one letter in brackets so that it does not match its own pattern.
-  `check-links.mjs` fails on a Markdown link to a missing file or heading, and
-  `check-imports.mjs` on a Java import the file does not need.
+  own checks are two scripts: `check-links.mjs` fails on a Markdown link to a
+  missing file or heading, and `check-imports.mjs` on a Java import the file does
+  not need.
 - The Java mesh and Envoy Gateway READMEs say how their numbers were measured, on
   which host and with which versions, and the Envoy Gateway README names the runs
   they come from. The measurement scripts are in the repository. The raw results are

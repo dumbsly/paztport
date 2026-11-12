@@ -25,6 +25,25 @@ These are design directions, except where a bullet says what is built.
   handshake, influence tracking and response attestation are built in the
   TypeScript SDK and [the agents demo](../poc-demos/agents-mcp/README.md), against a
   mock MCP server. Still open: running it in a production agent runtime.
+- **Origin-signed intent.** A compromised hop on an allowed route chooses the
+  arguments of the calls it makes ([limits](limits.md#limits-of-the-concept)). If
+  the origin, or the user's own client, signed the facts a downstream service acts
+  on (who, what, how much) into the chain, a receiver could check its request
+  against them, and the arguments would no longer be the hop's to choose. The user's
+  identity in that intent would also let a receiver apply per-user limits a
+  compromised hop could not evade. OAuth Transaction Tokens and the authorization
+  details of RFC 9396 carry facts like these from a central issuer; here they would
+  travel with the chain, signed by its origin.
+- **Influence carried forward.** Each call could carry the influence its signer
+  received as well as the influence it sends, each part committed by the stamp that
+  sent it, so a receiver could check that no entry was dropped along the chain. A
+  hop could still add content it read off the chain without a label: what shaped its
+  own output stays its to declare.
+- **Detecting misuse on allowed routes.** Misuse that stays on allowed routes
+  refuses nothing, so it sends no event. The chains receivers verify are signed
+  evidence of each request's id, route and signers; logged, they are what a detector
+  needs, for example to flag a service making more calls than the requests that
+  reached it explain.
 - **Async boundaries.** Treat a queue like another organisation: attest and
   summarise at enqueue, carry a compact signed commitment plus the broker's message
   ID, and let the message ID replace the timestamp as the anti-replay key. Fan-in

@@ -118,9 +118,22 @@ What any design of this kind meets, and what this one has not yet tackled.
 
 **Inherent**
 
-- **Position, not trust.** A compromised hop on a valid route can still misuse
-  that route (see the Java demo's
+- **Position, not trust.** A compromised hop on a valid route can still misuse that
+  route, on each live request that reaches it, and an attacker who can send requests
+  through the entry point can trigger as many of those as the entry point lets in
+  (see the Java demo's
   [threat model](../poc-demos/java-mesh/README.md#threat-model)).
+- **A hop chooses what it sends.** A stamp binds the request its signer sends, so a
+  compromised hop can make the calls its route allows with any arguments. The
+  origin's stamp binds what the origin sent, but later receivers do not see that
+  request, so they cannot check their own against it. That would need the origin to
+  sign the facts a receiver acts on ([where this could go](directions.md)).
+- **A hop chooses the influence it forwards.** Each call's stamp commits to that
+  call's influence, so no entry is dropped on the way, but the hop that signs
+  decides what it forwards: a compromised hop can leave out a `third-party` entry it
+  received, and the receiver applies the owner-aware rule to what is left. The spec
+  requires an honest hop to keep every entry; nothing yet lets a receiver check that
+  it did ([where this could go](directions.md)).
 - **A service is whoever holds its keys.** Those are its stamping key and the TLS
   key the peer check reads, and a pod that can read or mount them is that service:
   its stamps verify. Paztport attests the path, not that each hop is a legitimate
