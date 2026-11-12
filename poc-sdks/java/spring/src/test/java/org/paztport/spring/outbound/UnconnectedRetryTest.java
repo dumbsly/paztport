@@ -73,6 +73,10 @@ class UnconnectedRetryTest {
 
         assertEquals(Optional.empty(), UnconnectedRetry.classify(timedOut));
         assertEquals(Optional.empty(), UnconnectedRetry.classify(new IOException("wrapped", timedOut)));
+
+        HttpTimeoutException overAHandshake = new HttpTimeoutException("request timed out");
+        overAHandshake.initCause(new SSLHandshakeException("bad"));
+        assertEquals(Optional.empty(), UnconnectedRetry.classify(overAHandshake));
     }
 
     @Test

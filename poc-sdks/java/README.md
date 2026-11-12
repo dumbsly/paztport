@@ -778,22 +778,23 @@ it). The JDK client writes no byte of a request until the TCP connect and the TL
 handshake have both completed, and sends no TLS early data, so the first attempt reached
 no receiver and the retry is the only delivery. That rests on the client raising these
 three failures only while it establishes a new connection. A TLS 1.2 renegotiation the
-receiver starts on a pooled connection would fail as an `SSLHandshakeException` after the
-request was written; Tomcat at `client-auth: need` on TLS 1.3, the default, does not do
-that. With TLS 1.3 mutual TLS a server's rejection of the client's certificate can arrive
-after the client has finished its side of the handshake, and the request is still
-undelivered then, since the server never accepted the handshake. Each of the three is
-the failure the client reports, never one of its causes: the JDK client cancels its
-connect timer only once the TLS handshake has completed, and a timer that fires in that
-moment cancels the exchange while the request is being written. The client then reports
-a request timeout with the timer's `ConnectException("HTTP connect timed out")` as its
-cause, and on JDK 25.0.5 under CPU load some of those requests had reached the server;
-such a failure is not retried. The retry gets a new stamp because a
-stamp's age runs from its signing; to replay protection and to the receiver's
-idempotency it is the same delivery, since both key on the request tree, the caller, the
-receiver and the binding, not on the stamp. Its response is checked against the new
-stamp. A backend being rolled produces these failures: a connect to a pod that has gone,
-or to one whose server has stopped accepting.
+receiver starts on a pooled connection would fail as an `SSLHandshakeException` after
+the request was written; Tomcat at `client-auth: need` on TLS 1.3, the default, does not
+do that. With TLS 1.3 mutual TLS a server's rejection of the client's certificate can
+arrive after the client has finished its side of the handshake, and the request is still
+undelivered then, since the server never accepted the handshake. Each of the three
+counts only as the client's own failure, never as the cause of another of its failures
+(a request timeout or an `SSLException`): the JDK client cancels its connect timer only
+once the TLS handshake has completed, and a timer that fires in that moment cancels the
+exchange while the request is being written. The client then reports a request timeout
+with the timer's `ConnectException("HTTP connect timed out")` as its cause, and on JDK
+25.0.5 under CPU load some of those requests had reached the server; such a failure is
+not retried. The retry gets a new stamp because a stamp's age runs from its signing; to
+replay protection and to the receiver's idempotency it is the same delivery, since both
+key on the request tree, the caller, the receiver and the binding, not on the stamp. Its
+response is checked against the new stamp. A backend being rolled produces these
+failures: a connect to a pod that has gone, or to one whose server has stopped
+accepting.
 
 Nothing else is ever retried. A pooled connection the peer has closed ("header parser
 received no bytes", `ClosedChannelException`), a reset after the request was written,

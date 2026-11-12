@@ -39,11 +39,12 @@ import javax.net.ssl.SSLHandshakeException;
  * after the request was written and a read timeout ({@code HttpTimeoutException} that is not a connect timeout) may
  * each have reached the receiver.
  *
- * <p>Each of the three is the failure the client reports, never one of its causes ({@link #classify}). The JDK's
- * client cancels its connect timer only once the TLS handshake has completed; a timer that fires in that moment
- * cancels the exchange while the request is being written, and the client reports a request timeout, with the
- * timer's {@code ConnectException("HTTP connect timed out")} as its cause. On JDK 25.0.5 under CPU load some of
- * those requests had reached the server, so that cause proves nothing.
+ * <p>Each of the three counts only as the client's own failure, never as the cause of another of its failures (a
+ * request timeout or an {@code SSLException}; {@link #classify}). The JDK's client cancels its connect timer only once
+ * the TLS handshake has completed; a timer that fires in that moment cancels the exchange while the request is being
+ * written, and the client reports a request timeout, with the timer's
+ * {@code ConnectException("HTTP connect timed out")} as its cause. On JDK 25.0.5 under CPU load some of those requests
+ * had reached the server, so that cause proves nothing.
  *
  * <p>Only calls whose method is neither {@code GET} nor {@code HEAD} are covered ({@link #covers}). The JDK's client
  * re-sends a {@code GET} or {@code HEAD} itself when the connection it was written on dies before the response, and if
