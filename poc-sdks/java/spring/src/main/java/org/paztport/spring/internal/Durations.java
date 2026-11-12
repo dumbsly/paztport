@@ -20,6 +20,19 @@ public final class Durations {
         return positiveMs(props.getReadTimeoutMs(), "paztport.read-timeout-ms");
     }
 
+    /** {@code paztport.connect-timeout-ms}, refused unless positive. */
+    public static Duration connectTimeout(PaztportProperties props) {
+        return positiveMs(props.getConnectTimeoutMs(), "paztport.connect-timeout-ms");
+    }
+
+    /**
+     * The effective window for the origin's stamp, in milliseconds: {@code paztport.run-max-age-ms}, or
+     * {@code paztport.max-age-ms} when that is unset.
+     */
+    public static long runMaxAgeMs(PaztportProperties props) {
+        return props.getRunMaxAgeMs() != null ? props.getRunMaxAgeMs() : props.getMaxAgeMs();
+    }
+
     public static Duration positiveMs(long ms, String property) {
         if (ms <= 0) {
             throw new IllegalStateException(property + " must be positive");

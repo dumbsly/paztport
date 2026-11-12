@@ -53,6 +53,15 @@ public class PaztportProperties implements InitializingBean {
      */
     private long readTimeoutMs = 30_000;
 
+    /**
+     * How long opening a connection may take, in milliseconds; positive. It is the connect timeout of the client
+     * paztport.tls-bundle makes, and so of every stamped call to a service in the mesh and of its events: the TCP
+     * connect and the TLS handshake together, up to the point the request can be sent. Short, because in-cluster
+     * connects take milliseconds and a call that never connected is only worth retrying if it fails well inside the
+     * call window. The egress's client to the partner keeps its own 5 s.
+     */
+    private long connectTimeoutMs = 1_000;
+
     /** Shared token for /admin/mode; unset or blank disables the endpoint. */
     private String adminToken;
 
@@ -446,6 +455,14 @@ public class PaztportProperties implements InitializingBean {
 
     public void setReadTimeoutMs(long readTimeoutMs) {
         this.readTimeoutMs = readTimeoutMs;
+    }
+
+    public long getConnectTimeoutMs() {
+        return connectTimeoutMs;
+    }
+
+    public void setConnectTimeoutMs(long connectTimeoutMs) {
+        this.connectTimeoutMs = connectTimeoutMs;
     }
 
     public String getAdminToken() {

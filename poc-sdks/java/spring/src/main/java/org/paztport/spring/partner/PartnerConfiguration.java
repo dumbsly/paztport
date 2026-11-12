@@ -227,7 +227,7 @@ public class PartnerConfiguration {
         }
         Set<String> clientKeys = new LinkedHashSet<>();
         p.getClientPolicyKeyPaths().forEach(path -> clientKeys.add(KeyFiles.loadPolicyPin(Path.of(path))));
-        long runMaxAgeMs = props.getRunMaxAgeMs() != null ? props.getRunMaxAgeMs() : props.getMaxAgeMs();
+        long runMaxAgeMs = Durations.runMaxAgeMs(props);
         try {
             return PartnerSessions.builder()
                     .ownRoot(ownRoot)

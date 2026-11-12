@@ -23,6 +23,7 @@ import org.paztport.http.ModeHolder;
 import org.paztport.http.VerificationMode;
 import org.paztport.spring.PaztportAutoConfiguration;
 import org.paztport.spring.PaztportProperties;
+import org.paztport.spring.internal.Durations;
 import org.paztport.spring.internal.StartupMaterial;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -108,7 +109,7 @@ public class TrustConfiguration {
                     + "the origins it accepts, for example paztport.origins=gateway (at a partner they check only "
                     + "its own calls' responses, and paztport.partner.client-origins governs entry)");
         }
-        long runMaxAgeMs = props.getRunMaxAgeMs() != null ? props.getRunMaxAgeMs() : props.getMaxAgeMs();
+        long runMaxAgeMs = Durations.runMaxAgeMs(props);
         Path keyringFile = Path.of(props.getKeyringPath());
         Path rootFile = Path.of(props.getRootPath());
         KeyringFile keyring = StartupMaterial.loadKeyring(keyringFile);

@@ -31,8 +31,11 @@ import org.springframework.web.client.RestClient;
  * host in the URL, as the JDK client does by default; the parameters set here say so too, so neither naming
  * protocols or ciphers nor the JDK's own switch for its client can turn it off.
  *
- * <p>Two timeouts bound a call through the request factory. The connect timeout, {@link #CONNECT_TIMEOUT}, bounds
- * opening a connection. The read timeout, {@code paztport.read-timeout-ms} (30 s unless set), bounds the whole
+ * <p>Two timeouts bound a call through the request factory. The connect timeout bounds opening a connection: on the
+ * JDK's client it runs from the start of the TCP connect until the TLS handshake has completed, so it covers both,
+ * and it does not cover anything after the handshake. A client made with {@link #of(SslBundle)} or
+ * {@link #of(SslBundle, Duration)} has {@link #CONNECT_TIMEOUT}; the starter makes its mesh client with
+ * {@code paztport.connect-timeout-ms}. The read timeout, {@code paztport.read-timeout-ms} (30 s unless set), bounds the whole
  * exchange, from sending the request to the end of the response's body, on every JDK: a peer that takes the call and
  * sends no answer, one that sends its headers and then stops part way through the body, or a pooled connection whose
  * peer has vanished without closing it, fails the call at the read timeout, as a timeout (from a {@code RestClient},
@@ -50,7 +53,11 @@ import org.springframework.web.client.RestClient;
  */
 public final class PooledTlsClient implements AutoCloseable {
 
-    /** Long enough for a handshake on a loaded host, short enough that an unreachable service fails the call. */
+    /**
+     * The connect timeout unless one is given: long enough for a handshake on a loaded host, short enough that an
+     * unreachable service fails the call. It is the default for clients the starter does not configure, such as the
+     * one for the partner; the mesh client takes {@code paztport.connect-timeout-ms}.
+     */
     static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(5);
 
     /**
@@ -61,17 +68,19 @@ public final class PooledTlsClient implements AutoCloseable {
 
     private final HttpClient http;
     private final Duration readTimeout;
+    private final Duration connectTimeout;
     private final ClientHttpRequestFactory requestFactory;
 
-    private PooledTlsClient(SslBundle bundle, Duration readTimeout) {
+    private PooledTlsClient(SslBundle bundle, Duration readTimeout, Duration connectTimeout) {
         SSLContext context = bundle.createSslContext();
         this.http = HttpClient.newBuilder()
                 .version(HttpClient.Version.HTTP_1_1)
-                .connectTimeout(CONNECT_TIMEOUT)
+                .connectTimeout(connectTimeout)
                 .sslContext(context)
                 .sslParameters(parameters(context, bundle.getOptions()))
                 .build();
         this.readTimeout = readTimeout;
+        this.connectTimeout = connectTimeout;
         this.requestFactory = new WholeExchangeRequestFactory(http, readTimeout);
     }
 
@@ -93,11 +102,26 @@ public final class PooledTlsClient implements AutoCloseable {
      * @throws IllegalStateException when the bundle cannot be read
      */
     public static PooledTlsClient of(SslBundle bundle, Duration readTimeout) {
+        return of(bundle, readTimeout, CONNECT_TIMEOUT);
+    }
+
+    /**
+     * As {@link #of(SslBundle, Duration)}, with {@code connectTimeout} as the connect timeout: the longest the TCP
+     * connect and the TLS handshake may take together.
+     *
+     * @throws IllegalArgumentException when {@code readTimeout} or {@code connectTimeout} is not positive
+     * @throws IllegalStateException when the bundle cannot be read
+     */
+    public static PooledTlsClient of(SslBundle bundle, Duration readTimeout, Duration connectTimeout) {
         Objects.requireNonNull(readTimeout, "readTimeout");
+        Objects.requireNonNull(connectTimeout, "connectTimeout");
         if (readTimeout.isNegative() || readTimeout.isZero()) {
             throw new IllegalArgumentException("the read timeout must be positive: " + readTimeout);
         }
-        return new PooledTlsClient(bundle, readTimeout);
+        if (connectTimeout.isNegative() || connectTimeout.isZero()) {
+            throw new IllegalArgumentException("the connect timeout must be positive: " + connectTimeout);
+        }
+        return new PooledTlsClient(bundle, readTimeout, connectTimeout);
     }
 
     /**
@@ -136,6 +160,11 @@ public final class PooledTlsClient implements AutoCloseable {
     /** The read timeout of every call through {@link #requestFactory()}. */
     public Duration readTimeout() {
         return readTimeout;
+    }
+
+    /** The connect timeout of every connection this client opens: the TCP connect and the TLS handshake together. */
+    public Duration connectTimeout() {
+        return connectTimeout;
     }
 
     /**

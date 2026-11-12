@@ -149,6 +149,34 @@ class PooledTlsClientTest {
     }
 
     @Test
+    void connectTimeoutIsTheOneGiven() {
+        PooledTlsClient client = pooled(PooledTlsClient.of(SslBundle.of(stores("orders")),
+                Duration.ofSeconds(30), Duration.ofMillis(1000)));
+
+        assertThat(client.connectTimeout()).isEqualTo(Duration.ofMillis(1000));
+        assertThat(client.httpClient().connectTimeout()).contains(Duration.ofMillis(1000));
+    }
+
+    @Test
+    void defaultConnectTimeoutStaysFiveSeconds() {
+        SslBundle bundle = SslBundle.of(stores("orders"));
+
+        assertThat(pooled(PooledTlsClient.of(bundle)).connectTimeout()).isEqualTo(Duration.ofSeconds(5));
+        assertThat(pooled(PooledTlsClient.of(bundle, Duration.ofSeconds(9))).connectTimeout())
+                .isEqualTo(Duration.ofSeconds(5));
+    }
+
+    @Test
+    void connectTimeoutMustBePositive() {
+        SslBundle bundle = SslBundle.of(stores("orders"));
+
+        for (Duration bad : List.of(Duration.ZERO, Duration.ofMillis(-1))) {
+            assertThatThrownBy(() -> PooledTlsClient.of(bundle, Duration.ofSeconds(30), bad))
+                    .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("connect timeout");
+        }
+    }
+
+    @Test
     void theBundlesProtocolsAreHonoured() throws Exception {
         String url = serve("TLSv1.3");
         SslBundle tls12 = SslBundle.of(stores("orders"), SslBundleKey.NONE,

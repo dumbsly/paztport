@@ -1390,6 +1390,33 @@ class PaztportAutoConfigurationTest {
     }
 
     @Test
+    void theMeshClientsConnectTimeoutIsOneSecondUnlessSet(@TempDir Path dir) throws Exception {
+        writeWorld(dir);
+        withClients.withPropertyValues(stampingVerifier(dir, "http://127.0.0.1:1")).withPropertyValues(MESH_BUNDLE)
+                .run(context -> {
+                    assertThat(context.getBean(PaztportProperties.class).getConnectTimeoutMs()).isEqualTo(1_000L);
+                    assertThat(context.getBean(PooledTlsClient.class).connectTimeout())
+                            .isEqualTo(Duration.ofMillis(1000));
+                });
+        withClients.withPropertyValues(stampingVerifier(dir, "http://127.0.0.1:1")).withPropertyValues(MESH_BUNDLE)
+                .withPropertyValues("paztport.connect-timeout-ms=250")
+                .run(context -> assertThat(context.getBean(PooledTlsClient.class).connectTimeout())
+                        .isEqualTo(Duration.ofMillis(250)));
+    }
+
+    @Test
+    void aConnectTimeoutThatIsNotPositiveFailsAtStartupNamingIt(@TempDir Path dir) throws Exception {
+        writeWorld(dir);
+        withClients.withPropertyValues(stampingVerifier(dir, "http://127.0.0.1:1")).withPropertyValues(MESH_BUNDLE)
+                .withPropertyValues("paztport.connect-timeout-ms=0")
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure()).rootCause()
+                            .hasMessageContaining("paztport.connect-timeout-ms").hasMessageContaining("positive");
+                });
+    }
+
+    @Test
     void aTimeoutThatIsNotPositiveFailsAtStartupNamingIt(@TempDir Path dir) throws Exception {
         writeWorld(dir);
         for (String value : List.of("0", "-1")) {

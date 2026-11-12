@@ -366,6 +366,7 @@ says the rest.
 | `paztport.receiver-names.<host>` | none | No | The policy name of the receiver at a host that is not its name ([Outbound calls and response checks](#outbound-calls-and-response-checks)). |
 | `paztport.tls-bundle` | none | No | The SSL bundle the service presents on its calls and its events; `false` is the same as unset ([Mutual TLS](#mutual-tls)). |
 | `paztport.read-timeout-ms` | `30000` | Positive, in a service that uses it | How long a call through the starter's TLS client, or the egress's to the partner, may wait for its answer ([Timeouts](#timeouts)). |
+| `paztport.connect-timeout-ms` | `1000` | Positive, in a service that uses it | How long opening a connection may take on the starter's TLS client, the one for calls inside the mesh and for events; the partner client keeps 5 s ([Timeouts](#timeouts)). |
 | `paztport.overlap.keyring-paths` | none | No; needs `keyring-path`, `root-path` and `policy-key-path` | Further keyrings to pin beside `keyring-path` ([Overlap material](#overlap-material)). |
 | `paztport.overlap.root-paths` | none | As `overlap.keyring-paths` | Further roots to pin beside `root-path`. |
 | `paztport.operations.table-path` | none | No; needs `proofs-path`, `keyring-path`, `root-path` and `policy-key-path` | This service's own operation table: the inbound filter confirms each request's operation, and reads a keyed operation's key value ([Operations](#operations)). |
@@ -743,7 +744,7 @@ reads `peer="" (mTLS)`. Responses are checked with no peer.
 ### Timeouts
 
 Every client the starter builds has them, so that a peer that takes a call and never
-answers cannot hold the calling thread for ever. Both settings must be positive; one
+answers cannot hold the calling thread for ever. The settings must be positive; one
 that is not fails the startup, naming it, in a service that uses it.
 
 | Property | Default | What it bounds |
@@ -751,7 +752,15 @@ that is not fails the startup, naming it, in a service that uses it.
 | `paztport.read-timeout-ms` | `30000` | Each call through the `PooledTlsClient` (with `paztport.tls-bundle` set, every call on the shared `RestClient.Builder`, and its `builder()`'s), and each of the egress's calls to the partner: the whole exchange, from sending the request to the end of the response's body, on any JDK, so a peer that sends its headers and then stops part way through the body is cut off too. For that the pooled client reads each response whole, and holds it in memory, before the caller sees it, as the stamping interceptor does: it suits the small bodies mesh calls carry, not large streamed downloads, and a call through its `builder()` cannot stream its response. A call past it fails as a timeout: a `ResourceAccessException` from a `RestClient`, an `UncheckedIOException` from `BoundaryClient.post`. |
 | `paztport.event-timeout-ms` | `2000` | Each event to the responder, whole: connecting, sending and reading the answer to its end, on any JDK, with a TLS bundle or without. An event is sent on the request thread before the refusal is answered, so a slow or silent responder would otherwise hold every refusal for as long as it liked; this caps that at this long per refusal, after which the event is given up and logged and the refusal goes ahead. Forged requests sent fast enough can still keep request threads busy, each for up to this long. |
 
-Two more are fixed: the pooled client connects within 5 s, and the egress's
+`paztport.connect-timeout-ms` (default `1000`) bounds opening a connection on the
+pooled client the starter builds for `paztport.tls-bundle`, which carries the stamped calls
+and the events: on the JDK's client the clock runs from the start of the TCP connect until
+the TLS handshake has completed, so it covers both, and nothing after the handshake. It is
+short because in-cluster connects take milliseconds and a call that failed to connect is
+only worth trying again if the failure shows well inside the call window. The partner
+client is not given it and keeps 5 s.
+
+Two more are fixed: the partner client connects within 5 s, and the egress's
 handshake has 10 s, whatever `paztport.read-timeout-ms` is. Without
 `paztport.tls-bundle` the shared builder keeps the application's own request
 factory, and its timeouts are the application's to set.
