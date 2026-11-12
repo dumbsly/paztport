@@ -19,6 +19,7 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
+import javax.net.ssl.SSLException;
 import javax.net.ssl.SSLHandshakeException;
 import org.junit.jupiter.api.Test;
 import org.paztport.spring.outbound.UnconnectedRetry.Failure;
@@ -58,6 +59,30 @@ class UnconnectedRetryTest {
                 new SocketException("Connection reset"))) {
             assertEquals(Optional.empty(), UnconnectedRetry.classify(t), t.toString());
         }
+    }
+
+    /**
+     * The JDK's connect timer can fire after the TLS handshake has completed, as the request is being written: the
+     * client then reports a request timeout, since the connection was established, with the timer's
+     * {@code ConnectException} as its cause, and the request may have reached the receiver.
+     */
+    @Test
+    void aRequestTimeoutIsNotAConnectFailureWhateverItsCause() {
+        HttpTimeoutException timedOut = new HttpTimeoutException("request timed out");
+        timedOut.initCause(new ConnectException("HTTP connect timed out"));
+
+        assertEquals(Optional.empty(), UnconnectedRetry.classify(timedOut));
+        assertEquals(Optional.empty(), UnconnectedRetry.classify(new IOException("wrapped", timedOut)));
+    }
+
+    @Test
+    void theFirstOfTheClientsFailuresDecidesNotOneOfItsCauses() {
+        assertEquals(Optional.empty(), UnconnectedRetry.classify(
+                new SSLException("closed after the request was written", new SSLHandshakeException("bad"))));
+        assertEquals(Optional.empty(), UnconnectedRetry.classify(
+                new SSLException("closed after the request was written", new ConnectException("refused"))));
+        assertEquals(Optional.of(Failure.CONNECT_TIMEOUT), UnconnectedRetry.classify(
+                new IOException("wrapped", new IOException("wrapped again", connectTimeout()))));
     }
 
     @Test

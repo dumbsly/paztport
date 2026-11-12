@@ -7,6 +7,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.net.ConnectException;
 import java.net.http.HttpConnectTimeoutException;
+import java.net.http.HttpTimeoutException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
@@ -17,6 +18,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Properties;
 import java.util.Set;
+import javax.net.ssl.SSLException;
 import javax.net.ssl.SSLHandshakeException;
 
 /**
@@ -36,6 +38,12 @@ import javax.net.ssl.SSLHandshakeException;
  * server never accepted the handshake. Nothing else is matched: a pooled connection the peer has closed, a reset
  * after the request was written and a read timeout ({@code HttpTimeoutException} that is not a connect timeout) may
  * each have reached the receiver.
+ *
+ * <p>Each of the three is the failure the client reports, never one of its causes ({@link #classify}). The JDK's
+ * client cancels its connect timer only once the TLS handshake has completed; a timer that fires in that moment
+ * cancels the exchange while the request is being written, and the client reports a request timeout, with the
+ * timer's {@code ConnectException("HTTP connect timed out")} as its cause. On JDK 25.0.5 under CPU load some of
+ * those requests had reached the server, so that cause proves nothing.
  *
  * <p>Only calls whose method is neither {@code GET} nor {@code HEAD} are covered ({@link #covers}). The JDK's client
  * re-sends a {@code GET} or {@code HEAD} itself when the connection it was written on dies before the response, and if
@@ -110,25 +118,29 @@ public record UnconnectedRetry(Duration connectTimeout, long originWindowMs, Clo
     }
 
     /**
-     * Which of the three failures {@code t} is, looking at it and then at each of its causes in turn, since a client
-     * may wrap the JDK's exception; empty when none of them is one. Whether such a failure means that no byte of the
-     * request was written rests on the assumption in the class description: the client raises these failures only
-     * while it establishes a new connection. A TLS 1.2 renegotiation the receiver starts on a pooled connection is
-     * outside it. A connect timeout is told apart before a refused connect, as the JDK gives it a
-     * {@link ConnectException} as its cause.
+     * Which of the three failures {@code t} is; empty when it is none of them. The first exception in {@code t} and
+     * its causes that is one of the JDK client's own failures, an {@link HttpTimeoutException}, a
+     * {@link ConnectException} or an {@link SSLException}, decides, and the exceptions before it are taken as
+     * wrappers (Spring wraps what is not an {@code IOException}). Its own causes are not looked at: the JDK's
+     * connect timer can fire after the TLS handshake has completed, as the request is being written, and the client
+     * then reports a request timeout, since the connection was established, with the timer's
+     * {@code ConnectException} as its cause; that request may have reached the receiver. So a request timeout, and
+     * any {@code SSLException} other than a handshake failure, is never one of the three. Whether one of the three
+     * means that no byte of the request was written rests on the assumption in the class description.
      */
     public static Optional<Failure> classify(Throwable t) {
         // A chain of causes can loop back on itself, so each one is looked at once.
         Set<Throwable> seen = Collections.newSetFromMap(new IdentityHashMap<>());
         for (Throwable c = t; c != null && seen.add(c); c = c.getCause()) {
-            if (c instanceof HttpConnectTimeoutException) {
-                return Optional.of(Failure.CONNECT_TIMEOUT);
+            if (c instanceof HttpTimeoutException) {
+                return c instanceof HttpConnectTimeoutException ? Optional.of(Failure.CONNECT_TIMEOUT)
+                        : Optional.empty();
             }
             if (c instanceof ConnectException) {
                 return Optional.of(Failure.CONNECT);
             }
-            if (c instanceof SSLHandshakeException) {
-                return Optional.of(Failure.HANDSHAKE);
+            if (c instanceof SSLException) {
+                return c instanceof SSLHandshakeException ? Optional.of(Failure.HANDSHAKE) : Optional.empty();
             }
         }
         return Optional.empty();
