@@ -15,6 +15,8 @@ import org.paztport.spring.PaztportProperties;
 import org.paztport.spring.internal.Durations;
 import org.paztport.spring.operation.OperationConfiguration;
 import org.paztport.spring.trust.ResponseVerifier;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.restclient.RestClientCustomizer;
@@ -33,12 +35,13 @@ import org.springframework.context.annotation.Configuration;
 @Configuration(proxyBeanMethods = false)
 public class OutboundConfiguration {
 
+    private static final Logger LOG = LoggerFactory.getLogger(OutboundConfiguration.class);
+
     @Bean
     @ConditionalOnProperty("paztport.key-path")
     RestClientCustomizer paztportRestClientCustomizer(
             Stamper stamper, ObjectProvider<ProofBundle> bundle, ObjectProvider<ResponseVerifier> responses,
-            PaztportProperties props, ObjectProvider<ObservationRegistry> observations,
-            ObjectProvider<PooledTlsClient> tls) {
+            PaztportProperties props, ObjectProvider<ObservationRegistry> observations) {
         ResponseVerifier checks = responses.getIfAvailable();
         Verifier verifier = checks != null ? checks.verifier() : null;
         ProofBundle proofs = bundle.getIfAvailable();
@@ -46,21 +49,31 @@ public class OutboundConfiguration {
                 .bundle(proofs).verifier(verifier).receivers(props.getReceiverNames())
                 .operations(OperationConfiguration.receiverTables(props, proofs, checks)).build(),
                 observations.getIfAvailable(() -> ObservationRegistry.NOOP),
-                tls.getIfAvailable() != null ? unconnectedRetry(props) : null);
+                unconnectedRetry(props));
         return builder -> builder.requestInterceptor(interceptor);
     }
 
     /**
      * The retry of calls that never connected, or null where {@code paztport.retry-unconnected} turns it off. It is
-     * made only with the {@link PooledTlsClient}, whose JDK client its safety rests on: other request factories retry
-     * on their own (one re-sends even a POST on a stale connection), so a connect failure there may follow an attempt
-     * that was delivered. It
-     * refuses a connect timeout that is not under half of the origin's window, since a retry must fit in that
-     * window after a first connect that timed out. This service's window stands in for its receivers', which it
-     * cannot know; inside one mesh the services share these settings.
+     * made only where {@code paztport.tls-bundle} gives the starter's {@link PooledTlsClient}, read as that bean's
+     * condition reads it, since its safety rests on that client: other request factories retry on their own (one
+     * re-sends even a POST on a stale connection), so a connect failure there may follow an attempt that was
+     * delivered. Nor is it made under the JDK's {@value UnconnectedRetry#JDK_ALL_METHOD_RETRY}, which has the JDK
+     * client re-send every method after its connection dies; one line at startup says so. It refuses a connect
+     * timeout that is not under half of the origin's window, since a retry must fit in that window after a first
+     * connect that timed out. This service's window stands in for its receivers', which it cannot know; inside one
+     * mesh the services share these settings.
      */
     private static UnconnectedRetry unconnectedRetry(PaztportProperties props) {
-        if (!props.isRetryUnconnected()) {
+        // As @ConditionalOnProperty reads it on paztportTlsClient: present and not "false".
+        String bundle = props.getTlsBundle();
+        if (!props.isRetryUnconnected() || bundle == null || "false".equalsIgnoreCase(bundle)) {
+            return null;
+        }
+        if (UnconnectedRetry.jdkRetriesEveryMethod()) {
+            LOG.info("The starter does not retry calls that never connected: {} is set, so the JDK client re-sends "
+                    + "every method itself after its connection dies, and a connect failure may follow an attempt "
+                    + "that was delivered", UnconnectedRetry.JDK_ALL_METHOD_RETRY);
             return null;
         }
         Duration connect = Durations.connectTimeout(props);

@@ -805,23 +805,29 @@ HttpClient retries idempotent methods), so a connect failure there may follow an
 that was delivered. An application that replaces the request factory on the shared
 builder after the starter sets it should set `paztport.retry-unconnected=false`.
 
+The JDK client's net property `jdk.httpclient.enableAllMethodRetry` makes it re-send
+every method, not only `GET` and `HEAD`, after the connection it was written on dies, so
+where it is on (as a system property or in the JDK's `conf/net.properties`, empty or
+`true`) the starter does not retry at all, and says so in one line at startup.
+
 Re-stamping does not make the origin's stamp any younger, and a retry that arrived after
 the origin's window would fail its receiver's check as `EXPIRED`, which under `enforce`
 reads as a security refusal rather than the connect failure it is. Two checks keep that
-from happening: - At startup, while `paztport.retry-unconnected` is `true` and
-`paztport.tls-bundle` is set, `paztport.connect-timeout-ms` must be under half of the
-origin's window, `paztport.run-max-age-ms` (else `paztport.max-age-ms`), so that a
-connect that timed out and its retry both fit it; a service whose setting does not fails
-to start, naming it. The service's own window stands in for its receivers', which it
-cannot know; inside one mesh the services share these settings. - Before each retry
-inside a request, the age of the origin's stamp plus a whole connect timeout is compared
-with that same window; if the retry could not arrive in time it is skipped and the
-connect failure surfaces. Outside a request, and at the origin, the retry's stamp is the
-origin's, signed afresh, so it is always sent.
+from happening:
+- At startup, while `paztport.retry-unconnected` is `true` and `paztport.tls-bundle` is
+  set, `paztport.connect-timeout-ms` must be under half of the origin's window,
+  `paztport.run-max-age-ms` (else `paztport.max-age-ms`), so that a connect that timed out
+  and its retry both fit it; a service whose setting does not fails to start, naming it.
+  The service's own window stands in for its receivers', which it cannot know; inside one
+  mesh the services share these settings.
+- Before each retry inside a request, the age of the origin's stamp plus a whole connect
+  timeout is compared with that same window; if the retry could not arrive in time it is
+  skipped and the connect failure surfaces. Outside a request, and at the origin, the
+  retry's stamp is the origin's, signed afresh, so it is always sent.
 
 Each decision is counted in the `paztport.outbound.retry` observation
-([Metrics](#metrics)) and logged as a `PAZTPORT_TRACE retry` line ([Trace
-lines](#trace-lines)), so a run can report retries beside its failures.
+([Metrics](#metrics)) and logged as a `PAZTPORT_TRACE retry` line
+([Trace lines](#trace-lines)), so a run can report retries beside its failures.
 `paztport.retry-unconnected=false` turns it off.
 
 ### The egress

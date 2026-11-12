@@ -3,14 +3,19 @@
 
 package org.paztport.spring.outbound;
 
+import java.io.IOException;
+import java.io.InputStream;
 import java.net.ConnectException;
 import java.net.http.HttpConnectTimeoutException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.Collections;
 import java.util.IdentityHashMap;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Properties;
 import java.util.Set;
 import javax.net.ssl.SSLHandshakeException;
 
@@ -29,7 +34,9 @@ import javax.net.ssl.SSLHandshakeException;
  * <p>Only calls whose method is neither {@code GET} nor {@code HEAD} are covered ({@link #covers}). The JDK's client
  * re-sends a {@code GET} or {@code HEAD} itself when the connection it was written on dies before the response, and if
  * that re-send's connect fails, the call fails with a connect failure that keeps no trace of the first attempt, which
- * may have been delivered. Those two methods stay under the JDK's own handling.
+ * may have been delivered. Those two methods stay under the JDK's own handling. Under the JDK's net property
+ * {@value #JDK_ALL_METHOD_RETRY} the JDK re-sends every method that way, so the starter does not retry at all there
+ * ({@link #jdkRetriesEveryMethod}).
  *
  * @param connectTimeout how long the retry's connect may take, {@code paztport.connect-timeout-ms}
  * @param originWindowMs how old the origin's stamp may be when it arrives, the effective
@@ -37,6 +44,9 @@ import javax.net.ssl.SSLHandshakeException;
  * @param clock what the origin stamp's age is measured against
  */
 public record UnconnectedRetry(Duration connectTimeout, long originWindowMs, Clock clock) {
+
+    /** The JDK client's net property under which it re-sends a request of any method after its connection dies. */
+    public static final String JDK_ALL_METHOD_RETRY = "jdk.httpclient.enableAllMethodRetry";
 
     /** How a call failed before its connection was established. */
     public enum Failure {
@@ -70,6 +80,27 @@ public record UnconnectedRetry(Duration connectTimeout, long originWindowMs, Clo
      */
     public static boolean covers(String method) {
         return !"GET".equals(method) && !"HEAD".equals(method);
+    }
+
+    /**
+     * Whether the JDK client re-sends a request of every method, not only {@code GET} and {@code HEAD}, after the
+     * connection it was written on dies: {@value #JDK_ALL_METHOD_RETRY} read as the JDK reads it, from the system
+     * property, else from {@code ${java.home}/conf/net.properties}, and on when present and either empty or
+     * {@code true} ({@link Boolean#parseBoolean}). A file that cannot be read counts as absent, as it does for the JDK.
+     */
+    public static boolean jdkRetriesEveryMethod() {
+        String value = System.getProperty(JDK_ALL_METHOD_RETRY);
+        if (value == null) {
+            Path file = Path.of(System.getProperty("java.home"), "conf", "net.properties");
+            Properties net = new Properties();
+            try (InputStream in = Files.newInputStream(file)) {
+                net.load(in);
+            } catch (IOException | RuntimeException unreadable) {
+                return false;
+            }
+            value = net.getProperty(JDK_ALL_METHOD_RETRY);
+        }
+        return value != null && (value.isEmpty() || Boolean.parseBoolean(value));
     }
 
     /**

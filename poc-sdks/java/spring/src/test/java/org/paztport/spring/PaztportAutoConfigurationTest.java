@@ -81,6 +81,7 @@ import org.paztport.http.event.ResponderEventPublisher;
 import org.paztport.http.wire.HttpWire;
 import org.paztport.http.wire.PaztportHeaders;
 import org.paztport.spring.internal.StartupMaterial;
+import org.paztport.spring.outbound.OutboundConfiguration;
 import org.paztport.spring.outbound.PooledTlsClient;
 import org.paztport.spring.trust.AdminModeController;
 import org.paztport.spring.trust.ResponseVerifier;
@@ -1459,9 +1460,89 @@ class PaztportAutoConfigurationTest {
                     assertThat(context).hasNotFailed();
                     assertThat(retryLinesFromACallToAClosedPort(context, "http")).isEmpty();
                 });
+        // false is unset, as the TLS client's own condition reads it.
+        withClients.withPropertyValues(stampingVerifier(dir, "http://127.0.0.1:1"))
+                .withPropertyValues("paztport.connect-timeout-ms=2500", "paztport.max-age-ms=5000",
+                        "paztport.tls-bundle=false")
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    assertThat(retryLinesFromACallToAClosedPort(context, "http")).isEmpty();
+                });
         withClients.withPropertyValues(stampingVerifier(dir, "http://127.0.0.1:1")).withPropertyValues(MESH_BUNDLE)
                 .run(context -> assertThat(retryLinesFromACallToAClosedPort(context, "https"))
                         .singleElement().asString().endsWith("receiver=127.0.0.1 failure=connect outcome=retried"));
+    }
+
+    // The retry follows paztport.tls-bundle, not any PooledTlsClient bean: without it the shared builder keeps the
+    // application's request factory.
+    @Test
+    void anApplicationsOwnPooledTlsClientGetsNoRetry(@TempDir Path dir) throws Exception {
+        writeWorld(dir);
+        withClients.withPropertyValues(stampingVerifier(dir, "http://127.0.0.1:1"))
+                .withPropertyValues("paztport.connect-timeout-ms=2500", "paztport.max-age-ms=5000")
+                .withBean(PooledTlsClient.class, () -> PooledTlsClient.of(fixtureBundle("orders")))
+                .run(context -> {
+                    assertThat(context).hasNotFailed().hasSingleBean(PooledTlsClient.class);
+                    assertThat(retryLinesFromACallToAClosedPort(context, "http")).isEmpty();
+                });
+    }
+
+    /**
+     * Under the JDK's jdk.httpclient.enableAllMethodRetry the JDK re-sends a POST too after its connection dies, so the
+     * starter builds no retry: a connect timeout that its check would refuse starts, and one line says why.
+     */
+    @Test
+    void theJdksAllMethodRetryTurnsTheRetryOff(@TempDir Path dir) throws Exception {
+        writeWorld(dir);
+        // The JDK reads the property once, as its exchange class loads: loaded first, no call here sees it on.
+        Class.forName("jdk.internal.net.http.MultiExchange");
+        String name = "jdk.httpclient.enableAllMethodRetry";
+        String before = System.getProperty(name);
+        try {
+            for (String on : List.of("", "true", "TRUE")) {
+                System.setProperty(name, on);
+                List<String> lines = infoDuring(OutboundConfiguration.class, () -> withClients
+                        .withPropertyValues(stampingVerifier(dir, "http://127.0.0.1:1")).withPropertyValues(MESH_BUNDLE)
+                        .withPropertyValues("paztport.connect-timeout-ms=2500", "paztport.max-age-ms=5000")
+                        .run(context -> assertThat(context).as("[%s]", on).hasNotFailed()));
+                assertThat(lines).as("[%s]", on).singleElement().asString()
+                        .contains("does not retry calls that never connected").contains(name);
+            }
+            System.setProperty(name, "false");
+            List<String> lines = infoDuring(OutboundConfiguration.class, () -> {
+                withClients.withPropertyValues(stampingVerifier(dir, "http://127.0.0.1:1"))
+                        .withPropertyValues(MESH_BUNDLE)
+                        .withPropertyValues("paztport.connect-timeout-ms=2500", "paztport.max-age-ms=5000")
+                        .run(context -> assertThat(context).hasFailed());
+                withClients.withPropertyValues(stampingVerifier(dir, "http://127.0.0.1:1"))
+                        .withPropertyValues(MESH_BUNDLE)
+                        .run(context -> assertThat(retryLinesFromACallToAClosedPort(context, "https")).hasSize(1));
+            });
+            assertThat(lines).isEmpty();
+        } finally {
+            if (before == null) {
+                System.clearProperty(name);
+            } else {
+                System.setProperty(name, before);
+            }
+        }
+    }
+
+    /** The INFO lines {@code type}'s logger writes while {@code run} runs. */
+    private static List<String> infoDuring(Class<?> type, Runnable run) {
+        Logger log = (Logger) LoggerFactory.getLogger(type);
+        ListAppender<ILoggingEvent> lines = new ListAppender<>();
+        lines.start();
+        log.addAppender(lines);
+        log.setLevel(Level.INFO);
+        try {
+            run.run();
+        } finally {
+            log.detachAppender(lines);
+            log.setLevel(null);
+        }
+        return lines.list.stream().filter(e -> e.getLevel() == Level.INFO).map(ILoggingEvent::getFormattedMessage)
+                .toList();
     }
 
     /** POSTs through the shared builder to a loopback port nothing listens on, and answers the retry lines logged. */

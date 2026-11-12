@@ -70,9 +70,10 @@ public class PaztportProperties implements InitializingBean {
      * ever retried: the JDK client re-sends a GET or HEAD itself after its connection dies, so their connect failure
      * may follow a delivered attempt, and they are left to it. Without paztport.tls-bundle there is no retry, since
      * other request factories retry on their own; an application that replaces the request factory on the shared
-     * builder sets this to false. While it is on, paztport.connect-timeout-ms must be under half of the origin's
-     * window (paztport.run-max-age-ms, else paztport.max-age-ms), so that both attempts fit it. OutboundInterceptor
-     * says exactly what is retried.
+     * builder sets this to false. Under the JDK's jdk.httpclient.enableAllMethodRetry, which has the JDK client
+     * re-send every method after its connection dies, there is no retry either. While it is on,
+     * paztport.connect-timeout-ms must be under half of the origin's window (paztport.run-max-age-ms, else
+     * paztport.max-age-ms), so that both attempts fit it. OutboundInterceptor says exactly what is retried.
      */
     private boolean retryUnconnected = true;
 
