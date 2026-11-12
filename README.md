@@ -33,7 +33,7 @@ to have merit for it to be worth the invesment of time.
 For it to earn that merit, it has to actually work and other people have to agree
 that it works.
 
-I have made strides to ensure credit is given where due - however hold me to the
+I have taken steps to ensure credit is given where due - however hold me to the
 flames on this one. No ideas are truly original - this is built off of the ideas
 and amazing work of many different people, and paztport might not even be unique
 in its synthesis of those ideas.
