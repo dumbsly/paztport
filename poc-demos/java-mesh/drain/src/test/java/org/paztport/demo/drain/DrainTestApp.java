@@ -7,7 +7,10 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.ConfigurableApplicationContext;
+import org.springframework.context.annotation.Bean;
+import org.springframework.core.Ordered;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -25,6 +28,23 @@ class DrainTestApp {
         all[0] = "--server.port=0";
         System.arraycopy(args, 0, all, 1, args.length);
         return SpringApplication.run(DrainTestApp.class, all);
+    }
+
+    /** A filter at the highest precedence that refuses {@code /refuse} itself, as the starter's filter refuses a request. */
+    @Bean
+    FilterRegistrationBean<jakarta.servlet.Filter> refusingFilter() {
+        FilterRegistrationBean<jakarta.servlet.Filter> registration = new FilterRegistrationBean<>(
+                (request, response, chain) -> {
+                    if (((jakarta.servlet.http.HttpServletRequest) request).getRequestURI().equals("/refuse")) {
+                        var http = (jakarta.servlet.http.HttpServletResponse) response;
+                        http.setStatus(403);
+                        http.getWriter().write("refused");
+                    } else {
+                        chain.doFilter(request, response);
+                    }
+                });
+        registration.setOrder(Ordered.HIGHEST_PRECEDENCE);
+        return registration;
     }
 
     @RestController

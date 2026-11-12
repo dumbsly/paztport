@@ -61,69 +61,102 @@ class DrainTest {
     @Test
     void drainsBeforeGracefulShutdown() throws Exception {
         ConfigurableApplicationContext ctx = DrainTestApp.start("--demo.drain-seconds=2");
-        int port = port(ctx);
-        DrainState state = ctx.getBean(DrainState.class);
-        long start = System.nanoTime();
-        CompletableFuture<Void> closing = CompletableFuture.runAsync(ctx::close);
-        awaitDraining(state);
+        try {
+            int port = port(ctx);
+            DrainState state = ctx.getBean(DrainState.class);
+            long start = System.nanoTime();
+            CompletableFuture<Void> closing = CompletableFuture.runAsync(ctx::close);
+            awaitDraining(state);
 
-        String answer = rawGet(port, "/ping");
+            String answer = rawGet(port, "/ping");
 
-        assertThat(answer).startsWith("HTTP/1.1 200");
-        assertThat(answer.toLowerCase()).contains("connection: close");
-        closing.get(10, TimeUnit.SECONDS);
-        assertThat(TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start)).isGreaterThanOrEqualTo(1900);
+            assertThat(answer).startsWith("HTTP/1.1 200");
+            assertThat(answer.toLowerCase()).contains("connection: close");
+            closing.get(10, TimeUnit.SECONDS);
+            assertThat(TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start)).isGreaterThanOrEqualTo(1900);
+        } finally {
+            ctx.close();
+        }
+    }
+
+    @Test
+    void aFilterThatRefusesTheRequestItselfStillGetsTheHeader() throws Exception {
+        ConfigurableApplicationContext ctx = DrainTestApp.start("--demo.drain-seconds=2");
+        try {
+            int port = port(ctx);
+            CompletableFuture<Void> closing = CompletableFuture.runAsync(ctx::close);
+            awaitDraining(ctx.getBean(DrainState.class));
+
+            String answer = rawGet(port, "/refuse");
+
+            assertThat(answer).startsWith("HTTP/1.1 403");
+            assertThat(answer.toLowerCase()).contains("connection: close");
+            closing.get(10, TimeUnit.SECONDS);
+        } finally {
+            ctx.close();
+        }
     }
 
     @Test
     void inFlightRequestCompletesWithClose() throws Exception {
         ConfigurableApplicationContext ctx = DrainTestApp.start("--demo.drain-seconds=2");
-        int port = port(ctx);
-        DrainState state = ctx.getBean(DrainState.class);
-        CompletableFuture<String> inFlight = CompletableFuture.supplyAsync(() -> {
-            try {
-                return rawGet(port, "/wait");
-            } catch (IOException e) {
-                throw new IllegalStateException(e);
-            }
-        });
-        assertThat(DrainTestApp.HANDLER_ENTERED.await(5, TimeUnit.SECONDS)).isTrue();
-        CompletableFuture<Void> closing = CompletableFuture.runAsync(ctx::close);
-        awaitDraining(state);
-        DrainTestApp.RELEASE.countDown();
+        try {
+            int port = port(ctx);
+            DrainState state = ctx.getBean(DrainState.class);
+            CompletableFuture<String> inFlight = CompletableFuture.supplyAsync(() -> {
+                try {
+                    return rawGet(port, "/wait");
+                } catch (IOException e) {
+                    throw new IllegalStateException(e);
+                }
+            });
+            assertThat(DrainTestApp.HANDLER_ENTERED.await(5, TimeUnit.SECONDS)).isTrue();
+            CompletableFuture<Void> closing = CompletableFuture.runAsync(ctx::close);
+            awaitDraining(state);
+            DrainTestApp.RELEASE.countDown();
 
-        String answer = inFlight.get(10, TimeUnit.SECONDS);
+            String answer = inFlight.get(10, TimeUnit.SECONDS);
 
-        assertThat(answer).startsWith("HTTP/1.1 200");
-        assertThat(answer.toLowerCase()).contains("connection: close");
-        closing.get(10, TimeUnit.SECONDS);
+            assertThat(answer).startsWith("HTTP/1.1 200");
+            assertThat(answer.toLowerCase()).contains("connection: close");
+            closing.get(10, TimeUnit.SECONDS);
+        } finally {
+            ctx.close();
+        }
     }
 
     @Test
     void zeroDisablesTheDrain() throws Exception {
         ConfigurableApplicationContext ctx = DrainTestApp.start("--demo.drain-seconds=0");
-        int port = port(ctx);
-        String before = rawGetKeepAlive(port);
-        long start = System.nanoTime();
-        ctx.close();
-        assertThat(TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start)).isLessThan(1500);
-        assertThat(before.toLowerCase()).doesNotContain("connection: close");
+        try {
+            String before = rawGetKeepAlive(port(ctx));
+            long start = System.nanoTime();
+            ctx.close();
+            assertThat(TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start)).isLessThan(1500);
+            assertThat(before.toLowerCase()).doesNotContain("connection: close");
+        } finally {
+            ctx.close();
+        }
     }
 
     private static int port(ConfigurableApplicationContext ctx) {
         return ((WebServerApplicationContext) ctx).getWebServer().getPort();
     }
 
-    /** One request on a connection the server may keep; the read stops at the end of the body. */
+    /** One request on a connection the server may keep; the read stops at the end of the response's headers. */
     private static String rawGetKeepAlive(int port) throws IOException {
         try (Socket socket = new Socket()) {
             socket.connect(new InetSocketAddress("127.0.0.1", port), 2000);
             socket.setSoTimeout(5000);
             socket.getOutputStream().write("GET /ping HTTP/1.1\r\nHost: localhost\r\n\r\n"
                     .getBytes(StandardCharsets.US_ASCII));
-            byte[] buffer = new byte[4096];
-            int n = socket.getInputStream().read(buffer);
-            return new String(buffer, 0, n, StandardCharsets.US_ASCII);
+            StringBuilder head = new StringBuilder();
+            var in = socket.getInputStream();
+            int b;
+            while (!head.toString().endsWith("\r\n\r\n") && (b = in.read()) != -1) {
+                head.append((char) b);
+            }
+            return head.toString();
         }
     }
 }

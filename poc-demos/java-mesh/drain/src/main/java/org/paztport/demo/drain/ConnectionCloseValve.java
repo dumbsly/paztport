@@ -3,40 +3,40 @@
 
 package org.paztport.demo.drain;
 
-import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.ServletOutputStream;
-import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpServletResponseWrapper;
 import java.io.IOException;
 import java.io.PrintWriter;
-import org.springframework.web.filter.OncePerRequestFilter;
+import org.apache.catalina.connector.Request;
+import org.apache.catalina.connector.Response;
+import org.apache.catalina.valves.ValveBase;
 
 /**
- * Sets {@code Connection: close} on every response while the service drains. A request already in progress when the
- * drain begins gets the header too: the response is also marked at each point where it can be committed, and again
- * when the chain returns if it has not been committed by then. Tomcat closes the connection after such a response.
+ * Sets {@code Connection: close} on every response while the service drains. It sits in Tomcat's pipeline and
+ * replaces the response the servlet filter chain sees, so it is outside every filter: a response written by a filter
+ * that refuses a request itself is marked as well as one from the handler. A request already in progress when the
+ * drain begins is marked too: the response is also marked at each point where it can be committed, and again when
+ * the chain returns if it has not been committed by then. Tomcat closes the connection after such a response.
  */
-public final class ConnectionCloseFilter extends OncePerRequestFilter {
+final class ConnectionCloseValve extends ValveBase {
 
     private final DrainState state;
 
-    public ConnectionCloseFilter(DrainState state) {
+    ConnectionCloseValve(DrainState state) {
         this.state = state;
     }
 
     @Override
-    protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
-            throws ServletException, IOException {
-        Marking marked = new Marking(response, state);
-        marked.markIfDraining();
+    public void invoke(Request request, Response response) throws IOException, ServletException {
+        Marking marking = new Marking(response.getResponse(), state);
+        response.setResponse(marking);
+        marking.markIfDraining();
         try {
-            chain.doFilter(request, marked);
+            getNext().invoke(request, response);
         } finally {
-            if (!response.isCommitted()) {
-                marked.markIfDraining();
-            }
+            marking.markIfDraining();
         }
     }
 
