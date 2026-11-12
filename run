@@ -253,13 +253,15 @@ cmd_bench() {
 
 # The files of the working tree as a tar stream on stdout: the tracked and the untracked, minus what .gitignore
 # says, so git's rules decide and there is no second list. A tracked file deleted on disk is left out, since tar
-# would stop at it. -z and --null keep names with spaces and newlines whole; the mode of each file travels in the
-# archive, so ./run and the *.sh scripts stay executable.
+# would stop at it. git lists an untracked nested repository as one directory, and --no-recursion (before -T, as
+# GNU tar reads options in order) keeps tar from adding what is under it, its ignored files and .git included.
+# -z and --null keep names with spaces and newlines whole; the mode of each file travels in the archive, so ./run
+# and the *.sh scripts stay executable.
 stream_tree() {
   local file
   git ls-files -z -co --exclude-standard | while IFS= read -r -d '' file; do
     if [ -e "$file" ] || [ -L "$file" ]; then printf '%s\0' "$file"; fi
-  done | COPYFILE_DISABLE=1 tar --null --no-xattrs -T - -cf -
+  done | COPYFILE_DISABLE=1 tar --null --no-xattrs --no-recursion -T - -cf -
 }
 
 # The suites in a container. Download caches live in named volumes, so a second run fetches little; the tree is

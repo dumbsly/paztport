@@ -161,6 +161,41 @@ container_outside_clone() {
   return "$status"
 }
 
+# container_streams_what_git_lists: run from a new repository holding a copy of `run`, with a fake docker whose
+# run lists the tar stream it is given, ./run test --container streams the tracked and the untracked files, and
+# leaves out an untracked nested repository's contents, a file .gitignore names and a tracked file deleted on disk.
+# A name with a space arrives whole.
+container_streams_what_git_lists() {
+  local work bin repo_dir listing status=0
+  work="$(mktemp -d)"
+  bin="$(basic_tools git tar)"
+  repo_dir="$work/repo"
+  listing="$work/listing"
+  mkdir -p "$repo_dir/poc-sdks/scripts"
+  cp "$repo/run" "$repo_dir/run"
+  : >"$repo_dir/poc-sdks/scripts/test.Dockerfile"
+  printf 'ignored.key\n' >"$repo_dir/.gitignore"
+  echo tracked >"$repo_dir/tracked.txt"
+  echo gone >"$repo_dir/gone.txt"
+  echo spaced >"$repo_dir/with space.txt"
+  (cd "$repo_dir" && git init -q && git add -A &&
+    git -c user.name=test -c user.email=test@example.invalid -c commit.gpgsign=false commit -qm fixture) || status=1
+  rm "$repo_dir/gone.txt"
+  echo key >"$repo_dir/ignored.key"
+  (cd "$repo_dir" && git init -q nested) || status=1
+  echo nested >"$repo_dir/nested/file.txt"
+  echo key >"$repo_dir/nested/ignored.key"
+  printf '#!%s\ncase "$1" in\n  run) tar -tf - >"%s" ;;\nesac\nexit 0\n' "$bin/bash" "$listing" >"$bin/docker"
+  chmod +x "$bin/docker"
+  (cd "$repo_dir" && PATH="$bin" "$bin/bash" ./run test --container >/dev/null 2>&1) || status=1
+  [ "$status" -eq 0 ] && [ -s "$listing" ] &&
+    grep -qx 'with space.txt' "$listing" && grep -qx 'tracked.txt' "$listing" && grep -qx 'run' "$listing" &&
+    ! grep -q '^nested/.' "$listing" && ! grep -q 'ignored\.key' "$listing" && ! grep -qx 'gone.txt' "$listing" ||
+    status=1
+  rm -rf "$work" "$bin"
+  return "$status"
+}
+
 no_argument_prints_usage() {
   "$repo/run" | grep -q "Usage"
 }
@@ -181,6 +216,8 @@ check "test -h prints usage" help_after test
 check "test --bogus exits 2 with the usage" test_bogus_option
 check "test --container without docker prints one 'missing: docker' line and exits 1" container_without_docker
 check "test --container outside a git clone prints one 'missing: a git clone' line and builds nothing" container_outside_clone
+check "test --container streams what git lists: no nested repository's contents, ignored or deleted files" \
+  container_streams_what_git_lists
 check "java-mesh -h prints usage" help_after java-mesh
 check "agents-mcp -h prints usage" help_after agents-mcp
 check "a PATH without node prints one 'missing: node' line and exits 1" missing_stops_early node agents-mcp
