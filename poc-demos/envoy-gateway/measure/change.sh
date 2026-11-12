@@ -656,7 +656,8 @@ for pod, lines in sorted(by_pod.items()):
     for rest, at in lines.items():
         m = re.search(r"PAZTPORT_TRACE request rid=(\S+) reason=(\S+)", rest)
         if m:
-            delivered[(app, m.group(1))].append((at, pod, m.group(2)))
+            if m.group(1) != "-":  # a request with no stamp has no id, and the line on stamps counts it
+                delivered[(app, m.group(1))].append((at, pod, m.group(2)))
             counts[(app, m.group(2))] += 1
             if frm is not None and at >= frm:
                 later[(app, m.group(2))] += 1
@@ -712,7 +713,7 @@ else:
     print("  PASS no request reached a backend without a stamp: CHAIN_MISSING 0 at orders and at payment%s" % over)
 twice = {key: sorted(lines) for key, lines in delivered.items() if len(lines) > 1}
 if twice:
-    with open(out[:-len(".reasons")] + ".twice", "w") as f:
+    with open(run + ".twice", "w") as f:
         for (app, rid), lines in sorted(twice.items()):
             f.write("%s %s %s\n" % (app, rid, " ".join("%s:%s" % (pod, reason) for _, pod, reason in lines)))
     shapes = collections.Counter((app, len({pod for _, pod, _ in lines}) > 1, " then ".join(r for _, _, r in lines))
@@ -720,7 +721,7 @@ if twice:
     print("  FAIL each request reached its receiver once: %d did more than once (%s), their ids in %s" % (
         len(twice), "; ".join("%s %d, %s on %s" % (app, n, reasons, "two pods" if pods else "one pod")
                                for (app, pods, reasons), n in sorted(shapes.items())),
-        os.path.basename(out[:-len(".reasons")] + ".twice")))
+        os.path.basename(run + ".twice")))
     bad = 1
 else:
     print("  PASS each request reached its receiver once: no request id traced twice at orders or at payment%s" % over)
