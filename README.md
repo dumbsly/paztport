@@ -42,6 +42,7 @@ model. [Running it](#running-it) has the other demos and what each command needs
   - [Design rules](#design-rules)
 - [What the demos show](#what-the-demos-show)
 - [What it doesn't do](#what-it-doesnt-do)
+- [Related work](#related-work)
 - [Running it](#running-it)
 - [Repository layout](#repository-layout)
 - [Where to go next](#where-to-go-next)
@@ -166,8 +167,8 @@ chain, so the partner never sees the internal route.
 - It is checked end to end. The Java mesh's `demo.sh` makes 26 checks, among them
   forged stamps, replays, altered bodies, expired requests, routes the policy does
   not list, `audit` mode, and the responder's quarantine with its limit on how often
-  it acts; a green run ends `26 passed, 0 failed` ([the
-  scenarios](poc-demos/java-mesh/README.md#running-it)).
+  it acts; a green run ends `26 passed, 0 failed`
+  ([the scenarios](poc-demos/java-mesh/README.md#running-it)).
 - Its cost is measured, on one host. Checking a request takes a few Ed25519
   verifications and SHA-256 hashes. In the
   [Java mesh](poc-demos/java-mesh/README.md#measurements), `enforce` adds about
@@ -262,8 +263,8 @@ verification ([events](poc-sdks/spec/wire.md#events)). An `enforce` event that n
 the sender is one the responder may act on, for example by isolating that instance;
 an `audit` event only informs it. A verdict can name the sender it holds
 responsible, in the service's own logs and in the event, and who that can be depends
-on whether the transport authenticated the sender ([Using it
-soundly](docs/limits.md#using-it-soundly)).
+on whether the transport authenticated the sender
+([Using it soundly](docs/limits.md#using-it-soundly)).
 
 #### Proof of legitimacy: the salted Merkle tree
 
@@ -365,8 +366,8 @@ route you didn't travel, and you can't travel a route that isn't in the tree.
 
 A receiver makes these checks, with freshness, replay and the peer check, in the
 live order, which is part of the protocol, so every implementation refuses the same
-chain with the same code ([the live
-order](poc-sdks/spec/verification.md#the-live-order)).
+chain with the same code
+([the live order](poc-sdks/spec/verification.md#the-live-order)).
 
 The exact format is in the [protocol spec](poc-sdks/spec/README.md), and
 [poc-sdks](poc-sdks/README.md#on-the-wire) has a summary.
@@ -389,16 +390,16 @@ policy. A caller that holds the table names the operation in its stamp's `rcv` a
 `service#operation`, so the route records what was asked for: the Java mesh allows
 `gateway/orders#createOrder/payment#pay`. A receiver must not take its operation
 from the request: it works out from its own routing which handler will run, and a
-chain that names another fails `BINDING_MISMATCH`. The [Spring
-starter](poc-sdks/java/README.md#operations) does this from Spring's handler
+chain that names another fails `BINDING_MISMATCH`. The
+[Spring starter](poc-sdks/java/README.md#operations) does this from Spring's handler
 mappings; the [Go SDK](poc-sdks/go/README.md#what-the-embedder-does) reads the
 tables and names operations, and leaves confirming them to the code that embeds it.
 A caller calls each operation at most once per request tree; an operation that acts
 on one item of many can declare a key, the path segment or query parameter that
 names the item, and is then called once per item. Over MCP there are no operations,
 since a tool call's receiver already names one tool
-([operations](poc-sdks/spec/wire.md#operations), [nonce
-keys](poc-sdks/spec/verification.md#freshness-and-replay)).
+([operations](poc-sdks/spec/wire.md#operations),
+[nonce keys](poc-sdks/spec/verification.md#freshness-and-replay)).
 
 #### Influence
 
@@ -451,8 +452,8 @@ sender's policy key is one it pinned in advance, the sender's root and keyring
 verify under that key, and both sides' roots and keyrings are current. Otherwise the
 session is unsafe: graded trust, not a refusal, in which the receiving side verifies
 nothing, refuses what it lists as disabled (`UNSAFE_SESSION`) and serves the rest
-([status](poc-sdks/spec/sessions-and-influence.md#status), [unsafe
-sessions](poc-sdks/spec/sessions-and-influence.md#unsafe-sessions)).
+([status](poc-sdks/spec/sessions-and-influence.md#status),
+[unsafe sessions](poc-sdks/spec/sessions-and-influence.md#unsafe-sessions)).
 
 Over MCP, in an attested session the server attests the result of each call that
 verified ([Response attestation](#response-attestation)). The client counts a
@@ -465,11 +466,11 @@ stamp of its own in its place, so the internal route stays inside. That stamp
 commits to the request's influence blinded to one entry for each class and owner,
 which is all the partner needs to apply the owner-aware rule. In an unsafe session
 the egress signs no stamp and sends no influence. Either way, a partner does not
-attest its replies (see [Limits of the
-concept](docs/limits.md#limits-of-the-concept)), so the egress counts each one
-`local-untrusted`. The Java and Go SDKs implement this; the TypeScript SDK does not
-([between
-organisations](poc-sdks/spec/sessions-and-influence.md#between-organisations)).
+attest its replies (see
+[Limits of the concept](docs/limits.md#limits-of-the-concept)), so the egress counts
+each one `local-untrusted`. The Java and Go SDKs implement this; the TypeScript SDK
+does not
+([between organisations](poc-sdks/spec/sessions-and-influence.md#between-organisations)).
 
 ### Design rules
 
@@ -593,6 +594,54 @@ for Paztport to hold:
   Secrets, with no workload attestation, and its responder controls Docker through
   the host's socket
   ([limits of this proof of concept](docs/limits.md#limits-of-this-proof-of-concept)).
+
+## Related work
+
+Paztport combines ideas that each have a longer history. This section says what it
+takes from each and where it differs; it does not rank them.
+
+- **The problem.** Norm Hardy's confused deputy, cited under
+  [The problem](#the-problem), is a component with authority acting on someone
+  else's say-so. Hardy's answer was capabilities, which carry the authority with the
+  request; Paztport's is a request that carries the route it took.
+- **Credentials that carry their history.**
+  [Macaroons](https://www.ndss-symposium.org/ndss2014/programme/macaroons-cookies-contextual-caveats-decentralized-authorization-cloud/)
+  (Birgisson et al., NDSS 2014) chain an HMAC through the caveats each holder adds,
+  so a credential records the limits placed on it as it is passed on. A stamp chain
+  links each signature to the one before it in the same way, but each link is signed
+  with the hop's own key, so any receiver holding the public keys can check it, and
+  it records where the request went rather than what it may do.
+- **Identity per hop.** Workload identity such as [SPIFFE](https://spiffe.io/), with
+  mutual TLS, names the service at the other end of a connection. Paztport relies on
+  that for the last hop, through the peer check, and adds the hops before it.
+- **Context carried along a call chain.**
+  [OAuth Transaction Tokens](https://datatracker.ietf.org/doc/draft-ietf-oauth-transaction-tokens/),
+  an IETF OAuth working-group draft, pass a short-lived signed token, issued by one
+  token service per trust domain, along the calls an external request sets off, so
+  each service sees the identity and context the chain acts for.
+  [W3C Trace Context](https://www.w3.org/TR/trace-context/) carries a request's
+  trace identity across services for observability, unsigned. Paztport's chain
+  carries the route itself, signed hop by hop, with no central issuer.
+- **Proof of transit.** The IETF Service Function Chaining working group's
+  [proof-of-transit draft](https://datatracker.ietf.org/doc/draft-ietf-sfc-proof-of-transit/),
+  which expired without becoming an RFC, let a packet prove it passed through a set
+  of network functions, each updating Shamir secret shares on the way. Paztport asks
+  the same question of application requests, and adds a policy of which routes are
+  allowed.
+- **Committing to a list without publishing it.** The tree's `0x00` and `0x01` leaf
+  and node prefixes are those of Certificate Transparency's Merkle tree
+  ([RFC 6962](https://www.rfc-editor.org/rfc/rfc6962)); the salts keep a short list
+  of routes from being guessed back out of its hashes.
+  [Where this could go](docs/directions.md) takes up transparency logs for policy
+  roots.
+- **Following what shaped a request.** Influence and the owner-aware rule are a form
+  of information-flow control, whose lattice model goes back to Dorothy Denning
+  ([CACM, 1976](https://doi.org/10.1145/360051.360056)). For AI agents,
+  [CaMeL](https://arxiv.org/abs/2503.18813) (Debenedetti et al., 2025) and
+  [FIDES](https://arxiv.org/abs/2505.23643) (2025) track where each value came from
+  inside the agent and check its tool calls against a policy. Paztport carries that
+  record between services instead, committed in the stamps, so the service that
+  receives a call applies the rule.
 
 ## Running it
 
