@@ -243,16 +243,18 @@ cmd_check() {
   fi
 
   # 8 - the metrics: orders and payment count the requests they served as verified, the processor those it stamped.
-  local ip text orders_ok=0 payment_ok=0 stamped_n=0 n
-  for ip in $(kn get pods -l app=orders -o jsonpath='{.items[*].status.podIP}'); do
-    text=$(kn exec checks -- curl -s --cacert /tls/ca.crt --cert /tls/operator.crt --key /tls/operator.key \
-      --resolve "orders:8080:$ip" https://orders:8080/actuator/prometheus 2>/dev/null)
-    n=$(metric_sum "$text" 'paztport_request_seconds_count{' 'mode="enforce"' 'outcome="served"' 'reason="OK"')
-    orders_ok=$((orders_ok + n))
+  local ip text orders_ok=0 payment_ok=0 stamped_n=0 n app
+  # Each backend's pods one by one, by IP: a Service would reach only one of a service's replicas.
+  for app in orders payment; do
+    n=0
+    for ip in $(kn get pods -l "app=$app" -o jsonpath='{.items[*].status.podIP}'); do
+      text=$(kn exec checks -- curl -s --cacert /tls/ca.crt --cert /tls/operator.crt --key /tls/operator.key \
+        --resolve "$app:8080:$ip" "https://$app:8080/actuator/prometheus" 2>/dev/null)
+      n=$((n + $(metric_sum "$text" 'paztport_request_seconds_count{' 'mode="enforce"' 'outcome="served"' \
+        'reason="OK"')))
+    done
+    printf -v "${app}_ok" %s "$n"
   done
-  text=$(kn exec checks -- curl -s --cacert /tls/ca.crt --cert /tls/operator.crt --key /tls/operator.key \
-    https://payment:8080/actuator/prometheus 2>/dev/null)
-  payment_ok=$(metric_sum "$text" 'paztport_request_seconds_count{' 'mode="enforce"' 'outcome="served"' 'reason="OK"')
   for ip in $(kn get pods -l app.kubernetes.io/name=paztport-processor -o jsonpath='{.items[*].status.podIP}'); do
     text=$(kn exec checks -- curl -s "http://$ip:9090/metrics" 2>/dev/null)
     n=$(metric_sum "$text" 'paztport_edge_requests_total{outcome="stamped"}')

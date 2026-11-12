@@ -161,7 +161,7 @@ wait_edge() {
 }
 
 # Logs. Each snapshot is every line so far; added <before> <now> prints the lines in now that before lacks. It
-# compares whole lines, not positions: orders and the processor run two pods each, whose logs interleave in a
+# compares whole lines, not positions: orders, payment and the processor run two pods each, whose logs interleave in a
 # snapshot. Every line carries a timestamp, so a new line never repeats an old one. awk keeps before's lines in a
 # hash; grep -F -f with each of them as a pattern took minutes once the processor's log held thousands of lines.
 processor_log() { kn logs -l app.kubernetes.io/name=paztport-processor --tail=-1 --prefix 2>/dev/null; }
