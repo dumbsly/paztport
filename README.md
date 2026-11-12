@@ -74,7 +74,8 @@ the block above, all of its documentation ([How it was built](#how-it-was-built)
 scenario. It needs Maven on Java 25 or newer, and Docker, its daemon running,
 with Compose. A green run ends `26 passed, 0 failed`, and the mesh stays up.
 `./run test` runs the repository's checks and every suite, with no Docker and no
-model. [Running it](#running-it) has the other demos and what each command needs.
+model. `./run test --container` runs the same suites in a container, needing only
+Docker and git. [Running it](#running-it) has the other demos and what each command needs.
 
 ## Contents
 
@@ -745,6 +746,7 @@ takes from each and where it differs; it does not rank them.
 
 ```bash
 ./run test        # the repository's checks and every suite; no Docker, no model
+./run test --container  # the same in a container; needs only Docker and git
 ./run java-mesh   # build the Java SDK and the mesh demo, then run every scenario; the mesh stays up
 ./run envoy-gateway  # the edge processor on Envoy Gateway in a local kind cluster, and its checks; the cluster stays up
 ./run envoy-gateway measure  # the measurement suites, on a cluster of their own; needs python3
@@ -757,6 +759,9 @@ What each command needs, at the lowest versions `./run` accepts:
 - `./run test`: Maven, running on Java 25 or newer (as `mvn -v` reports it);
   Node 22.19 or newer, with npm; Go 1.27 or newer; staticcheck 2026.2.2 or newer;
   and unzip, for the jar check.
+- `./run test --container`: Docker and git, and nothing else on the host; the
+  toolchains are in the image it builds from `poc-sdks/scripts/test.Dockerfile`.
+  It must run in a git clone, and it also runs the uncommitted edits.
 - `./run java-mesh`: Maven on Java 25 or newer, and Docker, its daemon running,
   with Compose.
 - `./run envoy-gateway`: Maven on Java 25 or newer; Docker, its daemon running;
@@ -847,7 +852,8 @@ What you can check for yourself:
   of what the built jars carry. It needs no Docker and no model. The repository's
   own checks are two scripts: `check-links.mjs` fails on a Markdown link to a
   missing file or heading, and `check-imports.mjs` on a Java import the file does
-  not need.
+  not need. `./run test --container` runs all of it in a container, which is also
+  what CI runs.
 - The Java mesh and Envoy Gateway READMEs say how their numbers were measured, on
   which host and with which versions, and the Envoy Gateway README names the runs
   they come from. The measurement scripts are in the repository. The raw results are
