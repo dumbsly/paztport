@@ -26,7 +26,13 @@ Usage: ./run <command> [options]
   test         The link and Java import checks, the Java SDK and Java demo suites, a check of what
                the built jars carry, the TypeScript type checks and the TypeScript SDK and demo suites,
                then gofmt, go vet and the Go SDK's suite, and gofmt, go vet, staticcheck, the race-checked
-               suite and the third-party list of the Envoy Gateway processor. No Docker and no model.
+               suite and the third-party list of the Envoy Gateway processor. No model.
+  test --container
+               The same, in a container, so that only Docker and git are needed on the host: builds the image
+               of the toolchains (poc-sdks/scripts/test.Dockerfile, cached after the first time), streams in
+               the working tree (the files git would put in a clone, plus your uncommitted edits) and runs
+               ./run test there as an unprivileged user. Nothing is written to your tree; downloads are cached
+               in Docker volumes named paztport-test-*.
   bench        Build the Java SDK's benchmarks and time the primitives a verifying hop pays for (JMH, a few
                minutes), on the JDK Maven uses. Options after it go to JMH, e.g. ./run bench -f 3; JMH's own
                help is ./run bench -h. Not part of test.
@@ -245,7 +251,44 @@ cmd_bench() {
   exec "$maven_java" -cp "$bench_dir/classes:$(cat "$bench_dir/bench.classpath")" org.openjdk.jmh.Main "$@"
 }
 
+# The files of the working tree as a tar stream on stdout: the tracked and the untracked, minus what .gitignore
+# says, so git's rules decide and there is no second list. A tracked file deleted on disk is left out, since tar
+# would stop at it. -z and --null keep names with spaces and newlines whole; the mode of each file travels in the
+# archive, so ./run and the *.sh scripts stay executable.
+stream_tree() {
+  local file
+  git ls-files -z -co --exclude-standard | while IFS= read -r -d '' file; do
+    if [ -e "$file" ] || [ -L "$file" ]; then printf '%s\0' "$file"; fi
+  done | COPYFILE_DISABLE=1 tar --null --no-xattrs -T - -cf -
+}
+
+# The suites in a container. Download caches live in named volumes, so a second run fetches little; the tree is
+# streamed in and extracted in a fresh container each time, so neither the host tree nor an earlier run's build
+# output is involved. The link and import checks list files with git, which needs a repository, so an empty one is
+# made around the tree: they ask for the files it holds, not for history. The exit code is ./run test's, since the
+# pipeline ends in docker run (pipefail covers tar).
+cmd_test_container() {
+  need_docker
+  command -v git >/dev/null 2>&1 || missing git 2 "https://git-scm.com/downloads or your package manager"
+  # The Dockerfile is the whole build context: it copies nothing in.
+  docker build -t paztport-test - <poc-sdks/scripts/test.Dockerfile
+  stream_tree | docker run --rm -i \
+    -v paztport-test-m2:/home/paztport/.m2/repository \
+    -v paztport-test-go-mod:/home/paztport/go/pkg/mod \
+    -v paztport-test-go-build:/home/paztport/.cache/go-build \
+    -v paztport-test-npm:/home/paztport/.npm \
+    paztport-test bash -c 'tar -x -C /work && git init -q && exec ./run test'
+}
+
 cmd_test() {
+  local container=""
+  for arg in "$@"; do
+    case "$arg" in
+      --container) container=1 ;;
+      *) usage >&2; exit 2 ;;
+    esac
+  done
+  [ -z "$container" ] || { cmd_test_container; return; }
   need_unzip
   need_go
   need_staticcheck
@@ -285,7 +328,7 @@ case "${1:-}" in
   java-mesh) cmd_java_mesh ;;
   agents-mcp) cmd_agents_mcp ;;
   envoy-gateway) shift; cmd_envoy_gateway "$@" ;;
-  test) cmd_test ;;
+  test) shift; cmd_test "$@" ;;
   bench) shift; cmd_bench "$@" ;;
   -h|--help|help) usage ;;
   "") usage ;;
