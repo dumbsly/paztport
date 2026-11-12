@@ -847,8 +847,12 @@ its suite-end total: the recovery leak in [Findings](#findings). Every other lin
 `20261112T141120Z`), on the same machine and versions, after the backends gained a drain, a surge and a second `payment`
 replica, and the starter a retry of calls that never connected; their tables below are from that run, and
 [Findings](#findings) compares the two. Its 52 pace lines all passed, every other line passed, and it exited 0. Both
-runs' results directories are published as [release assets](https://github.com/dumbsly/paztport/releases); once the
-assets are available this link will point to them.
+runs' results directories are assets of the [measurements release][release]:
+[`envoy-gateway-20261111T130734Z.tar.gz`][run-1] and [`envoy-gateway-20261112T141120Z.tar.gz`][run-2].
+
+[release]: https://github.com/dumbsly/paztport/releases/tag/measurements-2026-11-12
+[run-1]: https://github.com/dumbsly/paztport/releases/download/measurements-2026-11-12/envoy-gateway-20261111T130734Z.tar.gz
+[run-2]: https://github.com/dumbsly/paztport/releases/download/measurements-2026-11-12/envoy-gateway-20261112T141120Z.tar.gz
 
 ### `load`
 
