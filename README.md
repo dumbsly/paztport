@@ -38,7 +38,7 @@ flames on this one. No ideas are truly original - this is built off of the ideas
 and amazing work of many different people, and paztport might not even be unique
 in its synthesis of those ideas.
 
-I hope pazport lands with a wider audience, but no matter what, I have learned a
+I hope paztport lands with a wider audience, but no matter what, I have learned a
 lot.
 
 -pd
