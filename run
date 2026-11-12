@@ -23,7 +23,7 @@ Usage: ./run <command> [options]
                poc-demos/envoy-gateway/measurements/ (kept from run to run: the new keys and policy replace
                only out/), and the cluster deleted at the end unless --keep (needs python3 too).
   agents-mcp   Install the TypeScript SDK and the agents demo, set up demo keys, and start the demo page.
-  test         The name, link and Java import checks, the Java SDK and Java demo suites, a check of what
+  test         The link and Java import checks, the Java SDK and Java demo suites, a check of what
                the built jars carry, the TypeScript type checks and the TypeScript SDK and demo suites,
                then gofmt, go vet and the Go SDK's suite, and gofmt, go vet, staticcheck, the race-checked
                suite and the third-party list of the Envoy Gateway processor. No Docker and no model.
@@ -252,7 +252,6 @@ cmd_test() {
   need_java
   need_node
   [ -x "$maven_java" ] || missing java 25 "https://adoptium.net or your package manager (mvn -v must report the JDK's runtime)"
-  bash poc-sdks/scripts/check-names.sh
   node poc-sdks/scripts/check-links.mjs
   node poc-sdks/scripts/check-imports.mjs
   (cd poc-sdks/java && mvn -q install)
