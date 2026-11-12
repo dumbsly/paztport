@@ -3,7 +3,10 @@
 
 package org.paztport.spring.outbound;
 
+import static io.micrometer.observation.tck.TestObservationRegistryAssert.assertThat;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -17,16 +20,33 @@ import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
+import io.micrometer.observation.Observation;
+import io.micrometer.observation.ObservationHandler;
 import io.micrometer.observation.ObservationRegistry;
+import io.micrometer.observation.tck.TestObservationRegistry;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.ConnectException;
+import java.net.URI;
+import java.net.http.HttpConnectTimeoutException;
+import java.net.http.HttpTimeoutException;
+import java.nio.channels.ClosedChannelException;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
+import javax.net.ssl.SSLHandshakeException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -36,6 +56,7 @@ import org.paztport.core.influence.Influence;
 import org.paztport.core.influence.InfluenceClass;
 import org.paztport.core.influence.InfluenceEntry;
 import org.paztport.core.policy.Keyring;
+import org.paztport.core.policy.OperationTable;
 import org.paztport.core.policy.PolicyBuilder;
 import org.paztport.core.stamp.Chains;
 import org.paztport.core.stamp.Stamp;
@@ -52,10 +73,16 @@ import org.paztport.http.wire.PaztportHeaders;
 import org.paztport.http.wire.RequestBinding;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
+import org.springframework.http.client.ClientHttpRequestExecution;
+import org.springframework.http.client.ClientHttpRequestFactory;
 import org.springframework.http.client.ClientHttpResponse;
+import org.springframework.mock.http.client.MockClientHttpRequest;
+import org.springframework.mock.http.client.MockClientHttpResponse;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.test.web.client.ResponseCreator;
 import org.springframework.web.client.ResourceAccessException;
@@ -362,5 +389,298 @@ class OutboundInterceptorTest {
 
         assertSame(failure, thrown);
         assertTrue(closed[0], "the connection is released even though the body could not be read");
+    }
+
+    // --- Retrying a call that never connected ---
+
+    /** The time the retry measures the origin stamp's age at: 4500 ms after gateway's stamps. */
+    private static final long NOW = 5500L;
+
+    /** A 1000 ms connect timeout and a 5000 ms origin window, at {@code now}. */
+    private static UnconnectedRetry retryAt(long now) {
+        return new UnconnectedRetry(Duration.ofMillis(1000), 5000,
+                Clock.fixed(Instant.ofEpochMilli(now), ZoneOffset.UTC));
+    }
+
+    /** A connect timeout as the JDK's client gives it: with the {@code ConnectException} it ended as its cause. */
+    private static HttpConnectTimeoutException connectTimeout() {
+        HttpConnectTimeoutException e = new HttpConnectTimeoutException("HTTP connect timed out");
+        e.initCause(new ConnectException("HTTP connect timed out"));
+        return e;
+    }
+
+    /** Gateway's stamper with a clock that moves on a millisecond per stamp, so no two stamps it signs are alike. */
+    private Stamper movingGatewayStamper() {
+        AtomicLong clock = new AtomicLong(1000);
+        return new Stamper("gateway", "gw-1", gateway.getPrivate(), true, () -> "rid-1", clock::getAndIncrement);
+    }
+
+    /** Gateway checking its responses, retrying with {@code retry}, observed by {@code registry}. */
+    private OutboundInterceptor gatewayRetrying(TestObservationRegistry registry, UnconnectedRetry retry) {
+        return new OutboundInterceptor(HttpCaller.builder("gateway", movingGatewayStamper())
+                .bundle(policy.bundles().get("gateway")).verifier(gatewayVerifier()).build(), registry, retry);
+    }
+
+    /**
+     * An execution that throws each of its failures in turn and then answers as {@code answer} does, keeping the
+     * target and a copy of the headers of every request it is given.
+     */
+    private static final class Attempts implements ClientHttpRequestExecution {
+        final List<URI> targets = new ArrayList<>();
+        final List<HttpHeaders> headers = new ArrayList<>();
+        private final Deque<IOException> failures;
+        private final ResponseCreator answer;
+
+        Attempts(ResponseCreator answer, IOException... failures) {
+            this.answer = answer;
+            this.failures = new ArrayDeque<>(List.of(failures));
+        }
+
+        @Override
+        public ClientHttpResponse execute(HttpRequest request, byte[] body) throws IOException {
+            targets.add(request.getURI());
+            headers.add(HttpHeaders.copyOf(request.getHeaders()));
+            if (!failures.isEmpty()) {
+                throw failures.pop();
+            }
+            MockClientHttpRequest received = new MockClientHttpRequest(request.getMethod(), request.getURI());
+            received.getHeaders().putAll(request.getHeaders());
+            return answer.createResponse(received);
+        }
+    }
+
+    /** Sends a GET to {@code uri} through {@code interceptor} and {@code attempts}, and reads the body whole. */
+    private static String get(OutboundInterceptor interceptor, String uri, Attempts attempts) throws IOException {
+        try (ClientHttpResponse response = interceptor.intercept(
+                new MockClientHttpRequest(HttpMethod.GET, URI.create(uri)), new byte[0], attempts)) {
+            return new String(response.getBody().readAllBytes(), StandardCharsets.UTF_8);
+        }
+    }
+
+    private static Stamp lastStamp(HttpHeaders headers) {
+        List<Stamp> chain = chainOf(headers);
+        return chain.get(chain.size() - 1);
+    }
+
+    private static void assertRetryObserved(TestObservationRegistry registry, String failure, String outcome) {
+        assertThat(registry).hasNumberOfObservationsWithNameEqualTo("paztport.outbound.retry", 1)
+                .hasObservationWithNameEqualTo("paztport.outbound.retry").that()
+                .hasLowCardinalityKeyValue("failure", failure).hasLowCardinalityKeyValue("outcome", outcome)
+                .doesNotHaveError().hasBeenStopped();
+    }
+
+    /** Asserts that the retry sent the same request again, freshly stamped, and its response was checked. */
+    private void assertRetriedFreshlyStamped(Attempts attempts, String body) {
+        assertEquals("hello", body);
+        assertEquals(2, attempts.headers.size(), "one retry");
+        assertEquals(1, attempts.headers.get(1).get(PaztportHeaders.CHAIN).size(), "the first stamp is replaced");
+        Stamp first = lastStamp(attempts.headers.get(0));
+        Stamp second = lastStamp(attempts.headers.get(1));
+        assertEquals(first.rid(), second.rid());
+        assertEquals(first.rcv(), second.rcv());
+        assertEquals(first.bind(), second.bind());
+        assertTrue(second.ts() >= first.ts(), "the retry's stamp is signed afresh");
+        assertNotEquals(first.sig(), second.sig());
+    }
+
+    @Test
+    void retriesAConnectTimeoutOnceWithAFreshStamp() throws IOException {
+        TestObservationRegistry registry = TestObservationRegistry.create();
+        Attempts attempts = new Attempts(attested("hello", "hello", List.of()), connectTimeout());
+
+        String body = get(gatewayRetrying(registry, retryAt(NOW)), "http://orders:8080/orders", attempts);
+
+        assertRetriedFreshlyStamped(attempts, body);
+        assertRetryObserved(registry, "connect_timeout", "retried");
+        // Orders answered the second stamp: a check against the first would fail on the response's prev.
+        assertEquals(List.of(
+                "PAZTPORT_TRACE retry rid=rid-1 receiver=orders failure=connect_timeout outcome=retried",
+                "PAZTPORT_TRACE response rid=rid-1 from=orders reason=OK receiver=gateway ✓ labels=-"),
+                traceLines());
+    }
+
+    @Test
+    void retriesARefusedConnectAndAFailedHandshake() throws IOException {
+        Map<String, IOException> failures = Map.of(
+                "connect", new ConnectException("Connection refused"),
+                "handshake", new SSLHandshakeException("Remote host terminated the handshake"));
+        for (Map.Entry<String, IOException> failure : failures.entrySet()) {
+            traces.list.clear();
+            TestObservationRegistry registry = TestObservationRegistry.create();
+            Attempts attempts = new Attempts(attested("hello", "hello", List.of()), failure.getValue());
+
+            String body = get(gatewayRetrying(registry, retryAt(NOW)), "http://orders:8080/orders", attempts);
+
+            assertRetriedFreshlyStamped(attempts, body);
+            assertRetryObserved(registry, failure.getKey(), "retried");
+            assertEquals(List.of(
+                    "PAZTPORT_TRACE retry rid=rid-1 receiver=orders failure=" + failure.getKey() + " outcome=retried",
+                    "PAZTPORT_TRACE response rid=rid-1 from=orders reason=OK receiver=gateway ✓ labels=-"),
+                    traceLines());
+        }
+    }
+
+    // Each of these may have reached orders, so sending it again could deliver it twice.
+    @Test
+    void neverRetriesAfterTheConnection() {
+        for (IOException failure : List.of(new HttpTimeoutException("request timed out"),
+                new IOException("HTTP/1.1 header parser received no bytes"), new ClosedChannelException())) {
+            TestObservationRegistry registry = TestObservationRegistry.create();
+            Attempts attempts = new Attempts(withSuccess(), failure);
+
+            IOException thrown = assertThrows(IOException.class,
+                    () -> get(gatewayRetrying(registry, retryAt(NOW)), "http://orders:8080/orders", attempts));
+
+            assertSame(failure, thrown);
+            assertEquals(1, attempts.headers.size(), failure.toString());
+            assertThat(registry).doesNotHaveAnyObservation();
+        }
+        assertEquals(List.of(), traceLines());
+    }
+
+    @Test
+    void secondFailureSurfacesWithTheFirstSuppressed() {
+        TestObservationRegistry registry = TestObservationRegistry.create();
+        IOException first = connectTimeout();
+        IOException second = new ConnectException("Connection refused");
+        Attempts attempts = new Attempts(withSuccess(), first, second);
+
+        IOException thrown = assertThrows(IOException.class,
+                () -> get(gatewayRetrying(registry, retryAt(NOW)), "http://orders:8080/orders", attempts));
+
+        assertSame(second, thrown);
+        assertArrayEquals(new Throwable[] {first}, thrown.getSuppressed());
+        assertEquals(2, attempts.headers.size(), "one retry, however the retry fails");
+        assertRetryObserved(registry, "connect_timeout", "retried");
+    }
+
+    @Test
+    void skipsAHopelessRetry() {
+        TestObservationRegistry registry = TestObservationRegistry.create();
+        OutboundInterceptor interceptor = new OutboundInterceptor(HttpCaller.builder("orders", ordersStamper())
+                .bundle(policy.bundles().get("orders")).build(), registry, retryAt(NOW));
+        IOException failure = connectTimeout();
+        Attempts attempts = new Attempts(withSuccess(), failure);
+
+        try (RequestContext.Scope scope = RequestContext.open()) {
+            // Gateway's stamp is 4500 ms old: with a 1000 ms connect the retry could arrive only after 5000 ms.
+            RequestContext.setInboundChain(gatewayStamper().next(null, "orders", "b", List.of(),
+                    policy.bundles().get("gateway")).chain());
+
+            IOException thrown = assertThrows(IOException.class,
+                    () -> get(interceptor, "http://payment:8080/pay", attempts));
+
+            assertSame(failure, thrown, "the connect failure surfaces, not the receiver's EXPIRED");
+        }
+        assertEquals(1, attempts.headers.size());
+        assertRetryObserved(registry, "connect_timeout", "skipped");
+        assertEquals(List.of("PAZTPORT_TRACE retry rid=rid-1 receiver=payment failure=connect_timeout outcome=skipped"),
+                traceLines());
+    }
+
+    // Outside a scope, and at the origin inside one, the retry's stamp is the origin's, so no window has run.
+    @Test
+    void retriesOutsideAScope() throws IOException {
+        UnconnectedRetry late = retryAt(1_000_000L);
+        Attempts outside = new Attempts(attested("hello", "hello", List.of()), connectTimeout());
+
+        assertRetriedFreshlyStamped(outside,
+                get(gatewayRetrying(TestObservationRegistry.create(), late), "http://orders:8080/orders", outside));
+
+        Attempts atTheOrigin = new Attempts(attested("hello", "hello", List.of()), connectTimeout());
+        try (RequestContext.Scope scope = RequestContext.open()) {
+            assertRetriedFreshlyStamped(atTheOrigin, get(gatewayRetrying(TestObservationRegistry.create(), late),
+                    "http://orders:8080/orders", atTheOrigin));
+        }
+    }
+
+    @Test
+    void retryKeepsTheOperationAndKey() throws IOException {
+        OperationTable keyed = new OperationTable("orders", List.of(
+                new OperationTable.Operation("reserve", "POST", "/items/{}/reserve", null,
+                        OperationTable.Key.segment(1))));
+        PolicyBuilder.Result keysPolicy = PolicyBuilder.build(
+                List.of(List.of("gateway", "orders#reserve"), List.of("gateway", "orders")), 4, NOT_AFTER,
+                Crypto.generateEd25519KeyPair().getPrivate());
+        OutboundInterceptor interceptor = new OutboundInterceptor(HttpCaller.builder("gateway", movingGatewayStamper())
+                .bundle(keysPolicy.bundles().get("gateway")).operations(List.of(keyed)).build(),
+                TestObservationRegistry.create(), retryAt(NOW));
+        Attempts attempts = new Attempts(withSuccess(), connectTimeout());
+
+        URI target = URI.create("http://orders:8080/items/A1/reserve");
+        interceptor.intercept(new MockClientHttpRequest(HttpMethod.POST, target), new byte[0], attempts).close();
+
+        assertEquals(List.of(target, target), attempts.targets);
+        assertEquals("orders#reserve", lastStamp(attempts.headers.get(0)).rcv());
+        assertEquals("orders#reserve", lastStamp(attempts.headers.get(1)).rcv());
+        assertEquals(lastStamp(attempts.headers.get(0)).bind(), lastStamp(attempts.headers.get(1)).bind());
+    }
+
+    // A metrics handler that fails does not hide the connect failure, and the call is not sent again.
+    @Test
+    void aRetryObservationThatThrowsLetsTheConnectFailureGoOn() {
+        IllegalStateException broken = new IllegalStateException("handler broke");
+        ObservationRegistry throwing = ObservationRegistry.create();
+        throwing.observationConfig().observationHandler(new ObservationHandler<>() {
+            @Override
+            public void onStop(Observation.Context context) {
+                throw broken;
+            }
+
+            @Override
+            public boolean supportsContext(Observation.Context context) {
+                return true;
+            }
+        });
+        OutboundInterceptor interceptor = new OutboundInterceptor(HttpCaller.builder("gateway", movingGatewayStamper())
+                .bundle(policy.bundles().get("gateway")).build(), throwing, retryAt(NOW));
+        IOException failure = connectTimeout();
+        Attempts attempts = new Attempts(withSuccess(), failure);
+
+        IOException thrown = assertThrows(IOException.class,
+                () -> get(interceptor, "http://orders:8080/orders", attempts));
+
+        assertSame(failure, thrown);
+        assertArrayEquals(new Throwable[] {broken}, thrown.getSuppressed());
+        assertEquals(1, attempts.headers.size());
+    }
+
+    @Test
+    void offWhenDisabled() {
+        TestObservationRegistry registry = TestObservationRegistry.create();
+        OutboundInterceptor interceptor = new OutboundInterceptor(HttpCaller.builder("gateway", movingGatewayStamper())
+                .bundle(policy.bundles().get("gateway")).build(), registry, null);
+        IOException failure = connectTimeout();
+        Attempts attempts = new Attempts(withSuccess(), failure);
+
+        assertSame(failure, assertThrows(IOException.class,
+                () -> get(interceptor, "http://orders:8080/orders", attempts)));
+        assertEquals(1, attempts.headers.size());
+        assertThat(registry).hasNumberOfObservationsWithNameEqualTo("paztport.outbound.retry", 0);
+    }
+
+    // Spring's interceptor chain builds a new request from the factory on each execute, so a retry is sent afresh.
+    @Test
+    void retriesThroughTheRestClientsChain() {
+        AtomicInteger created = new AtomicInteger();
+        List<HttpHeaders> sentOnTheWire = new ArrayList<>();
+        ClientHttpRequestFactory factory = (uri, method) -> new MockClientHttpRequest(method, uri) {
+            private final int attempt = created.incrementAndGet();
+
+            @Override
+            protected ClientHttpResponse executeInternal() throws IOException {
+                sentOnTheWire.add(HttpHeaders.copyOf(getHeaders()));
+                if (attempt == 1) {
+                    throw connectTimeout();
+                }
+                return new MockClientHttpResponse("hello".getBytes(StandardCharsets.UTF_8), HttpStatus.OK);
+            }
+        };
+        RestClient client = RestClient.builder().requestFactory(factory)
+                .requestInterceptor(gatewayRetrying(TestObservationRegistry.create(), retryAt(NOW))).build();
+
+        assertEquals("hello", client.get().uri("http://orders:8080/orders").retrieve().body(String.class));
+        assertEquals(2, created.get(), "each attempt is a request of its own from the factory");
+        assertNotEquals(lastStamp(sentOnTheWire.get(0)).sig(), lastStamp(sentOnTheWire.get(1)).sig());
     }
 }

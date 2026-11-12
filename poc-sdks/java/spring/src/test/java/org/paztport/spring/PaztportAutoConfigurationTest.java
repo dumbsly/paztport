@@ -1416,6 +1416,43 @@ class PaztportAutoConfigurationTest {
                 });
     }
 
+    // Two attempts must fit the origin's window: max-age-ms 5000 holds two connects of 2499 ms, not of 2500.
+    @Test
+    void aConnectTimeoutNotUnderHalfTheOriginWindowFailsAtStartupWhileRetrying(@TempDir Path dir) throws Exception {
+        writeWorld(dir);
+        withClients.withPropertyValues(stampingVerifier(dir, "http://127.0.0.1:1"))
+                .withPropertyValues("paztport.connect-timeout-ms=2500", "paztport.max-age-ms=5000")
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure()).rootCause()
+                            .hasMessageContaining("paztport.connect-timeout-ms (2500)")
+                            .hasMessageContaining("origin window").hasMessageContaining("5000 ms")
+                            .hasMessageContaining("paztport.retry-unconnected=false");
+                });
+        withClients.withPropertyValues(stampingVerifier(dir, "http://127.0.0.1:1"))
+                .withPropertyValues("paztport.connect-timeout-ms=2499", "paztport.max-age-ms=5000")
+                .run(context -> assertThat(context).hasNotFailed());
+        // The origin's window is run-max-age-ms where it is set.
+        withClients.withPropertyValues(stampingVerifier(dir, "http://127.0.0.1:1"))
+                .withPropertyValues("paztport.connect-timeout-ms=2500", "paztport.max-age-ms=5000",
+                        "paztport.run-max-age-ms=6000")
+                .run(context -> assertThat(context).hasNotFailed());
+        withClients.withPropertyValues(stampingVerifier(dir, "http://127.0.0.1:1"))
+                .withPropertyValues("paztport.connect-timeout-ms=2500", "paztport.max-age-ms=5000",
+                        "paztport.retry-unconnected=false")
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    assertThat(context.getBean(PaztportProperties.class).isRetryUnconnected()).isFalse();
+                });
+    }
+
+    @Test
+    void retryingUnconnectedCallsIsOnByDefault(@TempDir Path dir) throws Exception {
+        writeWorld(dir);
+        withClients.withPropertyValues(stampingVerifier(dir, "http://127.0.0.1:1"))
+                .run(context -> assertThat(context.getBean(PaztportProperties.class).isRetryUnconnected()).isTrue());
+    }
+
     @Test
     void aTimeoutThatIsNotPositiveFailsAtStartupNamingIt(@TempDir Path dir) throws Exception {
         writeWorld(dir);

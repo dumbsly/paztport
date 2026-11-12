@@ -4,6 +4,8 @@
 package org.paztport.spring.outbound;
 
 import io.micrometer.observation.ObservationRegistry;
+import java.time.Clock;
+import java.time.Duration;
 import org.paztport.core.policy.ProofBundle;
 import org.paztport.core.stamp.Stamper;
 import org.paztport.core.verify.Verifier;
@@ -42,8 +44,29 @@ public class OutboundConfiguration {
         OutboundInterceptor interceptor = new OutboundInterceptor(HttpCaller.builder(props.getServiceName(), stamper)
                 .bundle(proofs).verifier(verifier).receivers(props.getReceiverNames())
                 .operations(OperationConfiguration.receiverTables(props, proofs, checks)).build(),
-                observations.getIfAvailable(() -> ObservationRegistry.NOOP));
+                observations.getIfAvailable(() -> ObservationRegistry.NOOP), unconnectedRetry(props));
         return builder -> builder.requestInterceptor(interceptor);
+    }
+
+    /**
+     * The retry of calls that never connected, or null where {@code paztport.retry-unconnected} turns it off. It
+     * refuses a connect timeout that is not under half of the origin's window, since a retry must fit in that
+     * window after a first connect that timed out. This service's window stands in for its receivers', which it
+     * cannot know; inside one mesh the services share these settings.
+     */
+    private static UnconnectedRetry unconnectedRetry(PaztportProperties props) {
+        if (!props.isRetryUnconnected()) {
+            return null;
+        }
+        Duration connect = Durations.connectTimeout(props);
+        long window = Durations.runMaxAgeMs(props);
+        if (connect.toMillis() >= window - connect.toMillis()) {
+            throw new IllegalStateException("paztport.connect-timeout-ms (" + connect.toMillis()
+                    + ") is not under half of the origin window, " + window + " ms (paztport.run-max-age-ms, else "
+                    + "paztport.max-age-ms): a call that never connected is sent once more, and both attempts must "
+                    + "fit that window. Shorten the connect timeout, or set paztport.retry-unconnected=false");
+        }
+        return new UnconnectedRetry(connect, window, Clock.systemUTC());
     }
 
     /**

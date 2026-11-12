@@ -24,6 +24,10 @@ public final class ObservedValues {
     public static final String UNSAFE = "unsafe";
     /** A partner's call naming a session its peer does not hold. */
     public static final String UNKNOWN = "unknown";
+    /** A call that never connected, sent once more. */
+    public static final String RETRIED = "retried";
+    /** A call that never connected, not sent again because the retry could not have arrived in time. */
+    public static final String SKIPPED = "skipped";
 
     private ObservedValues() {
     }

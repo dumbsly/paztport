@@ -7,11 +7,11 @@ import io.micrometer.common.docs.KeyName;
 import io.micrometer.observation.docs.ObservationDocumentation;
 
 /**
- * The observations this starter records, each the verification of one request or one response at this hop. A tag the
- * starter sets is only ever one of the fixed words or a reason code's name: nothing from the request, such as a
- * service name, a request id or a peer, is a tag, so the number of series stays small whatever traffic arrives. Where
- * what an observation spans throws, it is recorded with the error, which Micrometer's meter handler tags as
- * {@code error}, and with the values each observation below gives for a throw.
+ * The observations this starter records: the verification of one request or one response at this hop, and the retry
+ * of a call that never connected. A tag the starter sets is only ever one of the fixed words or a reason code's name:
+ * nothing from the request, such as a service name, a request id or a peer, is a tag, so the number of series stays
+ * small whatever traffic arrives. Where what an observation spans throws, it is recorded with the error, which
+ * Micrometer's meter handler tags as {@code error}, and with the values each observation below gives for a throw.
  */
 public enum PaztportObservation implements ObservationDocumentation {
 
@@ -35,7 +35,15 @@ public enum PaztportObservation implements ObservationDocumentation {
      * The response to a call this service made, in {@code OutboundInterceptor}. It spans the response check and ends
      * before the interceptor returns. A check that throws is recorded with a reason of {@code none}.
      */
-    RESPONSE("paztport.response", Keys.REASON);
+    RESPONSE("paztport.response", Keys.REASON),
+
+    /**
+     * A call this service made that failed before its connection was established, in {@code OutboundInterceptor}:
+     * whether it was sent once more, freshly stamped ({@code retried}), or not, because the retry could not have
+     * arrived inside the origin's window ({@code skipped}). It marks that decision and spans nothing; a retry that
+     * fails is not recorded as an error here. Calls that fail in any other way are not recorded.
+     */
+    OUTBOUND_RETRY("paztport.outbound.retry", Keys.FAILURE, Keys.OUTCOME);
 
     private final String name;
     private final KeyName[] lowCardinalityKeys;
@@ -70,8 +78,17 @@ public enum PaztportObservation implements ObservationDocumentation {
          */
         REASON("reason"),
 
-        /** Whether the request was {@code served} or {@code refused}. */
+        /**
+         * Whether the request was {@code served} or {@code refused}; for a retry, whether the call was
+         * {@code retried} or {@code skipped}.
+         */
         OUTCOME("outcome"),
+
+        /**
+         * How a call failed before its connection was established: {@code connect_timeout}, {@code connect} or
+         * {@code handshake}.
+         */
+        FAILURE("failure"),
 
         /** The session a partner's call named: {@code attested}, {@code unsafe} or {@code unknown}. */
         SESSION("session");

@@ -62,6 +62,16 @@ public class PaztportProperties implements InitializingBean {
      */
     private long connectTimeoutMs = 1_000;
 
+    /**
+     * Whether a stamped call that failed before its connection was established is sent once more, freshly stamped:
+     * a connect that timed out, a connect refused after the JDK client's own retry, or a failed TLS handshake. No
+     * byte of such a call reached its receiver, so the receiver cannot see the difference. Nothing that may have
+     * reached the receiver is ever retried. While it is on, paztport.connect-timeout-ms must be under half of the
+     * origin's window (paztport.run-max-age-ms, else paztport.max-age-ms), so that both attempts fit it.
+     * OutboundInterceptor says exactly what is retried.
+     */
+    private boolean retryUnconnected = true;
+
     /** Shared token for /admin/mode; unset or blank disables the endpoint. */
     private String adminToken;
 
@@ -463,6 +473,14 @@ public class PaztportProperties implements InitializingBean {
 
     public void setConnectTimeoutMs(long connectTimeoutMs) {
         this.connectTimeoutMs = connectTimeoutMs;
+    }
+
+    public boolean isRetryUnconnected() {
+        return retryUnconnected;
+    }
+
+    public void setRetryUnconnected(boolean retryUnconnected) {
+        this.retryUnconnected = retryUnconnected;
     }
 
     public String getAdminToken() {

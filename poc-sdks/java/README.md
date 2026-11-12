@@ -367,6 +367,7 @@ says the rest.
 | `paztport.tls-bundle` | none | No | The SSL bundle the service presents on its calls and its events; `false` is the same as unset ([Mutual TLS](#mutual-tls)). |
 | `paztport.read-timeout-ms` | `30000` | Positive, in a service that uses it | How long a call through the starter's TLS client, or the egress's to the partner, may wait for its answer ([Timeouts](#timeouts)). |
 | `paztport.connect-timeout-ms` | `1000` | Positive, in a service that uses it | How long opening a connection may take on the starter's TLS client, the one for calls inside the mesh and for events; the partner client keeps 5 s ([Timeouts](#timeouts)). |
+| `paztport.retry-unconnected` | `true` | No; while `true`, `connect-timeout-ms` must be under half of `run-max-age-ms` (else `max-age-ms`), or the service does not start | Whether a stamped call that failed before its connection was established is sent once more, freshly stamped ([Retries](#retries)). |
 | `paztport.overlap.keyring-paths` | none | No; needs `keyring-path`, `root-path` and `policy-key-path` | Further keyrings to pin beside `keyring-path` ([Overlap material](#overlap-material)). |
 | `paztport.overlap.root-paths` | none | As `overlap.keyring-paths` | Further roots to pin beside `root-path`. |
 | `paztport.operations.table-path` | none | No; needs `proofs-path`, `keyring-path`, `root-path` and `policy-key-path` | This service's own operation table: the inbound filter confirms each request's operation, and reads a keyed operation's key value ([Operations](#operations)). |
@@ -757,13 +758,57 @@ pooled client the starter builds for `paztport.tls-bundle`, which carries the st
 and the events: on the JDK's client the clock runs from the start of the TCP connect until
 the TLS handshake has completed, so it covers both, and nothing after the handshake. It is
 short because in-cluster connects take milliseconds and a call that failed to connect is
-only worth trying again if the failure shows well inside the call window. The partner
-client is not given it and keeps 5 s.
+only worth trying again if the failure shows well inside the call window
+([Retries](#retries)). The partner client is not given it and keeps 5 s.
 
 Two more are fixed: the partner client connects within 5 s, and the egress's
 handshake has 10 s, whatever `paztport.read-timeout-ms` is. Without
 `paztport.tls-bundle` the shared builder keeps the application's own request
 factory, and its timeouts are the application's to set.
+
+### Retries
+
+A stamped call that failed before its connection was established is sent once more, at
+once, freshly stamped, before the application sees an error: a connect that timed out
+(`HttpConnectTimeoutException`), a connect refused (`ConnectException`, after the JDK
+client's own single retry), or a TLS handshake that failed (`SSLHandshakeException`,
+including a peer that closes the connection part way through it). The JDK client writes
+no byte of a request until the TCP connect and the TLS handshake have both completed, and
+sends no TLS early data, so the first attempt reached no receiver and the retry is the only
+delivery. The retry gets a new stamp because a stamp's age runs from its signing; to replay
+protection and to the receiver's idempotency it is the same delivery, since both key on the
+request tree, the caller, the receiver and the binding, not on the stamp. Its response is
+checked against the new stamp. A backend being rolled produces these failures: a connect
+to a pod that has gone, or to one whose server has stopped accepting.
+
+Nothing else is ever retried. A pooled connection the peer has closed ("header parser
+received no bytes", `ClosedChannelException`), a reset after the request was written, and
+a read timeout may each have reached the receiver, so sending the call again could deliver
+it twice; they surface as they always have, as a `ResourceAccessException` from a
+`RestClient`. There is one retry and no backoff: a connect to a rolling backend succeeds on
+the next endpoint or not at all, and a wait would spend the window. If the retry fails too,
+its exception surfaces with the first one added to it as suppressed. Only calls through the
+stamping interceptor are retried, so not the events, the egress's calls to the partner, or
+calls through `PooledTlsClient.builder()`.
+
+Re-stamping does not make the origin's stamp any younger, and a retry that arrived after the
+origin's window would fail its receiver's check as `EXPIRED`, which under `enforce` reads as
+a security refusal rather than the connect failure it is. Two checks keep that from
+happening:
+- At startup, while `paztport.retry-unconnected` is `true`, `paztport.connect-timeout-ms`
+  must be under half of the origin's window, `paztport.run-max-age-ms` (else
+  `paztport.max-age-ms`), so that a connect that timed out and its retry both fit it; a
+  service whose setting does not fails to start, naming it. The service's own window
+  stands in for its receivers', which it cannot know; inside one mesh the services share
+  these settings.
+- Before each retry inside a request, the age of the origin's stamp plus a whole connect
+  timeout is compared with that same window; if the retry could not arrive in time it is
+  skipped and the connect failure surfaces. Outside a request, and at the origin, the
+  retry's stamp is the origin's, signed afresh, so it is always sent.
+
+Each decision is counted in the `paztport.outbound.retry` observation ([Metrics](#metrics))
+and logged as a `PAZTPORT_TRACE retry` line ([Trace lines](#trace-lines)), so a run can
+report retries beside its failures. `paztport.retry-unconnected=false` turns it off.
 
 ### The egress
 
@@ -933,11 +978,16 @@ value passed through `LogSafe`:
 - `PAZTPORT_TRACE decision rid=<rid>|- receiver=<svc>
   rule=public-write|trusted-record|unsafe-session reason=<code> ✓|✗ classes=<a,b>|-`,
   from `PublicWrites` and from `PartnerGate`; it never names an owner.
+- `PAZTPORT_TRACE retry rid=<rid> receiver=<svc>
+  failure=connect_timeout|connect|handshake outcome=retried|skipped`, from
+  `OutboundInterceptor`, once for each call that failed before its connection was
+  established ([Retries](#retries)).
 
 ### Metrics
 
-The filters and the outbound interceptor record each verification result as a
-Micrometer observation, so an application with Spring Boot's observation and
+The filters and the outbound interceptor record each verification result, and the
+interceptor each decision on a call that never connected, as a Micrometer
+observation, so an application with Spring Boot's observation and
 metrics auto-configurations (Actuator, for one) gets a timer for each, with no
 setting of the starter's. Where the context has no `ObservationRegistry` bean the
 starter records into `ObservationRegistry.NOOP` and the application runs exactly
@@ -950,6 +1000,7 @@ meter. The names, keys and values are those of `PaztportObservation`:
 | `paztport.request` | `InboundFilter` | `mode`, `reason`, `outcome` | `mode`: `off`, `audit` or `enforce` where the service verifies requests (`paztport.verify=true`), otherwise `none`. |
 | `paztport.partner.request` | `PartnerFilter` | `session`, `reason`, `outcome` | `session`: `attested` where the call was verified in an attested session, served or refused; `unknown` where it names a session its peer does not hold, or where the decision threw; otherwise `unsafe`. |
 | `paztport.response` | `OutboundInterceptor` | `reason` | |
+| `paztport.outbound.retry` | `OutboundInterceptor` | `failure`, `outcome` | `failure`: `connect_timeout`, `connect` or `handshake`. `outcome`: `retried`, or `skipped` where the retry could not have arrived inside the origin's window ([Retries](#retries)). |
 
 `reason` is the name of the verification result's reason code (`OK`, `CHAIN_MISSING`,
 …), or `none` where no verification ran or its result was not available: a hop
@@ -964,7 +1015,10 @@ reason is the verifier's code, `INFLUENCE_MISMATCH` unless an earlier check
 failed, a code `audit` otherwise serves; under `off`, and where the service does
 not verify requests, its reason is `none`. Only `outcome` says it was refused.
 Where a decision throws, the observation carries the error and is stopped before
-the exception goes on.
+the exception goes on. `paztport.outbound.retry` is recorded once for each call that
+failed before its connection was established, and for nothing else; it marks the
+decision and spans nothing, so its count is what it reports, and a retry that fails is
+not an error on it.
 
 Actuator with a Prometheus registry exports each as a timer, such as
 `paztport_request_seconds_count`, `_sum` and `_max`, labelled `mode`, `reason` and
@@ -972,7 +1026,8 @@ Actuator with a Prometheus registry exports each as a timer, such as
 requests. A long-task timer goes with each, created when the observation starts, so
 it carries only the tags known then: `paztport.request.active` carries `mode`, and
 `paztport.partner.request.active` and `paztport.response.active` carry none, since
-`session`, `reason` and `outcome` are set at stop.
+`session`, `reason` and `outcome` are set at stop; `paztport.outbound.retry` has its
+tags from the start.
 
 Each timer spans the decision only: `RequestContext.accept` for the filters and the
 response check for the interceptor. It is stopped before the handler runs, so it
@@ -998,7 +1053,7 @@ endpoint and the unverified paths) is not observed.
 
 Boot's standard property switches an observation off by name:
 `management.observations.enable.paztport.request=false`, or
-`management.observations.enable.paztport=false` for all three.
+`management.observations.enable.paztport=false` for all four.
 
 ## tools/keygen
 

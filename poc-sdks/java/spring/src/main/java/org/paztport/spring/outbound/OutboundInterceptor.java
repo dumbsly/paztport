@@ -10,16 +10,21 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import org.paztport.core.policy.ProofBundle;
+import org.paztport.core.stamp.Stamp;
 import org.paztport.core.stamp.Stamper;
 import org.paztport.core.verify.Verifier;
 import org.paztport.http.HttpCaller;
 import org.paztport.http.RequestContext;
+import org.paztport.http.internal.LogSafe;
 import org.paztport.http.wire.HttpWire;
 import org.paztport.http.wire.PaztportHeaders;
 import org.paztport.spring.internal.Observed;
 import org.paztport.spring.internal.ObservedValues;
 import org.paztport.spring.observation.PaztportObservation;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpRequest;
 import org.springframework.http.HttpStatusCode;
@@ -44,24 +49,55 @@ import org.springframework.http.client.ClientHttpResponse;
  *
  * <p>The request carries only the Paztport headers the caller stamped, as the spec's header rule says: any the
  * application set on the request before this interceptor runs are removed first.
+ *
+ * <p>Given an {@link UnconnectedRetry}, a call that failed before its connection was established is sent once more,
+ * at once, freshly stamped: a connect that timed out, a connect refused after the JDK client's own retry, or a TLS
+ * handshake that failed. The JDK client writes no byte of a request before its connection, handshake included, is
+ * established, so the first attempt reached no receiver, and the retry is the only delivery. The retry is stamped
+ * again because a stamp's age runs from its signing; the delivery is the same, since replay protection and
+ * idempotency key on the request tree, the caller, the receiver and the binding, not on the stamp. Its response is
+ * checked against the second stamp. Nothing else is retried: a pooled connection the peer has closed, a reset after
+ * the request was written and a read timeout may each have reached the receiver, so sending the call again could
+ * deliver it twice; they surface as they are. There is one retry and no backoff, since a connect to a backend being
+ * rolled succeeds on the next endpoint or not at all, and a wait would spend the window. If the retry fails too, its
+ * exception surfaces with the first one added as suppressed.
+ *
+ * <p>Re-stamping does not make the origin's stamp any younger, so a retry could arrive after the origin's window and
+ * fail its receiver's check as {@code EXPIRED}, a refusal under {@code enforce}, in place of the connect failure. So
+ * inside a request the call is not retried when the origin's stamp, plus a whole connect timeout, would be past this
+ * service's own origin window ({@code paztport.run-max-age-ms}, else {@code paztport.max-age-ms}), which stands in
+ * for its receiver's; the connect failure surfaces instead. Outside a request, or at the origin, the retry's stamp is
+ * the origin's, signed afresh, and is always sent. Each decision is counted as a {@code paztport.outbound.retry}
+ * observation tagged with the failure and {@code retried} or {@code skipped}, and logged as one
+ * {@code PAZTPORT_TRACE retry} line naming the request id, the receiver, the failure and the outcome.
  */
 public final class OutboundInterceptor implements ClientHttpRequestInterceptor {
 
+    private static final Logger TRACE = LoggerFactory.getLogger("PAZTPORT_TRACE");
+
     private final HttpCaller caller;
     private final ObservationRegistry observations;
+    private final UnconnectedRetry retry;
 
-    /**
-     * @param observations where each response check is recorded; {@link ObservationRegistry#NOOP} where the
-     *     application has no {@code ObservationRegistry} bean
-     */
+    /** As {@link #OutboundInterceptor(HttpCaller, ObservationRegistry, UnconnectedRetry)}, never retrying. */
     public OutboundInterceptor(HttpCaller caller, ObservationRegistry observations) {
-        this.caller = caller;
-        this.observations = Objects.requireNonNull(observations, "observations");
+        this(caller, observations, null);
     }
 
     /**
-     * A caller that names each receiver by its URI host. {@code verifier} is null where responses cannot be checked;
-     * {@code caller} is this service's name.
+     * @param observations where each response check and each retry decision is recorded;
+     *     {@link ObservationRegistry#NOOP} where the application has no {@code ObservationRegistry} bean
+     * @param retry how a call that never connected is retried; null for never
+     */
+    public OutboundInterceptor(HttpCaller caller, ObservationRegistry observations, UnconnectedRetry retry) {
+        this.caller = caller;
+        this.observations = Objects.requireNonNull(observations, "observations");
+        this.retry = retry;
+    }
+
+    /**
+     * A caller that names each receiver by its URI host, never retrying. {@code verifier} is null where responses
+     * cannot be checked; {@code caller} is this service's name.
      */
     public OutboundInterceptor(Stamper stamper, ProofBundle bundle, Verifier verifier, String caller,
             ObservationRegistry observations) {
@@ -71,16 +107,29 @@ public final class OutboundInterceptor implements ClientHttpRequestInterceptor {
     @Override
     public ClientHttpResponse intercept(HttpRequest request, byte[] body, ClientHttpRequestExecution execution)
             throws IOException {
-        HttpCaller.Outbound sent = caller.stampFromContext(request.getMethod().name(), request.getURI(), body);
-        HttpHeaders headers = request.getHeaders();
-        for (String name : List.copyOf(headers.headerNames())) {
-            if (PaztportHeaders.isPaztport(name)) {
-                headers.remove(name);
+        HttpCaller.Outbound sent = stamped(request, body);
+        ClientHttpResponse response;
+        try {
+            response = execution.execute(request, body);
+        } catch (IOException first) {
+            Optional<UnconnectedRetry.Failure> failure = retry == null ? Optional.empty()
+                    : UnconnectedRetry.classify(first);
+            if (failure.isEmpty()) {
+                throw first;
+            }
+            if (retry.hopeless(originTs())) {
+                decided(sent, failure.get(), ObservedValues.SKIPPED, first);
+                throw first;
+            }
+            decided(sent, failure.get(), ObservedValues.RETRIED, first);
+            try {
+                sent = stamped(request, body);
+                response = execution.execute(request, body);
+            } catch (Throwable second) {
+                second.addSuppressed(first);
+                throw second;
             }
         }
-        sent.headers().forEach(headers::set);
-
-        ClientHttpResponse response = execution.execute(request, body);
         Buffered buffered;
         try {
             // The status first: HttpURLConnection (Spring's simple request factory) hands over an error response's
@@ -101,6 +150,57 @@ public final class OutboundInterceptor implements ClientHttpRequestInterceptor {
             throw t;
         }
         return buffered;
+    }
+
+    /**
+     * Stamps the call, from the context, and sets the stamp's headers on the request in place of every Paztport
+     * header it carries.
+     */
+    private HttpCaller.Outbound stamped(HttpRequest request, byte[] body) {
+        HttpCaller.Outbound sent = caller.stampFromContext(request.getMethod().name(), request.getURI(), body);
+        HttpHeaders headers = request.getHeaders();
+        for (String name : List.copyOf(headers.headerNames())) {
+            if (PaztportHeaders.isPaztport(name)) {
+                headers.remove(name);
+            }
+        }
+        sent.headers().forEach(headers::set);
+        return sent;
+    }
+
+    /**
+     * When the origin signed the request this call is made for: the first stamp of the inbound chain, inside a
+     * scope that holds one; otherwise null.
+     */
+    private static Long originTs() {
+        if (!RequestContext.isOpen()) {
+            return null;
+        }
+        List<Stamp> inbound = RequestContext.inboundChain();
+        return inbound == null || inbound.isEmpty() ? null : inbound.get(0).ts();
+    }
+
+    /**
+     * Records a decision on the call that failed with {@code first}, as a trace line and an observation. An
+     * observation handler that throws is added to {@code first} as suppressed and {@code first} goes on, so the call
+     * fails with its connect failure and is not retried.
+     */
+    private void decided(HttpCaller.Outbound sent, UnconnectedRetry.Failure failure, String outcome, IOException first)
+            throws IOException {
+        if (TRACE.isInfoEnabled()) {
+            TRACE.info("PAZTPORT_TRACE retry rid={} receiver={} failure={} outcome={}",
+                    LogSafe.of(sent.sent().chain().get(0).rid()), LogSafe.of(sent.receiver()), failure.tag(),
+                    outcome);
+        }
+        try {
+            Observation.createNotStarted(PaztportObservation.OUTBOUND_RETRY.getName(), observations)
+                    .lowCardinalityKeyValue(PaztportObservation.Keys.FAILURE.withValue(failure.tag()))
+                    .lowCardinalityKeyValue(PaztportObservation.Keys.OUTCOME.withValue(outcome))
+                    .start().stop();
+        } catch (RuntimeException | Error handler) {
+            first.addSuppressed(handler);
+            throw first;
+        }
     }
 
     /**
