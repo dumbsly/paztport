@@ -1,5 +1,50 @@
 # Paztport
 
+## `<human>`
+
+Hi, praxis dumbsly here.
+
+The words in this section are my own, and have not been reviewed or altered 
+by any form of generative AI prior to publishing.
+
+Anything outside of this block was written by different models of Claude.
+
+Reasons I chose to use AI, in order of importance:
+- Understanding: I work best at the systems level and working to tie systems 
+together. That is to say I understand how to use cryptography securely better
+than I know how to implememt it securely at the code level.
+- Security: This concept is about security, and building with AI allowed me to
+red-team it as it was being built.
+- Curiosity: I wanted to see what was possible with AI when focusing on packaging
+the output for human consumption.
+
+My participation in this proof-of-concept was the original idea, decision to
+create the poc-SDKs, the choice of languages and demos, and most of all working
+to create a repository that would be understandable by humans.
+
+I purposely labeled this POC as before this could enter any real world scenario,
+both the idea and implementation need to be battle-tested. That said the path to
+production is not unrealistic.
+
+In an ideal world only this POC would be written by AI (and not even that), which
+is why I made human consumption a primary focus. For that to happen, the idea has
+to have merit for it to be worth the invesment of time. 
+
+For it to earn that merit, it has to actually work and other people have to agree
+that it works.
+
+I have made strides to ensure credit is given where due - however hold me to the
+flames on this one. No ideas are truly original - this is built off of the ideas
+and amazing work of many different people, and paztport might not even be unique
+in its synthesis of those ideas.
+
+I hope pazport lands with a wider audience, but no matter what, I have learned a
+lot.
+
+-pd
+
+## `</human>`
+
 **A passport for requests.** The "zt" stands for zero trust.
 
 Most security asks one question at the door: *who are you?* Paztport asks a
