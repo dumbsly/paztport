@@ -37,6 +37,14 @@ What Paztport needs from a deployment, and what it deliberately doesn't cover ye
   certificates; without them the responder still checks that the container runs the
   named service
   ([attribution](../poc-sdks/spec/verification.md#receivers-the-peer-and-attribution)).
+- **Rolling a service needs a drain from the deployment.** A service that stops while a caller still holds
+  keep-alive connections to it fails the calls sent on them. The deployment supplies the rest: the service keeps
+  serving, with `Connection: close` on its responses, for a few seconds after SIGTERM, then shuts down gracefully,
+  and the update surges a pod before it removes one. The Spring starter retries, once and freshly stamped, a call
+  that failed before its connection was established (a refused or timed-out connect, a failed TLS handshake). On
+  HTTP/1.1 a call whose connection dies after it was sent is not retried, by design: the receiver may have served
+  it, and a second delivery is the application's to make safe. The Java mesh and the Envoy Gateway demo's
+  backends do the drain ([rolling a backend](../poc-demos/envoy-gateway/README.md#operating-it)).
 - **Key custody is the cluster's.** A Paztport key kept in a Kubernetes Secret is as
   safe as any credential there: anyone who can read that namespace's Secrets, or
   create pods in it (directly or through a Deployment or Job), holds it, as they

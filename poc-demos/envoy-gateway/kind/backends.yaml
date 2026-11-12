@@ -23,8 +23,14 @@
 # service leaves unverified (the starter verifies every path unless one is listed): the checks and the measurement
 # runs scrape /actuator/prometheus, and the probes open a TCP connection only.
 #
-# The images are built locally and loaded into kind (imagePullPolicy: Never). orders runs two replicas, so that a
-# retry can reach another one.
+# The images are built locally and loaded into kind (imagePullPolicy: Never). Both run two replicas, so that a call
+# whose connection failed can be retried on the other one (the starter retries once, freshly stamped).
+#
+# What a roll needs. On SIGTERM each service keeps serving for DEMO_DRAIN_SECONDS (5) with Connection: close on every
+# response, so its callers drop their pooled connections to it before it stops, and only then shuts down gracefully
+# (20 s for calls in flight). terminationGracePeriodSeconds: 40 is the drain, that phase and a margin. The update
+# surges one pod and removes none before its replacement is ready (maxSurge 1, maxUnavailable 0), and the
+# PodDisruptionBudget keeps one of each service up through a node drain.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -32,12 +38,16 @@ metadata:
   namespace: paztport
 spec:
   replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: {maxUnavailable: 0, maxSurge: 1}
   selector:
     matchLabels: {app: orders}
   template:
     metadata:
       labels: {app: orders}
     spec:
+      terminationGracePeriodSeconds: 40
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000
@@ -117,19 +127,33 @@ spec:
   ports:
     - {name: https, port: 8080, targetPort: https}
 ---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: orders
+  namespace: paztport
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: {app: orders}
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: payment
   namespace: paztport
 spec:
-  replicas: 1
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: {maxUnavailable: 0, maxSurge: 1}
   selector:
     matchLabels: {app: payment}
   template:
     metadata:
       labels: {app: payment}
     spec:
+      terminationGracePeriodSeconds: 40
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000
@@ -215,6 +239,16 @@ spec:
   selector: {app: payment}
   ports:
     - {name: https, port: 8080, targetPort: https}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: payment
+  namespace: paztport
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: {app: payment}
 ---
 # Envoy reaches orders over mutual TLS: it checks orders' certificate against the mesh CA, for the name orders, and
 # presents the edge's certificate (the EnvoyProxy's).

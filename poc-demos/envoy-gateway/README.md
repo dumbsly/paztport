@@ -192,7 +192,7 @@ and the difference.
 | `failure` | The edge under steady load while the processor fails, one constant-rate run a case with the fault 10 s into it: on `echo` at `FAILURE_RATE`, a processor container killed, a replica slowed on its gRPC port and then as a whole pod, every replica gone (Envoy routing to the pods, then to the Service), and the processor rolled; then, on `orders` at `FAILURE_ORDERS_RATE`, an `orders` container killed. See `measure/failure.sh`. |
 | `gotchas` | Two routes an operator could add that undo what the stamp is for: a `URLRewrite` applied after the processor stamped the path, refused `BINDING_MISMATCH`; and a retry on 5xx, with `payment` scaled to 0, which sends `orders` the same stamp again (the finding, per rid). See `measure/rollout.sh`. |
 | `observe` | What the processor and the backends count of a steady run on `orders` at `CHANGE_RATE`; then a scan of every line the processor logged for a request's markers, a stamp's values and the edge's key, with what Envoy's and the backends' logs hold of them as findings. See `measure/rollout.sh`. |
-| `rollout` | Paztport adopted under load in the order production takes, on a route of its own (`orders-adopt`): the processor mapped, then attached, then `orders` and `payment` rolled straight into enforce; then a request straight to `orders`, past the Gateway, refused `CHAIN_MISSING`. See `measure/rollout.sh`. |
+| `rollout` | Paztport adopted under load in the order production takes, on a route of its own (`orders-adopt`): the processor mapped, then attached, then `orders` and `payment` rolled straight into enforce; then a request straight to `orders`, past the Gateway, refused `CHAIN_MISSING`. After each step it prints the backends' counters, the starter's retries of calls that never connected (`paztport.outbound.retry`, by failure and outcome) beside the requests and responses. See `measure/rollout.sh`. |
 | `route` | Route changes under steady load on `orders` at `CHANGE_RATE`: a new URL on `orders` (`orders-shop`), then a new service path, `edge/payment`, on a rebuilt policy, rolled out in three overlap steps and then the old way, side by side; each step's traces show whether any request reached a backend without a stamp. See `measure/change.sh`. |
 | `rotation` | The edge's key rotated (`policy-tool --rotate edge`) under the same load, in three overlap steps; then a stamp under the new key accepted while the backends' keyring is still the old, and one under the old refused once it is unpinned. See `measure/change.sh`. |
 
@@ -320,7 +320,7 @@ Envoy Gateway runs in `envoy-gateway-system`; everything else is in the namespac
 the part a cluster that already runs Envoy Gateway would have: the GatewayClass, the Gateway `edge` (one HTTP
 listener), and the EnvoyProxy, which gives Envoy its upstream client certificate, the edge's (CN `edge`, from the
 mesh CA). Envoy Gateway presents that one certificate on every upstream connection that has a BackendTLSPolicy, to
-the processor and to `orders` alike. `kind/backends.yaml` runs java-mesh's `orders` (two replicas) and `payment` as
+the processor and to `orders` alike. `kind/backends.yaml` runs java-mesh's `orders` and `payment` (two replicas each) as
 they are, verifying every request in enforce mode with `edge` as the one origin, each with its own keys and
 certificate mounted at the paths java-mesh uses. No operation tables are configured here, so routes and receivers
 are service-level (`orders`, not `orders#getOrder`); java-mesh's [Operations](../java-mesh/README.md#operations) show them
@@ -667,6 +667,15 @@ What the checks and the measurements found, beyond the numbers.
   readiness: a renewed Secret needs a roll (`helm upgrade`, or a reloader's annotation in `podAnnotations`).
 - **Policy status.** A merging policy lists its listener as one more ancestor, with `Merged` and no `Accepted`;
   anything that waits for `Accepted` on every ancestor must allow for it. Alert on `Overridden` and `Conflicted`.
+- **Rolling a backend.** `kind/backends.yaml` gives both backends two replicas, a rolling update that surges one pod
+  and removes none before its replacement is ready (`maxSurge: 1`, `maxUnavailable: 0`), a PodDisruptionBudget of
+  `minAvailable: 1`, and `terminationGracePeriodSeconds: 40`. On SIGTERM each java-mesh service keeps serving for
+  `DEMO_DRAIN_SECONDS` (5) with `Connection: close` on every response, so its callers drop their pooled connections to
+  it, and only then shuts down gracefully (20 s for calls in flight); the 40 s is the drain, that phase and a margin.
+  The Spring starter retries once, freshly stamped, a call that failed before its connection was established, which
+  with two `payment` replicas reaches the other one. A call whose connection dies after the request was sent is not
+  retried: its request may have been served. These Deployments are not yet measured: the figures in
+  [Findings](#findings) are from `payment` at one replica and no drain.
 - **Readiness.** `/readyz`, `paztport_edge_material_seconds_left` and each request's check take the material's one
   `notAfter`, which can overstate how long the edge's stamps will be accepted. It fails closed: past it the processor
   refuses every request, and a stamp a receiver no longer accepts is refused there.

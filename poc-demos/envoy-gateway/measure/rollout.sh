@@ -38,8 +38,9 @@ ADOPT_HOST=adopt.example
 RETRY_HOST=retry.example
 REWRITE_PATH=/api/orders
 # The length of each rollout step's run on orders: the lead, the change, and the tail. Step 1 rolls the processor's
-# pods; step 3 rolls orders' two replicas, then payment's one, each a Spring Boot pod that takes some 20 s to start
-# here.
+# pods; step 3 rolls orders' two replicas, then payment's two, one pod at a time (surge 1, none unavailable), each a
+# Spring Boot pod that takes some 20 s to start here and drains for 5 s once told to stop; the drain is not in the
+# roll's length, since a rollout counts a pod gone as soon as it is told to stop.
 ROLLOUT_MAP_DURATION=90s
 ROLLOUT_ATTACH_DURATION=90s
 ROLLOUT_ENFORCE_DURATION=150s
@@ -66,9 +67,14 @@ backends_counters() {
 for line in sys.argv[1].splitlines():
     app, series, n = line.split()
     labels = dict(re.findall(r"(\w+)=\"([^\"]*)\"", series))
-    name = "request" if series.startswith("paztport_request") else "response checked"
-    print("    %-8s %-16s %-40s %s" % (app, name, " ".join("%s=%s" % (k, labels[k]) for k in ("mode", "outcome",
-          "reason") if k in labels), n))' "$reading"
+    if series.startswith("paztport_request"):
+        name, keys = "request", ("mode", "outcome", "reason")
+    elif series.startswith("paztport_outbound_retry"):
+        name, keys = "outbound retry", ("failure", "outcome")
+    else:
+        name, keys = "response checked", ("mode", "outcome", "reason")
+    print("    %-8s %-16s %-40s %s" % (app, name, " ".join("%s=%s" % (k, labels[k]) for k in keys if k in labels),
+          n))' "$reading"
 }
 
 # routes_gone <route>...: the behavioural line that the test routes are gone: no HTTPRoute of those names, none the
