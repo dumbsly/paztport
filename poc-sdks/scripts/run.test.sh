@@ -18,7 +18,7 @@ check() { # name, then a command that succeeds when the case passes
 help_lists_subcommands() {
   local out
   out="$("$repo/run" --help)" || return 1
-  for word in java-mesh agents-mcp envoy-gateway "envoy-gateway measure" test bench "macOS and Linux; on Windows use WSL"; do
+  for word in java-mesh agents-mcp envoy-gateway "envoy-gateway measure" test "test --container" bench "macOS and Linux; on Windows use WSL"; do
     grep -qF "$word" <<<"$out" || return 1
   done
 }
@@ -126,6 +126,41 @@ measure_reuse_refused() {
   [ "$status" -eq 2 ] && grep -qF "measure.sh --reuse" <<<"$out" && [ "$(wc -l <<<"$out")" -eq 1 ]
 }
 
+# test_bogus_option: ./run test --bogus exits 2 with the usage, before it checks for anything.
+test_bogus_option() {
+  local bin out status
+  bin="$(basic_tools)"
+  out="$(PATH="$bin" "$bin/bash" "$repo/run" test --bogus 2>&1)"; status=$?
+  rm -rf "$bin"
+  [ "$status" -eq 2 ] && grep -q "^Usage: " <<<"$out"
+}
+
+# container_without_docker: with no docker on PATH, ./run test --container prints one 'missing: docker' line and
+# exits 1.
+container_without_docker() {
+  local bin out status
+  bin="$(basic_tools git)"
+  out="$(PATH="$bin" "$bin/bash" "$repo/run" test --container 2>&1)"; status=$?
+  rm -rf "$bin"
+  [ "$status" -eq 1 ] && grep -q "^missing: docker " <<<"$out" && [ "$(wc -l <<<"$out")" -eq 1 ]
+}
+
+# container_outside_clone: run from a copy that is not a git clone, with a fake docker that passes its checks and
+# records any other call, ./run test --container prints one 'missing: a git clone' line, exits 1 and builds nothing.
+container_outside_clone() {
+  local work bin out status
+  work="$(mktemp -d)"
+  bin="$(basic_tools git)"
+  cp "$repo/run" "$work/run"
+  printf '#!%s\n[ "$1" = info ] || echo "$@" >>"%s/docker-calls"\nexit 0\n' "$bin/bash" "$work" >"$bin/docker"
+  chmod +x "$bin/docker"
+  out="$(cd "$work" && GIT_CEILING_DIRECTORIES="$(dirname "$work")" PATH="$bin" "$bin/bash" ./run test --container 2>&1)"; status=$?
+  [ "$status" -eq 1 ] && grep -q "^missing: a git clone " <<<"$out" && [ "$(wc -l <<<"$out")" -eq 1 ] && [ ! -e "$work/docker-calls" ]
+  status=$?
+  rm -rf "$work" "$bin"
+  return "$status"
+}
+
 no_argument_prints_usage() {
   "$repo/run" | grep -q "Usage"
 }
@@ -143,6 +178,9 @@ clean_clone_passes_run_test() {
 check "--help lists the subcommands and platforms" help_lists_subcommands
 check "no argument prints usage" no_argument_prints_usage
 check "test -h prints usage" help_after test
+check "test --bogus exits 2 with the usage" test_bogus_option
+check "test --container without docker prints one 'missing: docker' line and exits 1" container_without_docker
+check "test --container outside a git clone prints one 'missing: a git clone' line and builds nothing" container_outside_clone
 check "java-mesh -h prints usage" help_after java-mesh
 check "agents-mcp -h prints usage" help_after agents-mcp
 check "a PATH without node prints one 'missing: node' line and exits 1" missing_stops_early node agents-mcp
