@@ -41,11 +41,13 @@ text_of() {
 }
 
 # repository_jar <g> <a> <v>: sets comp to that jar in the local Maven repository, which the build resolved.
-# -N evaluates the path once, also from a directory that holds a multi-module pom.
+# -N evaluates the path once, also from a directory that holds a multi-module pom. With Maven's split local
+# repository (the test container uses it) what was downloaded is under cached/, not at the top.
 repository_jar() {
   [ -n "$m2" ] || m2="$(mvn -q -N org.apache.maven.plugins:maven-help-plugin:3.5.2:evaluate -Dexpression=settings.localRepository \
     -DforceStdout </dev/null)"
   comp="$m2/${1//.//}/$2/$3/$2-$3.jar"
+  [ -f "$comp" ] || comp="$m2/cached/${1//.//}/$2/$3/$2-$3.jar"
 }
 
 # entries <THIRD-PARTY.txt>: one "count<TAB>licence<TAB>group<TAB>artifact<TAB>version<TAB>line" per entry,

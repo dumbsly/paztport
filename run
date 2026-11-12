@@ -264,16 +264,19 @@ stream_tree() {
 
 # The suites in a container. Download caches live in named volumes, so a second run fetches little; the tree is
 # streamed in and extracted in a fresh container each time, so neither the host tree nor an earlier run's build
-# output is involved. The link and import checks list files with git, which needs a repository, so an empty one is
+# output is involved: Maven's split repository (see the Dockerfile) keeps the jars `mvn install` writes out of the
+# volume. The link and import checks list files with git, which needs a repository, so an empty one is
 # made around the tree: they ask for the files it holds, not for history. The exit code is ./run test's, since the
 # pipeline ends in docker run (pipefail covers tar).
 cmd_test_container() {
   need_docker
   command -v git >/dev/null 2>&1 || missing git 2 "https://git-scm.com/downloads or your package manager"
+  # Without a repository there is no file list to stream (a downloaded ZIP has none), and the failure would come late.
+  git rev-parse --is-inside-work-tree >/dev/null 2>&1 || missing "a git clone" "of this repository" "git clone it; ./run test --container reads the file list from git"
   # The Dockerfile is the whole build context: it copies nothing in.
   docker build -t paztport-test - <poc-sdks/scripts/test.Dockerfile
   stream_tree | docker run --rm -i \
-    -v paztport-test-m2:/home/paztport/.m2/repository \
+    -v paztport-test-m2:/home/paztport/.m2/repository/cached \
     -v paztport-test-go-mod:/home/paztport/go/pkg/mod \
     -v paztport-test-go-build:/home/paztport/.cache/go-build \
     -v paztport-test-npm:/home/paztport/.npm \

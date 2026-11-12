@@ -65,11 +65,16 @@ RUN GOBIN=/usr/local/bin GOPATH=/tmp/gopath GOCACHE=/tmp/gocache go install honn
  && GOPATH=/tmp/gopath go clean -modcache \
  && rm -rf /tmp/gopath /tmp/gocache
 
+# Maven's split local repository: what `mvn install` puts in the local repository (the project's own jars) goes to
+# ~/.m2/repository/installed and what it downloads goes to ~/.m2/repository/cached. Only cached/ is a volume, so
+# installed jars stay in the container and vanish with it, and an earlier run's jars never satisfy a later one.
+ENV MAVEN_ARGS=-Daether.enhancedLocalRepository.split=true
+
 # The suites run as an unprivileged user. The cache directories exist, and belong to that user, in the image: a new
 # named volume mounted over one of them takes on its owner, so the user can write to it. They hold downloads and
 # build caches, nothing the suites need to keep.
 RUN useradd --create-home --shell /bin/bash paztport \
- && mkdir -p /work /home/paztport/.m2/repository /home/paztport/go/pkg/mod /home/paztport/.cache/go-build /home/paztport/.npm \
+ && mkdir -p /work /home/paztport/.m2/repository/cached /home/paztport/go/pkg/mod /home/paztport/.cache/go-build /home/paztport/.npm \
  && chown -R paztport:paztport /work /home/paztport
 USER paztport
 ENV HOME=/home/paztport \
