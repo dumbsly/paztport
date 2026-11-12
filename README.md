@@ -425,6 +425,34 @@ chain with the same code
 The exact format is in the [protocol spec](poc-sdks/spec/README.md), and
 [poc-sdks](poc-sdks/README.md#on-the-wire) has a summary.
 
+#### Why a tree, and not a list for each receiver
+
+A simpler design would give each receiver a signed list of the routes that end at
+it. Inside one organisation it would do almost as well: a receiver would learn the
+routes that reach it, where the tree shows it each route as it is used, and nothing
+would travel with a request. It would also be cheaper to change: a new route would
+re-sign one receiver's list, where the tree needs a new root on every service and
+new proofs for every sender, in the overlap steps the
+[Envoy Gateway measurements](poc-demos/envoy-gateway/README.md#route) time.
+
+The tree earns its place where the verifier is not the policy's owner:
+
+- **Another party checks a route without seeing the policy.** An MCP server checks
+  an agent's route against the client's root, and learns the one route each call
+  took; with lists, the client would hand the server every route it may take to that
+  server.
+- **One value stands for the whole policy.** Services pin it, partners compare it in
+  a session handshake, and a log of roots (see
+  [Where this could go](docs/directions.md)) could show everyone the same one. A
+  policy owner who signed a different list for each receiver could not be caught
+  that way.
+- **A recorded chain can be checked later** with the root, the keyring and its
+  proof, by anyone, without the policy.
+
+Proofs cost a few hundred bytes on each request, and a change touches every service.
+Partitioning the tree by destination ([Where this could go](docs/directions.md))
+would bring the cost of a change close to a list's while keeping the root.
+
 ### Beyond routes
 
 The stamps and the tree prove which services a request passed through, and that its
