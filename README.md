@@ -75,7 +75,8 @@ scenario. It needs Maven on Java 25 or newer, and Docker, its daemon running,
 with Compose. A green run ends `26 passed, 0 failed`, and the mesh stays up.
 `./run test` runs the repository's checks and every suite, with no Docker and no
 model. `./run test --container` runs the same suites in a container, needing only
-Docker and git. [Running it](#running-it) has the other demos and what each command needs.
+Docker and git. [Running it](#running-it) has the other demos and what each
+command needs.
 
 ## Contents
 

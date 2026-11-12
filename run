@@ -31,8 +31,8 @@ Usage: ./run <command> [options]
                The same, in a container, so that only Docker and git are needed on the host: builds the image
                of the toolchains (poc-sdks/scripts/test.Dockerfile, cached after the first time), streams in
                the working tree (the files git would put in a clone, plus your uncommitted edits) and runs
-               ./run test there as an unprivileged user. Nothing is written to your tree; downloads are cached
-               in Docker volumes named paztport-test-*.
+               ./run test there as an unprivileged user. Nothing is written to your tree; what Maven, Go and
+               npm download, and Go's build cache, are kept in Docker volumes named paztport-test-*.
   bench        Build the Java SDK's benchmarks and time the primitives a verifying hop pays for (JMH, a few
                minutes), on the JDK Maven uses. Options after it go to JMH, e.g. ./run bench -f 3; JMH's own
                help is ./run bench -h. Not part of test.
