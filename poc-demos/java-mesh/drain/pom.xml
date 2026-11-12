@@ -11,7 +11,7 @@
         <relativePath>../pom.xml</relativePath>
     </parent>
 
-    <artifactId>drain</artifactId>
+    <artifactId>paztport-java-mesh-drain</artifactId>
     <name>Mesh Demo Drain</name>
     <description>Lets a mesh demo service finish its connections before it stops: Connection: close on every response for a while, then Spring Boot's graceful shutdown.</description>
 

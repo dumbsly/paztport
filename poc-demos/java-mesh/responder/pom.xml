@@ -22,7 +22,7 @@
         <!-- Connection: close for a while after SIGTERM, then graceful shutdown. -->
         <dependency>
             <groupId>org.paztport</groupId>
-            <artifactId>drain</artifactId>
+            <artifactId>paztport-java-mesh-drain</artifactId>
             <version>${project.version}</version>
         </dependency>
         <dependency>
