@@ -12,6 +12,8 @@ import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
+import io.micrometer.prometheusmetrics.PrometheusConfig;
+import io.micrometer.prometheusmetrics.PrometheusMeterRegistry;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.sun.net.httpserver.HttpExchange;
@@ -90,6 +92,9 @@ import org.springframework.beans.factory.annotation.AnnotatedBeanDefinition;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.autoconfigure.ssl.SslAutoConfiguration;
+import org.springframework.boot.micrometer.metrics.autoconfigure.CompositeMeterRegistryAutoConfiguration;
+import org.springframework.boot.micrometer.metrics.autoconfigure.MetricsAutoConfiguration;
+import org.springframework.boot.micrometer.observation.autoconfigure.ObservationAutoConfiguration;
 import org.springframework.boot.restclient.RestClientCustomizer;
 import org.springframework.boot.restclient.autoconfigure.RestClientAutoConfiguration;
 import org.springframework.boot.ssl.SslBundle;
@@ -1569,6 +1574,26 @@ class PaztportAutoConfigurationTest {
         }
         return lines.list.stream().map(ILoggingEvent::getFormattedMessage)
                 .filter(line -> line.startsWith("PAZTPORT_TRACE retry")).toList();
+    }
+
+    /** The POST to a closed port is retried once; the scrape names the series the demos' suites read. */
+    @Test
+    void aRetryShowsInAPrometheusScrapeUnderTheNameTheDemosRead(@TempDir Path dir) throws Exception {
+        writeWorld(dir);
+        withClients
+                .withConfiguration(AutoConfigurations.of(ObservationAutoConfiguration.class,
+                        MetricsAutoConfiguration.class, CompositeMeterRegistryAutoConfiguration.class))
+                .withBean(PrometheusMeterRegistry.class, () -> new PrometheusMeterRegistry(PrometheusConfig.DEFAULT))
+                .withPropertyValues(stampingVerifier(dir, "http://127.0.0.1:1")).withPropertyValues(MESH_BUNDLE)
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    assertThat(retryLinesFromACallToAClosedPort(context, "https")).hasSize(1);
+
+                    String scrape = context.getBean(PrometheusMeterRegistry.class).scrape();
+                    assertThat(scrape.lines().filter(line -> line.startsWith("paztport_outbound_retry_seconds_count{")))
+                            .singleElement().asString()
+                            .contains("failure=\"connect\"").contains("outcome=\"retried\"").endsWith(" 1");
+                });
     }
 
     @Test
