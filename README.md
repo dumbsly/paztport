@@ -12,7 +12,7 @@ Anything outside of this block was written by different models of Claude.
 Reasons I chose to use AI, in order of importance:
 - Understanding: I work best at the systems level and working to tie systems 
 together. That is to say I understand how to use cryptography securely better
-than I know how to implememt it securely at the code level.
+than I know how to implement it securely at the code level.
 - Security: This concept is about security, and building with AI allowed me to
 red-team it as it was being built.
 - Curiosity: I wanted to see what was possible with AI when focusing on packaging
@@ -28,7 +28,7 @@ production is not unrealistic.
 
 In an ideal world only this POC would be written by AI (and not even that), which
 is why I made human consumption a primary focus. For that to happen, the idea has
-to have merit for it to be worth the invesment of time. 
+to have merit for it to be worth the investment of time. 
 
 For it to earn that merit, it has to actually work and other people have to agree
 that it works.
