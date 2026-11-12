@@ -247,7 +247,7 @@ cmd_check() {
   # Each backend's pods one by one, by IP: a Service would reach only one of a service's replicas.
   for app in orders payment; do
     n=0
-    for ip in $(kn get pods -l "app=$app" -o jsonpath='{.items[*].status.podIP}'); do
+    for ip in $(live_ips "app=$app"); do
       text=$(kn exec checks -- curl -s --cacert /tls/ca.crt --cert /tls/operator.crt --key /tls/operator.key \
         --resolve "$app:8080:$ip" "https://$app:8080/actuator/prometheus" 2>/dev/null)
       n=$((n + $(metric_sum "$text" 'paztport_request_seconds_count{' 'mode="enforce"' 'outcome="served"' \
@@ -255,7 +255,7 @@ cmd_check() {
     done
     printf -v "${app}_ok" %s "$n"
   done
-  for ip in $(kn get pods -l app.kubernetes.io/name=paztport-processor -o jsonpath='{.items[*].status.podIP}'); do
+  for ip in $(live_ips app.kubernetes.io/name=paztport-processor); do
     text=$(kn exec checks -- curl -s "http://$ip:9090/metrics" 2>/dev/null)
     n=$(metric_sum "$text" 'paztport_edge_requests_total{outcome="stamped"}')
     stamped_n=$((stamped_n + n))

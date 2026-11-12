@@ -208,6 +208,14 @@ forward() {
   FORWARDED="$addr"
 }
 
+# live_ips <selector>: the IP of each pod the selector picks that is running and not being deleted, one a line. A pod
+# in its drain or its graceful shutdown is still Running but stops answering, so a read from the pods uses these.
+live_ips() {
+  kn get pods -l "$1" --field-selector=status.phase=Running \
+    -o jsonpath='{range .items[*]}{.status.podIP} {.metadata.deletionTimestamp}{"\n"}{end}' |
+    awk 'NF == 1 { print $1 }'
+}
+
 # metric_sum <text> <string>...: the sum of the samples in the metrics text whose line holds every string given.
 metric_sum() {
   local text="$1" p

@@ -1199,20 +1199,22 @@ sustained() {
 # backend_reasons: what orders and payment counted, added up over their pods, read from /actuator/prometheus with
 # the operator's certificate: each request they decided, by mode, outcome and reason, each response orders checked,
 # by reason, and each call the starter decided whether to retry, by failure and outcome (a pod that made none has no
-# such series); "<app> <series> <count>" a line.
+# such series); "<app> <series> <count>" a line. Only pods that are running and not being deleted are read; a pod
+# that does not answer fails the call, with nothing on standard output.
 backend_reasons() {
-  local app ip text
+  local app ip text all=""
   for app in orders payment; do
-    for ip in $(kn get pods -l "app=$app" --field-selector=status.phase=Running \
-      -o jsonpath='{.items[*].status.podIP}'); do
+    for ip in $(live_ips "app=$app"); do
       text=$(kn exec checks -- curl -sf --max-time 10 --cacert /tls/ca.crt --cert /tls/operator.crt \
         --key /tls/operator.key --resolve "$app:8080:$ip" "https://$app:8080/actuator/prometheus" 2>/dev/null) || {
         echo "error: $app at $ip did not answer /actuator/prometheus" >&2
         return 1
       }
-      printf '%s\n' "$text" | grep -E '^paztport_(request|response|outbound_retry)_seconds_count\{' | sed "s/^/$app /"
+      all+=$(printf '%s\n' "$text" | grep -E '^paztport_(request|response|outbound_retry)_seconds_count\{' |
+        sed "s/^/$app /" || true)$'\n'
     done
-  done | awk '{ n[$1 " " $2] += $3 } END { for (k in n) printf "%s %d\n", k, n[k] }' | LC_ALL=C sort
+  done
+  printf '%s' "$all" | awk 'NF { n[$1 " " $2] += $3 } END { for (k in n) printf "%s %d\n", k, n[k] }' | LC_ALL=C sort
 }
 
 # reasons_added <before> <after>: what backend_reasons counted between two readings, each series that grew, and
@@ -1223,8 +1225,10 @@ def read(text):
     out = {}
     for line in text.splitlines():
         if line.strip():
-            app, series, n = line.split()
-            out[(app, series)] = int(n)
+            fields = line.split()
+            if len(fields) != 3:
+                sys.exit("the counters held a line that is not a counter: " + line)
+            out[(fields[0], fields[1])] = int(fields[2])
     return out
 def series_shown(series):
     if series.startswith("paztport_request"):

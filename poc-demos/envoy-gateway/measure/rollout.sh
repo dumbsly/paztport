@@ -65,7 +65,11 @@ backends_counters() {
   echo "  orders' and payment's counters $1, since their pods started:"
   python3 -c 'import re, sys
 for line in sys.argv[1].splitlines():
-    app, series, n = line.split()
+    fields = line.split()
+    if len(fields) != 3:
+        print("    (not a counter line: %s)" % line)
+        continue
+    app, series, n = fields
     labels = dict(re.findall(r"(\w+)=\"([^\"]*)\"", series))
     if series.startswith("paztport_request"):
         name, keys = "request", ("mode", "outcome", "reason")
