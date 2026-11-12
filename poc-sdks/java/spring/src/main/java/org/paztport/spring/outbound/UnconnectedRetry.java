@@ -114,8 +114,8 @@ public record UnconnectedRetry(Duration connectTimeout, long originWindowMs, Clo
      * may wrap the JDK's exception; empty when none of them is one. Whether such a failure means that no byte of the
      * request was written rests on the assumption in the class description: the client raises these failures only
      * while it establishes a new connection. A TLS 1.2 renegotiation the receiver starts on a pooled connection is
-     * outside it. A connect timeout is told apart before a refused
-     * connect, as the JDK gives it a {@link ConnectException} as its cause.
+     * outside it. A connect timeout is told apart before a refused connect, as the JDK gives it a
+     * {@link ConnectException} as its cause.
      */
     public static Optional<Failure> classify(Throwable t) {
         // A chain of causes can loop back on itself, so each one is looked at once.

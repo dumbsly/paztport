@@ -676,8 +676,8 @@ What the checks and the measurements found, beyond the numbers.
   The Spring starter retries once, freshly stamped, a call that failed before its connection was established (a call
   other than GET or HEAD, through the starter's own TLS client, `paztport.tls-bundle`), which with two `payment`
   replicas can reach the other one. A call whose connection dies after the request was sent is not retried by the
-  starter (the JDK client re-sends only a GET or HEAD itself): its request may have been served. These Deployments are not yet measured: the figures in
-  [Findings](#findings) are from `payment` at one replica and no drain.
+  starter (the JDK client re-sends only a GET or HEAD itself): its request may have been served. These Deployments
+  are not yet measured: the figures in [Findings](#findings) are from `payment` at one replica and no drain.
 - **Readiness.** `/readyz`, `paztport_edge_material_seconds_left` and each request's check take the material's one
   `notAfter`, which can overstate how long the edge's stamps will be accepted. It fails closed: past it the processor
   refuses every request, and a stamp a receiver no longer accepts is refused there.
