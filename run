@@ -264,12 +264,15 @@ stream_tree() {
   done | COPYFILE_DISABLE=1 tar --null --no-xattrs --no-recursion -T - -cf -
 }
 
-# The suites in a container. Download caches live in named volumes, so a second run fetches little; the tree is
-# streamed in and extracted in a fresh container each time, so neither the host tree nor an earlier run's build
-# output is involved: Maven's split repository (see the Dockerfile) keeps the jars `mvn install` writes out of the
-# volume. The link and import checks list files with git, which needs a repository, so an empty one is
-# made around the tree: they ask for the files it holds, not for history. The exit code is ./run test's, since the
-# pipeline ends in docker run (pipefail covers tar).
+# The suites in a container. What Maven, Go and npm download, and Go's build cache, live in named volumes, so a
+# second run fetches and compiles little; the tree is streamed in and extracted in a fresh container each time, so
+# neither the host tree nor an earlier run's build output is involved: Maven's split repository (see the Dockerfile)
+# keeps the jars `mvn install` writes out of the volume. The link and import checks list files with git, which needs
+# a repository, so a new one is made around the tree with every streamed file in its index (-f, since a tracked file
+# may match an ignore rule): they ask for the files it holds, not for history. Without a terminal, Ctrl-C reaches the
+# container only as the signal docker run passes on, and bash as PID 1 would let mvn or node run on; --init puts
+# Docker's init (tini) first, and TINI_KILL_PROCESS_GROUP=1 has it send that signal to every process of the run. The
+# exit code is ./run test's, since the pipeline ends in docker run (pipefail covers tar).
 cmd_test_container() {
   need_docker
   command -v git >/dev/null 2>&1 || missing git 2 "https://git-scm.com/downloads or your package manager"
@@ -282,7 +285,8 @@ cmd_test_container() {
     -v paztport-test-go-mod:/home/paztport/go/pkg/mod \
     -v paztport-test-go-build:/home/paztport/.cache/go-build \
     -v paztport-test-npm:/home/paztport/.npm \
-    paztport-test bash -c 'tar -x -C /work && git init -q && exec ./run test'
+    --init -e TINI_KILL_PROCESS_GROUP=1 \
+    paztport-test bash -c 'tar -x -C /work && git init -q && git add -Af . && exec ./run test'
 }
 
 cmd_test() {
