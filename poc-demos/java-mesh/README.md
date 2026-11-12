@@ -413,10 +413,12 @@ flowchart TD
     S12 -->|no| R12["403 PEER_MISMATCH"]
     S12 -->|yes| OK["200: handled, response attested"]
 
+    classDef plain fill:#f2f2f2,stroke:#6e6a86,color:#1f1d2e,stroke-width:1px
     classDef reject fill:#eb6f92,stroke:#b4637a,color:#ffffff
     classDef pass fill:#3e8f6e,stroke:#2a6b52,color:#ffffff
     class R0,R1,R2,R3,R4a,R4b,R4c,R5,R6,R7,R8,R9,R10,R11,R12 reject
     class OK pass
+    class A,S0,S1,S2,S3,S4,S5,S6,S7,S8,S9,S10,S11,S12 plain
 ```
 
 Notes on the ordering:
@@ -611,10 +613,12 @@ flowchart TD
     D -->|yes| ESC["ESCALATE<br/>stop acting, page a human"]
     D -->|no| Q["QUARANTINE this instance"]
 
+    classDef plain fill:#f2f2f2,stroke:#6e6a86,color:#1f1d2e,stroke-width:1px
     classDef act fill:#f6c177,stroke:#b4637a,color:#1f1d2e
     classDef esc fill:#eb6f92,stroke:#b4637a,color:#ffffff
     class Q act
     class ESC esc
+    class E,A,B,C,D,N1,N2,N3 plain
 ```
 
 The action is then carried out asynchronously:

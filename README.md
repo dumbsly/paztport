@@ -352,6 +352,7 @@ graph BT
     N47 --> ROOT
 
     classDef target fill:#f6c177,stroke:#b4637a,color:#1f1d2e,stroke-width:2px
+    classDef plain fill:#f2f2f2,stroke:#6e6a86,color:#1f1d2e,stroke-width:1px
     classDef sibling fill:#9ccfd8,stroke:#31748f,color:#1f1d2e,stroke-width:2px
     classDef pad fill:#e6e6e6,stroke:#999999,color:#555555,stroke-dasharray: 3 3
     classDef root fill:#c4a7e7,stroke:#907aa9,color:#1f1d2e,stroke-width:2px
@@ -359,6 +360,7 @@ graph BT
     class L1,N23,N47 sibling
     class L3,L4,L5,L6,L7 pad
     class ROOT root
+    class L2,N01,N45,N67,N03 plain
 ```
 
 *Illustrative depth-3 tree, whose routes name services alone; a route can also name
