@@ -41,9 +41,11 @@ What Paztport needs from a deployment, and what it deliberately doesn't cover ye
   keep-alive connections to it fails the calls sent on them. The deployment supplies the rest: the service keeps
   serving, with `Connection: close` on its responses, for a few seconds after SIGTERM, then shuts down gracefully,
   and the update surges a pod before it removes one. The Spring starter retries, once and freshly stamped, a call
-  that failed before its connection was established (a refused or timed-out connect, a failed TLS handshake). On
-  HTTP/1.1 a call whose connection dies after it was sent is not retried, by design: the receiver may have served
-  it, and a second delivery is the application's to make safe. The Java mesh and the Envoy Gateway demo's
+  that failed before its connection was established (a refused or timed-out connect, a failed TLS handshake; a
+  call other than GET or HEAD, through the starter's own TLS client, `paztport.tls-bundle`). On HTTP/1.1 a call
+  whose connection dies after it was sent is not retried by the starter (the JDK client re-sends only a GET or
+  HEAD itself), by design: the receiver may have served it, and a second delivery is the application's to make
+  safe. The Java mesh and the Envoy Gateway demo's
   backends do the drain ([rolling a backend](../poc-demos/envoy-gateway/README.md#operating-it)).
 - **Key custody is the cluster's.** A Paztport key kept in a Kubernetes Secret is as
   safe as any credential there: anyone who can read that namespace's Secrets, or

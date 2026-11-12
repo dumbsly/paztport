@@ -28,8 +28,14 @@ import javax.net.ssl.SSLHandshakeException;
  * TLS handshake failed ({@link SSLHandshakeException}, including a peer that closes or resets the connection part way
  * through it). The JDK's client writes no byte of a request until the TCP connect and the TLS handshake have both
  * completed, and sends no TLS early data, so a call that failed in one of these ways never reached its receiver.
- * Nothing else is matched: a pooled connection the peer has closed, a reset after the request was written and a read
- * timeout ({@code HttpTimeoutException} that is not a connect timeout) may each have reached the receiver.
+ * That rests on one assumption: the client raises these three failures only while it establishes a new connection.
+ * Two cases are outside it. A TLS 1.2 renegotiation the receiver starts on a pooled connection fails as an
+ * {@code SSLHandshakeException} after the request was written (not reachable with Tomcat at {@code client-auth:
+ * need} on TLS 1.3, the default). And with TLS 1.3 mutual TLS a server's rejection of the client's certificate can
+ * arrive after the client has finished its side of the handshake; the request is still undelivered then, since the
+ * server never accepted the handshake. Nothing else is matched: a pooled connection the peer has closed, a reset
+ * after the request was written and a read timeout ({@code HttpTimeoutException} that is not a connect timeout) may
+ * each have reached the receiver.
  *
  * <p>Only calls whose method is neither {@code GET} nor {@code HEAD} are covered ({@link #covers}). The JDK's client
  * re-sends a {@code GET} or {@code HEAD} itself when the connection it was written on dies before the response, and if
@@ -105,7 +111,10 @@ public record UnconnectedRetry(Duration connectTimeout, long originWindowMs, Clo
 
     /**
      * Which of the three failures {@code t} is, looking at it and then at each of its causes in turn, since a client
-     * may wrap the JDK's exception; empty when none of them is one. A connect timeout is told apart before a refused
+     * may wrap the JDK's exception; empty when none of them is one. Whether such a failure means that no byte of the
+     * request was written rests on the assumption in the class description: the client raises these failures only
+     * while it establishes a new connection. A TLS 1.2 renegotiation the receiver starts on a pooled connection is
+     * outside it. A connect timeout is told apart before a refused
      * connect, as the JDK gives it a {@link ConnectException} as its cause.
      */
     public static Optional<Failure> classify(Throwable t) {

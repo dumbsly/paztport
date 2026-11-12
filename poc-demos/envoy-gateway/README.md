@@ -106,8 +106,8 @@ tables are under [Measurements](#measurements).
      which do not map the route, refuse its requests (403) until the new pods take its streams; this run did not
      measure that order (see [Findings](#findings)).
    - Rolling the backends into `enforce` (in this run `payment` ran one replica, with no drain) cost 253 of 150001
-     requests, every one a 500: 249 around the rollouts and four single ones about a minute and a half after the change was done. None was refused `EXPIRED`, and no
-     request reached a backend running Paztport without a stamp.
+     requests, every one a 500: 249 around the rollouts and four single ones about a minute and a half after the
+     change was done. None was refused `EXPIRED`, and no request reached a backend running Paztport without a stamp.
    - Then a request straight to `orders`, past the Gateway, was refused `403 CHAIN_MISSING`.
 7. **Observability.** The processor's `/metrics` counts what it decided, how long stamping took, the bodies' sizes and
    how long its material has left (6.9 days in the run); the backends count each request by mode, outcome and
@@ -673,9 +673,10 @@ What the checks and the measurements found, beyond the numbers.
   `minAvailable: 1`, and `terminationGracePeriodSeconds: 40`. On SIGTERM each java-mesh service keeps serving for
   `DEMO_DRAIN_SECONDS` (5) with `Connection: close` on every response, so its callers drop their pooled connections to
   it, and only then shuts down gracefully (20 s for calls in flight); the 40 s is the drain, that phase and a margin.
-  The Spring starter retries once, freshly stamped, a call that failed before its connection was established, which
-  with two `payment` replicas can reach the other one. A call whose connection dies after the request was sent is not
-  retried: its request may have been served. These Deployments are not yet measured: the figures in
+  The Spring starter retries once, freshly stamped, a call that failed before its connection was established (a call
+  other than GET or HEAD, through the starter's own TLS client, `paztport.tls-bundle`), which with two `payment`
+  replicas can reach the other one. A call whose connection dies after the request was sent is not retried by the
+  starter (the JDK client re-sends only a GET or HEAD itself): its request may have been served. These Deployments are not yet measured: the figures in
   [Findings](#findings) are from `payment` at one replica and no drain.
 - **Readiness.** `/readyz`, `paztport_edge_material_seconds_left` and each request's check take the material's one
   `notAfter`, which can overstate how long the edge's stamps will be accepted. It fails closed: past it the processor

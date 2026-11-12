@@ -366,7 +366,7 @@ says the rest.
 | `paztport.receiver-names.<host>` | none | No | The policy name of the receiver at a host that is not its name ([Outbound calls and response checks](#outbound-calls-and-response-checks)). |
 | `paztport.tls-bundle` | none | No | The SSL bundle the service presents on its calls and its events; `false` is the same as unset ([Mutual TLS](#mutual-tls)). |
 | `paztport.read-timeout-ms` | `30000` | Positive, in a service that uses it | How long a call through the starter's TLS client, or the egress's to the partner, may wait for its answer ([Timeouts](#timeouts)). |
-| `paztport.connect-timeout-ms` | `1000` | Positive, in a service that uses it | How long opening a connection may take on the starter's TLS client, the one for calls inside the mesh and for events; the partner client keeps 5 s ([Timeouts](#timeouts)). |
+| `paztport.connect-timeout-ms` | `1000` | Positive, in a service that uses it | How long opening a connection may take on the starter's TLS client, the one for calls inside the mesh and for events; the partner client keeps 5 s ([Timeouts](#timeouts)). The startup check on it is skipped when the retry is not built: no `paztport.tls-bundle`, `paztport.retry-unconnected=false`, or the JDK's all-method retry on ([Retries](#retries)). |
 | `paztport.retry-unconnected` | `true` | No; while `true` with `tls-bundle` set, `connect-timeout-ms` must be under half of `run-max-age-ms` (else `max-age-ms`), or the service does not start | Whether a stamped call through the starter's TLS client, with a method other than `GET` and `HEAD`, that failed before its connection was established is sent once more, freshly stamped ([Retries](#retries)). |
 | `paztport.overlap.keyring-paths` | none | No; needs `keyring-path`, `root-path` and `policy-key-path` | Further keyrings to pin beside `keyring-path` ([Overlap material](#overlap-material)). |
 | `paztport.overlap.root-paths` | none | As `overlap.keyring-paths` | Further roots to pin beside `root-path`. |
@@ -776,7 +776,13 @@ after the JDK client's own single retry), or a TLS handshake that failed
 (`SSLHandshakeException`, including a peer that closes the connection part way through
 it). The JDK client writes no byte of a request until the TCP connect and the TLS
 handshake have both completed, and sends no TLS early data, so the first attempt reached
-no receiver and the retry is the only delivery. The retry gets a new stamp because a
+no receiver and the retry is the only delivery. That rests on the client raising these
+three failures only while it establishes a new connection. A TLS 1.2 renegotiation the
+receiver starts on a pooled connection would fail as an `SSLHandshakeException` after the
+request was written; Tomcat at `client-auth: need` on TLS 1.3, the default, does not do
+that. With TLS 1.3 mutual TLS a server's rejection of the client's certificate can arrive
+after the client has finished its side of the handshake, and the request is still
+undelivered then, since the server never accepted the handshake. The retry gets a new stamp because a
 stamp's age runs from its signing; to replay protection and to the receiver's
 idempotency it is the same delivery, since both key on the request tree, the caller, the
 receiver and the binding, not on the stamp. Its response is checked against the new
@@ -803,7 +809,9 @@ startup check below does not apply. Other request factories make hidden retries 
 own (`HttpURLConnection` re-sends even a `POST` on a stale keep-alive connection, Apache
 HttpClient retries idempotent methods), so a connect failure there may follow an attempt
 that was delivered. An application that replaces the request factory on the shared
-builder after the starter sets it should set `paztport.retry-unconnected=false`.
+builder after the starter sets it, or that adds its own retrying interceptor after the
+starter's (Spring Retry, resilience4j), whose second attempt can end in a connect failure
+the starter would retry, should set `paztport.retry-unconnected=false`.
 
 The JDK client's net property `jdk.httpclient.enableAllMethodRetry` makes it re-send
 every method, not only `GET` and `HEAD`, after the connection it was written on dies, so

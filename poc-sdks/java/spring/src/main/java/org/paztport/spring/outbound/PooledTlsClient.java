@@ -35,13 +35,13 @@ import org.springframework.web.client.RestClient;
  * JDK's client it runs from the start of the TCP connect until the TLS handshake has completed, so it covers both,
  * and it does not cover anything after the handshake. A client made with {@link #of(SslBundle)} or
  * {@link #of(SslBundle, Duration)} has {@link #CONNECT_TIMEOUT}; the starter makes its mesh client with
- * {@code paztport.connect-timeout-ms}. The read timeout, {@code paztport.read-timeout-ms} (30 s unless set), bounds the whole
- * exchange, from sending the request to the end of the response's body, on every JDK: a peer that takes the call and
- * sends no answer, one that sends its headers and then stops part way through the body, or a pooled connection whose
- * peer has vanished without closing it, fails the call at the read timeout, as a timeout (from a {@code RestClient},
- * a {@code ResourceAccessException}), instead of holding the calling thread for ever. Spring's own JDK request
- * factory, which Spring Boot 4 gives an SSL bundle, ends a stalled body too, but not as this class promises: a
- * stall after the headers fails the caller's read of the body with an {@code IOException}, not as a
+ * {@code paztport.connect-timeout-ms}. The read timeout, {@code paztport.read-timeout-ms} (30 s unless set), bounds
+ * the whole exchange, from sending the request to the end of the response's body, on every JDK: a peer that takes
+ * the call and sends no answer, one that sends its headers and then stops part way through the body, or a pooled
+ * connection whose peer has vanished without closing it, fails the call at the read timeout, as a timeout (from a
+ * {@code RestClient}, a {@code ResourceAccessException}), instead of holding the calling thread for ever. Spring's
+ * own JDK request factory, which Spring Boot 4 gives an SSL bundle, ends a stalled body too, but not as this class
+ * promises: a stall after the headers fails the caller's read of the body with an {@code IOException}, not as a
  * timeout, and Spring Boot sets no read timeout unless one is configured, so without one the call waits for ever.
  * So the factory here is {@link WholeExchangeRequestFactory}, which reads each response whole within the read
  * timeout ({@link WholeExchange#send}) and fails every stall as a timeout. The egress's calls to the partner and

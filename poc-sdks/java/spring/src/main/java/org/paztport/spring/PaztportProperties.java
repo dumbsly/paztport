@@ -56,9 +56,9 @@ public class PaztportProperties implements InitializingBean {
     /**
      * How long opening a connection may take, in milliseconds; positive. It is the connect timeout of the client
      * paztport.tls-bundle makes, and so of every stamped call to a service in the mesh and of its events: the TCP
-     * connect and the TLS handshake together, up to the point the request can be sent. Short, because in-cluster
-     * connects take milliseconds and a call that never connected is only worth retrying if it fails well inside the
-     * call window. The egress's client to the partner keeps its own 5 s.
+     * connect and the TLS handshake together: the clock runs from the start of the TCP connect until the TLS
+     * handshake has completed, and covers nothing after it. Short, because in-cluster connects take milliseconds and
+     * a call that never connected is only worth retrying if it fails well inside the call window. The egress's client to the partner keeps its own 5 s.
      */
     private long connectTimeoutMs = 1_000;
 
