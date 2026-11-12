@@ -83,12 +83,12 @@ on adds a **stamp**: a signature, under that service's own key, over the request
 id, the time, what the service is sending and to whom, and the stamp before it. The
 stamps so far make up the request's **chain**, which travels with the request. The
 service a stamp is addressed to is its **receiver**; a receiver checks the chain it
-is handed before it acts, and adds its own stamp if it calls on. The calls made
-under one origin's request id form one **request tree**.
+is handed before it acts, and adds its own stamp when it calls the next service. The
+calls made under one origin's request id form one **request tree**.
 
 **The policy.** The **policy** is the list of routes a system allows, such as
-`gateway → orders → payment`; over HTTP a route can also name the **operation**, the
-handler, it asks for at each hop. The list itself is not handed to the services. The
+`gateway/orders/payment`; over HTTP a route can also name the **operation**, the
+handler it asks for, at each hop. The list itself is not handed to the services. The
 **policy tool** builds it into a hashed tree whose single top hash, the **root**,
 stands for the whole list, and signs the root with the **policy key**, the policy
 owner's key, which stays offline; every service pins the root. A request carries a
@@ -99,19 +99,22 @@ knows whose stamp is whose.
 
 **The check.** A receiver makes its checks in one fixed sequence, the **live
 order**, and the first that fails is the result, a reason code such as
-`PATH_NOT_ALLOWED`. Among them: the chain is unbroken and every signature verifies;
-it was addressed to this receiver and matches the request it came with; it is fresh,
-its last stamp inside the **call window** (5 s by default) and its origin's inside
-the longer **run window**; it is not a replay; its last signer is the sender the
-connection authenticated (the **peer check**, with mutual TLS); and the route
-rebuilt from the stamps is in the policy. A service runs in one of two modes: in
+`PATH_NOT_ALLOWED`. In that order, among others: the chain starts at an allowed
+origin, is unbroken, every signature verifies and each stamp was addressed to the
+next hop; it is fresh, its last stamp inside the **call window** (5 s by default)
+and its origin's inside the **run window** (30 min by default); it matches the
+request it came with; it is not a replay; the route rebuilt from the stamps is in
+the policy; and its last signer is the sender the connection authenticated (the
+**peer check**, with mutual TLS). A service runs in one of two modes: in
 **`enforce`** a request that fails is refused, and in **`audit`** the failure is
-recorded and the request let through, which is for finding the routes a system takes
-before it goes into production.
+recorded and the request let through; `audit` is for finding the routes a system
+takes before it enforces them.
 
 **When a check fails.** A service may send a signed **event** for each failure, in
 `audit` mode as well as `enforce`, to its **responder**, a service that decides what
-to do about it.
+to do about it. The responder may act only on an event from `enforce` that names the
+sender held responsible, for a reason that reports what the sender did; an `audit`
+event only informs it.
 
 **What shaped a request.** A route says where a request has been, not what steered
 it. **Influence** is the record of the content that shaped a call: a ticket's text,
@@ -119,21 +122,21 @@ a customer's order, a tool's result. Each entry has a class, such as `third-part
 for content from outside the trust boundary, which may carry instructions, or
 `private` for data that must not reach a public destination, and may name whose data
 it is, its **owner**. The call's stamp commits to its influence, so no hop can drop
-an entry unnoticed. The **owner-aware rule** applies it: a write to a public
+an entry unnoticed. The **owner-aware rule** reads that record: a write to a public
 destination is refused when untrusted content and someone else's private data both
-shaped it. An answer can carry a stamp of its own, and a caller counts an answer
-that does not verify as untrusted content.
+shaped it. An answer can carry a stamp of its own (**response attestation**), and a
+caller counts an answer that does not verify as untrusted content.
 
-**Between parties.** Inside one organisation every service pins the policy in
-advance. Across a trust boundary, between an AI agent and a tool server or between
-two organisations, the two sides first open a **session**, exchanging their signed
-roots and keys. The session is **attested** when the side that receives the calls
-pinned the sender's policy key in advance and the sender's policy verifies under it;
-otherwise it is **unsafe**, and the receiving side verifies nothing and serves only
-what it has not disabled. Between organisations the receiving side is the
-**partner**, and in an attested session the sender's last internal service, its
-**egress**, puts one stamp of its own in place of the internal chain, so the partner
-never sees the internal route.
+**Between parties.** Inside one organisation the pinned root is enough. Across a
+trust boundary, between an AI agent and a tool server or between two organisations,
+the two sides first open a **session**, exchanging their signed roots and keyrings.
+The session is **attested** when the side that receives the calls pinned the
+sender's policy key in advance, the sender's root and keyring verify under it, and
+both sides' are current; otherwise it is **unsafe**, and the receiving side verifies
+nothing and serves only what it has not disabled. Between organisations the
+receiving side is the **partner**, and in an attested session the sender's last
+internal service, its **egress**, puts one stamp of its own in place of the internal
+chain, so the partner never sees the internal route.
 
 ## What it does
 
@@ -143,11 +146,9 @@ never sees the internal route.
   Paztport doesn't make the compromised machine trustworthy; it limits how far
   the compromise can travel. [Known limits](docs/limits.md) lists what it needs
   from a deployment and what it cannot do.
-- It carries calls between organisations. The two sides first open a session,
-  exchanging the signed fingerprints of their policies. In an attested session the
-  sender's internal route stays inside. The Java and Go SDKs implement this over
-  HTTP; in the Java mesh, a payment provider plays the second organisation
-  ([Sessions](#sessions)).
+- It carries calls between organisations, with the sender's internal route kept
+  inside. The Java and Go SDKs implement this over HTTP; in the Java mesh, a payment
+  provider plays the second organisation ([Sessions](#sessions)).
 - It covers an AI agent's tool calls. The
   [agents demo](poc-demos/agents-mcp/README.md) stamps each call an agent makes to
   an MCP server. A planted prompt injection asks the agent to copy private notes
@@ -195,13 +196,13 @@ SIGOPS Operating Systems Review 22(4), 1988). Either way, the malicious request
 looks identical to a legitimate one: same headers, same body shape, same
 authenticated caller.
 
-An illicit route leaves a fingerprint in the request's **history** even when the
+An illicit route leaves its mark in the request's *history* even when the
 request itself is clean. Paztport turns that history into a credential, and makes
 it unforgeable without a hop's own key.
 
 ### Two proofs
 
-A request is accepted only if it proves **two** things: that it really travelled
+A request is accepted only if it proves *two* things: that it really travelled
 the route it claims (*proof of travel*), and that the route is one the system
 allows (*proof of legitimacy*). Either proof alone leaves a hole. Together, a
 request can neither claim a route it did not travel nor travel a route the policy
@@ -209,10 +210,9 @@ does not list.
 
 #### Proof of travel: the stamp chain
 
-Each hop appends a stamp to the request's chain, starting from its origin (over
-HTTP, the chain travels in the `X-Path-Chain` header). A stamp names its receiver,
-which verifies the chain it is handed. A stamp is signed by the hop's own Ed25519
-key, and it signs over the previous stamp's signature:
+Each hop appends a stamp to the chain, starting from the origin; over HTTP the chain
+travels in the `X-Path-Chain` header. Each stamp is signed by the hop's own Ed25519
+key over the previous stamp's signature:
 
 ```mermaid
 flowchart LR
@@ -250,19 +250,20 @@ Why it's built this way:
   `rcv` can also name the operation the call invokes there
   ([Operations](#operations)).
 - The request binding ties the chain to the actual payload. The receiver recomputes
-  `bind` from the request it got and compares it to the **last** stamp. A chain
+  `bind` from the request it got and compares it to the *last* stamp. A chain
   copied from a real request and spliced onto a malicious body no longer matches.
 - Receiver binding, request binding and the peer check stop anyone but the signer
   using a stamp; a **nonce cache** refuses the signer's second sending on the
   replica that saw the first, and forgets a key after the nonce TTL (15 s by
   default, and never under twice the call window).
 
-For each request that fails verification, in `audit` mode as well as `enforce`, a
-service may send a signed event to its responder, which may act on it, for example
-by isolating the instance it names ([events](poc-sdks/spec/wire.md#events)). A
-verdict can name the sender it holds responsible, in the service's own logs and in
-the event, and who that can be depends on whether the transport authenticated the
-sender ([Using it soundly](docs/limits.md#using-it-soundly)).
+A service may send a signed event to its responder for each request that fails
+verification ([events](poc-sdks/spec/wire.md#events)). An `enforce` event that names
+the sender is one the responder may act on, for example by isolating that instance;
+an `audit` event only informs it. A verdict can name the sender it holds
+responsible, in the service's own logs and in the event, and who that can be depends
+on whether the transport authenticated the sender ([Using it
+soundly](docs/limits.md#using-it-soundly)).
 
 #### Proof of legitimacy: the salted Merkle tree
 
@@ -362,10 +363,10 @@ authenticated fields in the stamps, never from any claimed field:** the origin's
 the root, and checks that the last `rcv` names itself. You can't claim a
 route you didn't travel, and you can't travel a route that isn't in the tree.
 
-A receiver makes these checks, with freshness, replay and the peer check among them,
-in one fixed sequence, the live order, and the first that fails is the result. The
-order is part of the protocol, so every implementation refuses the same chain with
-the same code ([the live order](poc-sdks/spec/verification.md#the-live-order)).
+A receiver makes these checks, with freshness, replay and the peer check, in the
+live order, which is part of the protocol, so every implementation refuses the same
+chain with the same code ([the live
+order](poc-sdks/spec/verification.md#the-live-order)).
 
 The exact format is in the [protocol spec](poc-sdks/spec/README.md), and
 [poc-sdks](poc-sdks/README.md#on-the-wire) has a summary.
@@ -441,17 +442,15 @@ server attests a tool's result the same way, only for a call that verified
 
 #### Sessions
 
-Inside one organisation's mesh every service pins one policy in advance; across a
-trust boundary the two sides open a session first: an MCP client with a server
-before its first call, or one organisation with another over HTTP. Each sends its
-signed root, policy key, keyring and a fresh nonce; the side that receives the calls
-signs its reply; and every stamp in the session carries the session id in `sess`, so
-a chain made for one session fails in any other. The receiving side opens an
-attested session only when the sender's policy key is one it pinned in advance, the
-sender's root and keyring verify under that key, and both sides' roots and keyrings
-are current. Otherwise the session is unsafe: graded trust, not a refusal, in which
-the receiving side verifies nothing, refuses what it lists as disabled
-(`UNSAFE_SESSION`) and serves the rest
+An MCP client opens a session with a server before its first call, and one
+organisation with another over HTTP. Each sends its signed root, policy key, keyring
+and a fresh nonce; the side that receives the calls signs its reply; and every stamp
+in the session carries the session id in `sess`, so a chain made for one session
+fails in any other. The receiving side opens an attested session only when the
+sender's policy key is one it pinned in advance, the sender's root and keyring
+verify under that key, and both sides' roots and keyrings are current. Otherwise the
+session is unsafe: graded trust, not a refusal, in which the receiving side verifies
+nothing, refuses what it lists as disabled (`UNSAFE_SESSION`) and serves the rest
 ([status](poc-sdks/spec/sessions-and-influence.md#status), [unsafe
 sessions](poc-sdks/spec/sessions-and-influence.md#unsafe-sessions)).
 
