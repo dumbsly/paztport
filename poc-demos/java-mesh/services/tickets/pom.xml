@@ -16,6 +16,12 @@
     <description>Takes a customer's support ticket, marks its text as third-party, and hands it to the assistant.</description>
 
     <dependencies>
+        <!-- Connection: close for a while after SIGTERM, then graceful shutdown. -->
+        <dependency>
+            <groupId>org.paztport</groupId>
+            <artifactId>drain</artifactId>
+            <version>${project.version}</version>
+        </dependency>
         <dependency>
             <groupId>org.paztport</groupId>
             <artifactId>paztport-spring</artifactId>

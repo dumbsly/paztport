@@ -895,6 +895,13 @@ owner-read/write only (`0600`). `demo.sh` regenerates the keys when any of
 keyring that has expired is not a reason to regenerate: each run's policy tools
 re-sign it.
 
+When a service is stopped or replaced, it does not stop answering at once. On SIGTERM it keeps serving for
+`DEMO_DRAIN_SECONDS` seconds (5; `0` turns this off) with `Connection: close` on every response, so each caller
+closes its pooled connection to it and opens the next one to a service that is staying. Spring Boot's graceful
+shutdown then lets the requests in progress finish, for up to 20 s. Compose gives each of these services a
+`stop_grace_period` of 30 s to cover both. The `drain` module does this, for every service in this folder; it is
+ordinary HTTP hygiene, which the Paztport starter does not do.
+
 ### Lifetimes and renewal
 
 The policy tools sign the root and re-sign the keyring with one lifetime,
@@ -1007,6 +1014,7 @@ the gateway port is exposed to the host.
 | `PAZTPORT_OPERATIONS_TABLEPATH` | unset; Compose sets `/config/policy/ops-<svc>.json` | `orders`, `payment`: the service's own [operation table](#operations), whose operation each request it gets must name, if it names one |
 | `PAZTPORT_OPERATIONS_RECEIVERTABLES` | unset; Compose sets the tables of the receivers each calls | `gateway` (orders'), `assistant` (orders', payment's), `orders` (payment's), `search` (payment's, used only once the policy is widened) |
 | `PAZTPORT_ADMIN_TOKEN` | empty, so `/admin/mode` is not registered | `payment`, `tickets`, `assistant`, `mailer` (the demo generates one per run) |
+| `DEMO_DRAIN_SECONDS` | `5`; `0` for no drain | Every service: how long it serves with `Connection: close` after SIGTERM before graceful shutdown starts |
 | `PAZTPORT_CAPTURE` | `false`; `true` for `payment` in Compose | `payment` (the replay harness) |
 | `PAZTPORT_OPENINGS` | `false`; `true` for `payment` and `psp` in Compose | `payment` (keeps the originals of what it sends the PSP, `/debug/boundary-opening`) and `psp` (records what each call carried, `/debug/check-opening`), for row 13c |
 | `RESPONDER_URL` | empty, so events are only logged | `payment` (the demo sets `https://responder:8080` for scenario 9) |

@@ -16,6 +16,12 @@
     <description>Verifier: checks the stamp chain and route against the pinned root.</description>
 
     <dependencies>
+        <!-- Connection: close for a while after SIGTERM, then graceful shutdown. -->
+        <dependency>
+            <groupId>org.paztport</groupId>
+            <artifactId>drain</artifactId>
+            <version>${project.version}</version>
+        </dependency>
         <dependency>
             <groupId>org.paztport</groupId>
             <artifactId>paztport-spring</artifactId>

@@ -16,6 +16,12 @@
     <description>Sends email, refusing any the owner-aware rule denies.</description>
 
     <dependencies>
+        <!-- Connection: close for a while after SIGTERM, then graceful shutdown. -->
+        <dependency>
+            <groupId>org.paztport</groupId>
+            <artifactId>drain</artifactId>
+            <version>${project.version}</version>
+        </dependency>
         <dependency>
             <groupId>org.paztport</groupId>
             <artifactId>paztport-spring</artifactId>

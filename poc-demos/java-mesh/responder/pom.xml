@@ -19,6 +19,12 @@
     </properties>
 
     <dependencies>
+        <!-- Connection: close for a while after SIGTERM, then graceful shutdown. -->
+        <dependency>
+            <groupId>org.paztport</groupId>
+            <artifactId>drain</artifactId>
+            <version>${project.version}</version>
+        </dependency>
         <dependency>
             <groupId>org.paztport</groupId>
             <artifactId>paztport-core</artifactId>

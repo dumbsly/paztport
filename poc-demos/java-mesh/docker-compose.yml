@@ -131,6 +131,7 @@ services:
       dockerfile: poc-demos/java-mesh/Dockerfile
       args:
         JAR: poc-demos/java-mesh/services/payment/target/payment.jar
+    stop_grace_period: 30s   # the drain (5 s) and graceful shutdown (up to 20 s)
     networks: [mesh, psp]   # the shop's egress: the one service that reaches the PSP
     environment:
       PAZTPORT_MODE: ${PAZTPORT_MODE:-enforce}
@@ -170,6 +171,7 @@ services:
       dockerfile: poc-demos/java-mesh/Dockerfile
       args:
         JAR: poc-demos/java-mesh/services/orders/target/orders.jar
+    stop_grace_period: 30s   # the drain (5 s) and graceful shutdown (up to 20 s)
     networks: [mesh]
     environment:
       PAZTPORT_RUN_MAX_AGE_MS: "30000"
@@ -195,6 +197,7 @@ services:
       dockerfile: poc-demos/java-mesh/Dockerfile
       args:
         JAR: poc-demos/java-mesh/services/search/target/search.jar
+    stop_grace_period: 30s   # the drain (5 s) and graceful shutdown (up to 20 s)
     networks: [mesh]
     environment:
       ATTACK_MODE: "true"
@@ -224,6 +227,7 @@ services:
       dockerfile: poc-demos/java-mesh/Dockerfile
       args:
         JAR: poc-demos/java-mesh/services/mailer/target/mailer.jar
+    stop_grace_period: 30s   # the drain (5 s) and graceful shutdown (up to 20 s)
     networks: [mesh]
     environment:
       PAZTPORT_ADMIN_TOKEN: ${PAZTPORT_ADMIN_TOKEN:-}
@@ -243,6 +247,7 @@ services:
       dockerfile: poc-demos/java-mesh/Dockerfile
       args:
         JAR: poc-demos/java-mesh/services/assistant/target/assistant.jar
+    stop_grace_period: 30s   # the drain (5 s) and graceful shutdown (up to 20 s)
     networks: [mesh]
     environment:
       PAZTPORT_ADMIN_TOKEN: ${PAZTPORT_ADMIN_TOKEN:-}
@@ -267,6 +272,7 @@ services:
       dockerfile: poc-demos/java-mesh/Dockerfile
       args:
         JAR: poc-demos/java-mesh/services/tickets/target/tickets.jar
+    stop_grace_period: 30s   # the drain (5 s) and graceful shutdown (up to 20 s)
     networks: [mesh]
     environment:
       PAZTPORT_ADMIN_TOKEN: ${PAZTPORT_ADMIN_TOKEN:-}
@@ -288,6 +294,7 @@ services:
       dockerfile: poc-demos/java-mesh/Dockerfile
       args:
         JAR: poc-demos/java-mesh/services/gateway/target/gateway.jar
+    stop_grace_period: 30s   # the drain (5 s) and graceful shutdown (up to 20 s)
     networks: [mesh]
     ports:
       - "8080:8080"
@@ -314,6 +321,7 @@ services:
       dockerfile: poc-demos/java-mesh/Dockerfile
       args:
         JAR: poc-demos/java-mesh/psp/target/psp.jar
+    stop_grace_period: 30s   # the drain (5 s) and graceful shutdown (up to 20 s)
     networks: [psp]
     environment:
       PAZTPORT_KEYRING_PATH: /config/keys/keyring.json
@@ -340,6 +348,7 @@ services:
       dockerfile: poc-demos/java-mesh/Dockerfile
       args:
         JAR: poc-demos/java-mesh/responder/target/responder.jar
+    stop_grace_period: 30s   # the drain (5 s) and graceful shutdown (up to 20 s)
     networks: [mesh]
     environment:
       MESH_NETWORK: paztport-mesh

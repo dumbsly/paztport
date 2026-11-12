@@ -20,6 +20,7 @@
     <description>The Java mesh demo: the shop's Spring Boot services and a quarantine responder on the Paztport SDK, and a partner organisation's PSP.</description>
 
     <modules>
+        <module>drain</module>
         <module>services/gateway</module>
         <module>services/orders</module>
         <module>services/payment</module>

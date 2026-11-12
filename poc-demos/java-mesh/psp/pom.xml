@@ -16,6 +16,12 @@
     <description>A payment service provider run by a second organisation: the shop's partner across the boundary.</description>
 
     <dependencies>
+        <!-- Connection: close for a while after SIGTERM, then graceful shutdown. -->
+        <dependency>
+            <groupId>org.paztport</groupId>
+            <artifactId>drain</artifactId>
+            <version>${project.version}</version>
+        </dependency>
         <dependency>
             <groupId>org.paztport</groupId>
             <artifactId>paztport-spring</artifactId>

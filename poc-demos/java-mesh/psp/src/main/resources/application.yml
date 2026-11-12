@@ -3,6 +3,9 @@
 
 server:
   port: 8080
+  # On SIGTERM the drain module first serves with Connection: close for demo.drain-seconds (DEMO_DRAIN_SECONDS,
+  # default 5), then this graceful shutdown lets requests in progress finish, each phase up to the timeout below.
+  shutdown: graceful
   # Mutual TLS with the shop: its callers present certificates from the shop's
   # CA, which is all this bundle trusts, and the filter takes the service the
   # certificate names as the peer whose session a call is in.
@@ -11,6 +14,8 @@ server:
     client-auth: need
 
 spring:
+  lifecycle:
+    timeout-per-shutdown-phase: 20s
   ssl:
     bundle:
       pem:

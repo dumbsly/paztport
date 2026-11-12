@@ -1,5 +1,8 @@
 server:
   port: 8080
+  # On SIGTERM the drain module first serves with Connection: close for demo.drain-seconds (DEMO_DRAIN_SECONDS,
+  # default 5), then this graceful shutdown lets requests in progress finish, each phase up to the timeout below.
+  shutdown: graceful
   # Mutual TLS, like the mesh services: only a holder of a mesh CA certificate
   # gets as far as the event endpoint, which still checks the event's signature.
   ssl:
@@ -7,6 +10,8 @@ server:
     client-auth: need
 
 spring:
+  lifecycle:
+    timeout-per-shutdown-phase: 20s
   ssl:
     bundle:
       pem:
