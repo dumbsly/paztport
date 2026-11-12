@@ -15,8 +15,9 @@ The key words MUST, MUST NOT, SHOULD, SHOULD NOT and MAY are to be read as descr
 
 ## The protocol
 
-The protocol is v3: a stamp carries `"v": 3`, and its signed bytes begin with `3|`. It travels over MCP (the
-TypeScript SDK) and over HTTP (the Java and Go SDKs).
+The protocol is v3: a stamp carries `"v": 3`, and its signed bytes begin with `3|`. Versions 1 and 2 were earlier
+revisions, never published; the number is kept so that a stamp's `v` and its signed bytes stay as the vectors pin
+them. It travels over MCP (the TypeScript SDK) and over HTTP (the Java and Go SDKs).
 
 Design choices:
 

@@ -20,17 +20,13 @@ Contents: [What the measurements showed](#what-the-measurements-showed) · [Runn
 ## What the measurements showed
 
 The answers to the nine questions this proof of concept was built to ask, for someone deciding whether to put Paztport
-at their edge. The numbers are from one full run of `./run envoy-gateway measure` on 2026-11-11 (its results directory
-`20261111T130734Z`), except those of `rollout`, `route` and `rotation`, which are from a run of those three suites alone
-on 2026-11-12 (`20261112T141120Z`), after the backends gained a drain and a second `payment` replica and the Spring
-starter a retry of calls that never connected (see **Rolling a backend** under [Operating it](#operating-it)). Both ran
-on an Apple M5 Pro Mac (the model is the host's; the runs print only its Docker Desktop VM's 18 CPUs and 19.5 GiB of
-memory), and every number is indicative. One kind node runs Envoy, the processor, the backends and k6 together, so a
-ceiling here is the node's as much as any one part's. Both used Envoy Gateway v1.10.0, Envoy v1.40.2 (distroless),
-Kubernetes 1.37.0 on the kind node, k6 2.3.0 and a Temurin 25.0.5_8 JRE for `orders` and `payment`, and the processor
-built on Go 1.27.4 and run on distroless Debian 13. Where a measurement was repeated, its median comes first and the
-lowest and highest after it, in brackets; every other number is from a single run. The tables are under
-[Measurements](#measurements).
+at their edge. The numbers are from one full run of `./run envoy-gateway measure` on 2026-11-11, except those of
+`rollout`, `route` and `rotation`, which are from a re-run of those three suites on 2026-11-12, after the backends
+gained a drain and a second `payment` replica and the Spring starter a retry of calls that never connected. Every number
+is indicative: one kind node runs Envoy, the processor, the backends and k6 together, so a ceiling here is the node's as
+much as any one part's. Where a measurement was repeated, its median comes first and the lowest and highest after it, in
+brackets; every other number is from a single run. [Measurements](#measurements) says what ran, on what host and with
+which versions, and has the tables.
 
 1. **Load: does the edge become the bottleneck?** At 1000 requests a second the processor adds 0.35 ms at p50 and
    0.54 ms at p99. On the ramps, one and four replicas sustained what plain Envoy did (10000/s and 14000/s), and two
@@ -981,11 +977,12 @@ At 1000/s on `orders-adopt`, one run a step.
 
 In step 2, Envoy served the route with the filter by 10.50 s into the run (0.70 s into the change) and started its
 streams only once it did, so the 79867 are fewer than the run's 90000 requests. Step 3's change took 12.02 s, from
-+9.77 s to +21.79 s, and every response in the run's 150 s was a 200; the starter counted no retry (no
-`paztport.outbound.retry` on the new pods). In the first run, with `payment` at one replica and no drain, the step cost
-253 500s, 249 of them within 5.44 s around the two rollouts and four single ones about a minute and a half after. After
-step 3, `orders` counted `response checked CHAIN_MISSING` 7389 (payment's responses before it ran Paztport). A request
-straight to `orders`, past the Gateway: 403 `CHAIN_MISSING`.
++9.77 s to +21.79 s, and every response in the run's 150 s was a 200; the starter counted no retry: the counters printed
+after the step list a `paztport.outbound.retry` series for each pod that decided on a retry, and there was none. In the
+first run, with `payment` at one replica and no drain, the step cost 253 500s, 249 of them within 5.44 s around the two
+rollouts and four single ones about a minute and a half after. After step 3, `orders` counted
+`response checked CHAIN_MISSING` 7389 (payment's responses before it ran Paztport). A request straight to `orders`, past
+the Gateway: 403 `CHAIN_MISSING`.
 
 ### `route`
 

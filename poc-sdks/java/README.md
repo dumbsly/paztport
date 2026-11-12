@@ -254,7 +254,8 @@ in, as the starter's handshake endpoint hands a session request's body to
 ### Quick start
 
 Install the SDK first (`mvn -q install`, above); the starter is then the artifact
-`org.paztport:paztport-spring`, which brings paztport-core and paztport-http with it:
+`org.paztport:paztport-spring`, which brings paztport-core and paztport-http with it. The
+version is the one in the POMs; nothing is published to a package registry:
 
 ```xml
 <dependency>

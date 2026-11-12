@@ -203,6 +203,8 @@ Each cell reads as [Reading the results](#reading-the-results) describes, and [T
 
 ## Checking the evidence: `npm run verify`
 
+From `poc-demos/agents-mcp/`:
+
 ```sh
 npm run verify -- <results folder>
 npm run verify -- <one demo run folder>

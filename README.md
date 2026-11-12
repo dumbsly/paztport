@@ -230,7 +230,7 @@ flowchart LR
 | `svc` | Service name. The route is rebuilt from these and the `rcv` fields. |
 | `inst` | The signer's instance, as the signer reports it (in the Java mesh, its container's hostname), so whoever acts on a failed check can act on one replica, not a whole service. |
 | `rid` | Request ID, minted by the origin and carried unchanged. |
-| `ts` | When this stamp was signed. The last stamp must be within the call window (5 s by default) of the receiver's clock, and the origin's within the run window (30 min by default, for an agent run that reuses one origin; inside one mesh, where a request is a single call rather than a run, the origin may be held to the call window too). |
+| `ts` | When this stamp was signed. The last stamp must be within the call window of the receiver's clock, and the origin's within the run window, which a mesh may set to the call window ([Concepts](#concepts)). |
 | `sess` | The id of the session the chain was stamped in, or empty for a chain with no session, as inside one mesh. |
 | `rcv` | The receiver this stamp was signed for: the next stamp's `svc`, or the chain's receiver. Over HTTP it may also name an operation, `service#operation`. |
 | `bind` | The binding of what *this hop sent*. Over HTTP, `SHA-256(METHOD \n PATH \n BODY)` (`PATH` with its query). |
@@ -646,7 +646,7 @@ takes from each and where it differs; it does not rank them.
 ## Running it
 
 ```bash
-./run test        # the name, link and Java import checks, the TypeScript type checks, gofmt, go vet and staticcheck, every suite, a check of the built jars and of the processor's third-party list; no Docker and no model
+./run test        # the repository's checks and every suite; no Docker, no model
 ./run java-mesh   # build the Java SDK and the mesh demo, then run every scenario; the mesh stays up
 ./run envoy-gateway  # the edge processor on Envoy Gateway in a local kind cluster, and its checks; the cluster stays up
 ./run envoy-gateway measure  # the measurement suites, on a cluster of their own; needs python3
@@ -743,20 +743,22 @@ What you can check for yourself:
   `poc-sdks/spec/vectors/` are recorded answers that the Java, TypeScript and Go
   SDKs replay, each the parts for the transports it speaks, so the three
   implementations are held to one set of answers.
-- `./run test` runs the repository's own checks, the TypeScript type checks,
-  gofmt, go vet and staticcheck, every suite of the three SDKs and the demos, and a
-  check of what the built jars carry. It needs no Docker and no model. The
-  repository's own checks are three scripts. `check-names.sh` fails on a tracked
-  file that names where the designs, plans and reviews are kept: the private
-  workspace folder, a path into a `docs/specs` or `docs/plans` folder (where its
-  designs and plans sit), or the workflow plugin that ran the tasks, whose notes
-  folder bears its name. None of those is in the repository. `check-links.mjs`
-  fails on a Markdown link to a missing file or heading, and `check-imports.mjs`
-  on a Java import the file does not need.
+- `./run test` runs the repository's own checks, the TypeScript type checks, gofmt,
+  go vet and staticcheck, every suite of the three SDKs and the demos, and a check
+  of what the built jars carry. It needs no Docker and no model. The repository's
+  own checks are three scripts. `check-names.sh` fails on a tracked file that names
+  where the designs, plans and reviews are kept: the private workspace folder, a
+  path into a `docs/specs` or `docs/plans` folder (where its designs and plans sit),
+  or the workflow plugin that ran the tasks, whose notes folder bears its name. None
+  of those is named in the repository except by the check itself, which writes each
+  with one letter in brackets so that it does not match its own pattern.
+  `check-links.mjs` fails on a Markdown link to a missing file or heading, and
+  `check-imports.mjs` on a Java import the file does not need.
 - The Java mesh and Envoy Gateway READMEs say how their numbers were measured, on
-  which host and with which versions, and the Envoy Gateway README names the run
-  they come from. The measurement scripts are in the repository; their raw results
-  stay on the machine that ran them and are not committed.
+  which host and with which versions, and the Envoy Gateway README names the runs
+  they come from. The measurement scripts are in the repository. The raw results are
+  not committed: the Envoy Gateway runs and the agents demo's recorded eval are
+  published as release assets, linked from their READMEs.
 
 ## Licence and third-party software
 
