@@ -215,12 +215,14 @@ it. **Influence** is the record of the content that shaped a call: a ticket's te
 a customer's order, a tool's result. Each entry has a class, such as `third-party`
 for content from outside the trust boundary, which may carry instructions, or
 `private` for data that must not reach a public destination, and may name whose data
-it is, its **owner**. The call's stamp commits to its influence, so no entry can be
-dropped on the way, though the hop that signs decides what it forwards. The
-**owner-aware rule** reads that record: a write to a public destination is refused
-when untrusted content and someone else's private data both shaped it. An answer can
-carry a stamp of its own (**response attestation**), and a caller counts an answer
-that does not verify as untrusted content.
+it is, its **owner**. The call's stamp commits to its influence, so no later hop can
+remove an entry a signer committed to. The **owner-aware rule** reads that record: a
+write to a public destination is refused when untrusted content and someone else's
+private data both shaped it. It guards against a component that is tricked, such as
+an injected model in an honest runtime, not one that is compromised, which can leave
+out the untrusted content it received. An answer can carry a stamp of its own
+(**response attestation**), and a caller counts an answer that does not verify as
+untrusted content.
 
 **Between parties.** Inside one organisation the pinned root is enough. Across a
 trust boundary, between an AI agent and a tool server or between two organisations,
@@ -589,22 +591,26 @@ a second organisation. Its headline cases are ones an allowlist of who may call 
 would let through. `orders` may call `payment`, but code in `orders` that a request
 reached through `getOrder`, a read, and that calls `payment`'s `pay` is refused
 `PATH_NOT_ALLOWED`: `orders` may pay only inside a request that came in to create an
-order. A support-assistant storyline runs customers' tickets through a scripted
-stand-in for a hijacked model, with no model in it; the assistant may ask `payment`
-for a refund, and only for a request that came in as a ticket. An honest ticket is
+order.
+
+A support-assistant storyline runs customers' tickets through a scripted stand-in
+for a hijacked model, with no model in it; the assistant may ask `payment` for a
+refund, and only for a request that came in as a ticket. An honest ticket is
 refunded and emailed; one asking for Alice's data to go to Mallory is refused at the
 mailer and at the payment provider by [the owner-aware rule](#the-owner-aware-rule),
-though every hop was on an allowed route. The mesh also refuses what an allowlist
-would: `search`, a service legitimately on the network, adds its own stamp to a real
-chain and sends it on to `payment`, and is refused `PATH_NOT_ALLOWED`, since the
-policy's only route through `search` is `gateway → search`. The demo's responder
-acts on the signed events `payment` sends it. After three refusals from one
-container within a minute, it moves that container to an isolated network, where it
-keeps running for inspection, and starts a clean copy in its place. Its circuit
-breaker allows at most two quarantines of one service in ten minutes by default;
-past that, the responder stops acting and logs `ESCALATE` for a person to take over,
-since a legitimate route missing from the policy would make every replica of a
-service look guilty ([the scenarios](poc-demos/java-mesh/README.md#running-it),
+though every hop was on an allowed route.
+
+The mesh also refuses what an allowlist would: `search`, a service legitimately on
+the network, adds its own stamp to a real chain and sends it on to `payment`, and is
+refused `PATH_NOT_ALLOWED`, since the policy's only route through `search` is
+`gateway → search`. The demo's responder acts on the signed events `payment` sends
+it. After three refusals from one container within a minute, it moves that container
+to an isolated network, where it keeps running for inspection, and starts a clean
+copy in its place. Its circuit breaker allows at most two quarantines of one service
+in ten minutes by default; past that, the responder stops acting and logs `ESCALATE`
+for a person to take over, since a legitimate route missing from the policy would
+make every replica of a service look guilty
+([the scenarios](poc-demos/java-mesh/README.md#running-it),
 [the responder](poc-demos/java-mesh/README.md#response-quarantine-not-deletion),
 [the storyline](poc-demos/java-mesh/README.md#the-support-assistant-storyline)).
 
