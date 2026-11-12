@@ -21,13 +21,16 @@ Contents: [What the measurements showed](#what-the-measurements-showed) · [Runn
 
 The answers to the nine questions this proof of concept was built to ask, for someone deciding whether to put Paztport
 at their edge. The numbers are from one full run of `./run envoy-gateway measure` on 2026-11-11 (its results directory
-`20261111T130734Z`), on an Apple M5 Pro Mac (the model is the host's; the run prints only its Docker Desktop VM's 18
-CPUs and 19.5 GiB of memory), and every one of them is indicative. One kind node runs Envoy, the processor, the backends
-and k6 together, so a ceiling here is the node's as much as any one part's. The run used Envoy Gateway v1.10.0, Envoy
-v1.40.2 (distroless), Kubernetes 1.37.0 on the kind node, k6 2.3.0 and a Temurin 25.0.5_8 JRE for `orders` and
-`payment`, and the processor built on Go 1.27.4 and run on distroless Debian 13. Where a measurement was repeated, its
-median comes first and the lowest and highest after it, in brackets; every other number is from a single run. The
-tables are under [Measurements](#measurements).
+`20261111T130734Z`), except those of `rollout`, `route` and `rotation`, which are from a run of those three suites alone
+on 2026-11-12 (`20261112T141120Z`), after the backends gained a drain and a second `payment` replica and the Spring
+starter a retry of calls that never connected (see **Rolling a backend** under [Operating it](#operating-it)). Both ran
+on an Apple M5 Pro Mac (the model is the host's; the runs print only its Docker Desktop VM's 18 CPUs and 19.5 GiB of
+memory), and every number is indicative. One kind node runs Envoy, the processor, the backends and k6 together, so a
+ceiling here is the node's as much as any one part's. Both used Envoy Gateway v1.10.0, Envoy v1.40.2 (distroless),
+Kubernetes 1.37.0 on the kind node, k6 2.3.0 and a Temurin 25.0.5_8 JRE for `orders` and `payment`, and the processor
+built on Go 1.27.4 and run on distroless Debian 13. Where a measurement was repeated, its median comes first and the
+lowest and highest after it, in brackets; every other number is from a single run. The tables are under
+[Measurements](#measurements).
 
 1. **Load: does the edge become the bottleneck?** At 1000 requests a second the processor adds 0.35 ms at p50 and
    0.54 ms at p99. On the ramps, one and four replicas sustained what plain Envoy did (10000/s and 14000/s), and two
@@ -90,24 +93,25 @@ tables are under [Measurements](#measurements).
    event.
 5. **Adding or changing a route,** under 1000/s on `orders`, one run a step:
    - a new URL on an existing service (a second HTTPRoute to `orders`): the processor's mapping changes and its pods
-     roll, then the route is applied. No error in 90001 requests on `orders`, and none in 3801 on the new route;
+     roll, then the route is applied. No error in 90001 requests on `orders`, and none in 3800 on the new route;
    - a new service path, `edge/payment`, with `payment` exposed at the edge: a rebuilt policy, rolled out in three
-     overlap steps, refused no request for its material. The same change the old way, every holder's root replaced
-     at once, had `orders` refuse 2793 requests `PATH_NOT_ALLOWED`. The rollouts' own errors are counted apart (see
+     overlap steps, cost no error of any kind in 390002 requests. The same change the old way, every holder's root
+     replaced at once, had 4716 requests refused for their material, 3705 at `orders` (`PATH_NOT_ALLOWED`) and 1011 of
+     `orders`' calls at `payment`, and 14 more refused by Envoy's circuit breaker as the pods rolled (see
      [Measurements](#route)).
 6. **Rollout safety.** In production every valid path is signed before release, and a service goes straight to
    `enforce`; `audit` is a tool for before production, for finding the paths a system takes. So the suite measured
    the production order, at 1000/s on a route of its own, one run a step: the processor's pods mapped the route, then
    the processor attached to it, then `orders` and then `payment` rolled straight into `enforce`.
-   - Mapping rolled the processor's pods with no error in 90001 requests, and Envoy started no stream to the
-     processor, since the route was not yet attached.
-   - Attaching cost no error either: each of Envoy's 79733 streams to the processor was decided by its pods, which
+   - Mapping rolled the processor's pods with no error in 90002 requests, and Envoy started no stream to the processor,
+     since the route was not yet attached.
+   - Attaching cost no error either: each of Envoy's 79867 streams to the processor was decided by its pods, which
      already mapped the route, and none was refused. Mapping and attaching in one release would have the old pods,
      which do not map the route, refuse its requests (403) until the new pods take its streams; this run did not
      measure that order (see [Findings](#findings)).
-   - Rolling the backends into `enforce` (in this run `payment` ran one replica, with no drain) cost 253 of 150001
-     requests, every one a 500: 249 around the rollouts and four single ones about a minute and a half after the
-     change was done. None was refused `EXPIRED`, and no request reached a backend running Paztport without a stamp.
+   - Rolling the backends into `enforce` cost no error in 150001 requests. None was refused `EXPIRED`, no request
+     reached a backend running Paztport without a stamp, and each reached its receiver once. With `payment` at one
+     replica and no drain, in the first run, the same step cost 253, every one a 500 (see [Findings](#findings)).
    - Then a request straight to `orders`, past the Gateway, was refused `403 CHAIN_MISSING`.
 7. **Observability.** The processor's `/metrics` counts what it decided, how long stamping took, the bodies' sizes and
    how long its material has left (6.9 days in the run); the backends count each request by mode, outcome and
@@ -121,10 +125,10 @@ tables are under [Measurements](#measurements).
    read the Secret or mount it in a pod is the edge, as for any service ([limits of the
    concept](../../docs/limits.md#limits-of-the-concept)).
 
-   The edge's key was rotated at 1000/s in three overlap steps, one run each, and no request was refused for the
-   key. The processor's step cost no error; the two backend steps cost 1084 and 171 non-200s, which
-   [Findings](#findings) reads as the cost of rolling the backends under load (the steps are under
-   [Measurements](#rotation)).
+   The edge's key was rotated at 1000/s in three overlap steps, one run each, and no request was refused for the key.
+   The processor's step cost no error; of the two backend steps, the first cost five 500s and the last none, against
+   1084 and 171 non-200s in the first run, before the drain and the retry. [Findings](#findings) reads these as the cost
+   of rolling the backends under load, which varies from run to run (the steps are under [Measurements](#rotation)).
 9. **Upgrades.** See [Why ext_proc now, and a dynamic module later](#why-ext_proc-now-and-a-dynamic-module-later).
 
 ## Running it
@@ -557,14 +561,15 @@ What the checks and the measurements found, beyond the numbers.
   `ext_proc` filter's `status_on_error` default), failing closed. Measured: one replica offered 15000/s refused 185118
   that way while stamping every request that came back 200; on `orders` at 3000/s Envoy refused 1697 of 60002 while the
   processors stamped only 58305 in its 20 s, about 2915 a second, far under the 12000/s two replicas sustained on
-  `echo`; and of the six steps that rolled the backends under load, two counted it: 1813 (`route`'s old way) and 714
-  (rotation's first), the other four none. A reading of the `orders` case and the rolling steps, not measured: Envoy
-  holds a request's stream to the processor open until the response's headers, since the filter is sent them, so a
-  slow backend holds the processor's streams as well, and enough of them in flight fill the 1024 while the processor
-  itself is idle. The run does not give the number in flight. At that accepted rate, the `orders` case's p50 of
-  317 ms gives about 920 (2915 × 0.317) and its p90 of 514 ms about 1500 (2915 × 0.514), on either side of the 1024
-  (latencies over every response, the circuit breaker's 500s included, standing in for the mean the run does not
-  print).
+  `echo`; and of the six steps that rolled the backends under load, two counted it in the first run: 1813 (`route`'s old
+  way) and 714 (rotation's first), the other four none; in the second, with the drain, only the old way, 14. A run of
+  `rotation` alone between the two, before a fix to the retry, counted 1041 in its first step. A reading of the `orders`
+  case and the rolling steps, not measured: Envoy holds a request's stream to the processor open until the response's
+  headers, since the filter is sent them, so a slow backend holds the processor's streams as well, and enough of them in
+  flight fill the 1024 while the processor itself is idle. The run does not give the number in flight. At that accepted
+  rate, the `orders` case's p50 of 317 ms gives about 920 (2915 × 0.317) and its p90 of 514 ms about 1500 (2915 ×
+  0.514), on either side of the 1024 (latencies over every response, the circuit breaker's 500s included, standing in
+  for the mean the run does not print).
 - **A replica slow on its gRPC port is invisible to readiness.** A replica slowed by 600 ms on port 9002 alone kept
   answering `/readyz` (19 of 19 probes) and stayed ready. Readiness cannot see such a replica: the gRPC port takes only
   mutual TLS with Envoy's certificate, which the kubelet cannot present, so its probe never goes through that port.
@@ -594,10 +599,10 @@ What the checks and the measurements found, beyond the numbers.
   the new processor pods, whose routes map it, take all of its streams; until then the old pods refuse the route as
   unmapped, with 403. It fails closed; this run did not measure it. The chart maps first: `attach: false` maps the
   route, and a second release attaches it (see [The chart](#the-chart)). This run measured that order: mapping cost
-  no error and started no stream to the processor, and attaching cost none, each of Envoy's 79733 streams decided
+  no error and started no stream to the processor, and attaching cost none, each of Envoy's 79867 streams decided
   by pods that already mapped the route.
 - **Mid-rollout responses go unattested, by design.** While `orders` enforced and `payment` did not yet run
-  Paztport, `orders` counted 4066 `response checked CHAIN_MISSING` and still served the requests. A response is
+  Paztport, `orders` counted 7389 `response checked CHAIN_MISSING` and still served the requests. A response is
   content, never refused; an unattested one is recorded as untrusted influence, which counts against later calls.
   These are not requests that reached a backend unstamped: the step's traces held no request refused
   `CHAIN_MISSING`.
@@ -609,22 +614,23 @@ What the checks and the measurements found, beyond the numbers.
   scheduled job), and `audit`, which belongs before production, starts a chain where it serves a chainless request
   instead of sending its calls unstamped. The `edge` and `rollout` suites therefore compare against the backends
   without Paztport installed, not against `off`.
-- **Rolling a backend under load costs errors.** Every step that rolled `orders` or `payment` at 1000/s cost non-200
-  responses apart from refusals for material, whatever the change: 178 in `route`'s first overlap step, 253 in
-  `rollout`'s `enforce` step, 93 in `route`'s last overlap step, 2351 in its old way, 1084 in rotation's first step
-  and 171 in its last. Every error was a 500 but rotation's 503s (268 and 2) and the old way's 267 403s for age.
-  Envoy's circuit breaker on the processor's cluster refused some of them in two steps, 1813 in the old way and 714
-  in rotation's first, and none in the other four; only the old way had requests refused `EXPIRED` (267 at `orders`,
-  62 at `payment`). Every step that rolled only the processor, on routes it already mapped, cost none. In a
-  `rollout`-only run on the same code, the backends' logs showed where the 500s came from: `orders`' calls to
-  `payment` failing as `payment` rolled, first on connections the old pod closed, then as connection timeouts at the
-  client's 5 s against the old pod's address. Single 500s can also come a minute or two after a roll, as in `rollout`
-  and the old way here; their cause was not captured. So this reads as the cost of this demo's backends' rollouts:
-  `payment` ran one replica in that run, and neither backend had a drain or a readiness check beyond a TCP
-  connection. That is not compared against a better-tuned Deployment. Since then the backends have gained a drain
-  before graceful shutdown, a surge, two `payment` replicas and a starter client that retries, once, a call that never
-  connected (see **Rolling a backend** under [Operating it](#operating-it)); the figures here are from before that.
-  The windows below count these apart from refusals for material.
+- **Rolling a backend under load cost errors until the backends drained.** In the first run (`payment` at one replica,
+  neither backend drained), every step that rolled `orders` or `payment` at 1000/s cost non-200 responses apart from
+  refusals for material, whatever the change: 178 in `route`'s first overlap step, 253 in `rollout`'s `enforce` step, 93
+  in `route`'s last overlap step, 2351 in its old way, 1084 in rotation's first step and 171 in its last. Every error
+  was a 500 but rotation's 503s (268 and 2) and the old way's 267 403s for age. In a `rollout`-only run on the same
+  code, the backends' logs showed where the 500s came from: `orders`' calls to `payment` failing as `payment` rolled,
+  first on connections the old pod closed, then as connection timeouts at the client's 5 s against the old pod's
+  address. In the second run, with the Deployments under **Rolling a backend** in [Operating it](#operating-it) (two
+  `payment` replicas, a surge, a drain before graceful shutdown, and the starter retrying a call that never connected),
+  the same steps cost 0, 0, 0, 14, 5 and 0: the old way's 14 were Envoy's circuit breaker, beside its refusals for
+  material, and rotation's first step's five were 500s within 0.72 s, whose cause was not captured. No request was
+  refused for age, and each request reached its receiver once. The single late 500s of the first run, a minute or two
+  after a roll, did not come in the second. Every step that rolled only the processor, on routes it already mapped, cost
+  none in both. These are single runs, and the cost of a roll varies: two runs between them, before a fix to the retry,
+  cost 5 and 1280 in rotation's first step, the 1280 mostly Envoy's circuit breaker (1041) and 239 503s. A reading, not
+  measured: the drain removes the errors the old pods' connections caused, and leaves the node's load during a roll,
+  which can still fill the processor's 1024 streams. The windows below count these apart from refusals for material.
 
 ## Gotchas, and how each is handled
 
@@ -652,7 +658,8 @@ What the checks and the measurements found, beyond the numbers.
   error. Mapping and attaching in one release, on a route already being served, has the old pods refuse its requests
   with 403 until the new pods take its streams ([Findings](#findings); this run did not measure it). Then roll the
   backends straight into `enforce`, caller first, since a callee in `enforce` refuses every call its caller does not
-  stamp yet: 253 errors of 150001, every one a 500, and no request reached a backend running Paztport unstamped.
+  stamp yet: no error in 150001 requests (253, every one a 500, with `payment` at one replica and no drain), and no
+  request reached a backend running Paztport unstamped.
   `audit` belongs before production, to find the paths a system takes and to check a release's policy against them.
 - **A new route.** Into the chart's `routes` (the processor's pods roll), then the route applied; off the Gateway
   before it leaves `routes`.
@@ -676,8 +683,8 @@ What the checks and the measurements found, beyond the numbers.
   The Spring starter retries once, freshly stamped, a call that failed before its connection was established (a call
   other than GET or HEAD, through the starter's own TLS client, `paztport.tls-bundle`), which with two `payment`
   replicas can reach the other one. A call whose connection dies after the request was sent is not retried by the
-  starter (the JDK client re-sends only a GET or HEAD itself): its request may have been served. These Deployments
-  are not yet measured: the figures in [Findings](#findings) are from `payment` at one replica and no drain.
+  starter (the JDK client re-sends only a GET or HEAD itself): its request may have been served. What rolling them
+  cost, before and after, is under [Findings](#findings).
 - **Readiness.** `/readyz`, `paztport_edge_material_seconds_left` and each request's check take the material's one
   `notAfter`, which can overstate how long the edge's stamps will be accepted. It fails closed: past it the processor
   refuses every request, and a stamp a receiver no longer accepts is refused there.
@@ -840,6 +847,11 @@ must keep its offered rate kept it: 293 pace lines, all passed (see [Measuring i
 for one known line, `failure`'s "nothing reached echo unstamped" in the case with every processor replica gone, and
 its suite-end total: the recovery leak in [Findings](#findings). Every other line passed.
 
+`rollout`, `route` and `rotation` were run again, alone, on 2026-11-12 from 14:11Z (results directory
+`20261112T141120Z`), on the same machine and versions, after the backends gained a drain, a surge and a second `payment`
+replica, and the starter a retry of calls that never connected; their tables below are from that run, and
+[Findings](#findings) compares the two. Its 52 pace lines all passed, every other line passed, and it exited 0.
+
 ### `load`
 
 Three alternated rounds of 20 s a side, after a discarded warm-up; every run at its offered rate, every response a
@@ -961,16 +973,17 @@ At 1000/s on `orders-adopt`, one run a step.
 
 | Step | Requests | Not 200 | Window | Backends' reasons |
 |---|---|---|---|---|
-| 1, the processor's pods rolled to map the route, not attached (backends without Paztport) | 90001 | 0 | | none: neither verifies yet; Envoy started no stream to the processor |
-| 2, the processor attached (backends without Paztport) | 90000 | 0 | | none: neither verifies yet; Envoy's 79733 streams to the processor, the pods' 79733 stamps |
-| 3, `orders` then `payment` into `enforce` | 150001 | 253 (500) | 95.209 s | `orders` `OK` 135465; `payment` `OK` 131146; no `EXPIRED`; `CHAIN_MISSING` 0 |
+| 1, the processor's pods rolled to map the route, not attached (backends without Paztport) | 90002 | 0 | | none: neither verifies yet; Envoy started no stream to the processor |
+| 2, the processor attached (backends without Paztport) | 90000 | 0 | | none: neither verifies yet; Envoy's 79867 streams to the processor, the pods' 79867 stamps |
+| 3, `orders` then `payment` into `enforce` | 150001 | 0 | | `orders` `OK` 135473; `payment` `OK` 128084; no `EXPIRED`; `CHAIN_MISSING` 0; each request id traced once |
 
-In step 2, Envoy served the route with the filter by 10.51 s into the run (0.70 s into the change) and started its
-streams only once it did, so the 79733 are fewer than the run's 90000 requests. In step 3, 249 of the 253 500s came
-within 5.44 s of the first, in the run's seconds +18, +23 and +24, around the two rollouts; the other four were single
-500s at +109, +111, +112 and +113 s, long after the change was done (at +18.84 s), which is why the window is the whole
-span. After step 3, `orders` counted `response checked CHAIN_MISSING` 4066 (payment's responses before it ran Paztport).
-A request straight to `orders`, past the Gateway: 403 `CHAIN_MISSING`.
+In step 2, Envoy served the route with the filter by 10.50 s into the run (0.70 s into the change) and started its
+streams only once it did, so the 79867 are fewer than the run's 90000 requests. Step 3's change took 12.02 s, from
++9.77 s to +21.79 s, and every response in the run's 150 s was a 200; the starter counted no retry (no
+`paztport.outbound.retry` on the new pods). In the first run, with `payment` at one replica and no drain, the step cost
+253 500s, 249 of them within 5.44 s around the two rollouts and four single ones about a minute and a half after. After
+step 3, `orders` counted `response checked CHAIN_MISSING` 7389 (payment's responses before it ran Paztport). A request
+straight to `orders`, past the Gateway: 403 `CHAIN_MISSING`.
 
 ### `route`
 
@@ -979,31 +992,29 @@ apart.
 
 | Step | Requests on `orders` | Not 200 | Window | Refused for material |
 |---|---|---|---|---|
-| a new URL, `orders-shop` (mapped, then applied) | 90001 | 0 | | none; 3801 on the new route, all 200 |
-| overlap 1: the backends pin both roots | 150001 | 178 (500) | 5.478 s | none |
-| overlap 2: the processor's new root, bundle and mapping; the route `payment` applied | 90001 | 0 | | none; `/pay` 189 404s before it was served, then no error |
-| overlap 3: the old root unpinned everywhere | 150001 | 93 (500) | 5.195 s | none (no `EXPIRED`); no error on `/pay` |
-| the old way: every root replaced at once | 150001 | 5144 (403: 3060, 500: 2084) | 103.691 s | `orders` `PATH_NOT_ALLOWED` 2793 (`EXPIRED` 267 at `orders`, 62 at `payment`); `/pay` 187 404s, no error |
+| a new URL, `orders-shop` (mapped, then applied) | 90001 | 0 | | none; 3800 on the new route, all 200 |
+| overlap 1: the backends pin both roots | 150000 | 0 | | none |
+| overlap 2: the processor's new root, bundle and mapping; the route `payment` applied | 90001 | 0 | | none; `/pay` 191 404s before it was served, then no error |
+| overlap 3: the old root unpinned everywhere | 150001 | 0 | | none (no `EXPIRED`); no error on `/pay` |
+| the old way: every root replaced at once | 150001 | 4730 (403: 3705, 500: 1025) | 7.077 s | `orders` `PATH_NOT_ALLOWED` 3705; `payment` `PATH_NOT_ALLOWED` 1011, each a 500 from `orders`; no `EXPIRED`; `/pay` 182 404s, no error |
 
 The overlap against the old way, as the suite sums them; one run of each, so no spread.
 
 | | The overlap, three steps | The old way, one step |
 |---|---|---|
-| refused for material (reasons other than `OK`, `EXPIRED` or `CHAIN_MISSING`) | none | `PATH_NOT_ALLOWED` 2793, at `orders` |
+| refused for material (reasons other than `OK`, `EXPIRED` or `CHAIN_MISSING`) | none | `PATH_NOT_ALLOWED`: 3705 at `orders`, 1011 at `payment` |
 | rollouts | four: the backends twice, the processor twice | two: the backends and the processor once, together |
-| requests on `orders` | 390003 | 150001 |
-| refused for age (`EXPIRED`) | none | `orders` 267, `payment` 62 |
-| not 200 on `orders`, material refusals apart (age refusals included) | 271 (500: 271), the suite's sum | 2351 (403: 267; 500: 2084): k6's 5144 non-200s less `orders`' 2793 `PATH_NOT_ALLOWED` |
-| load on `/pay` | 11302 requests, from just before its route was applied through step 3's rollouts; 189 404s before it was served, no error | 6600, only after the rollouts, since its route comes after them; 187 404s before it was served, no error |
+| requests on `orders` | 390002 | 150001 |
+| refused for age (`EXPIRED`) | none | none |
+| not 200 on `orders`, material refusals apart | 0 | 14 (500): k6's 4730 non-200s less `orders`' 3705 `PATH_NOT_ALLOWED` and the 1011 500s that followed `payment`'s (`orders` verified 146282 `OK`, k6 counted 145271 200s) |
+| load on `/pay` | 11302 requests, from just before its route was applied through step 3's rollouts; 191 404s before it was served, no error | 6601, only after the rollouts, since its route comes after them; 182 404s before it was served, no error |
 
-The overlap's other errors are far fewer than the old way's, 271 to 2351, on 2.6 times the requests (390003 against
-150001): 0.07% of its requests against 1.57%. All 271 were 500s, in its steps 1 (178) and 3 (93); step 2 had none.
-Envoy's circuit breaker on the processor's cluster refused none of them (`cluster_rq_active_overflow` +0 in all three
-steps). In the old way it refused 1813, most of its 2084 500s, as it did in rotation's first step (+714);
-[Findings](#findings) has a reading of it, not measured. The old way's errors came in one step: 5137 of its 5144 within
-9.165 s of the first, the other seven, one or two a second, at +109 to +115 s. What the overlap closes is the refusals
-for material; it had no refusal for age here either. A stamp under the new tree was accepted while `orders`' own root
-was still the old one (20 of 20), and one under the old tree refused `PATH_NOT_ALLOWED` once it was unpinned (20 of 20).
+The overlap cost no error of any kind in its 390002 requests; in the first run, before the drain, its steps 1 and 3 cost
+271 500s. The old way's errors came in one step, all 4730 within 7.077 s of the first, and all but 14 were refusals for
+material; the 14 were Envoy's circuit breaker on the processor's cluster (`cluster_rq_active_overflow` +14), which in
+the first run refused 1813. What the overlap closes is the refusals for material. A stamp under the new tree was
+accepted while `orders`' own root was still the old one (20 of 20), and one under the old tree refused
+`PATH_NOT_ALLOWED` once it was unpinned (20 of 20).
 
 ### `rotation`
 
@@ -1011,12 +1022,13 @@ The edge's key rotated at 1000/s on `orders`, one run a step.
 
 | Step | Requests | Not 200 | Window | Backends' reasons, and Envoy |
 |---|---|---|---|---|
-| 1, the backends pin both keyrings | 150000 | 1084 (500: 816, 503: 268) | 5.945 s | `OK` only; `cluster_rq_active_overflow` +714 |
-| 2, the processor takes the new key and keyring | 90001 | 0 | | `OK` only |
-| 3, the old keyring unpinned | 150002 | 171 (500: 169, 503: 2) | 6.017 s | `OK` only, no `EXPIRED`; `cluster_rq_active_overflow` +0 |
+| 1, the backends pin both keyrings | 150001 | 5 (500) | 0.723 s | `OK` only; `cluster_rq_active_overflow` +0 |
+| 2, the processor takes the new key and keyring | 90002 | 0 | | `OK` only |
+| 3, the old keyring unpinned | 150001 | 0 | | `OK` only, no `EXPIRED`; `cluster_rq_active_overflow` +0 |
 
-The first step cost the most, 714 of its 1084 refused by Envoy's circuit breaker; the third, which also rolled both
-backends, cost 171 and none from the breaker. A stamp under the new key was accepted while `orders`' own keyring was
-still the old one (20 of 20), and one under the old key refused `BAD_SIGNATURE` once it was unpinned (20 of 20). No
-request reached a backend running Paztport without a stamp (`CHAIN_MISSING` 0 in every trace) in any step of `rollout`,
-`route` or `rotation`.
+The first step cost five 500s, within 0.72 s: `orders` verified all 150001 requests and `payment` 149997 calls, so four
+of the five failed calls never reached `payment`'s check; what failed them was not captured. In the first run, before
+the drain, the first step cost 1084, 714 of them refused by Envoy's circuit breaker, and the third 171. A stamp under
+the new key was accepted while `orders`' own keyring was still the old one (20 of 20), and one under the old key refused
+`BAD_SIGNATURE` once it was unpinned (20 of 20). No request reached a backend running Paztport without a stamp
+(`CHAIN_MISSING` 0 in every trace), and each reached its receiver once, in any step of `rollout`, `route` or `rotation`.
