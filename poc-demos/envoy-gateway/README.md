@@ -850,7 +850,9 @@ its suite-end total: the recovery leak in [Findings](#findings). Every other lin
 `rollout`, `route` and `rotation` were run again, alone, on 2026-11-12 from 14:11Z (results directory
 `20261112T141120Z`), on the same machine and versions, after the backends gained a drain, a surge and a second `payment`
 replica, and the starter a retry of calls that never connected; their tables below are from that run, and
-[Findings](#findings) compares the two. Its 52 pace lines all passed, every other line passed, and it exited 0.
+[Findings](#findings) compares the two. Its 52 pace lines all passed, every other line passed, and it exited 0. Both
+runs' results directories are published as [release assets](https://github.com/dumbsly/paztport/releases); once the
+assets are available this link will point to them.
 
 ### `load`
 
