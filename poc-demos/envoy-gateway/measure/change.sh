@@ -57,7 +57,7 @@ CHANGE_NEW_LEAD=3
 CHANGE_RAMP=30s
 CHANGE_WARMUP=20s
 # The length of each step's run on orders: the lead, the change, and the tail. A step that rolls the backends needs
-# the most: a Spring Boot pod takes some 20 s to start here, and orders' two roll one after the other.
+# the most: a Spring Boot pod takes some 20 s to start here, and orders' two and payment's two roll one pod at a time.
 CHANGE_SHOP_DURATION=90s
 CHANGE_PIN_DURATION=150s
 CHANGE_EDGE_DURATION=90s

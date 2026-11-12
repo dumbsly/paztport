@@ -105,8 +105,8 @@ tables are under [Measurements](#measurements).
      already mapped the route, and none was refused. Mapping and attaching in one release would have the old pods,
      which do not map the route, refuse its requests (403) until the new pods take its streams; this run did not
      measure that order (see [Findings](#findings)).
-   - Rolling the backends into `enforce` cost 253 of 150001 requests, every one a 500: 249 around the rollouts and
-     four single ones about a minute and a half after the change was done. None was refused `EXPIRED`, and no
+   - Rolling the backends into `enforce` (in this run `payment` ran one replica, with no drain) cost 253 of 150001
+     requests, every one a 500: 249 around the rollouts and four single ones about a minute and a half after the change was done. None was refused `EXPIRED`, and no
      request reached a backend running Paztport without a stamp.
    - Then a request straight to `orders`, past the Gateway, was refused `403 CHAIN_MISSING`.
 7. **Observability.** The processor's `/metrics` counts what it decided, how long stamping took, the bodies' sizes and
@@ -620,10 +620,11 @@ What the checks and the measurements found, beyond the numbers.
   `payment` failing as `payment` rolled, first on connections the old pod closed, then as connection timeouts at the
   client's 5 s against the old pod's address. Single 500s can also come a minute or two after a roll, as in `rollout`
   and the old way here; their cause was not captured. So this reads as the cost of this demo's backends' rollouts:
-  `payment` runs one replica here, and neither backend has a `preStop` pause or a readiness check beyond a TCP
-  connection. That is not compared against a better-tuned Deployment. Left for later are a `preStop` pause with
-  graceful shutdown on the backends, and a starter client that retries a call that never reached its receiver. The
-  windows below count these apart from refusals for material.
+  `payment` ran one replica in that run, and neither backend had a drain or a readiness check beyond a TCP
+  connection. That is not compared against a better-tuned Deployment. Since then the backends have gained a drain
+  before graceful shutdown, a surge, two `payment` replicas and a starter client that retries, once, a call that never
+  connected (see **Rolling a backend** under [Operating it](#operating-it)); the figures here are from before that.
+  The windows below count these apart from refusals for material.
 
 ## Gotchas, and how each is handled
 
@@ -673,7 +674,7 @@ What the checks and the measurements found, beyond the numbers.
   `DEMO_DRAIN_SECONDS` (5) with `Connection: close` on every response, so its callers drop their pooled connections to
   it, and only then shuts down gracefully (20 s for calls in flight); the 40 s is the drain, that phase and a margin.
   The Spring starter retries once, freshly stamped, a call that failed before its connection was established, which
-  with two `payment` replicas reaches the other one. A call whose connection dies after the request was sent is not
+  with two `payment` replicas can reach the other one. A call whose connection dies after the request was sent is not
   retried: its request may have been served. These Deployments are not yet measured: the figures in
   [Findings](#findings) are from `payment` at one replica and no drain.
 - **Readiness.** `/readyz`, `paztport_edge_material_seconds_left` and each request's check take the material's one
