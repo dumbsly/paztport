@@ -1197,8 +1197,9 @@ sustained() {
 }
 
 # backend_reasons: what orders and payment counted, added up over their pods, read from /actuator/prometheus with
-# the operator's certificate: each request they decided, by mode, outcome and reason, and each response orders
-# checked, by reason; "<app> <series> <count>" a line.
+# the operator's certificate: each request they decided, by mode, outcome and reason, each response orders checked,
+# by reason, and each call the starter decided whether to retry, by failure and outcome (a pod that made none has no
+# such series); "<app> <series> <count>" a line.
 backend_reasons() {
   local app ip text
   for app in orders payment; do
@@ -1209,7 +1210,7 @@ backend_reasons() {
         echo "error: $app at $ip did not answer /actuator/prometheus" >&2
         return 1
       }
-      printf '%s\n' "$text" | grep -E '^paztport_(request|response)_seconds_count\{' | sed "s/^/$app /"
+      printf '%s\n' "$text" | grep -E '^paztport_(request|response|outbound_retry)_seconds_count\{' | sed "s/^/$app /"
     done
   done | awk '{ n[$1 " " $2] += $3 } END { for (k in n) printf "%s %d\n", k, n[k] }' | LC_ALL=C sort
 }
@@ -1225,6 +1226,12 @@ def read(text):
             app, series, n = line.split()
             out[(app, series)] = int(n)
     return out
+def series_shown(series):
+    if series.startswith("paztport_request"):
+        return "request", ("mode", "outcome", "reason")
+    if series.startswith("paztport_outbound_retry"):
+        return "outbound retry", ("failure", "outcome")
+    return "response checked", ("mode", "outcome", "reason")
 before, after = read(sys.argv[1]), read(sys.argv[2])
 bad = []
 for (app, series), n in sorted(after.items()):
@@ -1232,8 +1239,8 @@ for (app, series), n in sorted(after.items()):
     if not added:
         continue
     labels = dict(re.findall(r"(\w+)=\"([^\"]*)\"", series))
-    name = "request" if series.startswith("paztport_request") else "response checked"
-    shown = " ".join("%s=%s" % (k, labels[k]) for k in ("mode", "outcome", "reason") if k in labels)
+    name, keys = series_shown(series)
+    shown = " ".join("%s=%s" % (k, labels[k]) for k in keys if k in labels)
     print("    %-8s %-16s %-40s +%d" % (app, name, shown, added))
     if labels.get("reason", "OK") != "OK":
         bad.append("%s %s %s (+%d)" % (app, name, labels["reason"], added))
