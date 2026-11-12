@@ -38,6 +38,9 @@ flames on this one. No ideas are truly original - this is built off of the ideas
 and amazing work of many different people, and paztport might not even be unique
 in its synthesis of those ideas.
 
+Special thanks to Ralph Merkle, and not just for his trees and tries but for his 
+work in puzzle theory, both of which were big parts of leading me to this concept. 
+
 I hope paztport lands with a wider audience, but no matter what, I have learned a
 lot.
 
