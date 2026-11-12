@@ -11,9 +11,17 @@ FROM eclipse-temurin:25-jdk-noble@sha256:80f67fb3d6f76e2d817d98a4cc2a9cf05f054d4
 # Set by BuildKit to amd64 or arm64; it picks the tarball and checksum below.
 ARG TARGETARCH
 
-# gcc and libc6-dev are for the race detector, which needs cgo (CI's runner has them). Ubuntu packages are not
-# version-pinned; the base digest fixes the archive snapshot they come from, near enough.
-RUN apt-get update \
+# gcc and libc6-dev are for the race detector, which needs cgo (CI's runner has them). The package versions are those
+# of the Ubuntu archive as it stood at 2026-11-12 00:00 UTC, through Ubuntu's snapshot service: with APT::Snapshot
+# set, apt picks and downloads packages only from snapshot.ubuntu.com/ubuntu/20261112T000000Z (apt-get update fetches
+# the live indexes too, but they go unused), so every build, local or in CI, installs the same versions. apt knows the
+# snapshot server of archive.ubuntu.com and security.ubuntu.com (amd64) already; for ports.ubuntu.com (arm64) it
+# would learn it only from a Release file fetched earlier, so it is named here (the snapshot's ubuntu path carries
+# arm64 too).
+RUN printf '%s\n' 'APT::Snapshot "20261112T000000Z";' \
+      'Acquire::Snapshots::URI::Host::ports.ubuntu.com "https://snapshot.ubuntu.com/ubuntu/@SNAPSHOTID@/";' \
+      >/etc/apt/apt.conf.d/50snapshot \
+ && apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates curl gcc git libc6-dev unzip xz-utils \
  && rm -rf /var/lib/apt/lists/*
 
@@ -46,10 +54,10 @@ RUN set -eu; \
     tar -C /usr/local/node --strip-components=1 -xJf /tmp/node.tar.xz; \
     rm /tmp/node.tar.xz
 
-# Maven 3.10.0. The checksum is the sha512 Apache publishes next to the archive,
-# https://downloads.apache.org/maven/maven-3/3.10.0/binaries/apache-maven-3.10.0-bin.tar.gz.sha512.
+# Maven 3.10.0 from Maven Central, which keeps every release. The checksum is the sha512 published next to the archive,
+# https://repo.maven.apache.org/maven2/org/apache/maven/apache-maven/3.10.0/apache-maven-3.10.0-bin.tar.gz.sha512.
 RUN set -eu; \
-    curl -fsSL -o /tmp/maven.tar.gz "https://archive.apache.org/dist/maven/maven-3/3.10.0/binaries/apache-maven-3.10.0-bin.tar.gz"; \
+    curl -fsSL -o /tmp/maven.tar.gz "https://repo.maven.apache.org/maven2/org/apache/maven/apache-maven/3.10.0/apache-maven-3.10.0-bin.tar.gz"; \
     echo "908b1501bfb420bf7c8affb855534a9c407fd6099367bfb9f2f2dcb8e9799102bffb84518cde74c679bd76870247c6528683abdd620581bffa90f95d92d175aa  /tmp/maven.tar.gz" | sha512sum -c -; \
     mkdir /usr/local/maven; \
     tar -C /usr/local/maven --strip-components=1 -xzf /tmp/maven.tar.gz; \
@@ -72,8 +80,10 @@ ENV MAVEN_ARGS=-Daether.enhancedLocalRepository.split=true
 
 # The suites run as an unprivileged user. The cache directories exist, and belong to that user, in the image: a new
 # named volume mounted over one of them takes on its owner, so the user can write to it. They hold downloads and
-# build caches, nothing the suites need to keep.
-RUN useradd --create-home --shell /bin/bash paztport \
+# build caches, nothing the suites need to keep. The uid and gid are fixed, so a new base image cannot hand the user
+# another uid and leave the volumes made earlier owned by someone else.
+RUN groupadd --gid 10001 paztport \
+ && useradd --uid 10001 --gid 10001 --create-home --shell /bin/bash paztport \
  && mkdir -p /work /home/paztport/.m2/repository/cached /home/paztport/go/pkg/mod /home/paztport/.cache/go-build /home/paztport/.npm \
  && chown -R paztport:paztport /work /home/paztport
 USER paztport
