@@ -610,7 +610,7 @@ else:
 
 # step_traces <200s to orders> <200s to payment> <complete>: what orders and payment decided in the step, by
 # reason, from the trace lines in their logs since the step began (logs_end's $tmp/logs/traces, a line read twice
-# counted once), written to $RUN_DIR/$CASE.reasons; and the two behavioural lines. <complete> is 0 when
+# counted once), written to $RUN_DIR/$CASE.reasons; and the three behavioural lines. <complete> is 0 when
 # logs_end found every pod's log read. The coverage is a lower bound: k6's 200s are the least each backend must have
 # verified OK (a 200 from a route to orders is a request orders verified, and payment too, which orders calls on
 # every one; a 200 from the route payment is one payment verified), so a shortfall shows lines lost, but lines lost
@@ -619,7 +619,9 @@ else:
 # holds the coverage to the traces from then on and to k6's 200s from STEP_FROM_MARGIN whole seconds after it (a 200
 # then is a request the backends running Paztport verified, unless it took longer than that), while the line on
 # stamps covers every trace of the step: every request a pod running Paztport received, as one without it verifies
-# nothing and writes no trace. Returns 1 if either line is FAIL.
+# nothing and writes no trace. The third, over every trace as well, is that each request reached its receiver once:
+# a request id traced twice at orders, or twice at payment, on one pod or on two, is a request delivered twice (its
+# ids in $RUN_DIR/$CASE.twice), which nothing in these steps may cause. Returns 1 if any line is FAIL.
 STEP_FROM_MARGIN=2
 step_traces() {
   python3 -c 'import collections, datetime, glob, json, math, os, re, sys
@@ -635,6 +637,9 @@ def utc(at):
     return datetime.datetime.fromtimestamp(at / 1000, datetime.timezone.utc).strftime("%H:%M:%S.%f")[:-3] + "Z"
 since = ms(since)
 counts, later = collections.Counter(), collections.Counter()
+# Each request id'"'"'s trace lines at each backend, every pod'"'"'s together: more than one is a request that reached
+# its receiver twice, on one pod (the second refused REPLAY) or on two (both served).
+delivered = collections.defaultdict(list)
 # Each pod'"'"'s trace lines, from every file of its log linked on the node, as "<pod> <time> stdout F <line>": the
 # line itself, which holds the time the service logged it and the request'"'"'s rid, is counted once for its pod, as a
 # file the kubelet rotated can be linked twice (as it was, and compressed); with the time the node first wrote it.
@@ -649,11 +654,12 @@ frm = int(verify[1]) if verify[:1] == ["from"] else None
 for pod, lines in sorted(by_pod.items()):
     app = pod.split("-")[0]
     for rest, at in lines.items():
-        m = re.search(r"PAZTPORT_TRACE request rid=\S+ reason=(\S+)", rest)
+        m = re.search(r"PAZTPORT_TRACE request rid=(\S+) reason=(\S+)", rest)
         if m:
-            counts[(app, m.group(1))] += 1
+            delivered[(app, m.group(1))].append((at, pod, m.group(2)))
+            counts[(app, m.group(2))] += 1
             if frm is not None and at >= frm:
-                later[(app, m.group(1))] += 1
+                later[(app, m.group(2))] += 1
 with open(out, "w") as f:
     for (app, reason), n in sorted(counts.items()):
         f.write("%s %s %d\n" % (app, reason, n))
@@ -704,6 +710,20 @@ elif not covered:
     bad = 1
 else:
     print("  PASS no request reached a backend without a stamp: CHAIN_MISSING 0 at orders and at payment%s" % over)
+twice = {key: sorted(lines) for key, lines in delivered.items() if len(lines) > 1}
+if twice:
+    with open(out[:-len(".reasons")] + ".twice", "w") as f:
+        for (app, rid), lines in sorted(twice.items()):
+            f.write("%s %s %s\n" % (app, rid, " ".join("%s:%s" % (pod, reason) for _, pod, reason in lines)))
+    shapes = collections.Counter((app, len({pod for _, pod, _ in lines}) > 1, " then ".join(r for _, _, r in lines))
+                                 for (app, _), lines in twice.items())
+    print("  FAIL each request reached its receiver once: %d did more than once (%s), their ids in %s" % (
+        len(twice), "; ".join("%s %d, %s on %s" % (app, n, reasons, "two pods" if pods else "one pod")
+                               for (app, pods, reasons), n in sorted(shapes.items())),
+        os.path.basename(out[:-len(".reasons")] + ".twice")))
+    bad = 1
+else:
+    print("  PASS each request reached its receiver once: no request id traced twice at orders or at payment%s" % over)
 sys.exit(bad)' "$tmp/logs" "$1" "$2" "$3" "$RUN_DIR/$CASE.reasons" "$STEP_SINCE" "${STEP_VERIFY:-all}" \
     "$RUN_DIR/$CASE" "$STEP_FROM_MARGIN"
 }
