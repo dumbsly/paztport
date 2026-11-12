@@ -26,6 +26,11 @@ import javax.net.ssl.SSLHandshakeException;
  * Nothing else is matched: a pooled connection the peer has closed, a reset after the request was written and a read
  * timeout ({@code HttpTimeoutException} that is not a connect timeout) may each have reached the receiver.
  *
+ * <p>Only calls whose method is neither {@code GET} nor {@code HEAD} are covered ({@link #covers}). The JDK's client
+ * re-sends a {@code GET} or {@code HEAD} itself when the connection it was written on dies before the response, and if
+ * that re-send's connect fails, the call fails with a connect failure that keeps no trace of the first attempt, which
+ * may have been delivered. Those two methods stay under the JDK's own handling.
+ *
  * @param connectTimeout how long the retry's connect may take, {@code paztport.connect-timeout-ms}
  * @param originWindowMs how old the origin's stamp may be when it arrives, the effective
  *     {@code paztport.run-max-age-ms}: this service's own setting, standing in for its receiver's, which it cannot know
@@ -57,6 +62,14 @@ public record UnconnectedRetry(Duration connectTimeout, long originWindowMs, Clo
     public UnconnectedRetry {
         Objects.requireNonNull(connectTimeout, "connectTimeout");
         Objects.requireNonNull(clock, "clock");
+    }
+
+    /**
+     * Whether a call with {@code method} may be retried: any method but {@code GET} and {@code HEAD}, whose connect
+     * failure may follow an attempt the JDK's client already sent and re-sent itself.
+     */
+    public static boolean covers(String method) {
+        return !"GET".equals(method) && !"HEAD".equals(method);
     }
 
     /**

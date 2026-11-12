@@ -50,10 +50,14 @@ import org.springframework.http.client.ClientHttpResponse;
  * <p>The request carries only the Paztport headers the caller stamped, as the spec's header rule says: any the
  * application set on the request before this interceptor runs are removed first.
  *
- * <p>Given an {@link UnconnectedRetry}, a call that failed before its connection was established is sent once more,
- * at once, freshly stamped: a connect that timed out, a connect refused after the JDK client's own retry, or a TLS
- * handshake that failed. The JDK client writes no byte of a request before its connection, handshake included, is
- * established, so the first attempt reached no receiver, and the retry is the only delivery. The retry is stamped
+ * <p>Given an {@link UnconnectedRetry}, a call whose method is neither {@code GET} nor {@code HEAD} and that failed
+ * before its connection was established is sent once more, at once, freshly stamped: a connect that timed out, a
+ * connect refused after the JDK client's own retry, or a TLS handshake that failed. The JDK client writes no byte of a
+ * request before its connection, handshake included, is established, so the first attempt reached no receiver, and
+ * the retry is the only delivery. A {@code GET} or {@code HEAD} is never retried here: the JDK client re-sends those
+ * itself when the connection they were written on dies, so their connect failure may follow an attempt that was
+ * delivered. The starter wires the retry only with its own {@link PooledTlsClient}, the client this was checked on;
+ * other request factories make hidden retries of their own. The retry is stamped
  * again because a stamp's age runs from its signing; the delivery is the same, since replay protection and
  * idempotency key on the request tree, the caller, the receiver and the binding, not on the stamp. Its response is
  * checked against the second stamp. Nothing else is retried: a pooled connection the peer has closed, a reset after
@@ -112,8 +116,9 @@ public final class OutboundInterceptor implements ClientHttpRequestInterceptor {
         try {
             response = execution.execute(request, body);
         } catch (IOException first) {
-            Optional<UnconnectedRetry.Failure> failure = retry == null ? Optional.empty()
-                    : UnconnectedRetry.classify(first);
+            Optional<UnconnectedRetry.Failure> failure =
+                    retry == null || !UnconnectedRetry.covers(request.getMethod().name()) ? Optional.empty()
+                            : UnconnectedRetry.classify(first);
             if (failure.isEmpty()) {
                 throw first;
             }

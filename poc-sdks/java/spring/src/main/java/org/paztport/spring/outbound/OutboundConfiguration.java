@@ -37,19 +37,24 @@ public class OutboundConfiguration {
     @ConditionalOnProperty("paztport.key-path")
     RestClientCustomizer paztportRestClientCustomizer(
             Stamper stamper, ObjectProvider<ProofBundle> bundle, ObjectProvider<ResponseVerifier> responses,
-            PaztportProperties props, ObjectProvider<ObservationRegistry> observations) {
+            PaztportProperties props, ObjectProvider<ObservationRegistry> observations,
+            ObjectProvider<PooledTlsClient> tls) {
         ResponseVerifier checks = responses.getIfAvailable();
         Verifier verifier = checks != null ? checks.verifier() : null;
         ProofBundle proofs = bundle.getIfAvailable();
         OutboundInterceptor interceptor = new OutboundInterceptor(HttpCaller.builder(props.getServiceName(), stamper)
                 .bundle(proofs).verifier(verifier).receivers(props.getReceiverNames())
                 .operations(OperationConfiguration.receiverTables(props, proofs, checks)).build(),
-                observations.getIfAvailable(() -> ObservationRegistry.NOOP), unconnectedRetry(props));
+                observations.getIfAvailable(() -> ObservationRegistry.NOOP),
+                tls.getIfAvailable() != null ? unconnectedRetry(props) : null);
         return builder -> builder.requestInterceptor(interceptor);
     }
 
     /**
-     * The retry of calls that never connected, or null where {@code paztport.retry-unconnected} turns it off. It
+     * The retry of calls that never connected, or null where {@code paztport.retry-unconnected} turns it off. It is
+     * made only with the {@link PooledTlsClient}, whose JDK client its safety rests on: other request factories retry
+     * on their own (one re-sends even a POST on a stale connection), so a connect failure there may follow an attempt
+     * that was delivered. It
      * refuses a connect timeout that is not under half of the origin's window, since a retry must fit in that
      * window after a first connect that timed out. This service's window stands in for its receivers', which it
      * cannot know; inside one mesh the services share these settings.

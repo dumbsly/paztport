@@ -5,27 +5,38 @@ package org.paztport.spring.outbound;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowable;
 
 import com.sun.net.httpserver.HttpsConfigurator;
 import com.sun.net.httpserver.HttpsParameters;
 import com.sun.net.httpserver.HttpsServer;
+import io.micrometer.observation.Observation;
+import io.micrometer.observation.ObservationHandler;
 import io.micrometer.observation.ObservationRegistry;
+import io.micrometer.observation.tck.TestObservationRegistry;
+import io.micrometer.observation.tck.TestObservationRegistryAssert;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.io.UncheckedIOException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.net.ServerSocket;
+import java.net.Socket;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.net.http.HttpTimeoutException;
 import java.nio.charset.StandardCharsets;
+import java.time.Clock;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import javax.net.ssl.SSLHandshakeException;
 import javax.net.ssl.SSLParameters;
 import org.junit.jupiter.api.AfterEach;
@@ -34,9 +45,14 @@ import org.junit.jupiter.api.Timeout;
 import org.paztport.core.crypto.Crypto;
 import org.paztport.core.influence.InfluenceClass;
 import org.paztport.core.influence.InfluenceEntry;
+import org.paztport.core.stamp.Chains;
+import org.paztport.core.stamp.Stamp;
 import org.paztport.core.stamp.Stamper;
+import org.paztport.http.HttpCaller;
 import org.paztport.http.RequestContext;
 import org.paztport.http.SilentPeer;
+import org.paztport.http.wire.HttpWire;
+import org.paztport.http.wire.PaztportHeaders;
 import org.springframework.boot.ssl.SslBundle;
 import org.springframework.boot.ssl.SslBundleKey;
 import org.springframework.boot.ssl.SslOptions;
@@ -97,7 +113,12 @@ class PooledTlsClientTest {
 
     /** Payment's certificate on the loopback address, asking for a client's, speaking only {@code protocols}. */
     private String serve(String... protocols) throws IOException {
-        server = HttpsServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0);
+        return serveAt(0, protocols);
+    }
+
+    /** As {@link #serve}, on {@code port}, or on any free port where it is 0. */
+    private String serveAt(int port, String... protocols) throws IOException {
+        server = HttpsServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), port), 0);
         server.setHttpsConfigurator(new HttpsConfigurator(SslBundle.of(stores("payment")).createSslContext()) {
             @Override
             public void configure(HttpsParameters params) {
@@ -319,5 +340,141 @@ class PooledTlsClientTest {
                     .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("positive");
         }
         assertThatThrownBy(() -> PooledTlsClient.of(bundle, null)).isInstanceOf(NullPointerException.class);
+    }
+
+    // --- The retry of a call that never connected, on real sockets ---
+
+    /** A loopback port nothing listens on, as far as can be told: it was free a moment ago. */
+    private static int closedPort() throws IOException {
+        try (ServerSocket probe = new ServerSocket(0, 0, InetAddress.getLoopbackAddress())) {
+            return probe.getLocalPort();
+        }
+    }
+
+    /**
+     * Gateway's stamping interceptor, retrying calls that never connected, over {@code client}'s request factory as the
+     * starter wires it; behind it a second interceptor keeps the chain each attempt is sent with.
+     */
+    private static RestClient retrying(PooledTlsClient client, ObservationRegistry observations, List<String> chains) {
+        AtomicLong clock = new AtomicLong(System.currentTimeMillis());
+        Stamper gateway = new Stamper("gateway", "gw-1", Crypto.generateEd25519KeyPair().getPrivate(), true,
+                () -> "rid-1", clock::getAndIncrement);
+        OutboundInterceptor stamping = new OutboundInterceptor(HttpCaller.builder("gateway", gateway).build(),
+                observations, new UnconnectedRetry(client.connectTimeout(), 5000, Clock.systemUTC()));
+        return client.builder().requestInterceptor(stamping).requestInterceptor((request, body, execution) -> {
+            chains.add(request.getHeaders().getFirst(PaztportHeaders.CHAIN));
+            return execution.execute(request, body);
+        }).build();
+    }
+
+    private static Stamp stampOf(String chain) {
+        return Chains.parse(HttpWire.decodeChain(chain)).stamps().get(0);
+    }
+
+    /** Runs {@code onRetry} as each retry decision is recorded, between the first attempt and the second. */
+    private static TestObservationRegistry onRetry(Runnable onRetry) {
+        TestObservationRegistry registry = TestObservationRegistry.create();
+        registry.observationConfig().observationHandler(new ObservationHandler<>() {
+            @Override
+            public void onStart(Observation.Context context) {
+                if (context.getName().equals("paztport.outbound.retry")) {
+                    onRetry.run();
+                }
+            }
+
+            @Override
+            public boolean supportsContext(Observation.Context context) {
+                return true;
+            }
+        });
+        return registry;
+    }
+
+    /**
+     * A refused connect on the real stack: the JDK client tries the closed port twice itself, then the interceptor
+     * retries once, freshly stamped, and finds the server, which is started only once the retry is decided.
+     */
+    @Test
+    @Timeout(10)
+    void aRefusedConnectIsRetriedOnceFreshlyStamped() throws Exception {
+        int port = closedPort();
+        List<String> chains = new CopyOnWriteArrayList<>();
+        TestObservationRegistry registry = onRetry(() -> {
+            try {
+                serveAt(port);
+            } catch (IOException e) {
+                throw new UncheckedIOException(e);
+            }
+        });
+        PooledTlsClient client = pooled(PooledTlsClient.of(SslBundle.of(stores("gateway")), Duration.ofSeconds(30),
+                Duration.ofMillis(1000)));
+
+        assertThat(call(retrying(client, registry, chains), "https://127.0.0.1:" + port + "/ok"))
+                .isEqualTo(new Answer(200, "ok"));
+
+        assertThat(chains).hasSize(2);
+        assertThat(ports).as("the server got the retry only").hasSize(1);
+        Stamp first = stampOf(chains.get(0));
+        Stamp second = stampOf(chains.get(1));
+        assertThat(second.rid()).isEqualTo(first.rid());
+        assertThat(second.bind()).isEqualTo(first.bind());
+        assertThat(second.ts()).isGreaterThan(first.ts());
+        assertThat(second.sig()).isNotEqualTo(first.sig());
+        TestObservationRegistryAssert.assertThat(registry)
+                .hasNumberOfObservationsWithNameEqualTo("paztport.outbound.retry", 1)
+                .hasObservationWithNameEqualTo("paztport.outbound.retry").that()
+                .hasLowCardinalityKeyValue("failure", "connect").hasLowCardinalityKeyValue("outcome", "retried");
+    }
+
+    /**
+     * A peer that takes the TCP connection and closes it at once, before any TLS: what a server that has stopped does
+     * to connections still in its accept backlog. The handshake fails, the call is retried once, and fails again.
+     */
+    @Test
+    @Timeout(10)
+    void aPeerThatClosesDuringTheHandshakeIsRetriedOnce() throws Exception {
+        AtomicInteger accepted = new AtomicInteger();
+        try (ServerSocket closing = new ServerSocket(0, 50, InetAddress.getLoopbackAddress())) {
+            Thread acceptor = Thread.ofVirtual().start(() -> {
+                while (!closing.isClosed()) {
+                    try (Socket socket = closing.accept()) {
+                        accepted.incrementAndGet();
+                    } catch (IOException e) {
+                        return;
+                    }
+                }
+            });
+            List<String> chains = new CopyOnWriteArrayList<>();
+            TestObservationRegistry registry = TestObservationRegistry.create();
+            PooledTlsClient client = pooled(PooledTlsClient.of(SslBundle.of(stores("gateway")),
+                    Duration.ofSeconds(30), Duration.ofMillis(1000)));
+
+            Throwable thrown = catchThrowable(() -> call(retrying(client, registry, chains),
+                    "https://127.0.0.1:" + closing.getLocalPort() + "/ok"));
+
+            assertThat(thrown).as(describe(thrown)).isInstanceOf(ResourceAccessException.class);
+            assertThat(thrown.getCause()).as(describe(thrown)).isInstanceOf(SSLHandshakeException.class);
+            assertThat(UnconnectedRetry.classify(thrown.getCause())).contains(UnconnectedRetry.Failure.HANDSHAKE);
+            assertThat(thrown.getCause().getSuppressed()).as(describe(thrown)).hasSize(1)
+                    .allMatch(first -> first instanceof SSLHandshakeException);
+            assertThat(chains).hasSize(2);
+            assertThat(accepted.get()).isEqualTo(2);
+            TestObservationRegistryAssert.assertThat(registry)
+                    .hasNumberOfObservationsWithNameEqualTo("paztport.outbound.retry", 1)
+                    .hasObservationWithNameEqualTo("paztport.outbound.retry").that()
+                    .hasLowCardinalityKeyValue("failure", "handshake")
+                    .hasLowCardinalityKeyValue("outcome", "retried");
+            closing.close();
+            acceptor.join();
+        }
+    }
+
+    /** Each exception in {@code t}'s chain of causes, with what it suppresses, for a failing assertion's message. */
+    private static String describe(Throwable t) {
+        StringBuilder out = new StringBuilder();
+        for (Throwable c = t; c != null; c = c.getCause()) {
+            out.append(c).append(" suppressed ").append(List.of(c.getSuppressed())).append(" <- ");
+        }
+        return out.toString();
     }
 }

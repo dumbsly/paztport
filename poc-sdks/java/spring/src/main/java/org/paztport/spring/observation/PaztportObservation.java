@@ -38,10 +38,12 @@ public enum PaztportObservation implements ObservationDocumentation {
     RESPONSE("paztport.response", Keys.REASON),
 
     /**
-     * A call this service made that failed before its connection was established, in {@code OutboundInterceptor}:
-     * whether it was sent once more, freshly stamped ({@code retried}), or not, because the retry could not have
-     * arrived inside the origin's window ({@code skipped}). It marks that decision and spans nothing; a retry that
-     * fails is not recorded as an error here. Calls that fail in any other way are not recorded.
+     * A call this service made, with a method other than {@code GET} and {@code HEAD}, that failed before its
+     * connection was established, in {@code OutboundInterceptor}: whether it was sent once more, freshly stamped
+     * ({@code retried}), or not, because the retry could not have arrived inside the origin's window
+     * ({@code skipped}). It marks that decision and spans nothing; a retry that fails is not recorded as an error
+     * here. {@code GET} and {@code HEAD} calls, calls that fail in any other way, and calls in a service without
+     * the retry are not recorded.
      */
     OUTBOUND_RETRY("paztport.outbound.retry", Keys.FAILURE, Keys.OUTCOME);
 

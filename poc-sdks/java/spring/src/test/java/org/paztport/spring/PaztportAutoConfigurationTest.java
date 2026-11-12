@@ -23,6 +23,7 @@ import com.sun.net.httpserver.HttpsServer;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.net.ServerSocket;
 import java.net.http.HttpClient;
 import java.net.http.HttpTimeoutException;
 import java.nio.file.Files;
@@ -95,6 +96,7 @@ import org.springframework.boot.ssl.pem.PemSslStoreBundle;
 import org.springframework.boot.ssl.pem.PemSslStoreDetails;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
+import org.springframework.context.ApplicationContext;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.core.Ordered;
 import org.springframework.mock.web.MockFilterChain;
@@ -1420,7 +1422,7 @@ class PaztportAutoConfigurationTest {
     @Test
     void aConnectTimeoutNotUnderHalfTheOriginWindowFailsAtStartupWhileRetrying(@TempDir Path dir) throws Exception {
         writeWorld(dir);
-        withClients.withPropertyValues(stampingVerifier(dir, "http://127.0.0.1:1"))
+        withClients.withPropertyValues(stampingVerifier(dir, "http://127.0.0.1:1")).withPropertyValues(MESH_BUNDLE)
                 .withPropertyValues("paztport.connect-timeout-ms=2500", "paztport.max-age-ms=5000")
                 .run(context -> {
                     assertThat(context).hasFailed();
@@ -1429,21 +1431,63 @@ class PaztportAutoConfigurationTest {
                             .hasMessageContaining("origin window").hasMessageContaining("5000 ms")
                             .hasMessageContaining("paztport.retry-unconnected=false");
                 });
-        withClients.withPropertyValues(stampingVerifier(dir, "http://127.0.0.1:1"))
+        withClients.withPropertyValues(stampingVerifier(dir, "http://127.0.0.1:1")).withPropertyValues(MESH_BUNDLE)
                 .withPropertyValues("paztport.connect-timeout-ms=2499", "paztport.max-age-ms=5000")
                 .run(context -> assertThat(context).hasNotFailed());
         // The origin's window is run-max-age-ms where it is set.
-        withClients.withPropertyValues(stampingVerifier(dir, "http://127.0.0.1:1"))
+        withClients.withPropertyValues(stampingVerifier(dir, "http://127.0.0.1:1")).withPropertyValues(MESH_BUNDLE)
                 .withPropertyValues("paztport.connect-timeout-ms=2500", "paztport.max-age-ms=5000",
                         "paztport.run-max-age-ms=6000")
                 .run(context -> assertThat(context).hasNotFailed());
-        withClients.withPropertyValues(stampingVerifier(dir, "http://127.0.0.1:1"))
+        withClients.withPropertyValues(stampingVerifier(dir, "http://127.0.0.1:1")).withPropertyValues(MESH_BUNDLE)
                 .withPropertyValues("paztport.connect-timeout-ms=2500", "paztport.max-age-ms=5000",
                         "paztport.retry-unconnected=false")
                 .run(context -> {
                     assertThat(context).hasNotFailed();
                     assertThat(context.getBean(PaztportProperties.class).isRetryUnconnected()).isFalse();
                 });
+    }
+
+    // Without the starter's TLS client the application's request factory carries the calls,
+    // and it may retry on its own.
+    @Test
+    void withoutTheTlsBundleThereIsNoRetryAndNoCheck(@TempDir Path dir) throws Exception {
+        writeWorld(dir);
+        withClients.withPropertyValues(stampingVerifier(dir, "http://127.0.0.1:1"))
+                .withPropertyValues("paztport.connect-timeout-ms=2500", "paztport.max-age-ms=5000")
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    assertThat(retryLinesFromACallToAClosedPort(context, "http")).isEmpty();
+                });
+        withClients.withPropertyValues(stampingVerifier(dir, "http://127.0.0.1:1")).withPropertyValues(MESH_BUNDLE)
+                .run(context -> assertThat(retryLinesFromACallToAClosedPort(context, "https"))
+                        .singleElement().asString().endsWith("receiver=127.0.0.1 failure=connect outcome=retried"));
+    }
+
+    /** POSTs through the shared builder to a loopback port nothing listens on, and answers the retry lines logged. */
+    private static List<String> retryLinesFromACallToAClosedPort(ApplicationContext context, String scheme)
+            throws IOException {
+        int port;
+        try (ServerSocket probe = new ServerSocket(0, 0, InetAddress.getLoopbackAddress())) {
+            port = probe.getLocalPort();
+        }
+        Logger trace = (Logger) LoggerFactory.getLogger("PAZTPORT_TRACE");
+        ListAppender<ILoggingEvent> lines = new ListAppender<>();
+        lines.start();
+        trace.addAppender(lines);
+        trace.setLevel(Level.INFO);
+        trace.setAdditive(false);
+        try {
+            RestClient client = context.getBean(RestClient.Builder.class).build();
+            assertThatThrownBy(() -> client.post().uri(scheme + "://127.0.0.1:" + port + "/call").body("{}")
+                    .retrieve().toBodilessEntity()).isInstanceOf(ResourceAccessException.class);
+        } finally {
+            trace.detachAppender(lines);
+            trace.setLevel(null);
+            trace.setAdditive(true);
+        }
+        return lines.list.stream().map(ILoggingEvent::getFormattedMessage)
+                .filter(line -> line.startsWith("PAZTPORT_TRACE retry")).toList();
     }
 
     @Test

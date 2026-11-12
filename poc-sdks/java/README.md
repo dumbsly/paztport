@@ -367,7 +367,7 @@ says the rest.
 | `paztport.tls-bundle` | none | No | The SSL bundle the service presents on its calls and its events; `false` is the same as unset ([Mutual TLS](#mutual-tls)). |
 | `paztport.read-timeout-ms` | `30000` | Positive, in a service that uses it | How long a call through the starter's TLS client, or the egress's to the partner, may wait for its answer ([Timeouts](#timeouts)). |
 | `paztport.connect-timeout-ms` | `1000` | Positive, in a service that uses it | How long opening a connection may take on the starter's TLS client, the one for calls inside the mesh and for events; the partner client keeps 5 s ([Timeouts](#timeouts)). |
-| `paztport.retry-unconnected` | `true` | No; while `true`, `connect-timeout-ms` must be under half of `run-max-age-ms` (else `max-age-ms`), or the service does not start | Whether a stamped call that failed before its connection was established is sent once more, freshly stamped ([Retries](#retries)). |
+| `paztport.retry-unconnected` | `true` | No; while `true` with `tls-bundle` set, `connect-timeout-ms` must be under half of `run-max-age-ms` (else `max-age-ms`), or the service does not start | Whether a stamped call through the starter's TLS client, with a method other than `GET` and `HEAD`, that failed before its connection was established is sent once more, freshly stamped ([Retries](#retries)). |
 | `paztport.overlap.keyring-paths` | none | No; needs `keyring-path`, `root-path` and `policy-key-path` | Further keyrings to pin beside `keyring-path` ([Overlap material](#overlap-material)). |
 | `paztport.overlap.root-paths` | none | As `overlap.keyring-paths` | Further roots to pin beside `root-path`. |
 | `paztport.operations.table-path` | none | No; needs `proofs-path`, `keyring-path`, `root-path` and `policy-key-path` | This service's own operation table: the inbound filter confirms each request's operation, and reads a keyed operation's key value ([Operations](#operations)). |
@@ -768,47 +768,61 @@ factory, and its timeouts are the application's to set.
 
 ### Retries
 
-A stamped call that failed before its connection was established is sent once more, at
-once, freshly stamped, before the application sees an error: a connect that timed out
-(`HttpConnectTimeoutException`), a connect refused (`ConnectException`, after the JDK
-client's own single retry), or a TLS handshake that failed (`SSLHandshakeException`,
-including a peer that closes the connection part way through it). The JDK client writes
-no byte of a request until the TCP connect and the TLS handshake have both completed, and
-sends no TLS early data, so the first attempt reached no receiver and the retry is the only
-delivery. The retry gets a new stamp because a stamp's age runs from its signing; to replay
-protection and to the receiver's idempotency it is the same delivery, since both key on the
-request tree, the caller, the receiver and the binding, not on the stamp. Its response is
-checked against the new stamp. A backend being rolled produces these failures: a connect
-to a pod that has gone, or to one whose server has stopped accepting.
+A stamped call through the starter's TLS client (`paztport.tls-bundle`), with a method
+other than `GET` and `HEAD`, that failed before its connection was established is sent
+once more, at once, freshly stamped, before the application sees an error: a connect
+that timed out (`HttpConnectTimeoutException`), a connect refused (`ConnectException`,
+after the JDK client's own single retry), or a TLS handshake that failed
+(`SSLHandshakeException`, including a peer that closes the connection part way through
+it). The JDK client writes no byte of a request until the TCP connect and the TLS
+handshake have both completed, and sends no TLS early data, so the first attempt reached
+no receiver and the retry is the only delivery. The retry gets a new stamp because a
+stamp's age runs from its signing; to replay protection and to the receiver's
+idempotency it is the same delivery, since both key on the request tree, the caller, the
+receiver and the binding, not on the stamp. Its response is checked against the new
+stamp. A backend being rolled produces these failures: a connect to a pod that has gone,
+or to one whose server has stopped accepting.
 
 Nothing else is ever retried. A pooled connection the peer has closed ("header parser
-received no bytes", `ClosedChannelException`), a reset after the request was written, and
-a read timeout may each have reached the receiver, so sending the call again could deliver
-it twice; they surface as they always have, as a `ResourceAccessException` from a
-`RestClient`. There is one retry and no backoff: a connect to a rolling backend succeeds on
-the next endpoint or not at all, and a wait would spend the window. If the retry fails too,
-its exception surfaces with the first one added to it as suppressed. Only calls through the
-stamping interceptor are retried, so not the events, the egress's calls to the partner, or
-calls through `PooledTlsClient.builder()`.
+received no bytes", `ClosedChannelException`), a reset after the request was written,
+and a read timeout may each have reached the receiver, so sending the call again could
+deliver it twice; they surface as they always have, as a `ResourceAccessException` from
+a `RestClient`. A `GET` or `HEAD` is never retried by the starter, whatever its failure:
+the JDK client re-sends those itself when the connection they were written on dies
+before the response, and if that re-send's connect fails, the call ends in a connect
+failure that keeps no trace of the first attempt, which may have been delivered. They
+stay under the JDK client's own handling. There is one retry and no backoff: a connect
+to a rolling backend succeeds on the next endpoint or not at all, and a wait would spend
+the window. If the retry fails too, its exception surfaces with the first one added to
+it as suppressed. Only calls through the stamping interceptor are retried, so not the
+events, the egress's calls to the partner, or calls through `PooledTlsClient.builder()`.
 
-Re-stamping does not make the origin's stamp any younger, and a retry that arrived after the
-origin's window would fail its receiver's check as `EXPIRED`, which under `enforce` reads as
-a security refusal rather than the connect failure it is. Two checks keep that from
-happening:
-- At startup, while `paztport.retry-unconnected` is `true`, `paztport.connect-timeout-ms`
-  must be under half of the origin's window, `paztport.run-max-age-ms` (else
-  `paztport.max-age-ms`), so that a connect that timed out and its retry both fit it; a
-  service whose setting does not fails to start, naming it. The service's own window
-  stands in for its receivers', which it cannot know; inside one mesh the services share
-  these settings.
-- Before each retry inside a request, the age of the origin's stamp plus a whole connect
-  timeout is compared with that same window; if the retry could not arrive in time it is
-  skipped and the connect failure surfaces. Outside a request, and at the origin, the
-  retry's stamp is the origin's, signed afresh, so it is always sent.
+The retry is safe only on the client it was checked on, so it is wired only where the
+starter builds its TLS client: without `paztport.tls-bundle` there is none, and the
+startup check below does not apply. Other request factories make hidden retries of their
+own (`HttpURLConnection` re-sends even a `POST` on a stale keep-alive connection, Apache
+HttpClient retries idempotent methods), so a connect failure there may follow an attempt
+that was delivered. An application that replaces the request factory on the shared
+builder after the starter sets it should set `paztport.retry-unconnected=false`.
 
-Each decision is counted in the `paztport.outbound.retry` observation ([Metrics](#metrics))
-and logged as a `PAZTPORT_TRACE retry` line ([Trace lines](#trace-lines)), so a run can
-report retries beside its failures. `paztport.retry-unconnected=false` turns it off.
+Re-stamping does not make the origin's stamp any younger, and a retry that arrived after
+the origin's window would fail its receiver's check as `EXPIRED`, which under `enforce`
+reads as a security refusal rather than the connect failure it is. Two checks keep that
+from happening: - At startup, while `paztport.retry-unconnected` is `true` and
+`paztport.tls-bundle` is set, `paztport.connect-timeout-ms` must be under half of the
+origin's window, `paztport.run-max-age-ms` (else `paztport.max-age-ms`), so that a
+connect that timed out and its retry both fit it; a service whose setting does not fails
+to start, naming it. The service's own window stands in for its receivers', which it
+cannot know; inside one mesh the services share these settings. - Before each retry
+inside a request, the age of the origin's stamp plus a whole connect timeout is compared
+with that same window; if the retry could not arrive in time it is skipped and the
+connect failure surfaces. Outside a request, and at the origin, the retry's stamp is the
+origin's, signed afresh, so it is always sent.
+
+Each decision is counted in the `paztport.outbound.retry` observation
+([Metrics](#metrics)) and logged as a `PAZTPORT_TRACE retry` line ([Trace
+lines](#trace-lines)), so a run can report retries beside its failures.
+`paztport.retry-unconnected=false` turns it off.
 
 ### The egress
 
@@ -980,7 +994,8 @@ value passed through `LogSafe`:
   from `PublicWrites` and from `PartnerGate`; it never names an owner.
 - `PAZTPORT_TRACE retry rid=<rid> receiver=<svc>
   failure=connect_timeout|connect|handshake outcome=retried|skipped`, from
-  `OutboundInterceptor`, once for each call that failed before its connection was
+  `OutboundInterceptor`, once for each call the retry covers (through the starter's TLS
+  client, a method other than `GET` and `HEAD`) that failed before its connection was
   established ([Retries](#retries)).
 
 ### Metrics
@@ -1015,8 +1030,9 @@ reason is the verifier's code, `INFLUENCE_MISMATCH` unless an earlier check
 failed, a code `audit` otherwise serves; under `off`, and where the service does
 not verify requests, its reason is `none`. Only `outcome` says it was refused.
 Where a decision throws, the observation carries the error and is stopped before
-the exception goes on. `paztport.outbound.retry` is recorded once for each call that
-failed before its connection was established, and for nothing else; it marks the
+the exception goes on. `paztport.outbound.retry` is recorded once for each call the
+retry covers (through the starter's TLS client, a method other than `GET` and `HEAD`)
+that failed before its connection was established, and for nothing else; it marks the
 decision and spans nothing, so its count is what it reports, and a retry that fails is
 not an error on it.
 

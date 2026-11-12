@@ -449,10 +449,16 @@ class OutboundInterceptorTest {
         }
     }
 
-    /** Sends a GET to {@code uri} through {@code interceptor} and {@code attempts}, and reads the body whole. */
-    private static String get(OutboundInterceptor interceptor, String uri, Attempts attempts) throws IOException {
+    /** Sends a POST to {@code uri} through {@code interceptor} and {@code attempts}, and reads the body whole. */
+    private static String post(OutboundInterceptor interceptor, String uri, Attempts attempts) throws IOException {
+        return send(interceptor, HttpMethod.POST, uri, attempts);
+    }
+
+    /** Sends {@code method} to {@code uri} through {@code interceptor} and {@code attempts}, and reads the body. */
+    private static String send(OutboundInterceptor interceptor, HttpMethod method, String uri, Attempts attempts)
+            throws IOException {
         try (ClientHttpResponse response = interceptor.intercept(
-                new MockClientHttpRequest(HttpMethod.GET, URI.create(uri)), new byte[0], attempts)) {
+                new MockClientHttpRequest(method, URI.create(uri)), new byte[0], attempts)) {
             return new String(response.getBody().readAllBytes(), StandardCharsets.UTF_8);
         }
     }
@@ -488,7 +494,7 @@ class OutboundInterceptorTest {
         TestObservationRegistry registry = TestObservationRegistry.create();
         Attempts attempts = new Attempts(attested("hello", "hello", List.of()), connectTimeout());
 
-        String body = get(gatewayRetrying(registry, retryAt(NOW)), "http://orders:8080/orders", attempts);
+        String body = post(gatewayRetrying(registry, retryAt(NOW)), "http://orders:8080/orders", attempts);
 
         assertRetriedFreshlyStamped(attempts, body);
         assertRetryObserved(registry, "connect_timeout", "retried");
@@ -509,7 +515,7 @@ class OutboundInterceptorTest {
             TestObservationRegistry registry = TestObservationRegistry.create();
             Attempts attempts = new Attempts(attested("hello", "hello", List.of()), failure.getValue());
 
-            String body = get(gatewayRetrying(registry, retryAt(NOW)), "http://orders:8080/orders", attempts);
+            String body = post(gatewayRetrying(registry, retryAt(NOW)), "http://orders:8080/orders", attempts);
 
             assertRetriedFreshlyStamped(attempts, body);
             assertRetryObserved(registry, failure.getKey(), "retried");
@@ -529,11 +535,34 @@ class OutboundInterceptorTest {
             Attempts attempts = new Attempts(withSuccess(), failure);
 
             IOException thrown = assertThrows(IOException.class,
-                    () -> get(gatewayRetrying(registry, retryAt(NOW)), "http://orders:8080/orders", attempts));
+                    () -> post(gatewayRetrying(registry, retryAt(NOW)), "http://orders:8080/orders", attempts));
 
             assertSame(failure, thrown);
             assertEquals(1, attempts.headers.size(), failure.toString());
             assertThat(registry).doesNotHaveAnyObservation();
+        }
+        assertEquals(List.of(), traceLines());
+    }
+
+    // The JDK client re-sends a GET or HEAD itself after its connection dies, so their connect failure may follow an
+    // attempt that was delivered: whatever the failure, the starter leaves them alone.
+    @Test
+    void neverRetriesAGetOrAHead() {
+        for (HttpMethod method : List.of(HttpMethod.GET, HttpMethod.HEAD)) {
+            for (IOException failure : List.of(connectTimeout(), new ConnectException("Connection refused"),
+                    new SSLHandshakeException("Remote host terminated the handshake"))) {
+                TestObservationRegistry registry = TestObservationRegistry.create();
+                Attempts attempts = new Attempts(withSuccess(), failure);
+
+                IOException thrown = assertThrows(IOException.class,
+                        () -> send(gatewayRetrying(registry, retryAt(NOW)), method, "http://orders:8080/orders",
+                                attempts));
+
+                assertSame(failure, thrown);
+                assertEquals(0, thrown.getSuppressed().length);
+                assertEquals(1, attempts.headers.size(), method + " " + failure);
+                assertThat(registry).doesNotHaveAnyObservation();
+            }
         }
         assertEquals(List.of(), traceLines());
     }
@@ -546,7 +575,7 @@ class OutboundInterceptorTest {
         Attempts attempts = new Attempts(withSuccess(), first, second);
 
         IOException thrown = assertThrows(IOException.class,
-                () -> get(gatewayRetrying(registry, retryAt(NOW)), "http://orders:8080/orders", attempts));
+                () -> post(gatewayRetrying(registry, retryAt(NOW)), "http://orders:8080/orders", attempts));
 
         assertSame(second, thrown);
         assertArrayEquals(new Throwable[] {first}, thrown.getSuppressed());
@@ -568,7 +597,7 @@ class OutboundInterceptorTest {
                     policy.bundles().get("gateway")).chain());
 
             IOException thrown = assertThrows(IOException.class,
-                    () -> get(interceptor, "http://payment:8080/pay", attempts));
+                    () -> post(interceptor, "http://payment:8080/pay", attempts));
 
             assertSame(failure, thrown, "the connect failure surfaces, not the receiver's EXPIRED");
         }
@@ -585,11 +614,11 @@ class OutboundInterceptorTest {
         Attempts outside = new Attempts(attested("hello", "hello", List.of()), connectTimeout());
 
         assertRetriedFreshlyStamped(outside,
-                get(gatewayRetrying(TestObservationRegistry.create(), late), "http://orders:8080/orders", outside));
+                post(gatewayRetrying(TestObservationRegistry.create(), late), "http://orders:8080/orders", outside));
 
         Attempts atTheOrigin = new Attempts(attested("hello", "hello", List.of()), connectTimeout());
         try (RequestContext.Scope scope = RequestContext.open()) {
-            assertRetriedFreshlyStamped(atTheOrigin, get(gatewayRetrying(TestObservationRegistry.create(), late),
+            assertRetriedFreshlyStamped(atTheOrigin, post(gatewayRetrying(TestObservationRegistry.create(), late),
                     "http://orders:8080/orders", atTheOrigin));
         }
     }
@@ -638,7 +667,7 @@ class OutboundInterceptorTest {
         Attempts attempts = new Attempts(withSuccess(), failure);
 
         IOException thrown = assertThrows(IOException.class,
-                () -> get(interceptor, "http://orders:8080/orders", attempts));
+                () -> post(interceptor, "http://orders:8080/orders", attempts));
 
         assertSame(failure, thrown);
         assertArrayEquals(new Throwable[] {broken}, thrown.getSuppressed());
@@ -654,7 +683,7 @@ class OutboundInterceptorTest {
         Attempts attempts = new Attempts(withSuccess(), failure);
 
         assertSame(failure, assertThrows(IOException.class,
-                () -> get(interceptor, "http://orders:8080/orders", attempts)));
+                () -> post(interceptor, "http://orders:8080/orders", attempts)));
         assertEquals(1, attempts.headers.size());
         assertThat(registry).hasNumberOfObservationsWithNameEqualTo("paztport.outbound.retry", 0);
     }
@@ -679,7 +708,8 @@ class OutboundInterceptorTest {
         RestClient client = RestClient.builder().requestFactory(factory)
                 .requestInterceptor(gatewayRetrying(TestObservationRegistry.create(), retryAt(NOW))).build();
 
-        assertEquals("hello", client.get().uri("http://orders:8080/orders").retrieve().body(String.class));
+        assertEquals("hello", client.post().uri("http://orders:8080/orders").body("{}").retrieve()
+                .body(String.class));
         assertEquals(2, created.get(), "each attempt is a request of its own from the factory");
         assertNotEquals(lastStamp(sentOnTheWire.get(0)).sig(), lastStamp(sentOnTheWire.get(1)).sig());
     }

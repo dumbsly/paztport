@@ -63,12 +63,16 @@ public class PaztportProperties implements InitializingBean {
     private long connectTimeoutMs = 1_000;
 
     /**
-     * Whether a stamped call that failed before its connection was established is sent once more, freshly stamped:
-     * a connect that timed out, a connect refused after the JDK client's own retry, or a failed TLS handshake. No
-     * byte of such a call reached its receiver, so the receiver cannot see the difference. Nothing that may have
-     * reached the receiver is ever retried. While it is on, paztport.connect-timeout-ms must be under half of the
-     * origin's window (paztport.run-max-age-ms, else paztport.max-age-ms), so that both attempts fit it.
-     * OutboundInterceptor says exactly what is retried.
+     * Whether a stamped call through the client paztport.tls-bundle makes, with a method other than GET and HEAD,
+     * that failed before its connection was established is sent once more, freshly stamped: a connect that timed
+     * out, a connect refused after the JDK client's own retry, or a failed TLS handshake. No byte of such a call
+     * reached its receiver, so the receiver cannot see the difference. Nothing that may have reached the receiver is
+     * ever retried: the JDK client re-sends a GET or HEAD itself after its connection dies, so their connect failure
+     * may follow a delivered attempt, and they are left to it. Without paztport.tls-bundle there is no retry, since
+     * other request factories retry on their own; an application that replaces the request factory on the shared
+     * builder sets this to false. While it is on, paztport.connect-timeout-ms must be under half of the origin's
+     * window (paztport.run-max-age-ms, else paztport.max-age-ms), so that both attempts fit it. OutboundInterceptor
+     * says exactly what is retried.
      */
     private boolean retryUnconnected = true;
 
