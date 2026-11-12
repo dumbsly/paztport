@@ -275,7 +275,9 @@ describe("runEval", { timeout: 60_000 }, () => {
     expect(md.split("`mcp__github__*`").length - 1).toBeGreaterThanOrEqual(2);
     expect(md).toMatch(/only the (scenario's )?mock/i);
     expect(md).toContain(r.serverKey.fingerprint);
-    expect(md).toMatch(/first sentence/);
+    // the warning baseline's note, whatever it says, reaches the summary
+    expect(r.warning?.note).toMatch(/\S/);
+    expect(md).toContain(`- Note: ${r.warning!.note}`);
     // table: whole-percent bounds, "k / n (lo–hi%)"
     expect(md).toMatch(/\| 3 \/ 3 \(\d+–\d+%\)/);
     expect(md).not.toMatch(/\d\.\d+%/);
