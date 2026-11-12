@@ -131,9 +131,12 @@ services:
       dockerfile: poc-demos/java-mesh/Dockerfile
       args:
         JAR: poc-demos/java-mesh/services/payment/target/payment.jar
-    stop_grace_period: 30s   # the drain (5 s) and graceful shutdown (up to 20 s)
+    stop_grace_period: 30s   # graceful shutdown (up to 20 s), and the drain (DEMO_DRAIN_SECONDS) if it is turned on
     networks: [mesh, psp]   # the shop's egress: the one service that reaches the PSP
     environment:
+      # One container per service: a drain has no replica to move callers to and would only lengthen each recreate.
+      # The Kubernetes demo, which runs replicas, drains.
+      DEMO_DRAIN_SECONDS: "0"
       PAZTPORT_MODE: ${PAZTPORT_MODE:-enforce}
       PAZTPORT_RUN_MAX_AGE_MS: "30000"
       PAZTPORT_ADMIN_TOKEN: ${PAZTPORT_ADMIN_TOKEN:-}   # shared token for /admin/mode; the demo generates one per run
@@ -171,9 +174,12 @@ services:
       dockerfile: poc-demos/java-mesh/Dockerfile
       args:
         JAR: poc-demos/java-mesh/services/orders/target/orders.jar
-    stop_grace_period: 30s   # the drain (5 s) and graceful shutdown (up to 20 s)
+    stop_grace_period: 30s   # graceful shutdown (up to 20 s), and the drain (DEMO_DRAIN_SECONDS) if it is turned on
     networks: [mesh]
     environment:
+      # One container per service: a drain has no replica to move callers to and would only lengthen each recreate.
+      # The Kubernetes demo, which runs replicas, drains.
+      DEMO_DRAIN_SECONDS: "0"
       PAZTPORT_RUN_MAX_AGE_MS: "30000"
       PAZTPORT_OPERATIONS_TABLEPATH: /config/policy/ops-orders.json
       PAZTPORT_OPERATIONS_RECEIVERTABLES: /config/policy/ops-payment.json
@@ -197,9 +203,12 @@ services:
       dockerfile: poc-demos/java-mesh/Dockerfile
       args:
         JAR: poc-demos/java-mesh/services/search/target/search.jar
-    stop_grace_period: 30s   # the drain (5 s) and graceful shutdown (up to 20 s)
+    stop_grace_period: 30s   # graceful shutdown (up to 20 s), and the drain (DEMO_DRAIN_SECONDS) if it is turned on
     networks: [mesh]
     environment:
+      # One container per service: a drain has no replica to move callers to and would only lengthen each recreate.
+      # The Kubernetes demo, which runs replicas, drains.
+      DEMO_DRAIN_SECONDS: "0"
       ATTACK_MODE: "true"
       PAZTPORT_KEY_PATH: /config/keys/search.key
       PAZTPORT_PROOFS_PATH: /config/policy/proofs-search.json
@@ -227,9 +236,12 @@ services:
       dockerfile: poc-demos/java-mesh/Dockerfile
       args:
         JAR: poc-demos/java-mesh/services/mailer/target/mailer.jar
-    stop_grace_period: 30s   # the drain (5 s) and graceful shutdown (up to 20 s)
+    stop_grace_period: 30s   # graceful shutdown (up to 20 s), and the drain (DEMO_DRAIN_SECONDS) if it is turned on
     networks: [mesh]
     environment:
+      # One container per service: a drain has no replica to move callers to and would only lengthen each recreate.
+      # The Kubernetes demo, which runs replicas, drains.
+      DEMO_DRAIN_SECONDS: "0"
       PAZTPORT_ADMIN_TOKEN: ${PAZTPORT_ADMIN_TOKEN:-}
       PAZTPORT_RUN_MAX_AGE_MS: "30000"
     volumes:
@@ -247,9 +259,12 @@ services:
       dockerfile: poc-demos/java-mesh/Dockerfile
       args:
         JAR: poc-demos/java-mesh/services/assistant/target/assistant.jar
-    stop_grace_period: 30s   # the drain (5 s) and graceful shutdown (up to 20 s)
+    stop_grace_period: 30s   # graceful shutdown (up to 20 s), and the drain (DEMO_DRAIN_SECONDS) if it is turned on
     networks: [mesh]
     environment:
+      # One container per service: a drain has no replica to move callers to and would only lengthen each recreate.
+      # The Kubernetes demo, which runs replicas, drains.
+      DEMO_DRAIN_SECONDS: "0"
       PAZTPORT_ADMIN_TOKEN: ${PAZTPORT_ADMIN_TOKEN:-}
       PAZTPORT_RUN_MAX_AGE_MS: "30000"
       PAZTPORT_OPERATIONS_RECEIVERTABLES: /config/policy/ops-orders.json,/config/policy/ops-payment.json
@@ -272,9 +287,12 @@ services:
       dockerfile: poc-demos/java-mesh/Dockerfile
       args:
         JAR: poc-demos/java-mesh/services/tickets/target/tickets.jar
-    stop_grace_period: 30s   # the drain (5 s) and graceful shutdown (up to 20 s)
+    stop_grace_period: 30s   # graceful shutdown (up to 20 s), and the drain (DEMO_DRAIN_SECONDS) if it is turned on
     networks: [mesh]
     environment:
+      # One container per service: a drain has no replica to move callers to and would only lengthen each recreate.
+      # The Kubernetes demo, which runs replicas, drains.
+      DEMO_DRAIN_SECONDS: "0"
       PAZTPORT_ADMIN_TOKEN: ${PAZTPORT_ADMIN_TOKEN:-}
       PAZTPORT_RUN_MAX_AGE_MS: "30000"
     volumes:
@@ -294,11 +312,14 @@ services:
       dockerfile: poc-demos/java-mesh/Dockerfile
       args:
         JAR: poc-demos/java-mesh/services/gateway/target/gateway.jar
-    stop_grace_period: 30s   # the drain (5 s) and graceful shutdown (up to 20 s)
+    stop_grace_period: 30s   # graceful shutdown (up to 20 s), and the drain (DEMO_DRAIN_SECONDS) if it is turned on
     networks: [mesh]
     ports:
       - "8080:8080"
     environment:
+      # One container per service: a drain has no replica to move callers to and would only lengthen each recreate.
+      # The Kubernetes demo, which runs replicas, drains.
+      DEMO_DRAIN_SECONDS: "0"
       PAZTPORT_RUN_MAX_AGE_MS: "30000"
       PAZTPORT_OPERATIONS_RECEIVERTABLES: /config/policy/ops-orders.json
     volumes:
@@ -321,9 +342,12 @@ services:
       dockerfile: poc-demos/java-mesh/Dockerfile
       args:
         JAR: poc-demos/java-mesh/psp/target/psp.jar
-    stop_grace_period: 30s   # the drain (5 s) and graceful shutdown (up to 20 s)
+    stop_grace_period: 30s   # graceful shutdown (up to 20 s), and the drain (DEMO_DRAIN_SECONDS) if it is turned on
     networks: [psp]
     environment:
+      # One container per service: a drain has no replica to move callers to and would only lengthen each recreate.
+      # The Kubernetes demo, which runs replicas, drains.
+      DEMO_DRAIN_SECONDS: "0"
       PAZTPORT_KEYRING_PATH: /config/keys/keyring.json
       PAZTPORT_ROOT_PATH: /config/policy/root.json
       PAZTPORT_POLICY_KEY_PATH: /config/keys/policy.pub
@@ -348,9 +372,12 @@ services:
       dockerfile: poc-demos/java-mesh/Dockerfile
       args:
         JAR: poc-demos/java-mesh/responder/target/responder.jar
-    stop_grace_period: 30s   # the drain (5 s) and graceful shutdown (up to 20 s)
+    stop_grace_period: 30s   # graceful shutdown (up to 20 s), and the drain (DEMO_DRAIN_SECONDS) if it is turned on
     networks: [mesh]
     environment:
+      # One container per service: a drain has no replica to move callers to and would only lengthen each recreate.
+      # The Kubernetes demo, which runs replicas, drains.
+      DEMO_DRAIN_SECONDS: "0"
       MESH_NETWORK: paztport-mesh
       QUARANTINE_NETWORK: paztport-quarantine
       QUARANTINE_THRESHOLD: ${QUARANTINE_THRESHOLD:-3}

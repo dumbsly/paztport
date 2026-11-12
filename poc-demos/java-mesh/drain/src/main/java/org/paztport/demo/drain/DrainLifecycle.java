@@ -14,6 +14,10 @@ import org.springframework.context.SmartLifecycle;
  * and lifecycle beans stop from the highest phase down, so this stops first: the service keeps serving, marking
  * every response {@code Connection: close}, and then graceful shutdown stops new requests and waits for those in
  * progress. Nothing drains in a context without a running web server, which has no connections to retire.
+ *
+ * <p>The window is slept in {@link #stop}, so it is not bounded by {@code spring.lifecycle.timeout-per-shutdown-phase}
+ * (which bounds the graceful shutdown that follows). Keep it well under the pods' termination grace, which has to
+ * cover the window and that graceful shutdown.
  */
 public final class DrainLifecycle implements SmartLifecycle {
 

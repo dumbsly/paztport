@@ -4,7 +4,8 @@
 server:
   port: 8080
   # On SIGTERM the drain module first serves with Connection: close for demo.drain-seconds (DEMO_DRAIN_SECONDS,
-  # default 5), then this graceful shutdown lets requests in progress finish, each phase up to the timeout below.
+  # default 5), then this graceful shutdown lets requests in progress finish, up to the timeout below. The drain is
+  # not bounded by that timeout; keep it well under the pods' termination grace.
   shutdown: graceful
   # Mutual TLS: every caller presents a certificate from the mesh CA, and the
   # filter takes the service it names as the sender.
