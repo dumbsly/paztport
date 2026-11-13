@@ -2,9 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { generateKeyPairSync, type KeyObject } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { encode } from "../../src/encoding/b64url.ts";
 import { generateKeyPair, isEd25519PublicKey, keyPairMatches, sha256, sign, utf8, verify } from "../../src/crypto/crypto.ts";
+import { SMALL_ORDER_Y } from "../../src/crypto/ed25519-strict.ts";
 
 describe("crypto", () => {
   it("sha256OfAbc", () => {
@@ -25,6 +27,14 @@ describe("crypto", () => {
   });
   it("verifyFalseOnGarbageKey", () => {
     expect(verify("not-a-key", utf8("m"), new Uint8Array(64))).toBe(false);
+  });
+  it("verifyIsFalseForAnEmptySignature", () => {
+    const pair = generateKeyPair();
+    expect(verify(pair.publicKey, utf8("m"), new Uint8Array())).toBe(false);
+  });
+  it("strictEncodingsConstantsAreTheVectors", () => {
+    const vectors = JSON.parse(readFileSync(new URL("../../../../spec/vectors/ed25519.json", import.meta.url), "utf8"));
+    expect(SMALL_ORDER_Y.map((y) => Buffer.from(y).toString("hex"))).toEqual(vectors.smallOrderY);
   });
   it("ed25519IsDeterministic", () => {
     const kp = generateKeyPair();

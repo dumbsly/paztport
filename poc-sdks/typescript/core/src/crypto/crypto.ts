@@ -11,6 +11,7 @@ import {
   verify as nodeVerify,
 } from "node:crypto";
 import { decode, encode } from "../encoding/b64url.ts";
+import { strictEncodings } from "./ed25519-strict.ts";
 
 export function sha256(data: Uint8Array): Uint8Array {
   return new Uint8Array(createHash("sha256").update(data).digest());
@@ -51,10 +52,19 @@ export function sign(privateKey: string, message: Uint8Array): Uint8Array {
   return new Uint8Array(nodeSign(null, message, key));
 }
 
-/** Returns false (never throws) on any failure. */
+/** The X.509 SPKI DER that wraps a 32-byte Ed25519 key: the only key form the signature rule accepts. */
+const ED25519_SPKI_PREFIX = Buffer.from("302a300506032b6570032100", "hex");
+
+/**
+ * The signature rule (spec wire.md, Signatures): the key is an Ed25519 SPKI and the encodings pass strictEncodings,
+ * then the library checks the equation. Returns false (never throws) on any failure.
+ */
 export function verify(publicKey: string, message: Uint8Array, signature: Uint8Array): boolean {
   try {
-    const key = createPublicKey({ key: Buffer.from(decode(publicKey)), format: "der", type: "spki" });
+    const spki = Buffer.from(decode(publicKey));
+    if (spki.length !== 44 || !spki.subarray(0, 12).equals(ED25519_SPKI_PREFIX)) return false;
+    if (!strictEncodings(spki.subarray(12), signature)) return false;
+    const key = createPublicKey({ key: spki, format: "der", type: "spki" });
     return nodeVerify(null, message, key, signature);
   } catch {
     return false;
