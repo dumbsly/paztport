@@ -149,11 +149,12 @@ the outcome:
 to it only in an attested session whose reply lists each of them. On `EXTENSION_REQUIRED` it makes no call in that
 session. Nor does it make a call in an unsafe session with that server, however the session came to be unsafe:
 the reply's `status` said so (step 4), or the client took the replacement path, below, after an outcome from 1 to
-3, a JSON-RPC error or a timeout. The requirement is the caller's guard for a server that does not act on the
-extension, so neither the server, by answering `"unsafe"`, nor anyone able to make the handshake fail can switch it
-off. A configuration switch lets the client continue instead, in both cases: it then proceeds as a client with no
-requirement does, in the session the reply gave it, and its calls carry no `requires` for the names it could not
-get ([wire.md](wire.md#blocks)).
+3, a JSON-RPC error or a timeout. A server that answers the handshake with `-32601` (Method not found) has no
+Paztport, and is treated as an unsafe session for this rule: no calls unless the switch below is set. The
+requirement is the caller's guard for a server that does not act on the extension, so neither the server, by
+answering `"unsafe"`, nor anyone able to make the handshake fail can switch it off. A configuration switch lets the
+client continue instead, in both cases: it then proceeds as a client with no requirement does, in the session the
+reply gave it, and its calls carry no `requires` for the names it could not get ([wire.md](wire.md#blocks)).
 
 `EXTENSION_REQUIRED` is an outcome of this check, as `PIN_MISMATCH` and `MALFORMED_REPLY` are; it shares its name
 with the verifier's code, as `BAD_SIGNATURE` already does. A mesh has no handshake, so there `requires` does this
@@ -212,9 +213,10 @@ keyring at its `notAfter` and expired; and a `serverKeyringNotAfter` in a policy
 attested reply that lists what the client requires, lists more, lists none of it, or lists one of two names it requires;
 and, to a client with a requirement, an unsafe reply, another key's reply, a reply whose server root has expired and a
 reply without `extensions`, each given the outcome of an earlier step, not `EXTENSION_REQUIRED`. `sessionRequirement`
-pins what a client that requires extensions may do afterwards: after each outcome of the check, and after a JSON-RPC
-error or a timeout, with and without its switch, whether it makes calls and the `requires` its calls carry; and that a
-client with no requirement makes calls after a failed handshake and after an unsafe reply.
+pins what a client that requires extensions may do afterwards: after each outcome of the check, after a JSON-RPC
+error or a timeout, and after a Method not found answer, with and without its switch, whether it makes calls and the
+`requires` its calls carry; and that a client with no requirement makes calls after a failed handshake and after an
+unsafe reply.
 
 ### Over HTTP
 

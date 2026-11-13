@@ -56,6 +56,8 @@ const NONCHARACTER_CASE = "a call id holding a noncharacter";
 /** The influence.request cases whose hop's block only requires influence, as the verifier hands it on. */
 const PASS_ALONG = "a pass-along block (as the hand-over gives it: items null)";
 const PASS_ALONG_WRITE = `${PASS_ALONG}, a write`;
+/** The recordedLocalStep cases whose hop's block is the empty block, its origin's holding a private entry. */
+const PRIVATE_ORIGIN_EMPTY_HOP = "a write into a public folder, a private entry in the origin's block and the hop's block empty";
 /** The responseAttestation case whose token writes the attestation's members out of JCS order (see checkTokens). */
 const UNSORTED_ATTESTATION_CASE = "an attestation whose members are not in JCS order";
 
@@ -79,7 +81,8 @@ const ABOUT =
   "recordedLocalStep, responseAttestation, sessionParams, sessionResult, bindMcpCall and bindResult belong to " +
   "the MCP profile. Of these only recordedLocalStep needs the influence extension's rules, since the client's " +
   "local gate decides by them: a step's blocks carry influence entries, which the verifier reads " +
-  "(INFLUENCE_MISMATCH) and under whose classes it derives the gate's verdict again. Every other section that " +
+  "(INFLUENCE_MISMATCH) and under whose classes it derives the gate's verdict again, by the owner-aware rule alone, " +
+  "since every stamp of a step is the client's own. Every other section that " +
   "needs them is in the top-level member influence. " +
   "blocks.read reads each token as blocks: expected is OK with the blocks read, or REFUSED; blocks.commit gives a block's JCS text and its stamp's ext. " +
   "Each verify and offline case, each call of a recordedCall case, and each recordedLocalStep case's step, " +
@@ -106,7 +109,7 @@ const ABOUT =
   "A sessionReply case is the client's check of `reply` at `now`, against `pin` and `serverEntry`, with the extensions it `requires` ([] when absent); " +
   "offline the same reply opened an attested session exactly when the check gives ATTESTED or EXTENSION_REQUIRED, since step 5 is live only. " +
   "A sessionRequirement case is what a client that requires the extensions `requires` may do after the handshake: `check` is the reply's check " +
-  "(null for a JSON-RPC error or a timeout), `listed` the reply's extensions ([] when it did not read) and `continueWithout` its switch; " +
+  "(null for a JSON-RPC error, Method not found among them, or a timeout), `listed` the reply's extensions ([] when it did not read) and `continueWithout` its switch; " +
   "expected says whether it makes calls and the `requires` its calls carry. " +
   "A sessionStatus case is the server's status for `request` at `now`, against its own `serverRoot` and `serverKeyring` (whose notAfter is its window), " +
   "its policy key `serverPolicyKey` and the client policy keys `pinned`. " +
@@ -123,7 +126,8 @@ const ABOUT =
   "value `attestation`, one block per stamp of the response chain unless the case's name says otherwise), the " +
   "`result` it answers, the `call` (`rid`, `callId`, `receiver`), the client's `actsOn` and " +
   "`allowedExtensions`, and the `server` its stamps are checked against; the client checks it once at `now`, check " +
-  "9c included, and expected is the reason. " +
+  "9c included, and expected is the reason, RID_MISMATCH for a call whose rid is not the first stamp's, before the " +
+  "chain is checked. " +
   `The attestationToken of "${UNSORTED_ATTESTATION_CASE}" writes the members chain, proof, ` +
   "blocks, resultHash, out of JCS order; every other is its value's JCS. " +
   "A sessionParams case is paztport/session's params as the server reads them (OK, or INVALID_PARAMS for " +
@@ -140,15 +144,19 @@ const ABOUT =
   "destinationOwner, refused}, with a null owner unknown; request, {name, stamps, served, write, destinationOwner, " +
   "expected: {reason, everyStampNames}}, what an attested MCP server that acts on influence decides from the items " +
   "handed on under influence: `stamps` holds them, one {svc, items} per stamp, items null where the block does not " +
-  "name influence (a pass-along block among them), `served` is the classes the server served in the session and " +
+  "name influence (a pass-along block and an origin's among them), `served` is the classes the server served in the session and " +
   "`write` whether the call writes to a public destination; `stamps` [] is nothing handed on (influence.md, What " +
   "the rules read), where the every-stamp rule has no stamp to read and does not refuse, and everyStampNames is " +
   "recorded true; an item that does not read as an entry is INFLUENCE_MISMATCH before any rule, and everyStampNames " +
   "is then null; response, {name, reason, stamps, src, resultHash, expected: {entries}}, the entries a client that " +
-  "acts on influence adds for a response: the case hands the core check's result `reason` and `stamps`, what the " +
+  "acts on influence adds for a response over MCP: the case hands the core check's result `reason` and `stamps`, what the " +
   "response's blocks hold under influence, one per stamp, both to the implementation, which takes labels only when " +
   "the reason is OK; and recordedCall, in recordedCall's shape, at a verifier that acts on influence and reads the " +
   "items once the offline order gives OK, before a call is held to its session's limits. " +
+  "response, and the request cases whose `served` is not empty, record the MCP rule (every block of an MCP response " +
+  "chain names influence; the classes an MCP server served in its session), so they are for an implementation that " +
+  "acts on influence and implements the MCP profile; entries, labels, rule, recordedCall and the request cases " +
+  "whose `served` is [] are the extension's alone. " +
   "A verify or offline case may pin several keyrings and roots: `keyrings` ([{keyring, notAfter}], in place of `keyring`) and `roots` ([{policy, notAfter}], which pin those policies' roots), " +
   "where `policy` then names only where the case's proof comes from; in an offline case a member without a notAfter has no window. " +
   "A case's one `keyring`, or `policy`'s root when it has no `roots`, is a single member whose window is the case's policyNotAfter in a verify case " +
@@ -710,6 +718,18 @@ function influenceSection(run: {
     requestCase(
       "an item that is not an entry after a block that does not name it",
       [{ svc: "session", items: null }, { svc: "pi", items: [run.A_LABEL] }], {}, mismatch,
+    ),
+    // an earlier stamp that does not name influence refuses a public write too, though the caller's block holds only
+    // entries that read and none untrusted: the rule is over every stamp, not the caller's alone
+    requestCase(
+      "an origin block that does not name it, the caller's entries trusted, a write",
+      [{ svc: "session", items: null }, { svc: "pi", items: [PRIVATE_ALICE, PUBLIC] }], {},
+      { reason: "INFLUENCE_DENIED", everyStampNames: false },
+    ),
+    requestCase(
+      "an origin block that does not name it, the caller's entries trusted, a read",
+      [{ svc: "session", items: null }, { svc: "pi", items: [PRIVATE_ALICE, PUBLIC] }], { write: false },
+      { reason: "OK", everyStampNames: false },
     ),
     // no stamp to read: the every-stamp rule does not refuse, and the owner-aware rule reads what the service added
     requestCase("no stamps", [], {}, ok),
@@ -1587,6 +1607,9 @@ export function buildVectors(): Record<string, unknown> {
       ["a reply under another key", "PIN_MISMATCH", ["influence"]],
       ["a reply whose signature fails", "BAD_SIGNATURE", ["influence"]],
       ["a JSON-RPC error or a timeout", null, []],
+      // a server with no Paztport is an unsafe session for the requirement (sessions.md, A client that requires
+      // extensions)
+      ["a Method not found answer (-32601)", null, []],
     ] as [string, ReplyCheck | null, string[]][]).flatMap(([what, outcome, listed]) => [
       requirementCase(what, outcome, listed, ["influence"], false, NO_CALLS),
       requirementCase(`${what}, with the switch`, outcome, listed, ["influence"], true, CALLS),
@@ -2030,6 +2053,16 @@ export function buildVectors(): Record<string, unknown> {
     localStepCase("a write into a public folder, under untrusted and private entries", { ...COPY, verdict: "INFLUENCE_DENIED" }, { client: { rules: OTHER_RULES } }),
     localStepCase("a write into a public folder, signed as allowed under untrusted and private entries", { ...COPY, verdict: "OK" }, { client: { rules: OTHER_RULES } }),
     localStepCase("a write into a public folder, with no entries", { ...COPY, verdict: "OK" }, { client: { rules: OTHER_RULES }, signed: [INFLUENCE_ORIGIN, influenceHop([])] }),
+    // The local gate applies the owner-aware rule alone (influence.md, Over MCP): every stamp of the step is the
+    // client's own, so a hop block that does not name influence refuses nothing, and a private entry with nothing
+    // untrusted lets the write through.
+    ...(() => {
+      const signed: [BlockJson, BlockJson] = [influenceHop([SESSION_ENTRIES[1]!]), EMPTY];
+      return [
+        localStepCase(`${PRIVATE_ORIGIN_EMPTY_HOP}, signed as allowed`, { ...COPY, verdict: "OK" }, { client: { rules: OTHER_RULES }, signed }),
+        localStepCase(`${PRIVATE_ORIGIN_EMPTY_HOP}, signed as refused`, { ...COPY, verdict: "INFLUENCE_DENIED" }, { client: { rules: OTHER_RULES }, signed }),
+      ];
+    })(),
   ];
   check("recorded local step answers", recordedLocalStep.map((c) => [c.name, c.expected.reason, c.expected.verdict]), [
     ["allowed", "OK", "OK"],
@@ -2059,6 +2092,8 @@ export function buildVectors(): Record<string, unknown> {
     ["a write into a public folder, under untrusted and private entries", "OK", "INFLUENCE_DENIED"],
     ["a write into a public folder, signed as allowed under untrusted and private entries", "VERDICT_MISMATCH", null],
     ["a write into a public folder, with no entries", "OK", "OK"],
+    [`${PRIVATE_ORIGIN_EMPTY_HOP}, signed as allowed`, "OK", "OK"],
+    [`${PRIVATE_ORIGIN_EMPTY_HOP}, signed as refused`, "VERDICT_MISMATCH", null],
   ]);
 
   // The server's response through the client's check (MCP profile): the attestation carries one block per stamp of the
@@ -2094,13 +2129,13 @@ export function buildVectors(): Record<string, unknown> {
     ({ blocks, chain, proof: policies.server.proofs["mcp-entry/github-tools"]!, resultHash: RESULT_HASH });
   const attestationCase = (
     name: string, attestation: Record<string, unknown>, expected: string,
-    o: { actsOn?: string[]; allowedExtensions?: string[]; callId?: string } = {},
+    o: { actsOn?: string[]; allowedExtensions?: string[]; callId?: string; rid?: string } = {},
   ) => {
     const result = RESULT_BODY;
     const attestationToken = name === UNSORTED_ATTESTATION_CASE
       ? unsortedAttestationToken(attestation as Attestation)
       : tokenOf(attestation);
-    const call = { rid: RID, callId: o.callId ?? CALL_ID, receiver: "pi" };
+    const call = { rid: o.rid ?? RID, callId: o.callId ?? CALL_ID, receiver: "pi" };
     const actsOn = o.actsOn ?? EXAMPLE;
     const allowedExtensions = o.allowedExtensions ?? null;
     const got = verifyResponse(attestationToken, result, call, {
@@ -2141,6 +2176,8 @@ export function buildVectors(): Record<string, unknown> {
     ),
     attestationCase("a block altered", { ...attested, blocks: [ENTRY_BLOCK, { items: { example: [{ note: "r2" }] }, requires: [] }] }, "EXTENSION_MISMATCH"),
     attestationCase("a result hash for another result", { ...attested, resultHash: bindResult({ content: [], isError: false }) }, "BINDING_MISMATCH"),
+    // the client's pre-check, before the result hash and the chain (verification.md, A response, on the client)
+    attestationCase("a first stamp whose rid is not the call's", attested, "RID_MISMATCH", { rid: "rid-2" }),
     attestationCase("a name the client's allowed list does not hold", attested, "EXTENSION_NOT_ALLOWED", { actsOn: [], allowedExtensions: [INFLUENCE] }),
     // check 9c, on the responder's last block only: the client is held to what the responder requires of it
     attestationCase(

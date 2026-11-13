@@ -128,11 +128,12 @@ served by a service that would not apply the rule.
 `v4.json` pins the rule, with the owner-aware rule after it, in `influence.request`: what an attested MCP server
 that acts on `influence` decides from the items handed on and the classes it served ([Over MCP](#over-mcp)). Its
 cases are a chain whose every stamp names `influence`; a pass-along block, which refuses a public write whatever the
-entries say and leaves a read alone; untrusted content with someone else's private data, for a write and a read,
-and with the destination owner's own; a class served in the session; an item that is not an entry, for a write, a
-read and after a block that does not name `influence`, which is `INFLUENCE_MISMATCH` before either rule; and
-nothing handed on, where the every-stamp rule has no stamp to read and does not refuse, alone and with served
-classes that the owner-aware rule refuses.
+entries say and leaves a read alone; an origin block that does not name `influence` before a caller's block whose
+entries all read and none is untrusted, which refuses a public write too and leaves a read alone; untrusted content
+with someone else's private data, for a write and a read, and with the destination owner's own; a class served in
+the session; an item that is not an entry, for a write, a read and after a block that does not name `influence`,
+which is `INFLUENCE_MISMATCH` before either rule; and nothing handed on, where the every-stamp rule has no stamp to
+read and does not refuse, alone and with served classes that the owner-aware rule refuses.
 
 ## Content labels
 
@@ -299,7 +300,8 @@ included, as for every code ([Modes and refusals](verification.md#modes-and-refu
 
 **The client's local gate** ([MCP profile](README.md#the-mcp-profile)) applies the owner-aware rule to its own
 tools' writes into a folder whose destination is `public`, over the session's classes plus `private` when the call
-itself reads a private-labelled folder (`INFLUENCE_DENIED`).
+itself reads a private-labelled folder (`INFLUENCE_DENIED`). A local write is guarded by the owner-aware rule alone:
+the every-stamp rule does not apply, since every stamp of a local step's chain is the client's own.
 
 ## Blinded influence
 

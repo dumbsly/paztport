@@ -552,6 +552,12 @@ describe("known-answer vectors, version 4", () => {
     ["influence.response", "a response refused at check 9c"],
     ["influence.response", "verified, one label and one item that is not a label"],
     ["influence.recordedCall", "items under influence, at a verifier that acts on it"],
+    // and the whole-branch review
+    ["influence.request", "an origin block that does not name it, the caller's entries trusted, a write"],
+    ["recordedLocalStep", "a write into a public folder, a private entry in the origin's block and the hop's block empty, signed as allowed"],
+    ["sessionRequirement", "a Method not found answer (-32601)"],
+    ["sessionRequirement", "a Method not found answer (-32601), with the switch"],
+    ["responseAttestation", "a first stamp whose rid is not the call's"],
   ])("everyCaseTheReviewAskedForIsThere %s: %s", (section, name) => {
     const cases = sectionAt(committed, section) as any[];
     expect(cases.some((c) => c.name === name)).toBe(true);

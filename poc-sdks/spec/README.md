@@ -104,11 +104,16 @@ profile, less that profile's sections: `recordedLocalStep`, `responseAttestation
 `bindMcpCall` and `bindResult`. Outside `influence`, only `recordedLocalStep` needs an extension's rules: the other
 sections that hold blocks use made-up extensions, `example` among them, and name `influence` only as an opaque name, so
 an implementation with no extension's rules passes them, since the core never reads an item, and a `responseAttestation`
-case expects the core's reason alone. An implementation that acts on `influence` MUST also pass `influence`, and so MUST
-one that implements the MCP profile, whose local steps act on it: a recorded local step's check reads the entries in its
-blocks, and derives the gate's verdict again under their classes
-([verification.md](verification.md#offline-verification), [influence.md](influence.md#over-mcp)). It MUST pass
-`events.json` if it sends or receives responder events. No vector file records version 4 over HTTP.
+case expects the core's reason alone. An implementation that acts on `influence` MUST also pass `influence`'s `entries`,
+`labels`, `rule` and `recordedCall`, and the `request` cases whose `served` is empty, which are the extension's alone.
+`influence.response`, and the `request` cases whose `served` is not empty, record the extension over MCP: what a client
+adds for a response whose every stamp is the server's, and what a server decides with the classes it served in its
+session. They belong to the MCP profile as well as to the extension, and an implementation MUST pass them if it acts on
+`influence` and implements the MCP profile. One that implements the MCP profile acts on `influence`, since its local
+steps do: a recorded local step's check reads the entries in its blocks, and derives the gate's verdict again under
+their classes ([verification.md](verification.md#offline-verification), [influence.md](influence.md#over-mcp)). So it
+passes all of `influence`. It MUST pass `events.json` if it sends or receives responder events. No vector file records
+version 4 over HTTP.
 
 An implementation of version 3, as the Java and Go SDKs are, MUST pass `ed25519.json`, and `v3.json` and `json.json`
 less their sections that belong to the MCP profile if it does not implement it: `recordedLocalStep`,
@@ -249,13 +254,16 @@ cd poc-sdks/typescript && node mcp/test/vectors-v4-export.ts --write
 - `recordedLocalStep`: recorded local steps ([MCP profile](#the-mcp-profile): as in `v3.json`; a block altered; an
   `influence` item that is not an entry, in the client hop's block, in the origin's, under an expired root, in an
   unlisted step, and beside a bad signature, which is found first; and a write into a public folder under untrusted
-  and private entries, signed as refused and signed as allowed, and with no entries).
+  and private entries, signed as refused and signed as allowed, with no entries, and with a private entry in the
+  origin's block and the hop's block empty, signed as allowed and as refused, which the owner-aware rule alone
+  decides).
 - `responseAttestation`: response attestations ([MCP profile](#the-mcp-profile): an attested response; an
   attestation with a member it does not have, with `labels` in place of `blocks`, with no `blocks` or a `null` one
   while every `ext` is empty, with a `blocks` that is not an array of blocks, and with its members out of JCS order,
-  none of which reads; one block for two stamps, and a block altered; a result hash for another result; a name the
-  client's allowed list does not hold; the last block requiring an extension the client does not act on, and the
-  first; and a call id holding a noncharacter).
+  none of which reads; one block for two stamps, and a block altered; a first stamp whose `rid` is not the call's,
+  found before the chain is checked; a result hash for another result; a name the client's allowed list does not
+  hold; the last block requiring an extension the client does not act on, and the first; and a call id holding a
+  noncharacter).
 - `sessionParams` and `sessionResult`: `paztport/session`'s params and result ([MCP profile](#the-mcp-profile)), as
   in `v3.json`.
 - `sessionReply` and `sessionRequirement`: the client's check of a reply, and what a client that requires
@@ -267,8 +275,9 @@ cd poc-sdks/typescript && node mcp/test/vectors-v4-export.ts --write
 - `influence`: the extension's own sections, each cited where [influence.md](influence.md) states its rule:
   `entries` and `labels`, whether an item reads as an entry or a label; `rule`, the owner-aware rule's truth table;
   `request`, what an attested MCP server that acts on `influence` decides from the items handed on; `response`,
-  the entries a client that acts on it adds for a response; and `recordedCall`, recorded calls at a verifier that
-  acts on it.
+  the entries a client that acts on it adds for a response over MCP; and `recordedCall`, recorded calls at a verifier
+  that acts on it. `response`, and the `request` cases whose `served` is not empty, belong to the MCP profile as well
+  ([Conformance](#conformance)).
 
 Beside the form above, `v4.json` carries these members. `blocks` is null where `blocksToken` is null (no token received,
 which is one empty block per stamp), and in the two `verify` cases whose token does not read as an array: "a blocks
