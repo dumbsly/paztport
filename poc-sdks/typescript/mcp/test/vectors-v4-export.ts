@@ -19,14 +19,16 @@ import {
   utf8, verifyChainOffline, verifyChain, verifyKeyring, signReplyCert, replyCertSigningBytes, verifyReplyCert,
   checkSessionReply, readProof, readSessionRequest, deriveSessionId, encodeProof, isCurrent, isNotAfter,
   pinnedNotAfter, signRenewedRoot, rootSigningBytes, sessionStatus, signRoot, verifyRoot,
-  callInSession, newRecordSet, recordedSession,
+  callInSession, newRecordSet, parseLocalRules, recordedSession, rulesHash, stampLocalStep, verifyRecordedLocalStep,
   blockOf, callsAfter, commitBlock, extensionSettings, isAttestedSession, nonceKey, readBlocks, writeWire,
+  INFLUENCE, decideServerCall, entryOf, influenceReason, labelOf, labelToEntry, publicWriteRefused,
+  readRequestInfluence, readResponseLabels, readSessionReply, verifyResponse,
 } from "@paztport/core";
 import type {
-  ChainVerification, JsonValue, MerkleProof, Peer, ReplyCert, ReplyCheck, SessionReply, SessionRequest,
-  SignedKeyring, SignedRoot, Stamp,
+  ChainVerification, InfluenceFact, JsonValue, LocalRules, LocalVerdict, MerkleProof, Peer, ReplyCert, ReplyCheck,
+  Resolved, SessionReply, SessionRequest, SignedKeyring, SignedRoot, Stamp, StampItems,
 } from "@paztport/core";
-import { bindMcpCall, mcpReceiver } from "../src/index.ts";
+import { InvalidParams, bindMcpCall, mcpReceiver, readSessionParams, sessionReplyToken } from "../src/index.ts";
 
 const VECTORS_JSON = new URL("../../../spec/vectors/v4.json", import.meta.url);
 
@@ -49,8 +51,10 @@ const UNREADABLE_BLOCKS_CASE = "a blocks token that does not read";
 const NULL_BLOCKS_CASE = "a blocks token holding null, every ext empty";
 /** The verify case whose blocks read as JSON, but whose second element is no block. */
 const EXTRA_MEMBER_CASE = "a block with a member blocks do not have";
-/** The verify case whose nonce key holds a noncharacter. */
+/** The verify and responseAttestation cases whose call id holds a noncharacter. */
 const NONCHARACTER_CASE = "a call id holding a noncharacter";
+/** The responseAttestation case whose token writes the attestation's members out of JCS order (see checkTokens). */
+const UNSORTED_ATTESTATION_CASE = "an attestation whose members are not in JCS order";
 
 const ABOUT =
   "Paztport version 4 conformance vectors. Every case carries all of its inputs; keys and policies are named and defined in this file. " +
@@ -63,16 +67,22 @@ const ABOUT =
   "are v3.json's value for value, and a file of other vectors can take its keys and policies from either. " +
   "This placement and rootId derivation are for the vectors only; real builds use random slots and a random rootId. " +
   "Ed25519 is deterministic, so the file is reproduced byte for byte. " +
-  "The core sections use a made-up extension, example, and name influence only as an opaque second name: " +
-  "no section outside a top-level member named influence needs an extension's rules. " +
+  "The core sections use a made-up extension, example, name influence only as an opaque second name, " +
+  "and need no extension's rules. " +
+  "recordedLocalStep, responseAttestation, sessionParams, sessionResult, bindMcpCall and bindResult belong to " +
+  "the MCP profile. Of these only recordedLocalStep needs the influence extension's rules, since the client's " +
+  "local gate decides by them: a step's blocks carry influence entries, which the verifier reads " +
+  "(INFLUENCE_MISMATCH) and under whose classes it derives the gate's verdict again. Every other section that " +
+  "needs them is in the top-level member influence. " +
   "blocks.read reads each token as blocks: expected is OK with the blocks read, or REFUSED; blocks.commit gives a block's JCS text and its stamp's ext. " +
-  "Each verify and offline case, and each call of a recordedCall case, carries `blocksToken`, the token the verifier reads, null when no token " +
-  "was received, which is one empty block per stamp, and `blocks`, the token's readable value. `blocks` is null where there is no token, and in " +
-  `the two verify cases whose token does not read as an array: "${NULL_BLOCKS_CASE}", whose token is the JCS of null, and ` +
-  `"${UNREADABLE_BLOCKS_CASE}", whose token is not canonical bytes and has no readable value. ` +
+  "Each verify and offline case, each call of a recordedCall case, and each recordedLocalStep case's step, " +
+  "carries `blocksToken`, the token the verifier reads, null when no token was received, which is one empty " +
+  "block per stamp, and `blocks`, the token's readable value. `blocks` is null where there is no token, and in " +
+  `the two verify cases whose token does not read as an array: "${NULL_BLOCKS_CASE}", whose token is ` +
+  `the JCS of null, and "${UNREADABLE_BLOCKS_CASE}", whose token is not canonical bytes and has no readable value. ` +
   `The verify case "${EXTRA_MEMBER_CASE}" carries its readable value, an array whose second element is no block. ` +
-  "On each verify, offline and recordedCall case, `actsOn` is the extensions the verifier acts on, and `allowedExtensions` the names it carries, " +
-  "null for unset, which carries any name. " +
+  "On each verify, offline, recordedCall and responseAttestation case, `actsOn` is the extensions the verifier " +
+  "acts on, and `allowedExtensions` the names it carries, null for unset, which carries any name. " +
   "A verify or offline case's expected is {reason, suspectSvc, suspectInst, handOver}: handOver is null unless the reason is OK, and then has " +
   "one member per name in actsOn, each an array of {svc, items}, one per stamp in chain order, items null where the stamp's block does not name the extension. " +
   "A verify case runs the live verifier `uses` times against one nonce cache of nonceTtlMs and expects the last result; each use is sent by `peer`, " +
@@ -82,8 +92,10 @@ const ABOUT =
   "`prompt` the run's recorded prompt, and callMaxAgeMs and runMaxAgeMs the age limits; a null recordedTs is a record with no time, and a null limit is one not configured, which is absent, never 0; there is no peer, clock or nonce TTL, and `seen` " +
   "is the set of nonce keys already spent in the record set. A policy's proof is looked up by `proofRoute` (null: no proof). " +
   "A nonce key, in `nonceKey` and `seen`, is the JCS text of its array of strings, each string written as RFC 8785 writes strings. " +
-  `The nonceKey of the verify case "${NONCHARACTER_CASE}" holds the noncharacter U+FFFF written as itself, as json.json already does, ` +
-  "which a strict reader refuses, so a replay reads this file's own structure with any JSON reader, and only the tokens with the reader under test. " +
+  `The verify case "${NONCHARACTER_CASE}"'s nonceKey, and the responseAttestation case of that name's ` +
+  "call.toolCallId, hold the noncharacter U+FFFF written as itself, as json.json already does, which a strict " +
+  "reader refuses, so a replay reads this file's own structure with any JSON reader, and only the tokens with the " +
+  "reader under test. " +
   "A sessionReply case is the client's check of `reply` at `now`, against `pin` and `serverEntry`, with the extensions it `requires` ([] when absent); " +
   "offline the same reply opened an attested session exactly when the check gives ATTESTED or EXTENSION_REQUIRED, since step 5 is live only. " +
   "A sessionRequirement case is what a client that requires the extensions `requires` may do after the handshake: `check` is the reply's check " +
@@ -94,9 +106,36 @@ const ABOUT =
   "A sessionRequest case is a request as received, its bytes in `requestToken`, read by the server: " +
   "`expected` is OK for a well-formed request and MALFORMED for one it refuses " +
   "(JSON-RPC -32602, HTTP 400 INVALID_PARAMS). " +
+  "A recordedLocalStep case is a recorded local step: its `step` (the call's `tool`, `callId` and `input`; the " +
+  "gate's decision, `resolved`, `verdict`, `routeAllowed` and `rulesHash`, recorded together as `decisionToken`; " +
+  "`rid`, `now`, the chain, `proofRoute`, and the blocks, the origin's naming influence with [] and the hop's " +
+  "holding the session's entries), checked against its `client` (`keyring` by name, `policy`'s root, their " +
+  "windows `rootNotAfter` and `keyringNotAfter`, and `rules`), its `signers`, its `run` (prompt and start times) " +
+  "and `seen`; expected is the reason, and the verdict the step signed when it verifies, else null. " +
+  "A responseAttestation case is a response as the client receives it: `attestationToken` (its readable value " +
+  "`attestation`, one block per stamp of the response chain), the `result` it answers, the `call` (`rid`, " +
+  "`toolCallId`, `receiver`), the client's `actsOn` and `allowedExtensions`, and the `server` its stamps are " +
+  "checked against; the client checks it once at `now`, check 9c included, and expected is the reason. " +
+  `The attestationToken of "${UNSORTED_ATTESTATION_CASE}" writes the members chain, proof, ` +
+  "blocks, resultHash, out of JCS order; every other is its value's JCS. " +
+  "A sessionParams case is paztport/session's params as the server reads them (OK, or INVALID_PARAMS for " +
+  "JSON-RPC -32602), and a sessionResult case its result as the client reads it (OK, or MALFORMED_REPLY); the OK " +
+  'results carry the reply of the sessionReply case "entry-key form attested". ' +
   "The sections after sessionRequest pin the primitives the cases above rely on, each with its inputs: fixedInputs are `length` consecutive bytes from `start`, base64url, " +
   "which deriveSessionId's cases name; the prompt and response bindings; " +
-  "and merkle, a tree of its own (depth 8, rootId merkle-vector) whose leaf hashes, node, root, proofs and proof headers (the base64url of each proof's JCS bytes) are recorded as the library computes them, and whose padding hashes are recorded as given, not derived. " +
+  "merkle, a tree of its own (depth 8, rootId merkle-vector) whose leaf hashes, node, root, proofs and proof headers (the base64url of each proof's JCS bytes) are recorded as the library computes them, and whose padding hashes are recorded as given, not derived; " +
+  "and the MCP profile's tools/call and result bindings, bindMcpCall and bindResult. " +
+  "The member influence holds: entries and labels, {name, item, reads}, whether the item reads as an entry on a " +
+  "request's block or as a label on a response's; rule, the owner-aware rule's truth table {name, influence, " +
+  "destinationOwner, refused}, with a null owner unknown; request, {name, stamps, served, write, destinationOwner, " +
+  "expected: {reason, everyStampNames}}, what an attested MCP server that acts on influence decides for a call " +
+  "that verified, `stamps` the hand-over's entries for influence, `served` the classes it served in the session " +
+  "and `write` whether the call writes to a public destination, where an item that does not read as an entry is " +
+  "INFLUENCE_MISMATCH before any rule and everyStampNames is then null; response, {name, reason, stamps, src, " +
+  "resultHash, expected: {entries}}, the entries a client that acts on influence adds for a response, `reason` " +
+  "the core check's result and `stamps` what the response's blocks hold under influence, one per stamp, read only " +
+  "on OK; and recordedCall, in recordedCall's shape, at a verifier that acts on influence and reads the items once " +
+  "the offline order gives OK, before a call is held to its session's limits. " +
   "A verify or offline case may pin several keyrings and roots: `keyrings` ([{keyring, notAfter}], in place of `keyring`) and `roots` ([{policy, notAfter}], which pin those policies' roots), " +
   "where `policy` then names only where the case's proof comes from; in an offline case a member without a notAfter has no window. " +
   "A case's one `keyring`, or `policy`'s root when it has no `roots`, is a single member whose window is the case's policyNotAfter in a verify case " +
@@ -196,6 +235,22 @@ function chainTokenOf(name: string, chain: unknown): string {
   return encode(utf8(text.replace(jcs, `"ts":${TS_MIN_TEXT}`)));
 }
 
+type Attestation = { blocks: unknown; chain: unknown; proof: unknown; resultHash: string };
+
+/**
+ * The token of an attestation whose members are written `chain`, `proof`, `blocks`, `resultHash`, each value as JCS
+ * writes it: the order version 3's attestation was listed in, with `blocks` in `labels`' place, and not JCS order,
+ * which sorts the members.
+ */
+function unsortedAttestationToken(att: Attestation): string {
+  return encode(
+    utf8(
+      `{"chain":${canonicalize(att.chain)},"proof":${canonicalize(att.proof)},"blocks":${canonicalize(att.blocks)},` +
+        `"resultHash":${canonicalize(att.resultHash)}}`,
+    ),
+  );
+}
+
 /**
  * A case's file text: printFile of its value, except where the value's notAfter is not a protocol integer (1.5, 2^53),
  * which printFile refuses, or the case is FRACTION_CASE. Then it is the value's file with notAfter printed as 0, and
@@ -221,10 +276,11 @@ function readOr<T>(read: () => T): T | undefined {
 
 /**
  * Every token in the vectors is tokenOf its readable sibling, `<m>Token` of `<m>` and `proofTokens` of `proofs`,
- * except the chain token TS_MIN_CASE crafts, which holds the ts exactly, and the blocks token of
- * UNREADABLE_BLOCKS_CASE, which does not read; a blocks token is null, for none received, only beside null blocks.
- * Every file is fileOf its readable sibling: a keyring's or root's `signed`, a certificate's `cert`, and a session
- * status case's `serverRoot` and `serverKeyring`.
+ * except the chain token TS_MIN_CASE crafts, which holds the ts exactly, the blocks token of UNREADABLE_BLOCKS_CASE,
+ * which does not read, and the attestation token UNSORTED_ATTESTATION_CASE crafts, whose members are out of JCS order;
+ * a blocks token is null, for none received, only beside null blocks. A local step's `decisionToken` is tokenOf its
+ * `callId`, `resolved`, `verdict`, `routeAllowed` and `rulesHash` together. Every file is fileOf its readable sibling:
+ * a keyring's or root's `signed`, a certificate's `cert`, and a session status case's `serverRoot` and `serverKeyring`.
  */
 function checkTokens(value: unknown, path = ""): void {
   if (Array.isArray(value)) {
@@ -244,9 +300,16 @@ function checkTokens(value: unknown, path = ""): void {
         check(`${at} does not read, beside null blocks`, [read, o.blocks], [undefined, null]);
       } else if (k === "blocksToken" && v === null) {
         check(`${at} is null, beside null blocks`, o.blocks, null);
+      } else if (o.name === UNSORTED_ATTESTATION_CASE && k === "attestationToken") {
+        check(`${at} is the unsorted token of its value`, v, unsortedAttestationToken(o.attestation as Attestation));
+        check(`${at} is not the JCS of its value`, v === tokenOf(o.attestation), false);
       } else {
         check(`${at} is the token of its value`, v, tokenOf(o[k.slice(0, -5)]));
       }
+    } else if (k === "decisionToken") {
+      const { callId, resolved, verdict, routeAllowed, rulesHash: hash } = o;
+      const decision = { callId, resolved, verdict, routeAllowed, rulesHash: hash };
+      check(`${at} is the token of its decision`, v, tokenOf(decision));
     } else if (k === "file") {
       check(`${at} is the file of its value`, v, fileOf(o.name, (o.signed ?? o.cert) as object));
     } else if (k === "serverRootFile" || k === "serverKeyringFile") {
@@ -277,6 +340,26 @@ const SESSION_ID_CASES = [
 ] as const;
 const PROMPT = "open a PR for issue #42";
 const RESPONSE = { resultHash: "result-hash", callId: "call-1" };
+/** The MCP profile's bindings' inputs: a result with a top-level `_meta`, which its hash leaves out, and a call. */
+const RESULT = { content: [{ type: "text", text: "hi" }], isError: false, _meta: { x: 1 } };
+const MCP_CALL = {
+  tool: "create_pull_request", callId: "call-1", args: { title: "t", body: "b", draft: false, n: [1, 2.5] },
+};
+
+/**
+ * The MCP profile's result and `tools/call` bindings (wire.md, Bindings), each stated by hand: the hash of
+ * "result\n" and the result's JCS without its `_meta`, and of "tools/call\n", the tool, "\n", the call id, "\n" and the
+ * arguments' JCS.
+ */
+function mcpBindings() {
+  const { _meta: _left, ...hashed } = RESULT;
+  const bindResultSection = { result: RESULT, expected: bindResult(RESULT) };
+  check("bindResult", bindResultSection.expected, encode(sha256(utf8("result\n" + canonicalize(hashed)))));
+  const bindMcpCallSection = { ...MCP_CALL, expected: bindMcpCall(MCP_CALL.tool, MCP_CALL.callId, MCP_CALL.args) };
+  const callText = `tools/call\n${MCP_CALL.tool}\n${MCP_CALL.callId}\n${canonicalize(MCP_CALL.args)}`;
+  check("bindMcpCall", bindMcpCallSection.expected, encode(sha256(utf8(callText))));
+  return { bindMcpCall: bindMcpCallSection, bindResult: bindResultSection };
+}
 
 /**
  * The Merkle section's tree: depth 8, three leaves in slots 0 to 2 and opaque padding elsewhere. Slot 3's padding hash and
@@ -485,6 +568,204 @@ const settingsOf = (c: Pick<CaseInputs, "actsOn" | "allowedExtensions">) =>
 
 /** A hand-over's entries for one name: each stamp's signer and the items its block holds, or null. */
 const entries = (...pairs: [string, JsonValue[] | null][]) => pairs.map(([svc, items]) => ({ svc, items }));
+
+/** Whether `read` reads the item, as an entry or a label: a reader that refuses it throws. */
+const readsAs = (read: (item: JsonValue) => unknown, item: JsonValue): boolean =>
+  readOr(() => read(item)) !== undefined;
+
+/**
+ * What a server that acts on influence decides for a call in an attested session once it verified, given the items
+ * handed on under influence (sessions.md, The server decision): an item that does not read as an entry is
+ * INFLUENCE_MISMATCH before any rule runs (step 2), and there is then no reading of whether every stamp names
+ * influence; otherwise a write to a public destination is decided by the every-stamp rule, then the owner-aware rule
+ * over the entries and the classes served (step 3).
+ */
+function requestDecision(c: {
+  stamps: StampItems[]; served: InfluenceFact["cls"][]; write: boolean; destinationOwner: string | null;
+}) {
+  const read = readRequestInfluence(c.stamps);
+  if (!read.reads) return { reason: "INFLUENCE_MISMATCH", everyStampNames: null };
+  const reason = decideServerCall({
+    tool: "create_pull_request", isWrite: c.write, publicDestination: c.write, attested: true, actsOnInfluence: true,
+    served: c.served, request: read, disabledWhenUnsafe: [],
+    ...(c.destinationOwner === null ? {} : { destinationOwner: c.destinationOwner }),
+  });
+  return { reason, everyStampNames: read.everyStampNames };
+}
+
+/**
+ * What a caller that acts on influence adds for a response (influence.md, Content labels): one entry per label when
+ * the response verified and every block names influence with only labels under it, else one local-untrusted entry.
+ * A label counts only when the whole response verifies, so `stamps`, what the blocks hold, is read only on OK. The
+ * SDK's MCP client composes the same two functions; no core function gives the entries a response adds.
+ */
+function responseEntries(c: { reason: string; stamps: StampItems[]; src: string; resultHash: string }) {
+  const labels = c.reason === "OK" ? readResponseLabels(c.stamps) : null;
+  return labels === null
+    ? [{ cls: "local-untrusted", src: c.src, h: c.resultHash }]
+    : labels.map((label) => labelToEntry(label, c.src, c.resultHash));
+}
+
+/**
+ * The member `influence`: everything that needs the influence extension's rules (influence.md). Every answer is
+ * stated by hand and checked against the library.
+ */
+function influenceSection(run: {
+  A_LABEL: JsonValue; SESSION_ENTRIES: JsonValue[]; RESULT_HASH: string;
+  recordedCall: { name: string; expected: { reason: string }[] };
+}) {
+  type Item = Record<string, JsonValue>;
+  const [THIRD_PARTY, PRIVATE_ALICE] = run.SESSION_ENTRIES as [Item, Item];
+  const PRIVATE_BOB = { cls: "private", src: "github:acme/app#7", h: "h3", owner: "bob" };
+  const PUBLIC = { cls: "public", src: "web:docs.example.org", h: "h4" };
+
+  // An item on a request's block, read as an entry (influence.md, Entries).
+  const entryCase = (name: string, item: JsonValue, reads: boolean) => {
+    check(`influence entry ${name}`, readsAs(entryOf, item), reads);
+    return { name, item, reads };
+  };
+  const entryItems = [
+    entryCase("the three required members", THIRD_PARTY, true),
+    entryCase("with cid", { ...THIRD_PARTY, cid: "cid-2" }, true),
+    entryCase("with owner", PRIVATE_BOB, true),
+    entryCase("with cid and owner", PRIVATE_ALICE, true),
+    // only compared as text: an empty one is a string like any other
+    entryCase("an empty cid", { ...THIRD_PARTY, cid: "" }, true),
+    entryCase("a string", "third-party", false),
+    entryCase("an array", ["third-party", "web:example.com", "h2"], false),
+    entryCase("null", null, false),
+    entryCase("another member", { ...THIRD_PARTY, note: "n1" }, false),
+    // the classes are the four names exactly
+    entryCase("an unknown cls", { ...THIRD_PARTY, cls: "Third-party" }, false),
+    entryCase("no h", { cls: "third-party", src: "web:example.com" }, false),
+    entryCase("a number as src", { ...THIRD_PARTY, src: 7 }, false),
+    entryCase("a number as h", { ...THIRD_PARTY, h: 7 }, false),
+    entryCase("a number as cid", { ...THIRD_PARTY, cid: 7 }, false),
+    entryCase("an empty owner", { ...PRIVATE_BOB, owner: "" }, false),
+    entryCase("a null owner", { ...PRIVATE_BOB, owner: null }, false),
+    entryCase("a label", run.A_LABEL, false),
+  ];
+
+  // An item on a response's block, read as a label (influence.md, Content labels).
+  const labelCase = (name: string, item: JsonValue, reads: boolean) => {
+    check(`influence label ${name}`, readsAs(labelOf, item), reads);
+    return { name, item, reads };
+  };
+  const LABEL = { cls: "third-party", cid: "cid-2" };
+  const labels = [
+    labelCase("cid and cls", LABEL, true),
+    labelCase("with owner", run.A_LABEL, true),
+    labelCase("an empty cid", { ...LABEL, cid: "" }, true),
+    labelCase("another member", { ...LABEL, note: "n1" }, false),
+    labelCase("an unknown cls", { ...LABEL, cls: "Third-party" }, false),
+    labelCase("an empty owner", { ...LABEL, owner: "" }, false),
+    labelCase("no cid", { cls: "third-party" }, false),
+    labelCase("a number as cid", { ...LABEL, cid: 7 }, false),
+    // every member a label has, and an entry's src and h besides
+    labelCase("an entry", { ...THIRD_PARTY, cid: "cid-2" }, false),
+  ];
+
+  // The owner-aware rule's truth table, by hand: v3.json's `rule`, whose rule did not change.
+  const TP = { cls: "third-party" } as const;
+  const LU = { cls: "local-untrusted" } as const;
+  const PUB = { cls: "public" } as const;
+  const P = (owner?: string): InfluenceFact => (owner === undefined ? { cls: "private" } : { cls: "private", owner });
+  const rule = ([
+    ["own private data, untrusted content", [TP, P("alice")], "alice", false],
+    ["someone else's private data", [TP, P("bob")], "alice", true],
+    ["private data with no owner", [TP, P()], "alice", true],
+    ["unknown destination owner", [TP, P("alice")], null, true],
+    ["local-untrusted counts as untrusted", [LU, P("bob")], "alice", true],
+    ["no untrusted content", [P("bob")], "alice", false],
+    ["no private data", [TP], "alice", false],
+    ["one foreign entry is enough", [TP, P("alice"), P("bob")], "alice", true],
+    ["public is not private", [TP, PUB], "alice", false],
+    ["an empty owner is unknown on both sides", [TP, P("")], "", true],
+    ["nothing at all", [], "alice", false],
+    ["an empty private owner is unknown", [TP, P("")], "alice", true],
+    ["an empty destination owner is unknown", [TP, P("alice")], "", true],
+  ] as [string, InfluenceFact[], string | null, boolean][]).map(([name, facts, destinationOwner, refused]) => {
+    check(`rule ${name}`, publicWriteRefused(facts, destinationOwner ?? undefined), refused);
+    return { name, influence: facts, destinationOwner, refused };
+  });
+
+  // What a request holds at an attested MCP server that acts on influence: the items handed on, one entry per stamp,
+  // and the classes it served in the session; `write` is a write to a public destination.
+  const requestCase = (
+    name: string, stamps: StampItems[], o: { served?: InfluenceFact["cls"][]; write?: boolean; destinationOwner?: string | null },
+    expected: { reason: string; everyStampNames: boolean | null },
+  ) => {
+    const c = {
+      name, stamps, served: o.served ?? [], write: o.write ?? true, destinationOwner: o.destinationOwner ?? "alice",
+    };
+    check(`influence request ${name}`, requestDecision(c), expected);
+    return { ...c, expected };
+  };
+  const hop = (items: JsonValue[] | null): StampItems[] => [{ svc: "session", items: [] }, { svc: "pi", items }];
+  const ok = { reason: "OK", everyStampNames: true };
+  const denied = { reason: "INFLUENCE_DENIED", everyStampNames: true };
+  const mismatch = { reason: "INFLUENCE_MISMATCH", everyStampNames: null };
+  const request = [
+    // no untrusted content, so someone else's private data may be written
+    requestCase("every stamp names it and nothing is untrusted", hop([PRIVATE_ALICE, PUBLIC]), { destinationOwner: "bob" }, ok),
+    // a block that only requires influence does not name it: a hop that may have read anything
+    requestCase("a pass-along block, a write", hop(null), {}, { reason: "INFLUENCE_DENIED", everyStampNames: false }),
+    requestCase("a pass-along block, a read", hop(null), { write: false }, { reason: "OK", everyStampNames: false }),
+    requestCase("untrusted content and someone else's private data", hop([THIRD_PARTY, PRIVATE_BOB]), {}, denied),
+    requestCase("untrusted content and someone else's private data, a read", hop([THIRD_PARTY, PRIVATE_BOB]), { write: false }, ok),
+    requestCase("untrusted content and the destination owner's own private data", hop([THIRD_PARTY, PRIVATE_ALICE]), {}, ok),
+    // a served class carries no owner, so it counts as someone else's
+    requestCase("a served private class with an untrusted entry", hop([THIRD_PARTY]), { served: ["private"] }, denied),
+    requestCase("an item that is not an entry, a write", hop([THIRD_PARTY, run.A_LABEL]), {}, mismatch),
+    requestCase("an item that is not an entry, a read", hop([THIRD_PARTY, run.A_LABEL]), { write: false }, mismatch),
+    // the item check comes first (sessions.md, The server decision, step 2 before step 3), though the block before it
+    // does not name influence
+    requestCase(
+      "an item that is not an entry after a block that does not name it",
+      [{ svc: "session", items: null }, { svc: "pi", items: [run.A_LABEL] }], {}, mismatch,
+    ),
+    // no stamp to read: the every-stamp rule does not refuse, and the owner-aware rule reads what the service added
+    requestCase("no stamps", [], {}, ok),
+    requestCase("no stamps, the classes served refusing it", [], { served: ["third-party", "private"] }, denied),
+  ];
+
+  // What a caller that acts on influence adds for a response over MCP: `reason` is the core check's result, and
+  // `stamps` what the response's blocks hold under influence, one per stamp, as the hand-over gives it on OK.
+  const SRC = "server:github";
+  const untrusted = [{ cls: "local-untrusted", src: SRC, h: run.RESULT_HASH }];
+  const L1 = run.A_LABEL;
+  const L2 = { cls: "third-party", cid: "cid-2" };
+  const L3 = { cls: "public", cid: "cid-3" };
+  const server = (first: JsonValue[] | null, last: JsonValue[] | null): StampItems[] =>
+    [{ svc: "mcp-entry", items: first }, { svc: "github-tools", items: last }];
+  const responseCase = (name: string, reason: string, stamps: StampItems[], expected: JsonValue[]) => {
+    const c = { name, reason, stamps, src: SRC, resultHash: run.RESULT_HASH };
+    check(`influence response ${name}`, responseEntries(c), expected);
+    return { ...c, expected: { entries: expected } };
+  };
+  const response = [
+    responseCase("verified, one label", "OK", server([L1], []), [{ cls: "private", src: SRC, h: run.RESULT_HASH, cid: "cid-1", owner: "alice" }]),
+    responseCase("verified, two blocks, [] then two labels", "OK", server([], [L2, L3]), [
+      { cls: "third-party", src: SRC, h: run.RESULT_HASH, cid: "cid-2" },
+      { cls: "public", src: SRC, h: run.RESULT_HASH, cid: "cid-3" },
+    ]),
+    // every item a label, of none: no entry at all
+    responseCase("verified, every block naming it with no label", "OK", server([], []), []),
+    responseCase("verified, one label and one item that is not a label", "OK", server([], [L1, THIRD_PARTY]), untrusted),
+    responseCase("verified, a label, and an item that is not a label in another block", "OK", server([THIRD_PARTY], [L1]), untrusted),
+    responseCase("verified, a block that does not name it", "OK", server(null, [L1]), untrusted),
+    responseCase("a response refused at check 9c", "EXTENSION_REQUIRED", server([], [L1]), untrusted),
+    responseCase("a response whose signature fails", "BAD_SIGNATURE", server([], [L1]), untrusted),
+  ];
+
+  // A record set at a verifier that acts on influence: an item that does not read is the extension's code, in the
+  // session and past its limits alike.
+  check("influence recorded call answers", run.recordedCall.expected.map((e) => e.reason), [
+    "OK", "INFLUENCE_MISMATCH", "INFLUENCE_MISMATCH", "OUTSIDE_SESSION",
+  ]);
+
+  return { entries: entryItems, labels, rule, request, response, recordedCall: [run.recordedCall] };
+}
 
 export function buildVectors(): Record<string, unknown> {
   const keys = Object.fromEntries(KEY_NAMES.map((n) => [n, vectorKey(n)])) as Record<KeyName, { pub: string; priv: string }>;
@@ -1537,20 +1818,33 @@ export function buildVectors(): Record<string, unknown> {
     recordedTs: { last: number };
     prompt: string;
   };
-  const callIn = (reply: SessionReply, ts: number, callId: string, o: { forged?: boolean } = {}): RecordedCallInput => {
+  /** A call recorded at `ts` in the session `reply` opened, its stamps committing to `o.blocks` (the base call's). */
+  const callIn = (
+    reply: SessionReply, ts: number, callId: string, o: { forged?: boolean; blocks?: [BlockJson, BlockJson] } = {},
+  ): RecordedCallInput => {
     const bind = bindMcpCall(TOOL, callId, ARGS);
     const sess = reply.sess;
-    const first = stampBy({ ...originFields, ts: ts - 1000, sess }, "session");
-    const chain = [first, stampBy({ ...hopFields(first.sig), ts, sess, bind }, o.forged === true ? "session" : "pi")];
+    const blocks = o.blocks ?? [ORIGIN_BLOCK, HOP_BLOCK];
+    const first = stampBy({ ...originFields, ts: ts - 1000, sess, ext: extOf(blocks[0]) }, "session");
+    const hopSigner = o.forged === true ? "session" : "pi";
+    const chain = [first, stampBy({ ...hopFields(first.sig), ts, sess, bind, ext: extOf(blocks[1]) }, hopSigner)];
     return {
-      handshake: 0, chain, chainToken: tokenOf(chain), expectedBind: bind, blocks: BLOCKS,
-      blocksToken: tokenOf(BLOCKS), policy: "client", proofRoute: CALL_ROUTE, receiver: CALL_RCV,
+      handshake: 0, chain, chainToken: tokenOf(chain), expectedBind: bind, blocks,
+      blocksToken: tokenOf(blocks), policy: "client", proofRoute: CALL_ROUTE, receiver: CALL_RCV,
       receiverInRoute: true, nonceKey: nonceKey([RID, callId, "req"]), rid: RID, recordedTs: { last: ts }, prompt: PROMPT,
     };
   };
   /** A record set checked by a verifier that acts on example and carries any name. */
   const RECORD_SETTINGS = { actsOn: EXAMPLE, allowedExtensions: null };
-  const recordedCallCase = (name: string, handshakes: { request: SessionRequest; reply: SessionReply }[], calls: RecordedCallInput[]) => {
+  /**
+   * A record set: each call by the offline verifier with `settings`, then, when it acts on influence, the extension's
+   * reading of the items once the offline order gives OK, and only then the session's limits (verification.md, Offline
+   * verification, row 9).
+   */
+  const recordedCallCase = (
+    name: string, handshakes: { request: SessionRequest; reply: SessionReply }[], calls: RecordedCallInput[],
+    settings: { actsOn: string[]; allowedExtensions: string[] | null } = RECORD_SETTINGS,
+  ) => {
     const recorded = handshakes.map((h) => ({
       request: h.request, requestToken: tokenOf(h.request), reply: h.reply, replyToken: tokenOf(h.reply),
       pin: "server-policy" as KeyName, serverEntry: "mcp-entry",
@@ -1577,15 +1871,16 @@ export function buildVectors(): Record<string, unknown> {
           roots: [{ root: decode(clientRoot.root), rootId: clientRoot.rootId, notAfter: Infinity }],
           allowedOrigins: ["session"], sess: h.reply.sess,
           nonceKey: c.nonceKey, seen: records.spent, callMaxAgeMs: CALL_MAX_AGE_MS, runMaxAgeMs: RUN_MAX_AGE_MS,
-          extensions: settingsOf(RECORD_SETTINGS),
+          extensions: settingsOf(settings),
         },
       );
-      const reason = callInSession(sessions[c.handshake]!, v.reason, c.recordedTs.last);
+      const read = settings.actsOn.includes(INFLUENCE) ? influenceReason(v) : v.reason;
+      const reason = callInSession(sessions[c.handshake]!, read, c.recordedTs.last);
       if (reason === undefined) throw new Error(`recorded call ${name}: its session is not attested`);
       return { reason };
     });
     return {
-      name, handshakes: recorded, allowedOrigins: ["session"], ...RECORD_SETTINGS, callMaxAgeMs: CALL_MAX_AGE_MS,
+      name, handshakes: recorded, allowedOrigins: ["session"], ...settings, callMaxAgeMs: CALL_MAX_AGE_MS,
       runMaxAgeMs: RUN_MAX_AGE_MS, calls, expected,
     };
   };
@@ -1610,6 +1905,329 @@ export function buildVectors(): Record<string, unknown> {
     ["a repeated handshake resets no spent key", [{ reason: "OK" }, { reason: "REPLAY" }]],
   ]);
 
+  // The influence the client's run holds: the origin names influence with nothing to add, and the client's hop
+  // carries the session's whole influence (influence.md, Over MCP).
+  const SESSION_ENTRIES: JsonValue[] = [
+    { cls: "third-party", src: "web:example.com", h: "h2" },
+    { cls: "private", src: "github:acme/app#42", h: "h1", cid: "cid-1", owner: "alice" },
+  ];
+  const THIRD_PARTY = SESSION_ENTRIES[0]!;
+  const INFLUENCE_ORIGIN: BlockJson = { items: { influence: [] }, requires: [] };
+  const influenceHop = (items: JsonValue[]): BlockJson => ({ items: { influence: items }, requires: [] });
+  /** A response's label, which a request's block must not take for an entry: it has no `src` and no `h`. */
+  const A_LABEL: JsonValue = { cls: "private", cid: "cid-1", owner: "alice" };
+  /** The session's private entry with an empty owner, which is refused, never read as no owner. */
+  const EMPTY_OWNER: JsonValue = { ...(SESSION_ENTRIES[1] as object), owner: "" };
+
+  // Recorded local steps (MCP profile): the client's own steps, checked against its keyring and root, its blocks and
+  // its signed local rules: the chain, then the items under influence (INFLUENCE_MISMATCH), then POLICY_EXPIRED,
+  // PROOF_MISMATCH, RULES_MISMATCH and VERDICT_MISMATCH. The gate's verdict is re-derived under the classes of the
+  // entries in the step's blocks.
+  const LOCAL_RULES: LocalRules = parseLocalRules({ v: 1, folders: [{ path: ".", access: ["read"] }], programs: [] });
+  const OTHER_RULES: LocalRules = parseLocalRules({ v: 1, folders: [{ path: ".", access: ["read"] }, { path: "out", access: ["write"], destination: "public" }], programs: [] });
+  const READ_NOTES: Resolved = { paths: [{ need: "read", at: "notes.md" }], programs: [], parse: "ok", readOnly: true };
+  const READ_OUTSIDE: Resolved = { paths: [{ need: "read", at: "outside" }], programs: [], parse: "ok", readOnly: true };
+  const NOTHING: Resolved = { paths: [], programs: [], parse: "ok", readOnly: false };
+  // a copy of a file into the public folder `out`, which OTHER_RULES lets the gate write unless the session holds
+  // both untrusted content and private data
+  const COPY_OUT: Resolved = {
+    paths: [{ need: "read", at: "notes.md" }, { need: "write", at: "out/notes.md" }],
+    programs: [], parse: "ok", readOnly: false,
+  };
+  const LOCAL_SIGNERS = { svcs: ["session", "pi"], inst: "pi-1" };
+  const STEP_TS = NOW - 1000;
+  const stepOrigin = stampBy({ ...originFields, sess: "", ext: extOf(INFLUENCE_ORIGIN) }, "session");
+  type LocalDecision = { tool: string; callId: string; input: Record<string, unknown>; resolved: Resolved; verdict: LocalVerdict; routeAllowed: boolean; rulesHash: string | null };
+  type LocalClient = { keyring: Record<string, KeyName>; policy: "client"; rootNotAfter: number; keyringNotAfter: number; rules: LocalRules | null };
+  /**
+   * A local step; `o.signed` is the blocks its stamps commit to (the origin's, then the hop's with the session's
+   * entries), and `o.carried` the blocks the record carries, the signed ones unless set.
+   */
+  const localStepCase = (
+    name: string,
+    d: Partial<LocalDecision> = {},
+    o: {
+      client?: Partial<LocalClient>; proofRoute?: string | null; seen?: string[]; age?: number;
+      signed?: [BlockJson, BlockJson]; carried?: BlockJson[];
+    } = {},
+  ) => {
+    const decision: LocalDecision = { tool: "read", callId: "tc-1", input: { path: "notes.md" }, resolved: READ_NOTES, verdict: "OK", routeAllowed: true, rulesHash: rulesHash(LOCAL_RULES), ...d };
+    const client: LocalClient = { keyring: { session: "session", pi: "pi" }, policy: "client", rootNotAfter: LIVE_NOT_AFTER, keyringNotAfter: LIVE_NOT_AFTER, rules: LOCAL_RULES, ...o.client };
+    const signed = o.signed ?? [INFLUENCE_ORIGIN, influenceHop(SESSION_ENTRIES)];
+    const first = signed[0] === INFLUENCE_ORIGIN
+      ? stepOrigin
+      : stampBy({ ...originFields, sess: "", ext: extOf(signed[0]) }, "session");
+    // the step's time: `age` ms after the run's origin, or the usual step time
+    const stepTs = o.age === undefined ? STEP_TS : first.ts + o.age;
+    const chain = [
+      first,
+      stampLocalStep(
+        {
+          svc: "pi", inst: "pi-1", rid: RID, ts: stepTs, prev: first.sig, toolName: decision.tool, toolCallId: decision.callId, input: decision.input,
+          resolved: decision.resolved, verdict: decision.verdict, listed: decision.routeAllowed, rulesHash: decision.rulesHash,
+          block: blockOf(signed[1] as unknown as JsonValue),
+        },
+        keys.pi.priv,
+      ),
+    ];
+    const proofRoute = Object.hasOwn(o, "proofRoute") ? o.proofRoute! : decision.routeAllowed ? routeOf(["session", "pi", localReceiver(decision.tool)]) : null;
+    // what bindLocalTool hashes, and what the step records as one token
+    const decided = {
+      callId: decision.callId, resolved: decision.resolved, verdict: decision.verdict,
+      routeAllowed: decision.routeAllowed, rulesHash: decision.rulesHash,
+    };
+    const blocks = o.carried ?? signed;
+    const step = {
+      ...decision, decisionToken: tokenOf(decided), rid: RID, now: stepTs, chain, chainToken: tokenOf(chain),
+      proofRoute, blocks, blocksToken: tokenOf(blocks),
+    };
+    const run = { prompt: PROMPT, ts: [first.ts] };
+    const seen = o.seen ?? [];
+    const result = verifyRecordedLocalStep(
+      {
+        tool: decision.tool, callId: decision.callId, input: decision.input, decision: step.decisionToken,
+        rid: step.rid, now: step.now, chain: step.chainToken,
+        proof: proofTokenOf({ policy: "client", proofRoute }), blocks: step.blocksToken,
+      },
+      {
+        client: {
+          keyring: resolveKeyring(client.keyring), root: rootOf(client.policy), rootId: policies[client.policy].rootId,
+          rootNotAfter: client.rootNotAfter, keyringNotAfter: client.keyringNotAfter, rules: client.rules,
+        },
+        signers: LOCAL_SIGNERS,
+        run: { prompt: run.prompt, ts: new Set(run.ts) },
+        seen: new Set(seen),
+      },
+    );
+    return { name, client, signers: LOCAL_SIGNERS, step, run, seen, expected: { reason: result.reason, verdict: result.verdict ?? null } };
+  };
+  const NOT_AN_ENTRY_HOP = influenceHop([THIRD_PARTY, A_LABEL]);
+  const UNLISTED = {
+    tool: "bash", input: { command: "ls" }, resolved: NOTHING, verdict: "PATH_NOT_ALLOWED", routeAllowed: false,
+  } as const;
+  const COPY = {
+    input: { path: "notes.md", to: "out/notes.md" }, resolved: COPY_OUT, rulesHash: rulesHash(OTHER_RULES),
+  };
+  const recordedLocalStep = [
+    localStepCase("allowed"),
+    localStepCase("refused by the rules", { input: { path: "/etc/passwd" }, resolved: READ_OUTSIDE, verdict: "SCOPE_DENIED" }),
+    localStepCase("unlisted tool", UNLISTED),
+    localStepCase("no rules", { resolved: NOTHING, verdict: "SCOPE_DENIED", rulesHash: null }, { client: { rules: null } }),
+    localStepCase("at the client root's notAfter", {}, { client: { rootNotAfter: STEP_TS } }),
+    localStepCase("client root expired", {}, { client: { rootNotAfter: STEP_TS - 1 } }),
+    localStepCase("client keyring expired", {}, { client: { keyringNotAfter: STEP_TS - 1 } }),
+    localStepCase("client root expired, bad signature first", {}, { client: { rootNotAfter: STEP_TS - 1, keyring: { session: "session", pi: "gateway" } } }),
+    localStepCase("listed but not proven", {}, { proofRoute: CALL_ROUTE }),
+    localStepCase("proven but recorded as not listed", { resolved: NOTHING, verdict: "PATH_NOT_ALLOWED", routeAllowed: false }, { proofRoute: LOCAL_ROUTE }),
+    localStepCase("expired before the proof", { resolved: NOTHING, verdict: "PATH_NOT_ALLOWED", routeAllowed: false }, { proofRoute: LOCAL_ROUTE, client: { rootNotAfter: STEP_TS - 1 } }),
+    localStepCase("rules hash not the client's", { rulesHash: rulesHash(OTHER_RULES) }),
+    localStepCase("verdict not the rules'", { input: { path: "/etc/passwd" }, resolved: READ_OUTSIDE, verdict: "OK" }),
+    localStepCase("verdict not the rules', unlisted tool resolving something", { tool: "bash", input: { command: "cat notes.md" }, resolved: READ_NOTES, verdict: "PATH_NOT_ALLOWED", routeAllowed: false }),
+    localStepCase("rules mismatch before verdict mismatch", { rulesHash: null, verdict: "SCOPE_DENIED" }),
+    localStepCase("replay in the record set", {}, { seen: [nonceKey([RID, "tc-1", "local"])] }),
+    localStepCase("at the run window", {}, { age: RUN_MAX_AGE_MS }),
+    localStepCase("1 ms past the run window", {}, { age: RUN_MAX_AGE_MS + 1 }),
+    // The step's blocks: matched to its stamps first (check 9a), then its items read as entries, after the chain check
+    // (which goes on for an unproven route) and before the step's POLICY_EXPIRED check.
+    localStepCase("a block altered", {}, { carried: [INFLUENCE_ORIGIN, influenceHop([THIRD_PARTY, { ...(SESSION_ENTRIES[1] as object), owner: "bob" }])] }),
+    localStepCase("an influence item that is not an entry", {}, { signed: [INFLUENCE_ORIGIN, NOT_AN_ENTRY_HOP] }),
+    localStepCase("an influence item that is not an entry, in the origin's block", {}, { signed: [influenceHop([A_LABEL]), influenceHop(SESSION_ENTRIES)] }),
+    localStepCase("an influence item that is not an entry, under an expired root", {}, { signed: [INFLUENCE_ORIGIN, NOT_AN_ENTRY_HOP], client: { rootNotAfter: STEP_TS - 1 } }),
+    localStepCase("an influence item that is not an entry, in an unlisted step", UNLISTED, { signed: [INFLUENCE_ORIGIN, NOT_AN_ENTRY_HOP] }),
+    localStepCase("an influence item that is not an entry, and a bad signature", {}, { signed: [INFLUENCE_ORIGIN, NOT_AN_ENTRY_HOP], client: { keyring: { session: "session", pi: "gateway" } } }),
+    // The gate's verdict under the classes of the step's entries: a write into a public folder is refused while the
+    // session holds untrusted content and private data, and allowed with no entries. The client's policy lists one
+    // local tool, read; the verdict is re-derived from the resolution the step recorded, whatever the tool is called.
+    localStepCase("a write into a public folder, under untrusted and private entries", { ...COPY, verdict: "INFLUENCE_DENIED" }, { client: { rules: OTHER_RULES } }),
+    localStepCase("a write into a public folder, signed as allowed under untrusted and private entries", { ...COPY, verdict: "OK" }, { client: { rules: OTHER_RULES } }),
+    localStepCase("a write into a public folder, with no entries", { ...COPY, verdict: "OK" }, { client: { rules: OTHER_RULES }, signed: [INFLUENCE_ORIGIN, influenceHop([])] }),
+  ];
+  check("recorded local step answers", recordedLocalStep.map((c) => [c.name, c.expected.reason, c.expected.verdict]), [
+    ["allowed", "OK", "OK"],
+    ["refused by the rules", "OK", "SCOPE_DENIED"],
+    ["unlisted tool", "OK", "PATH_NOT_ALLOWED"],
+    ["no rules", "OK", "SCOPE_DENIED"],
+    ["at the client root's notAfter", "OK", "OK"],
+    ["client root expired", "POLICY_EXPIRED", null],
+    ["client keyring expired", "POLICY_EXPIRED", null],
+    ["client root expired, bad signature first", "BAD_SIGNATURE", null],
+    ["listed but not proven", "PROOF_MISMATCH", null],
+    ["proven but recorded as not listed", "PROOF_MISMATCH", null],
+    ["expired before the proof", "POLICY_EXPIRED", null],
+    ["rules hash not the client's", "RULES_MISMATCH", null],
+    ["verdict not the rules'", "VERDICT_MISMATCH", null],
+    ["verdict not the rules', unlisted tool resolving something", "VERDICT_MISMATCH", null],
+    ["rules mismatch before verdict mismatch", "RULES_MISMATCH", null],
+    ["replay in the record set", "REPLAY", null],
+    ["at the run window", "OK", "OK"],
+    ["1 ms past the run window", "EXPIRED", null],
+    ["a block altered", "EXTENSION_MISMATCH", null],
+    ["an influence item that is not an entry", "INFLUENCE_MISMATCH", null],
+    ["an influence item that is not an entry, in the origin's block", "INFLUENCE_MISMATCH", null],
+    ["an influence item that is not an entry, under an expired root", "INFLUENCE_MISMATCH", null],
+    ["an influence item that is not an entry, in an unlisted step", "INFLUENCE_MISMATCH", null],
+    ["an influence item that is not an entry, and a bad signature", "BAD_SIGNATURE", null],
+    ["a write into a public folder, under untrusted and private entries", "OK", "INFLUENCE_DENIED"],
+    ["a write into a public folder, signed as allowed under untrusted and private entries", "VERDICT_MISMATCH", null],
+    ["a write into a public folder, with no entries", "OK", "OK"],
+  ]);
+
+  // The server's response through the client's check (MCP profile): the attestation carries one block per stamp of the
+  // response chain, and the client checks it with its own actsOn and allowedExtensions, check 9c included.
+  const RESULT_BODY = { content: [{ type: "text", text: "opened #43" }], isError: false };
+  const RESULT_HASH = bindResult(RESULT_BODY);
+  const RESPONSE_SERVER = {
+    policy: "server" as const,
+    keyring: { "mcp-entry": "mcp-entry", "github-tools": "github-tools" } as Record<string, KeyName>,
+    allowedOrigins: ["mcp-entry"],
+    sess: SESS,
+    policyNotAfter: 4_102_444_800_000,
+    nonceTtlMs: NONCE_TTL_MS,
+  };
+  const ENTRY_BLOCK: BlockJson = { items: { example: [] }, requires: [] };
+  const TOOLS_BLOCK: BlockJson = { items: { example: [{ note: "r1" }] }, requires: [] };
+  /** The server's response chain to the call `callId`, each stamp committing to its ext in `exts`. */
+  const responseChain = (exts: [string, string], callId = CALL_ID): Stamp[] => {
+    const first = stampBy({
+      svc: "mcp-entry", inst: "entry-1", rid: RID, ts: NOW - 800, sess: SESS, rcv: "github-tools",
+      bind: bindMcpCall(TOOL, callId, ARGS), ext: exts[0], prev: "",
+    }, "mcp-entry");
+    const last = stampBy({
+      svc: "github-tools", inst: "gh-1", rid: RID, ts: NOW - 500, sess: SESS, rcv: "pi",
+      bind: bindResponse(RESULT_HASH, callId), ext: exts[1], prev: first.sig,
+    }, "github-tools");
+    return [first, last];
+  };
+  /** An attestation carrying `blocks`, over a chain whose stamps commit to them unless `chain` is given. */
+  const attestationOver = (
+    blocks: BlockJson[], chain = responseChain([extOf(blocks[0]!), extOf(blocks[1]!)]),
+  ): Record<string, unknown> =>
+    ({ blocks, chain, proof: policies.server.proofs["mcp-entry/github-tools"]!, resultHash: RESULT_HASH });
+  const attestationCase = (
+    name: string, attestation: Record<string, unknown>, expected: string,
+    o: { actsOn?: string[]; allowedExtensions?: string[]; callId?: string } = {},
+  ) => {
+    const result = RESULT_BODY;
+    const attestationToken = name === UNSORTED_ATTESTATION_CASE
+      ? unsortedAttestationToken(attestation as Attestation)
+      : tokenOf(attestation);
+    const call = { rid: RID, toolCallId: o.callId ?? CALL_ID, receiver: "pi" };
+    const actsOn = o.actsOn ?? EXAMPLE;
+    const allowedExtensions = o.allowedExtensions ?? null;
+    const got = verifyResponse(attestationToken, result, call, {
+      keyrings: [{ keys: resolveKeyring(RESPONSE_SERVER.keyring), notAfter: RESPONSE_SERVER.policyNotAfter }],
+      roots: [{ root: rootOf("server"), rootId: policies.server.rootId, notAfter: RESPONSE_SERVER.policyNotAfter }],
+      allowedOrigins: RESPONSE_SERVER.allowedOrigins, sess: RESPONSE_SERVER.sess,
+      nonces: new NonceCache(RESPONSE_SERVER.nonceTtlMs), now: NOW, policyNotAfter: RESPONSE_SERVER.policyNotAfter,
+      extensions: settingsOf({ actsOn, allowedExtensions }),
+    });
+    check(`response attestation ${name}`, got.reason, expected);
+    return {
+      name, attestation, attestationToken, result, call, actsOn, allowedExtensions, server: RESPONSE_SERVER, now: NOW,
+      expected: { reason: expected },
+    };
+  };
+  const BASE_BLOCKS = [ENTRY_BLOCK, TOOLS_BLOCK];
+  const attested = attestationOver(BASE_BLOCKS);
+  // a chain whose every ext is "", which an absent blocks token would match: the attestation has no absent form
+  const emptyResponse = responseChain(["", ""]);
+  const { blocks: _blocks, ...noBlocks } = attested;
+  const responseAttestation = [
+    attestationCase("attested", attested, "OK"),
+    attestationCase("a member the attestation does not have", { ...attested, extra: 1 }, "CHAIN_MISSING"),
+    attestationCase("a labels member in place of blocks", { ...noBlocks, chain: emptyResponse, labels: [A_LABEL] }, "CHAIN_MISSING"),
+    attestationCase("no blocks member, every ext empty", { ...noBlocks, chain: emptyResponse }, "CHAIN_MISSING"),
+    attestationCase("blocks null, every ext empty", { ...attested, blocks: null, chain: emptyResponse }, "CHAIN_MISSING"),
+    // signed over the second element's JCS, so only the attestation's reading of blocks refuses it
+    ...(() => {
+      const extra = { ...TOOLS_BLOCK, note: "n1" };
+      const chain = responseChain([extOf(ENTRY_BLOCK), hashOf(extra)]);
+      return [attestationCase("a blocks that is not an array of blocks", { ...attested, blocks: [ENTRY_BLOCK, extra], chain }, "CHAIN_MISSING")];
+    })(),
+    attestationCase(UNSORTED_ATTESTATION_CASE, attested, "CHAIN_MISSING"),
+    // the missing block would be the empty block, which the last stamp commits to: still one block per stamp
+    attestationCase(
+      "one block for two stamps, the stamp without one committing to the empty block",
+      attestationOver([ENTRY_BLOCK], responseChain([extOf(ENTRY_BLOCK), ""])), "EXTENSION_MISMATCH",
+    ),
+    attestationCase("a block altered", { ...attested, blocks: [ENTRY_BLOCK, { items: { example: [{ note: "r2" }] }, requires: [] }] }, "EXTENSION_MISMATCH"),
+    attestationCase("a result hash for another result", { ...attested, resultHash: bindResult({ content: [], isError: false }) }, "BINDING_MISMATCH"),
+    attestationCase("a name the client's allowed list does not hold", attested, "EXTENSION_NOT_ALLOWED", { actsOn: [], allowedExtensions: [INFLUENCE] }),
+    // check 9c, on the responder's last block only: the client is held to what the responder requires of it
+    attestationCase(
+      "the last block requires example, which the client does not act on",
+      attestationOver([ENTRY_BLOCK, { ...TOOLS_BLOCK, requires: ["example"] }]), "EXTENSION_REQUIRED", { actsOn: [] },
+    ),
+    attestationCase(
+      "the first block requires example, which the client does not act on",
+      attestationOver([{ ...ENTRY_BLOCK, requires: ["example"] }, TOOLS_BLOCK]), "OK", { actsOn: [] },
+    ),
+    // a call id is hashed content and a nonce key the verifier's own text (verification.md, Freshness and replay)
+    ...(() => {
+      const callId = "call-\uFFFF";
+      const chain = responseChain([extOf(ENTRY_BLOCK), extOf(TOOLS_BLOCK)], callId);
+      return [attestationCase(NONCHARACTER_CASE, attestationOver(BASE_BLOCKS, chain), "OK", { callId })];
+    })(),
+  ];
+
+  // paztport/session's params and result as they arrive (MCP profile): the server reads the params, exactly a request
+  // token plus an optional `_meta`, and the client the result, exactly a reply token plus an optional `_meta`.
+  const wellFormed = sessionRequestCases[0]!.requestToken;
+  const sessionParamsCase = (name: string, params: Record<string, unknown>, expected: "OK" | "INVALID_PARAMS") => {
+    let got: "OK" | "INVALID_PARAMS" = "OK";
+    try {
+      readSessionParams(params);
+    } catch (e) {
+      if (!(e instanceof InvalidParams)) throw e;
+      got = "INVALID_PARAMS";
+    }
+    check(`session params ${name}`, got, expected);
+    return { name, params, expected };
+  };
+  const sessionParams = [
+    sessionParamsCase("a request token", { request: wellFormed }, "OK"),
+    sessionParamsCase("a request token and _meta", { request: wellFormed, _meta: { progressToken: 1 } }, "OK"),
+    sessionParamsCase("a member the params do not have", { request: wellFormed, other: 1 }, "INVALID_PARAMS"),
+    sessionParamsCase("the request itself", { request: wireRequest }, "INVALID_PARAMS"),
+    sessionParamsCase("no request", { _meta: { progressToken: 1 } }, "INVALID_PARAMS"),
+    // the request's JCS bytes after a space, which a token never holds
+    sessionParamsCase("a request token that does not read", { request: encode(utf8(" " + canonicalize(wireRequest))) }, "INVALID_PARAMS"),
+  ];
+  // the version 4 reply of sessionReply's first case, "entry-key form attested", whose check that section pins
+  const attestedReply = sessionReply[0]!.replyToken;
+  const sessionResultCase = (name: string, result: Record<string, unknown>, expected: "OK" | "MALFORMED_REPLY") => {
+    const token = sessionReplyToken(result);
+    const got = token !== undefined && readOr(() => readSessionReply(token)) !== undefined ? "OK" : "MALFORMED_REPLY";
+    check(`session result ${name}`, got, expected);
+    return { name, result, expected };
+  };
+  const sessionResult = [
+    sessionResultCase("a reply token", { reply: attestedReply }, "OK"),
+    sessionResultCase("a reply token and _meta", { reply: attestedReply, _meta: { progressToken: 1 } }, "OK"),
+    sessionResultCase("a member the result does not have", { reply: attestedReply, other: 1 }, "MALFORMED_REPLY"),
+    sessionResultCase("the reply itself", { reply: sessionReply[0]!.reply }, "MALFORMED_REPLY"),
+    sessionResultCase("no reply", { _meta: { progressToken: 1 } }, "MALFORMED_REPLY"),
+    // the reply's JCS bytes after a space, which a token never holds
+    sessionResultCase("a reply token that does not read", { reply: encode(utf8(" " + canonicalize(sessionReply[0]!.reply))) }, "MALFORMED_REPLY"),
+  ];
+
+  const influence = influenceSection({
+    A_LABEL, SESSION_ENTRIES, RESULT_HASH,
+    recordedCall: recordedCallCase(
+      "items under influence, at a verifier that acts on it",
+      [{ request: shortRoot, reply: shortRootReply }],
+      // in the session (its client root's notAfter is NOW) and 1 ms past it, each with entries that read and with one
+      // that does not
+      [
+        callIn(shortRootReply, NOW, "call-1", { blocks: [INFLUENCE_ORIGIN, influenceHop(SESSION_ENTRIES)] }),
+        callIn(shortRootReply, NOW, "call-2", { blocks: [INFLUENCE_ORIGIN, influenceHop([THIRD_PARTY, EMPTY_OWNER])] }),
+        callIn(shortRootReply, NOW + 1, "call-3", { blocks: [INFLUENCE_ORIGIN, influenceHop([THIRD_PARTY, EMPTY_OWNER])] }),
+        callIn(shortRootReply, NOW + 1, "call-4", { blocks: [INFLUENCE_ORIGIN, influenceHop(SESSION_ENTRIES)] }),
+      ],
+      { actsOn: [INFLUENCE], allowedExtensions: null },
+    ),
+  });
+
   const vectors = {
     about: ABOUT,
     keys,
@@ -1623,12 +2241,18 @@ export function buildVectors(): Record<string, unknown> {
     offline,
     recordedHandshake,
     recordedCall,
+    recordedLocalStep,
+    responseAttestation,
+    sessionParams,
+    sessionResult,
     replyCert,
     sessionReply,
     sessionRequirement,
     sessionStatus: sessionStatusCases,
     sessionRequest: sessionRequestCases,
     ...sharedPrimitives(),
+    ...mcpBindings(),
+    influence,
   };
   checkTokens(vectors);
   return vectors;

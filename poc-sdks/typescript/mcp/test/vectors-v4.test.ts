@@ -7,30 +7,36 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
-  NonceCache, callInSession, callsAfter, canonicalize, checkSessionReply, decode, encode, extensionSettings,
-  isAttestedSession, newRecordSet, readBlocks, recordedSession, sessionStatus, readSessionRequest, readSessionReply,
-  isCurrent, isNotAfter, pinnedNotAfter, printFile, signReplyCert, keyringSigningBytes,
-  readKeyringFile, readReplyCertFile, readRootFile, replyCertSigningBytes, rootSigningBytes, sign, signKeyring,
-  signRoot, signSessionReply, signingBytes, utf8, verifyChainOffline,
-  verifyChain, verifyKeyring, verifyReplyCert, verifyRoot, verifySessionReply,
+  INFLUENCE, NonceCache, callInSession, callsAfter, canonicalize, checkSessionReply, decode, decideServerCall, encode,
+  entryOf, extensionSettings, influenceReason, isAttestedSession, labelOf, labelToEntry, newRecordSet,
+  publicWriteRefused, readBlocks, readRequestInfluence, readResponseLabels, recordedSession, sessionStatus,
+  readSessionRequest, readSessionReply, isCurrent, isNotAfter, pinnedNotAfter, printFile, signReplyCert,
+  keyringSigningBytes, readKeyringFile, readReplyCertFile, readRootFile, replyCertSigningBytes, rootSigningBytes, sign,
+  signKeyring, signRoot, signSessionReply, signingBytes, utf8, verifyChainOffline, verifyChain, verifyKeyring,
+  verifyRecordedLocalStep, verifyReplyCert, verifyResponse, verifyRoot, verifySessionReply, bindResult,
 } from "@paztport/core";
 import type {
   ChainVerification, JsonValue, OfflineConfig, OfflineInput, PinnedKeyring, PinnedRoot, SessionReply, VerifierConfig,
   VerifyInput,
 } from "@paztport/core";
+import { InvalidParams, bindMcpCall, readSessionParams, sessionReplyToken } from "../src/index.ts";
 import { buildVectors, vectorsText } from "./vectors-v4-export.ts";
 
 type Sections =
   | "signingBytes" | "signatures" | "keyring" | "root" | "verify" | "offline" | "recordedHandshake" | "recordedCall"
-  | "replyCert" | "sessionReply" | "sessionRequirement" | "sessionStatus" | "sessionRequest";
+  | "recordedLocalStep" | "responseAttestation" | "sessionParams" | "sessionResult" | "replyCert" | "sessionReply"
+  | "sessionRequirement" | "sessionStatus" | "sessionRequest";
 const committedText = readFileSync(new URL("../../../spec/vectors/v4.json", import.meta.url), "utf8");
 type Keys = Record<string, { pub: string; priv: string }>;
-const committed: Record<Sections, any[]> & { keys: Keys; policies: any; blocks: any } = JSON.parse(committedText);
+const committed: Record<Sections, any[]> & { keys: Keys; policies: any; blocks: any; influence: any } =
+  JSON.parse(committedText);
 /** The version 3 file, which the sections whose rule did not change must equal; it goes when v3.json does. */
 const v3 = JSON.parse(readFileSync(new URL("../../../spec/vectors/v3.json", import.meta.url), "utf8"));
 
 /** The verify case whose blocks token does not read, the one blocks token that is not its value's JCS bytes. */
 const UNREADABLE_BLOCKS_CASE = "a blocks token that does not read";
+/** The response attestation case whose token is not the JCS bytes of its readable value. */
+const UNSORTED_ATTESTATION_CASE = "an attestation whose members are not in JCS order";
 
 /** What `read` gives, or undefined for a file its reader refuses. */
 function readOr<T>(read: () => T): T | undefined {
@@ -168,10 +174,80 @@ function replayRecordedCalls(v: any, c: any) {
         seen: records.spent, callMaxAgeMs: c.callMaxAgeMs, runMaxAgeMs: c.runMaxAgeMs, extensions: settingsOf(c),
       },
     );
-    const reason = callInSession(sessions[call.handshake], result.reason, call.recordedTs.last);
+    // A verifier that acts on influence reads the items once the offline order gives OK, before the call is held to
+    // its session's limits (verification.md, Offline verification, row 9).
+    const read = c.actsOn.includes(INFLUENCE) ? influenceReason(result) : result.reason;
+    const reason = callInSession(sessions[call.handshake], read, call.recordedTs.last);
     return { reason };
   });
 }
+
+/** A recorded local step case (MCP profile), against its client's keyring and root and its signed rules. */
+function replayLocalStep(v: any, c: any) {
+  const {
+    proofRoute, chain: _chain, chainToken, blocks: _blocks, blocksToken, decisionToken,
+    resolved: _resolved, verdict: _verdict, routeAllowed: _routeAllowed, rulesHash: _rulesHash, ...step
+  } = c.step;
+  const policy = v.policies[c.client.policy];
+  const client = {
+    keyring: keysOf(v, c.client.keyring), root: decode(policy.root), rootId: policy.rootId as string,
+    rules: c.client.rules, rootNotAfter: c.client.rootNotAfter, keyringNotAfter: c.client.keyringNotAfter,
+  };
+  const result = verifyRecordedLocalStep(
+    {
+      ...step, decision: decisionToken, chain: chainToken, blocks: blocksToken,
+      proof: proofRoute === null ? null : policy.proofTokens[proofRoute],
+    },
+    { client, signers: c.signers, run: { prompt: c.run.prompt, ts: new Set<number>(c.run.ts) }, seen: new Set<string>(c.seen) },
+  );
+  return { reason: result.reason, verdict: result.verdict ?? null };
+}
+
+/** A response attestation case (MCP profile): the client's check of the token, once, with its own extensions. */
+function replayResponseAttestation(v: any, c: any) {
+  const s = c.server;
+  const r = verifyResponse(c.attestationToken, c.result, c.call, {
+    keyrings: [{ keys: keysOf(v, s.keyring), notAfter: s.policyNotAfter }],
+    roots: [rootOf(v, s.policy, s.policyNotAfter)],
+    allowedOrigins: s.allowedOrigins, sess: s.sess, nonces: new NonceCache(s.nonceTtlMs), now: c.now,
+    policyNotAfter: s.policyNotAfter, extensions: settingsOf(c),
+  });
+  return { reason: r.reason };
+}
+
+/**
+ * An influence.request case: the items handed on read as entries, then the server's decision on the call, attested
+ * and acting on influence (sessions.md, The server decision, steps 2 and 3). An item that does not read is
+ * INFLUENCE_MISMATCH before any rule runs, and then there is no reading to say whether every stamp names influence.
+ */
+function replayRequest(c: any) {
+  const read = readRequestInfluence(c.stamps);
+  if (!read.reads) return { reason: "INFLUENCE_MISMATCH", everyStampNames: null };
+  const reason = decideServerCall({
+    tool: "create_pull_request", isWrite: c.write, publicDestination: c.write, attested: true, actsOnInfluence: true,
+    served: c.served, request: read, disabledWhenUnsafe: [],
+    ...(c.destinationOwner === null ? {} : { destinationOwner: c.destinationOwner }),
+  });
+  return { reason, everyStampNames: read.everyStampNames };
+}
+
+/**
+ * What a caller that acts on influence adds for a response (influence.md, Content labels): one entry per label when
+ * the response verified and every block names influence with only labels under it, else one local-untrusted entry.
+ * A label counts only when the whole response verifies, so `stamps`, what the blocks hold, is read only on OK.
+ */
+function responseEntries(c: any) {
+  const labels = c.reason === "OK" ? readResponseLabels(c.stamps) : null;
+  return labels === null
+    ? [{ cls: "local-untrusted", src: c.src, h: c.resultHash }]
+    : labels.map((label) => labelToEntry(label, c.src, c.resultHash));
+}
+
+/** Whether `read` reads the item, as an entry or a label: a reader that refuses it throws. */
+const reads = (read: (item: JsonValue) => unknown, item: JsonValue): boolean => readOr(() => read(item)) !== undefined;
+
+/** A section of the file by its path, `influence.rule` being the member `rule` of the member `influence`. */
+const sectionAt = (file: any, path: string): unknown => path.split(".").reduce((o, k) => o?.[k], file);
 
 describe("known-answer vectors, version 4", () => {
   it("the committed file is what the exporter builds", () => expect(buildVectors()).toEqual(committed));
@@ -180,11 +256,13 @@ describe("known-answer vectors, version 4", () => {
   // A section whose rule did not change is v3.json's, value for value, so no answer moved by accident while the
   // exporter was rewritten. This test goes when v3.json does.
   it.each([
-    "keys", "policies", "keyring", "root", "replyCert", "sessionStatus", "sessionRequest", "fixedInputs",
-    "deriveSessionId", "bindPrompt", "merkle",
-  ])("theSectionsWhoseRuleDidNotChangeAreV3s %s", (section) => {
-    expect((committed as any)[section]).toBeDefined();
-    expect((committed as any)[section]).toEqual(v3[section]);
+    ["keys", "keys"], ["policies", "policies"], ["keyring", "keyring"], ["root", "root"], ["replyCert", "replyCert"],
+    ["sessionStatus", "sessionStatus"], ["sessionRequest", "sessionRequest"], ["sessionParams", "sessionParams"],
+    ["fixedInputs", "fixedInputs"], ["deriveSessionId", "deriveSessionId"], ["bindPrompt", "bindPrompt"],
+    ["bindMcpCall", "bindMcpCall"], ["bindResult", "bindResult"], ["merkle", "merkle"], ["influence.rule", "rule"],
+  ])("theSectionsWhoseRuleDidNotChangeAreV3s %s", (section, inV3) => {
+    expect(sectionAt(committed, section)).toBeDefined();
+    expect(sectionAt(committed, section)).toEqual(v3[inV3]);
   });
 
   const blockReads = (committed.blocks.read as any[]).map((c: any): [string, any] => [c.name, c]);
@@ -327,17 +405,26 @@ describe("known-answer vectors, version 4", () => {
         tokens += 2;
       }
     }
-    for (const c of committed.recordedCall) {
+    const recordedCalls = [...committed.recordedCall, ...committed.influence.recordedCall];
+    for (const c of recordedCalls) {
       for (const call of c.calls) {
         expect(call.chainToken, c.name).toBe(encode(utf8(canonicalize(call.chain))));
         blocksToken(call, c.name);
         tokens += 2;
       }
     }
+    for (const c of committed.recordedLocalStep) {
+      const { chain, chainToken, blocks, blocksToken, decisionToken, callId, resolved, verdict, routeAllowed } = c.step;
+      const decision = { callId, resolved, verdict, routeAllowed, rulesHash: c.step.rulesHash };
+      expect(chainToken, c.name).toBe(encode(utf8(canonicalize(chain))));
+      expect(blocksToken, c.name).toBe(encode(utf8(canonicalize(blocks))));
+      expect(decisionToken, c.name).toBe(encode(utf8(canonicalize(decision))));
+      tokens += 3;
+    }
     const handshakes = [
       ...committed.sessionReply,
       ...committed.recordedHandshake,
-      ...committed.recordedCall.flatMap((c: any) => c.handshakes.map((h: any) => ({ ...h, name: c.name }))),
+      ...recordedCalls.flatMap((c: any) => c.handshakes.map((h: any) => ({ ...h, name: c.name }))),
     ];
     for (const c of handshakes) {
       expect(c.requestToken, c.name).toBe(encode(utf8(canonicalize(c.request))));
@@ -363,7 +450,9 @@ describe("known-answer vectors, version 4", () => {
     const keys: string[] = [
       ...committed.verify.map((c: any) => c.nonceKey),
       ...committed.offline.flatMap((c: any) => [c.nonceKey, ...c.seen]),
-      ...committed.recordedCall.flatMap((c: any) => c.calls.map((call: any) => call.nonceKey)),
+      ...[...committed.recordedCall, ...committed.influence.recordedCall]
+        .flatMap((c: any) => c.calls.map((call: any) => call.nonceKey)),
+      ...committed.recordedLocalStep.flatMap((c: any) => c.seen),
     ];
     for (const key of keys) {
       const parts = JSON.parse(key);
@@ -377,6 +466,122 @@ describe("known-answer vectors, version 4", () => {
   it.each(committed.recordedCall.map((c: any): [string, any] => [c.name, c]))("recorded call %s", (_n, c: any) => expect(replayRecordedCalls(committed, c)).toEqual(c.expected));
   it("a recorded call can be outside its session", () => {
     expect(committed.recordedCall.some((c: any) => c.expected.some((e: any) => e.reason === "OUTSIDE_SESSION"))).toBe(true);
+  });
+
+  // The MCP profile's sections.
+  it.each(["recordedLocalStep", "responseAttestation", "sessionParams", "sessionResult"] as const)("%s section", (section) => {
+    expect(committed[section].length).toBeGreaterThan(0);
+  });
+  const localSteps = committed.recordedLocalStep.map((c: any): [string, any] => [c.name, c]);
+  it.each(localSteps)("recorded local step %s", (_n, c: any) => {
+    expect(replayLocalStep(committed, c)).toEqual(c.expected);
+  });
+  it("each offline-only code a local step can give has a case", () => {
+    const codes = new Set(committed.recordedLocalStep.map((c: any) => c.expected.reason));
+    for (const code of ["INFLUENCE_MISMATCH", "POLICY_EXPIRED", "PROOF_MISMATCH", "RULES_MISMATCH", "VERDICT_MISMATCH"]) {
+      expect(codes.has(code), code).toBe(true);
+    }
+  });
+  const attestations = committed.responseAttestation.map((c: any): [string, any] => [c.name, c]);
+  it.each(attestations)("response attestation %s", (_n, c: any) => {
+    expect(replayResponseAttestation(committed, c)).toEqual(c.expected);
+  });
+  it("every attestation token is the JCS bytes of its value, but for one whose members are out of JCS order", () => {
+    for (const c of committed.responseAttestation) {
+      if (c.name === UNSORTED_ATTESTATION_CASE) {
+        const text = Buffer.from(decode(c.attestationToken)).toString("utf8");
+        expect(text.startsWith('{"chain":'), c.name).toBe(true);
+        expect(JSON.parse(text), c.name).toEqual(c.attestation);
+        expect(c.attestationToken, c.name).not.toBe(encode(utf8(canonicalize(c.attestation))));
+      } else {
+        expect(c.attestationToken, c.name).toBe(encode(utf8(canonicalize(c.attestation))));
+      }
+    }
+  });
+  it.each(committed.sessionParams.map((c: any): [string, any] => [c.name, c]))("session params %s", (_n, c: any) => {
+    let got = "OK";
+    try {
+      readSessionParams(c.params);
+    } catch (e) {
+      expect(e).toBeInstanceOf(InvalidParams);
+      got = "INVALID_PARAMS";
+    }
+    expect(got).toBe(c.expected);
+  });
+  it.each(committed.sessionResult.map((c: any): [string, any] => [c.name, c]))("session result %s", (_n, c: any) => {
+    const token = sessionReplyToken(c.result);
+    const got = token !== undefined && readOr(() => readSessionReply(token)) !== undefined ? "OK" : "MALFORMED_REPLY";
+    expect(got).toBe(c.expected);
+  });
+  it("a session result that reads carries the first session reply case's reply", () => {
+    const first = committed.sessionReply[0];
+    for (const c of committed.sessionResult.filter((x: any) => x.expected === "OK")) {
+      expect(c.result.reply, c.name).toBe(first.replyToken);
+    }
+  });
+  it("bindMcpCall", () => {
+    const c = (committed as any).bindMcpCall;
+    expect(bindMcpCall(c.tool, c.callId, c.args)).toBe(c.expected);
+  });
+  it("bindResult", () => {
+    const c = (committed as any).bindResult;
+    expect(bindResult(c.result)).toBe(c.expected);
+  });
+
+  // Everything that needs the influence extension's rules, under one member.
+  it.each(["entries", "labels", "rule", "request", "response", "recordedCall"])("influence.%s section", (section) => {
+    expect(committed.influence[section].length).toBeGreaterThan(0);
+  });
+  const influenceCases = (section: string): [string, any][] =>
+    committed.influence[section].map((c: any): [string, any] => [c.name, c]);
+  it.each(influenceCases("entries"))("influence entry %s", (_n, c: any) => {
+    expect(reads(entryOf, c.item)).toBe(c.reads);
+  });
+  it.each(influenceCases("labels"))("influence label %s", (_n, c: any) => {
+    expect(reads(labelOf, c.item)).toBe(c.reads);
+  });
+  it.each(influenceCases("rule"))("influence rule %s", (_n, c: any) => {
+    expect(publicWriteRefused(c.influence, c.destinationOwner ?? undefined)).toBe(c.refused);
+  });
+  it.each(influenceCases("request"))("influence request %s", (_n, c: any) => {
+    expect(replayRequest(c)).toEqual(c.expected);
+  });
+  it.each(influenceCases("response"))("influence response %s", (_n, c: any) => {
+    expect(responseEntries(c)).toEqual(c.expected.entries);
+  });
+  it.each(influenceCases("recordedCall"))("influence recorded call %s", (_n, c: any) => {
+    expect(c.actsOn).toEqual([INFLUENCE]);
+    expect(replayRecordedCalls(committed, c)).toEqual(c.expected);
+  });
+
+  // The cases the review of the spec asked version 4 to carry, each a statement that separates two readings.
+  it.each([
+    ["verify", "a block that only requires example, at a receiver that acts on it"],
+    ["influence.request", "a pass-along block, a write"],
+    ["verify", "ext the hash of the empty block"],
+    ["verify", "no blocks token where a stamp commits to a block"],
+    ["verify", "a block lists constructor"],
+    ["verify", "the receiver acts on constructor, no block lists it"],
+    ["verify", "an inner operation holding a `|`"],
+    ["verify", "a `|` in rid and inst"],
+    ["verify", "a `|` in a service name that has no key"],
+    ["sessionReply", "unsafe, listing what the client requires"],
+    ["sessionRequirement", "an unsafe reply"],
+    ["sessionRequirement", "an unsafe reply, with the switch"],
+    ["responseAttestation", "the last block requires example, which the client does not act on"],
+    ["influence.response", "a response refused at check 9c"],
+    ["influence.response", "verified, one label and one item that is not a label"],
+    ["influence.recordedCall", "items under influence, at a verifier that acts on it"],
+  ])("everyCaseTheReviewAskedForIsThere %s: %s", (section, name) => {
+    const cases = sectionAt(committed, section) as any[];
+    expect(cases.some((c) => c.name === name)).toBe(true);
+  });
+  it("everyCaseTheReviewAskedForIsThere: the recorded calls with an item that does not read", () => {
+    const name = "items under influence, at a verifier that acts on it";
+    const set = committed.influence.recordedCall.find((c: any) => c.name === name);
+    const expected = set.expected.map((e: any) => e.reason);
+    // in its session, and past its limits: the extension's code either way, never OUTSIDE_SESSION
+    expect(expected).toEqual(["OK", "INFLUENCE_MISMATCH", "INFLUENCE_MISMATCH", "OUTSIDE_SESSION"]);
   });
 
   it.each(committed.replyCert.map((c: any): [string, any] => [c.name, c]))("reply certificate %s", (_n, c: any) => {
