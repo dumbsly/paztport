@@ -203,6 +203,20 @@
       "message": "cGF6dHBvcnQgZWQyNTUxOSB2ZWN0b3I",
       "signature": "JUha9s_u5smu9BbDoMkx-vR5Tpy1OEIVsgQdyXuLZxsx2b7BmS6v8i6qg4F85kfY_psmxX5cLSNq3yabkaThBw",
       "valid": false
+    },
+    {
+      "name": "a key whose SPKI length is written in long form",
+      "publicKey": "MIEqMAUGAytlcAMhAK8NcmHlSJxOuHxp1el6f8_ujt05LAsWx802V_Miy4Ou",
+      "message": "cGF6dHBvcnQgZWQyNTUxOSB2ZWN0b3I",
+      "signature": "JUha9s_u5smu9BbDoMkx-vR5Tpy1OEIVsgQdyXuLZxsx2b7BmS6v8i6qg4F85kfY_psmxX5cLSNq3yabkaThBw",
+      "valid": false
+    },
+    {
+      "name": "a key with a trailing byte",
+      "publicKey": "MCowBQYDK2VwAyEArw1yYeVInE64fGnV6Xp_z-6O3TksCxbHzTZX8yLLg64A",
+      "message": "cGF6dHBvcnQgZWQyNTUxOSB2ZWN0b3I",
+      "signature": "JUha9s_u5smu9BbDoMkx-vR5Tpy1OEIVsgQdyXuLZxsx2b7BmS6v8i6qg4F85kfY_psmxX5cLSNq3yabkaThBw",
+      "valid": false
     }
   ]
 }

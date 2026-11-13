@@ -293,6 +293,8 @@ type Built = {
   valid: boolean;
   /** For a refused case meant to be refused by rules 1 to 4 alone: the equation that holds when the encodings are read leniently. */
   holds?: Equation;
+  /** For a key refused by rule 1 alone: the 32-byte key its bytes carry, which with the signature passes rules 2 to 5. */
+  wraps?: Uint8Array;
 };
 
 function smallOrderKeyCase(name: string, A: Uint8Array): Built {
@@ -374,19 +376,41 @@ function buildCases(): Built[] {
       signature: HONEST_SIGNATURE,
       valid: false,
     },
+    // DER allows the long form of a length only where the short form cannot hold it, so this is not the Ed25519 SPKI;
+    // a library that decodes the key and re-encodes it canonically gets the 44 bytes back, and would otherwise accept it.
+    {
+      name: "a key whose SPKI length is written in long form",
+      key: Uint8Array.from([0x30, 0x81, 0x2a, ...spki(HONEST.A).subarray(2)]),
+      message: MESSAGE,
+      signature: HONEST_SIGNATURE,
+      valid: false,
+      holds: "cofactorless",
+      wraps: HONEST.A,
+    },
+    {
+      name: "a key with a trailing byte",
+      key: Uint8Array.from([...spki(HONEST.A), 0]),
+      message: MESSAGE,
+      signature: HONEST_SIGNATURE,
+      valid: false,
+      holds: "cofactorless",
+      wraps: HONEST.A,
+    },
   ];
 }
 
 /**
  * Every answer is the generator's own verifyStrict, and every case meant to show one check is refused by that check
  * alone: `holds` says which equation the case satisfies, so a case refused only by rules 1 to 4 does not pass for some
- * other reason, and the cofactored cases pass the equation the rule forbids but not the one it requires.
+ * other reason, and the cofactored cases pass the equation the rule forbids but not the one it requires. `wraps` marks
+ * a key refused by rule 1 alone: written as the Ed25519 SPKI, the key it carries passes rules 2 to 4.
  */
 function checked(cases: Built[]): Built[] {
   for (const c of cases) {
     if (verifyStrict(c.key, c.message, c.signature) !== c.valid) throw new Error(`${c.name}: verifyStrict disagrees with valid`);
+    if (c.wraps !== undefined && !encodingsHold(spki(c.wraps), c.signature)) throw new Error(`${c.name}: refused by more than rule 1`);
     if (c.holds === undefined) continue;
-    const A = c.key.subarray(12);
+    const A = c.wraps ?? c.key.subarray(12);
     if (!equationHolds(A, c.signature, c.message, c.holds, true)) throw new Error(`${c.name}: the ${c.holds} equation does not hold`);
     if (c.holds === "cofactored" && equationHolds(A, c.signature, c.message, "cofactorless", true)) {
       throw new Error(`${c.name}: the cofactorless equation holds`);
