@@ -35,12 +35,13 @@ export class InfluenceStore {
   }
 
   /**
-   * Label classes without their cids: what a restored session branch keeps of a verified response
-   * (the classes in its tool result's details).
+   * One entry per class, with no cid, each with the source as given: `local:<tool>` for the labels the local gate
+   * read for a built-in tool's result, live and when a session branch is restored, and `server:<id>` for the classes
+   * a restored server result added (its details' `added`), whose cids the branch does not keep.
    */
-  recordClasses(serverId: string, classes: InfluenceClass[], contentHash: string): void {
+  recordClasses(src: string, classes: InfluenceClass[], contentHash: string): void {
     for (const cls of classes) {
-      this.all.push({ cls, src: `server:${serverId}`, h: contentHash });
+      this.all.push({ cls, src, h: contentHash });
     }
   }
 

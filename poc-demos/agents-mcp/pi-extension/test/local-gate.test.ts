@@ -98,7 +98,7 @@ function withRoute(tool: string): ClientMaterial {
   return { ...material, proofs: { ...material.proofs, [`session/pi/local:${tool}`]: material.proofs["session/pi/local:read"]! } };
 }
 
-const taint = (influence: InfluenceStore) => influence.recordClasses("github", ["third-party", "private"], "h1");
+const taint = (influence: InfluenceStore) => influence.recordClasses("server:github", ["third-party", "private"], "h1");
 
 describe("refusal texts", () => {
   it("localTextsAreExact", () => {
@@ -206,7 +206,7 @@ describe("LocalGate verdicts", () => {
     // grep reads below the working folder, so here no folder is refused (secret/ would refuse it as out of scope)
     const priv = () => rig("enforce", { material: { ...material, rules }, refused: [] });
     const tainted = priv();
-    tainted.influence.recordClasses("github", ["third-party"], "h1");
+    tainted.influence.recordClasses("server:github", ["third-party"], "h1");
     for (const [i, command] of commands.entries()) {
       expect(tainted.gate.check("bash", { command }, `c${i}`), command).toEqual({ block: true, reason: UNSAFE_TEXT });
     }
@@ -222,7 +222,7 @@ describe("LocalGate verdicts", () => {
   it("aCallsOwnUnlabelledReadsAddNothing", () => {
     // notes/ has no label: the call reads data the model never saw, so it can't have steered the call
     const { gate, influence } = rig("enforce");
-    influence.recordClasses("github", ["private"], "h1");
+    influence.recordClasses("server:github", ["private"], "h1");
     expect(gate.check("bash", { command: "cat notes/a.md > website/x.md" }, "c1")).toEqual({ block: false });
   });
 

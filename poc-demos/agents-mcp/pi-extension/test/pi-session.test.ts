@@ -553,7 +553,7 @@ describe("pi session end to end", { timeout: 60_000 }, () => {
       ["write", "INFLUENCE_DENIED"],
     ]);
     const denied = locals(tainted)[1]!;
-    expect(held(denied)).toContainEqual(expect.objectContaining({ cls: "local-untrusted", src: "server:local:read" }));
+    expect(held(denied)).toContainEqual(expect.objectContaining({ cls: "local-untrusted", src: "local:read" }));
     expect(textOf(toolResults(tainted).at(-1)!)).toBe(UNSAFE_TEXT);
     expect(readFileSync(join(tainted.cwd, "website/CHANGELOG.md"), "utf8")).toBe(LOCAL_FILES["website/CHANGELOG.md"]);
   });

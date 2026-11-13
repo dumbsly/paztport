@@ -1079,7 +1079,7 @@ describe("verifyEvidence: signed local steps", { timeout: 60_000 }, () => {
     // the hop's block holds the entries the gate saw, under `influence`; the origin's holds none
     const [origin, hop] = readBlocks(localOf(rs, "l_leak").blocks);
     expect(itemsUnder(origin!, "influence")).toEqual([]);
-    expect((itemsUnder(hop!, "influence") as any[]).map((e) => e.src)).toContain("server:local:read");
+    expect((itemsUnder(hop!, "influence") as any[]).map((e) => e.src)).toContain("local:read");
   });
 
   it("aRecordWhoseObjectsAreNotTokensFailsClosed", () => {
@@ -1563,7 +1563,7 @@ describe("verifyEvidence: signed local steps", { timeout: 60_000 }, () => {
   it("aCallsOwnPrivateReadsCountAndTheRecordVerifies", () => {
     const material = privateClient();
     const tainted = gateRun((gate, influence) => {
-      influence.recordClasses("github", ["third-party"], "h1");
+      influence.recordClasses("server:github", ["third-party"], "h1");
       gate.check("bash", { command: "cat priv/x > website/leak.md" }, "l_copy");
     }, { material });
     expect(decisionOf(localOf(tainted.map((l) => JSON.parse(l)), "l_copy")).verdict).toBe("INFLUENCE_DENIED");
@@ -1579,7 +1579,7 @@ describe("verifyEvidence: signed local steps", { timeout: 60_000 }, () => {
   it("aCallsOwnUnlabelledReadsAddNothingAndTheRecordVerifies", () => {
     // private in the session; the call reads an unlabelled folder, whose content the model never saw, into a public one
     const lines = gateRun((gate, influence) => {
-      influence.recordClasses("github", ["private"], "h1");
+      influence.recordClasses("server:github", ["private"], "h1");
       gate.check("bash", { command: "cat notes/n.md > website/y.md" }, "l_copy");
     });
     expect(decisionOf(localOf(lines.map((l) => JSON.parse(l)), "l_copy")).verdict).toBe("OK");

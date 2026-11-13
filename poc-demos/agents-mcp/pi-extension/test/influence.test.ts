@@ -36,14 +36,17 @@ describe("InfluenceStore", () => {
   });
 
   it("classesBecomeEntriesWithoutCid", () => {
-    // rebuilt from a restored session branch, which keeps label classes but no cids
+    // a server result rebuilt from a restored session branch, which keeps label classes but no cids, and a local read's
+    // labels: each entry has the source as given
     const s = new InfluenceStore();
-    s.recordClasses("github", ["third-party", "private"], "H3");
+    s.recordClasses("server:github", ["third-party", "private"], "H3");
+    s.recordClasses("local:read", ["public"], "H5");
     expect(s.entries()).toEqual([
       { cls: "third-party", src: "server:github", h: "H3" },
       { cls: "private", src: "server:github", h: "H3" },
+      { cls: "public", src: "local:read", h: "H5" },
     ]);
-    expect(s.classes()).toEqual(new Set(["third-party", "private"]));
+    expect(s.classes()).toEqual(new Set(["third-party", "private", "public"]));
   });
 
   it("entriesComeBackInTheOrderRecordedWithRepeatsKept", () => {

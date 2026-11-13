@@ -292,7 +292,7 @@ export default function paztport(pi: ExtensionAPI): void {
       if (h === undefined) {
         influence.recordUnknown(`server:${d.server}`, UNRECORDABLE_HASH);
       } else if (classes !== undefined) {
-        influence.recordClasses(d.server, classes, h);
+        influence.recordClasses(`server:${d.server}`, classes, h);
       } else {
         influence.recordUntrusted(`server:${d.server}`, h);
       }
