@@ -77,15 +77,16 @@ On `OK` the verifier hands the service, for each name in `actsOn`, one entry per
 `svc`, and either that its block does not name the extension ([wire.md](wire.md#blocks)), a block that only
 requires it included, or the items its block holds under it.
 
-**What a request served without verifying is handed.** A service that serves a request it did not verify, in
-audit mode after a failure or because it verifies no requests under a mode ([HTTP](#http-requests-and-responses)),
-is handed the same where the chain read and check 9a held, but as not verified, and when `allowedExtensions` is set
-only the items under names it holds. Where the chain did not read, nothing is handed on. A request whose blocks
-fail check 9a is never served over HTTP ([HTTP](#http-requests-and-responses)), and over MCP, in audit mode, runs
-with nothing handed on ([Modes and refusals](#modes-and-refusals)). In an unsafe session, over MCP or HTTP, the
-server believes nothing from the call and nothing is handed on ([sessions.md](sessions.md#over-http)). `actsOn`
-and `allowedExtensions` are the service's configuration whether or not it has a verifier. The core reads no item;
-what an item means, and what the service does with it, verified or not, is its extension's to say.
+**What a request served without verifying is handed.** A service that serves a request it did not verify, in audit mode
+after a failure or because it verifies no requests under a mode (where its live order did not give `OK`, or it runs
+none) ([HTTP](#http-requests-and-responses)), is handed the same where the chain read and check 9a held, but as not
+verified, and when `allowedExtensions` is set only the items under names it holds. Where the chain did not read, nothing
+is handed on. A request whose blocks fail check 9a is never served over HTTP ([HTTP](#http-requests-and-responses)), and
+over MCP, in audit mode, runs with nothing handed on ([Modes and refusals](#modes-and-refusals)). In an unsafe session,
+over MCP or HTTP, the server believes nothing from the call and nothing is handed on
+([sessions.md](sessions.md#over-http)). `actsOn` and `allowedExtensions` are the service's configuration whether or not
+it has a verifier. The core reads no item; what an item means, and what the service does with it, verified or not, is
+its extension's to say.
 
 Only the direct caller's `requires` binds the receiver: check 9c reads the last block alone, so the `requires` of
 an earlier block binds no hop after the one it was sent to ([wire.md](wire.md#blocks)). A response is checked by
@@ -434,7 +435,7 @@ passed the live order, 0 to 12, at that service, as for a request at the receive
 `receiver` as a request at the receiver supplies it, the request's proof and blocks, and the peer when there is one.
 This holds whether or not the service refuses requests that fail: one that does not enforce MUST still run the live
 order before it attests, and a failure there withholds the attestation. A request whose blocks fail check 9a is not
-served at all, at a service that runs the live order only to attest as at any other: it is answered
+served at all, at a service that runs the live order only to attest as at any other: there it is answered
 `400 {"reason":"EXTENSION_MISMATCH"}` ([above](#http-requests-and-responses)). A response stamp is shaped like a
 request stamp, so attesting a chain nobody checked would let anyone mint stamps under the service's key: on a forged
 one-stamp chain with an empty `sig`, the response is a valid origin stamp from the answering service. So a service
@@ -521,7 +522,7 @@ The offline verifier runs the live checks in the live order, with these differen
 | 2, 3 | With `signers`, for a chain that never leaves one process (a local step, [MCP profile](README.md#the-mcp-profile)): the origin MUST report the expected instance (`BAD_ORIGIN`), and each stamp MUST be by the expected service and instance (`BAD_SIGNATURE`). |
 | 5 | Every stamp carries the `rid` the record files it under, which defaults to the origin's (`RID_MISMATCH`). |
 | 7 | In place of freshness: the last stamp's `ts` equals the time recorded with it (a record with no recorded time fails), and when the run's records give start times, the origin's `ts` is one of them (`TIME_MISMATCH`). The last stamp is at most `RUN_MAX_AGE_MS` after the origin and the origin at most `CALL_MAX_AGE_MS` after the last stamp (`EXPIRED`), with the limits the live verifier used, each its default unless the deployment set it. Then the origin binds the run's recorded prompt (`PROMPT_MISMATCH`); a run with no prompt, or a disputed one, fails. |
-| 9 | Check 9a runs, and check 9b when the offline verifier is given an `allowedExtensions` of its own. Check 9c is live only: a recorded call or response was checked against `actsOn` live, which a record does not hold. An offline verifier that acts on an extension also applies that extension's reading of the items in the recorded blocks, as that extension says ([Reason codes](#reason-codes)); a core-only offline verifier reads no item. |
+| 9 | Check 9a runs, and check 9b when the offline verifier is given an `allowedExtensions` of its own. Check 9c is live only: a recorded call or response was checked against `actsOn` live, which a record does not hold. An offline verifier that acts on an extension also applies that extension's reading of the items in the recorded blocks, as that extension says ([Reason codes](#reason-codes)); a core-only offline verifier reads no item. The extension's reading runs once the offline order gives `OK`, before a recorded call is held to its session's limits, so a call past them that holds an item that does not read gets the extension's code, not `OUTSIDE_SESSION`. For a recorded local step it runs after the chain check and before the step's own checks. |
 | 10 | There is no peer offline. |
 | 11 | The nonce key has not been spent anywhere in the record set (`REPLAY`). A live cache that forgets after its window can't show that. |
 

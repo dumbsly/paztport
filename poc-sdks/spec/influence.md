@@ -241,7 +241,7 @@ written:
 | The request at this hop | What the rules read | A guarded public write | A trusted record |
 |---|---|---|---|
 | Its chain passed the live order here | every `influence` item handed on, plus what the service added | the every-stamp rule over the chain's stamps, then the owner-aware rule | may be written when every stamp names `influence` and no entry is untrusted |
-| Served but not verified, with items handed on as not verified (audit mode after a failure; a service that verifies no requests under a mode) | the items handed on, plus what the service added | the same two rules, over what is shown | never written |
+| Served but not verified, with items handed on as not verified (audit mode after a failure; a service that verifies no requests under a mode, where its live order did not give `OK` or it runs none) | the items handed on, plus what the service added | the same two rules, over what is shown | never written |
 | Nothing handed on (the chain did not read; over MCP, an audit-mode call whose blocks failed check 9a) | what the service added | the owner-aware rule over what the service added; the every-stamp rule has no stamp to read and does not refuse: the rule cannot refuse for what it is not shown | never written |
 | At an origin | what the origin added | there is no earlier stamp, so the every-stamp rule holds; the owner-aware rule over what the origin added | never written |
 

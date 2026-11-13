@@ -55,8 +55,8 @@ export type ReasonCode =
   | "SESSION_UNKNOWN"
   /**
    * Check 9a: the blocks do not read, are not one per stamp, or one does not match its stamp's `ext`. 403; but 400
-   * wherever verification has not refused the request first: at a service that verifies nothing, when the blocks do
-   * not read as one per stamp, and in audit mode. No verifier in this SDK gives it yet.
+   * at any other service about to serve the request: in audit mode, and at one that verifies no requests under a mode
+   * (verification.md, HTTP requests and responses). No verifier in this SDK gives it yet.
    */
   | "EXTENSION_MISMATCH"
   /**
