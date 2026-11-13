@@ -289,7 +289,9 @@ nor the blocks a request brings, and has nothing to drop.
 **A hop that verifies nothing.** A service with no verifier, or one on which Paztport is off, still extends the
 chain it received: it MUST send the blocks it received unchanged, then its own. It reads `X-Path-Extensions` only
 as far as an array of blocks, one per stamp of the chain, and answers a request whose header does not read so with
-`400 {"reason":"EXTENSION_MISMATCH"}`.
+`400 {"reason":"EXTENSION_MISMATCH"}`. When the chain does not read there is no count to hold the blocks to, so they
+must still read as an array of blocks, and the hop answers the same `400` when they do not, as an audit-mode
+receiver does ([the one exception](#modes-and-refusals)).
 
 **The receiver's operation.** The receiver's operation is the handler its framework will run. It works it out from its
 own routing before it verifies, and, where its framework lets later code route a request on after the receiver has
@@ -483,7 +485,7 @@ The offline verifier runs the live checks in the live order, with these differen
 | 2, 3 | With `signers`, for a chain that never leaves one process (a local step, [MCP profile](README.md#the-mcp-profile)): the origin MUST report the expected instance (`BAD_ORIGIN`), and each stamp MUST be by the expected service and instance (`BAD_SIGNATURE`). |
 | 5 | Every stamp carries the `rid` the record files it under, which defaults to the origin's (`RID_MISMATCH`). |
 | 7 | In place of freshness: the last stamp's `ts` equals the time recorded with it (a record with no recorded time fails), and when the run's records give start times, the origin's `ts` is one of them (`TIME_MISMATCH`). The last stamp is at most `RUN_MAX_AGE_MS` after the origin and the origin at most `CALL_MAX_AGE_MS` after the last stamp (`EXPIRED`), with the limits the live verifier used, each its default unless the deployment set it. Then the origin binds the run's recorded prompt (`PROMPT_MISMATCH`); a run with no prompt, or a disputed one, fails. |
-| 9 | Check 9a runs, and check 9b when the offline verifier is given an `allowedExtensions` of its own. Check 9c is live only: `actsOn` is live configuration, and a recorded call that was served passed it. |
+| 9 | Check 9a runs, and check 9b when the offline verifier is given an `allowedExtensions` of its own. Check 9c is live only: `actsOn` is live configuration, and a recorded call that was served, or a recorded response the client took, passed it then. |
 | 10 | There is no peer offline. |
 | 11 | The nonce key has not been spent anywhere in the record set (`REPLAY`). A live cache that forgets after its window can't show that. |
 
@@ -505,7 +507,9 @@ Each kind of record is checked this way:
   keyring. So a response recorded after the server's material expired is `POLICY_EXPIRED`. Those windows count only
   once the signatures covering them verify, whatever the time: the reply against the pin, and the server's root and,
   in the entry-key form, its keyring under the server's policy key. A reply without them gives no `policyNotAfter`,
-  and a response relying on it fails check 0 (`POLICY_EXPIRED`).
+  and a response relying on it fails check 0 (`POLICY_EXPIRED`). Of the extension checks it runs 9a, and 9b when
+  the checker is given an `allowedExtensions`, but not 9c, as for a recorded call: `actsOn` is live configuration,
+  and a response the client took passed 9c then.
 - **A recorded local step** ([MCP profile](README.md#the-mcp-profile)): first, the step binds its call and
   decision: the `decision` token MUST read as a [decision](wire.md#bindings), and its `callId` MUST be the
   step's; a decision that does not read, or one for another call, is `BINDING_MISMATCH`, as is a binding that
