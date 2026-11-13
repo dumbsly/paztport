@@ -39,8 +39,8 @@ class Ed25519VectorsTest {
     }
 
     @Test
-    void hasThirtyCases() {
-        assertEquals(30, vectors.get("cases").size());
+    void hasThirtyTwoCases() {
+        assertEquals(32, vectors.get("cases").size());
     }
 
     @Test

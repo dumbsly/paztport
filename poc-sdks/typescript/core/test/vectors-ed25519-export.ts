@@ -252,11 +252,15 @@ const HONEST_SIGNATURE = sign(HONEST, MESSAGE);
 const r = sha512ModL(utf8("paztport-ed25519-vector-nonce"));
 const R_r = encode(multiply(r, BASE));
 
-/** The first of "m0", "m1", … whose k, over R and A as written, satisfies `accept`. */
-function messageWhere(R: Uint8Array, A: Uint8Array, accept: (k: bigint) => boolean): Uint8Array {
+/**
+ * The first of "m0", "m1", … whose k, over R and A as written, satisfies `accept`, which also sees the 64-byte digest
+ * before it is reduced mod L.
+ */
+function messageWhere(R: Uint8Array, A: Uint8Array, accept: (k: bigint, digest: bigint) => boolean): Uint8Array {
   for (let i = 0; ; i++) {
     const message = utf8("m" + i);
-    if (accept(sha512ModL(R, A, message))) return message;
+    const digest = littleEndian(sha512(R, A, message));
+    if (accept(mod(digest, L), digest)) return message;
   }
 }
 
@@ -295,6 +299,13 @@ type Built = {
   holds?: Equation;
   /** For a key refused by rule 1 alone: the 32-byte key its bytes carry, which with the signature passes rules 2 to 5. */
   wraps?: Uint8Array;
+  /** For a refused case that passes rules 1 to 4, so only the library's decoding or its equation can refuse it. */
+  reachesTheLibrary?: true;
+  /**
+   * For the case that pins k reduced mod L before the multiplication: its k is a multiple of 8 and its unreduced digest
+   * is not, so with A's small-order part the equation holds for the one and fails for the other.
+   */
+  pinsReducedK?: true;
 };
 
 function smallOrderKeyCase(name: string, A: Uint8Array): Built {
@@ -321,7 +332,7 @@ function buildCases(): Built[] {
 
   // A = [a]B + T, which has order 8L: [k]A = [k·a]B + [k]T, so the equation holds only when k is a multiple of 8.
   const mixedA = encode(add(multiply(HONEST.a, BASE), T));
-  const mixed = (accept: (k: bigint) => boolean): { message: Uint8Array; signature: Uint8Array } => {
+  const mixed = (accept: (k: bigint, digest: bigint) => boolean): { message: Uint8Array; signature: Uint8Array } => {
     const message = messageWhere(R_r, mixedA, accept);
     const k = sha512ModL(R_r, mixedA, message);
     return { message, signature: Uint8Array.from([...R_r, ...bytes32(mod(r + k * HONEST.a, L))]) };
@@ -356,16 +367,41 @@ function buildCases(): Built[] {
     smallOrderKeyCase("A of order 2 with the sign bit set", withSignBit(order2)),
     smallOrderKeyCase("A the identity, written with y = p + 1", bytes32(p + 1n)),
     smallOrderKeyCase("A of order 4, written with y = p", bytes32(p)),
-    { name: "A with a small-order part, k not a multiple of 8", key: spki(mixedA), ...mixed((k) => k % 8n !== 0n), valid: false, holds: "cofactored" },
-    honest(
-      "R with a small-order part, S made for the cofactored equation",
-      MESSAGE,
-      Uint8Array.from([...mixedR, ...bytes32(mod(r + kMixedR * HONEST.a, L))]),
-      false,
-      "cofactored",
-    ),
-    { name: "A with a small-order part, k a multiple of 8", key: spki(mixedA), ...mixed((k) => k % 8n === 0n), valid: true },
-    { name: "A whose y is on no curve point", key: spki(bytes32(offCurveY)), message: MESSAGE, signature: Uint8Array.from([...R_r, ...bytes32(r)]), valid: false },
+    {
+      name: "A with a small-order part, k not a multiple of 8",
+      key: spki(mixedA),
+      ...mixed((k) => k % 8n !== 0n),
+      valid: false,
+      holds: "cofactored",
+      reachesTheLibrary: true,
+    },
+    {
+      ...honest(
+        "R with a small-order part, S made for the cofactored equation",
+        MESSAGE,
+        Uint8Array.from([...mixedR, ...bytes32(mod(r + kMixedR * HONEST.a, L))]),
+        false,
+        "cofactored",
+      ),
+      reachesTheLibrary: true,
+    },
+    // RFC 8032 §5.1.7 multiplies A by the digest as it is; the rule reduces it mod L first. The two differ only on a
+    // key with a small-order part, and only when one is a multiple of 8 and the other is not, as here.
+    {
+      name: "A with a small-order part, k a multiple of 8",
+      key: spki(mixedA),
+      ...mixed((k, digest) => k % 8n === 0n && digest % 8n !== 0n),
+      valid: true,
+      pinsReducedK: true,
+    },
+    {
+      name: "A whose y is on no curve point",
+      key: spki(bytes32(offCurveY)),
+      message: MESSAGE,
+      signature: Uint8Array.from([...R_r, ...bytes32(r)]),
+      valid: false,
+      reachesTheLibrary: true,
+    },
     honest("a signature of 63 bytes", MESSAGE, HONEST_SIGNATURE.subarray(0, 63), false),
     honest("a signature of 65 bytes", MESSAGE, Uint8Array.from([...HONEST_SIGNATURE, 0]), false),
     { name: "a key of 31 bytes", key: Uint8Array.from([...SPKI_PREFIX, ...HONEST.A.subarray(0, 31)]), message: MESSAGE, signature: HONEST_SIGNATURE, valid: false },
@@ -396,6 +432,21 @@ function buildCases(): Built[] {
       holds: "cofactorless",
       wraps: HONEST.A,
     },
+    // The BIT STRING's first byte counts the unused bits at its end, and a 32-byte key has none. A library that reads
+    // the bit string leniently still takes the 32 bytes after it as the key; this is the one 44-byte key that is not
+    // exactly the Ed25519 SPKI, so it separates comparing the prefix from asking a parser whether the bytes are a key.
+    {
+      name: "a key whose bit string claims an unused bit",
+      key: Uint8Array.from([...SPKI_PREFIX.subarray(0, 11), 0x01, ...HONEST.A]),
+      message: MESSAGE,
+      signature: HONEST_SIGNATURE,
+      valid: false,
+      holds: "cofactorless",
+      wraps: HONEST.A,
+    },
+    // Cases 17 and 18 set the sign bit on A only. This is the identity's second encoding as R, which a rule 4 built
+    // from a list of the eight canonical encodings, rather than from y, would let through.
+    honest("R the identity with the sign bit set", MESSAGE, signedWithR(withSignBit(identity)), false, "cofactorless"),
   ];
 }
 
@@ -404,11 +455,18 @@ function buildCases(): Built[] {
  * alone: `holds` says which equation the case satisfies, so a case refused only by rules 1 to 4 does not pass for some
  * other reason, and the cofactored cases pass the equation the rule forbids but not the one it requires. `wraps` marks
  * a key refused by rule 1 alone: written as the Ed25519 SPKI, the key it carries passes rules 2 to 4.
+ * `reachesTheLibrary` marks a refused case that rules 1 to 4 pass, and `pinsReducedK` the case whose answer turns on
+ * reducing k mod L.
  */
 function checked(cases: Built[]): Built[] {
   for (const c of cases) {
     if (verifyStrict(c.key, c.message, c.signature) !== c.valid) throw new Error(`${c.name}: verifyStrict disagrees with valid`);
     if (c.wraps !== undefined && !encodingsHold(spki(c.wraps), c.signature)) throw new Error(`${c.name}: refused by more than rule 1`);
+    if (c.reachesTheLibrary && !encodingsHold(c.key, c.signature)) throw new Error(`${c.name}: refused by rules 1 to 4`);
+    if (c.pinsReducedK) {
+      const digest = littleEndian(sha512(c.signature.subarray(0, 32), c.key.subarray(12), c.message));
+      if (mod(digest, L) % 8n !== 0n || digest % 8n === 0n) throw new Error(`${c.name}: does not separate reduced from unreduced k`);
+    }
     if (c.holds === undefined) continue;
     const A = c.wraps ?? c.key.subarray(12);
     if (!equationHolds(A, c.signature, c.message, c.holds, true)) throw new Error(`${c.name}: the ${c.holds} equation does not hold`);

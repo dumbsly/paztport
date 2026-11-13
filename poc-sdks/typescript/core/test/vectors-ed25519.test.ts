@@ -51,6 +51,8 @@ const NAMES = [
   "a key under the X25519 identifier",
   "a key whose SPKI length is written in long form",
   "a key with a trailing byte",
+  "a key whose bit string claims an unused bit",
+  "R the identity with the sign bit set",
 ];
 
 describe("ed25519.json", () => {
@@ -85,7 +87,7 @@ describe("ed25519.json", () => {
 
   it("hasTheCasesThePlanNames", () => {
     expect(vectors.cases.map((c) => c.name)).toEqual(NAMES);
-    expect(vectors.cases).toHaveLength(30);
+    expect(vectors.cases).toHaveLength(32);
   });
 
   it.each(vectors.cases)("$name", (c) => {

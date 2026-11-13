@@ -18,8 +18,8 @@ import (
 
 // TestEd25519VectorCount pins the file's size, so a replay of fewer cases than the file holds fails.
 func TestEd25519VectorCount(t *testing.T) {
-	if got := vectors.Load(t, "ed25519.json").Get("cases").Len(); got != 30 {
-		t.Fatalf("ed25519.json holds %d cases, want 30", got)
+	if got := vectors.Load(t, "ed25519.json").Get("cases").Len(); got != 32 {
+		t.Fatalf("ed25519.json holds %d cases, want 32", got)
 	}
 }
 

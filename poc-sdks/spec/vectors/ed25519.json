@@ -217,6 +217,20 @@
       "message": "cGF6dHBvcnQgZWQyNTUxOSB2ZWN0b3I",
       "signature": "JUha9s_u5smu9BbDoMkx-vR5Tpy1OEIVsgQdyXuLZxsx2b7BmS6v8i6qg4F85kfY_psmxX5cLSNq3yabkaThBw",
       "valid": false
+    },
+    {
+      "name": "a key whose bit string claims an unused bit",
+      "publicKey": "MCowBQYDK2VwAyEBrw1yYeVInE64fGnV6Xp_z-6O3TksCxbHzTZX8yLLg64",
+      "message": "cGF6dHBvcnQgZWQyNTUxOSB2ZWN0b3I",
+      "signature": "JUha9s_u5smu9BbDoMkx-vR5Tpy1OEIVsgQdyXuLZxsx2b7BmS6v8i6qg4F85kfY_psmxX5cLSNq3yabkaThBw",
+      "valid": false
+    },
+    {
+      "name": "R the identity with the sign bit set",
+      "publicKey": "MCowBQYDK2VwAyEArw1yYeVInE64fGnV6Xp_z-6O3TksCxbHzTZX8yLLg64",
+      "message": "cGF6dHBvcnQgZWQyNTUxOSB2ZWN0b3I",
+      "signature": "AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIBmluiSwqtV4uQttSBvIYBi_WnfEbBsLWRqET3X4PiqBA",
+      "valid": false
     }
   ]
 }
