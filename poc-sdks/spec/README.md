@@ -8,17 +8,29 @@ The key words MUST, MUST NOT, SHOULD, SHOULD NOT and MAY are to be read as descr
 
 | File | What it holds |
 |---|---|
-| [wire.md](wire.md) | Encodings, how JSON is read and written, keys and files, stamps and their signed bytes, chains and receivers, every binding, how a chain is carried, the Merkle tree, routes, operations, the signed root, the signed keyring, the reply certificate, events, proof bundles and who holds what. |
-| [verification.md](verification.md) | The live order of checks, freshness and nonce keys, the receiver and peer checks, attribution, the MCP wrappers, HTTP requests and responses, the two modes and what a refusal carries, offline verification, the reason codes, receiving an event, and guidance for a responder. |
-| [sessions.md](sessions.md) | The session handshake, the session id, status and unsafe sessions, the server's decision, recorded handshakes, and the boundary attestation between organisations. |
-| [influence.md](influence.md) | Influence entries and their commitment, content labels, the owner-aware rule, trusted records, and blinded influence at the boundary. |
+| [wire.md](wire.md) | Encodings, how JSON is read and written, keys and files, stamps and their signed bytes, chains and receivers, the blocks that carry extensions' claims and the commitment to them, every binding, how a chain and its blocks are carried, the Merkle tree, routes, operations, the signed root, the signed keyring, the reply certificate, events, proof bundles and who holds what. |
+| [verification.md](verification.md) | The live order of checks, checks 9a to 9c on the blocks, freshness and nonce keys, the receiver and peer checks, attribution, the MCP wrappers, HTTP requests and responses, the two modes and what a refusal carries, offline verification, the reason codes, receiving an event, and guidance for a responder. |
+| [sessions.md](sessions.md) | Sessions, a profile: the handshake over MCP and over HTTP, the extensions a server's reply says it acts on, the session id, status and unsafe sessions, the server's decision, recorded handshakes, and the boundary attestation between organisations. |
+| [influence.md](influence.md) | The extension `influence`: where it applies and what it does not cover, its classes, entries and content labels, the every-stamp rule, the owner-aware rule, trusted records, influence over MCP, and blinded influence at the boundary. |
 | [vectors/](vectors) | The conformance vectors. |
 
 ## The protocol
 
-The protocol is v3: a stamp carries `"v": 3`, and its signed bytes begin with `3|`. Versions 1 and 2 were earlier
-revisions, never published; the number is kept so that a stamp's `v` and its signed bytes stay as the vectors pin
-them. It travels over MCP (the TypeScript SDK) and over HTTP (the Java and Go SDKs).
+The protocol is version 4: a stamp carries `"v": 4`, and signs the bytes of `"paztport-stamp\n"` then its JCS bytes
+([wire.md](wire.md#fields-and-signed-bytes)). Versions 1 to 3 were earlier revisions, and a verifier takes none of
+them. It travels over MCP and over HTTP; which SDK speaks which version is under [Conformance](#conformance).
+
+The **core** attests the path a request took: stamps and the chains they form, routes and the operations on them,
+freshness, the binding of each stamp to what its hop sent and to the hop it was handed to, and replay. A
+**profile** is a way of using the core that does not use the block slot extensions travel in: sessions
+([sessions.md](sessions.md)), MCP ([the MCP profile](#the-mcp-profile)), response attestation, the responder of
+events ([verification.md](verification.md#receiving-an-event)) and offline verification
+([verification.md](verification.md#offline-verification)). An **extension** is a named kind of claim that a hop
+attaches at its own point on the path, in a [block](wire.md#blocks) its stamp's `ext` commits to; the core
+guarantees who made the claim and that it arrived intact, and never reads it. One extension exists, `influence`
+([influence.md](influence.md)): a record of what content the context held when an action was decided. It guards a
+component that can be steered by what it reads, a model, so it is for systems with a model in them; a mesh of
+ordinary services runs the core alone.
 
 Design choices:
 
@@ -31,7 +43,7 @@ Design choices:
   another fails check 4, `BINDING_MISMATCH` ([wire.md](wire.md#operations)). An operation's table entry may declare a
   key, the path segment or query parameter that names the item a call acts on; a caller then calls it once per
   request tree for each item, not once.
-- **One version.** A verifier, live or offline, takes only stamps whose `v` is 3. A chain holding any other `v`
+- **One version.** A verifier, live or offline, takes only stamps whose `v` is 4. A chain holding any other `v`
   is `CHAIN_MISSING`.
 - **One byte form.** Every Paztport object travels as its JCS bytes, or as their base64url, its token, and is
   read strictly from those bytes by the implementation's own reader, never by a transport's JSON parser
@@ -43,11 +55,20 @@ Design choices:
   HTTP). One whose signature is wrong is unsafe live and not attested offline. A server attests a session only
   for a client policy key it has pinned.
 - **The transport peer.** A verifier given an authenticated peer checks it is the last signer
-  (`PEER_MISMATCH`), and names it in every result but `POLICY_EXPIRED`.
-- **Owners.** An influence entry and a content label may carry an `owner`, and one owner-aware rule decides
-  public writes.
+  (`PEER_MISMATCH`) before the nonce key is recorded, so a request sent again by another peer spends nothing, and
+  names the peer in every result but `POLICY_EXPIRED`.
+- **Extensions.** A hop's claims are pinned to its own stamp: each stamp's `ext` commits to its signer's block, so
+  a later hop cannot drop or alter a claim without failing [check 9a](verification.md#the-live-order) at every
+  honest hop after it. A verifier that acts on no extension reads no item, and `influence`, with its owner-aware
+  rule for public writes, is an extension, not part of the core.
 
 ## Conformance
+
+The spec describes version 4. The three SDKs in this repository implement version 3, whose stamps carry `"v": 3`:
+the TypeScript SDK over MCP, and the Java and Go SDKs over HTTP. `v3.json` and `http-v3.json` record version 3, and
+are what the SDKs replay. The rules below and the sections from [`v3.json`](#v3json) to the end describe the vector
+files as they are, so where they differ from the four spec files above, they describe version 3, and those files
+give version 4.
 
 `vectors/` holds language-neutral vectors, so every implementation is held to one set of recorded answers.
 
