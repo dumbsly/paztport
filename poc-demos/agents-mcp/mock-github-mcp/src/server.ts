@@ -1,6 +1,7 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
+import { extensionSettings, INFLUENCE } from "@paztport/core";
 import {
   handleToolCall,
   McpServerSession,
@@ -62,7 +63,7 @@ export function createGithubServer(opts: GithubServerOptions): { handle(message:
   const { mode, state, outcome, taskCheck } = opts;
   const now = opts.now ?? Date.now;
   const rules = opts.rules ?? DEFAULT_RULES;
-  const server = mode !== "off" && opts.paztport !== null ? new McpServerSession(opts.paztport, rules, now) : null;
+  const server = mode !== "off" && opts.paztport !== null ? new McpServerSession(opts.paztport, rules, extensionSettings([INFLUENCE]), now) : null;
   const tools = new Map<string, GithubTool>(GITHUB_TOOLS.map((t) => [t.name, t]));
   const specs: McpToolSpec[] = GITHUB_TOOLS.map((t) => ({
     name: t.name,

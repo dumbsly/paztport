@@ -7,22 +7,26 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   bindPrompt,
+  bindResult,
   buildPolicy,
-  commitInfluence,
   decode,
+  extensionSettings,
   generateKeyPair,
+  INFLUENCE,
+  influenceBlock,
+  mintOrigin,
   newNonce,
   NonceCache,
   NONCE_TTL_MS,
   readKeyringFile,
   readProofBundleFile,
   readRootFile,
+  responseEntries,
   signKeyring,
   signRoot,
-  signStamp,
   verifySessionReply,
   writeToken,
-  type ContentLabel,
+  type ExtensionSettings,
   type InfluenceEntry,
   type MerkleProof,
   type ReasonCode,
@@ -30,14 +34,7 @@ import {
   type SessionRequest,
   type SignedRoot,
 } from "@paztport/core";
-import {
-  bindMcpCall,
-  META_CALL_ID,
-  META_CHAIN,
-  META_INFLUENCE,
-  META_PROOF,
-  verifyMcpResponse,
-} from "@paztport/mcp";
+import { META_PROOF, stampToolCall, verifyMcpResponse } from "@paztport/mcp";
 import type { CallToolResult } from "../../src/mcp.ts";
 
 export const ALL_TOOLS = [
@@ -61,14 +58,24 @@ export type TestClient = {
     influence: InfluenceEntry[],
     opts?: { now?: number; callId?: string; rid?: string },
   ): Record<string, unknown>;
+  /**
+   * Verifies a response as this client, acting on influence: the result's code, and the entries the response adds, as
+   * `responseEntries` builds them, with the server `github` as `src`.
+   */
   verify(
     result: CallToolResult,
-    call: { rid: string; toolCallId: string },
+    call: { rid: string; callId: string },
     serverKeyring: Record<string, string>,
     serverRoot: SignedRoot,
     now?: number,
-  ): { reason: ReasonCode; labels: ContentLabel[] };
+  ): { reason: ReasonCode; entries: InfluenceEntry[] };
 };
+
+/** What stampToolCall writes where the client policy has no proof for a tool; the call is sent without it. */
+const NO_PROOF: MerkleProof = { leafSalt: "", siblings: [], dirs: "", rootId: "" };
+
+/** The settings of a test client that acts on influence, as the agents demo's does. */
+const CLIENT_EXTENSIONS: ExtensionSettings = extensionSettings([INFLUENCE]);
 
 /** The paztport/session params a client sends for `request`: its token. */
 export const sessionParams = (request: SessionRequest): { request: string } => ({ request: writeToken(request) });
@@ -171,36 +178,23 @@ export function makeClient(opts: { withRoot?: boolean; forgeRoot?: boolean; tool
       const now = o.now ?? Date.now();
       const rid = o.rid ?? `rid-${++seq}`;
       const callId = o.callId ?? `call-${seq}`;
-      const s0 = signStamp(
-        { svc: "session", inst: "session-1", rid, ts: now, sess, rcv: "pi", bind: bindPrompt("test prompt"), infl: "", prev: "" },
+      // the origin's block names influence with nothing; the hop's holds the entries and requires influence of the server
+      const originBlock = influenceBlock([]);
+      const origin = mintOrigin(
+        { svc: "session", inst: "session-1", rid, ts: now, sess, rcv: "pi", bind: bindPrompt("test prompt"), block: originBlock },
         session.privateKey,
       );
-      const s1 = signStamp(
-        {
-          svc: "pi",
-          inst: "pi-1",
-          rid,
-          ts: now,
-          sess,
-          rcv: `mcp:github.${name}`,
-          bind: bindMcpCall(name, callId, args),
-          infl: commitInfluence(influence),
-          prev: s0.sig,
-        },
-        pi.privateKey,
-      );
-      // a tool outside the client policy has no proof, so the call carries none
+      // a tool outside the client policy has no proof, so the call carries none: stampToolCall writes a placeholder, dropped
       const proof = m.proofFor(name);
-      return {
-        name,
-        arguments: args,
-        _meta: {
-          [META_CHAIN]: writeToken([s0, s1]),
-          ...(proof !== undefined ? { [META_PROOF]: writeToken(proof) } : {}),
-          [META_INFLUENCE]: writeToken(influence),
-          [META_CALL_ID]: callId,
+      const meta = stampToolCall(
+        { name, args, callId },
+        {
+          origin, originBlock, svc: "pi", inst: "pi-1", privateKey: pi.privateKey, ts: now,
+          block: influenceBlock(influence, [INFLUENCE]), requires: [], proof: proof ?? NO_PROOF, serverId: "github",
         },
-      };
+      );
+      if (proof === undefined) delete meta[META_PROOF];
+      return { name, arguments: args, _meta: meta };
     },
     verify(result, call, serverKeyring, serverRoot, now = Date.now()) {
       if (sess === undefined) {
@@ -214,8 +208,10 @@ export function makeClient(opts: { withRoot?: boolean; forgeRoot?: boolean; tool
         nonces: responseNonces,
         now,
         policyNotAfter: serverRoot.notAfter,
+        extensions: CLIENT_EXTENSIONS,
       });
-      return { reason: r.result.reason, labels: r.labels };
+      const stamps = r.ok ? r.handOver!.get(INFLUENCE) : undefined;
+      return { reason: r.reason, entries: responseEntries(r.reason, stamps, "server:github", bindResult(result)) };
     },
   };
 }

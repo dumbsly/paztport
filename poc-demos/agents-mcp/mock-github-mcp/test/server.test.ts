@@ -102,9 +102,9 @@ function setup(o: { mode?: Mode; client?: Parameters<typeof makeClient>[0]; pazt
     if (reply && result._meta?.[META_ATTESTATION] !== undefined) {
       const meta = params._meta as Record<string, string>;
       const rid = readChain(meta[META_CHAIN]!)[0]!.rid;
-      const v = client.verify(result, { rid, toolCallId: meta[META_CALL_ID] as string }, reply.serverKeyring, reply.serverRoot!);
+      const v = client.verify(result, { rid, callId: meta[META_CALL_ID] as string }, reply.serverKeyring, reply.serverRoot!);
       out.verified = v.reason;
-      for (const l of v.labels) influence.push({ cls: l.cls, src: `github.${name}`, h: l.cid, cid: l.cid });
+      influence.push(...v.entries);
     }
     return out;
   }
@@ -401,8 +401,8 @@ describe("composed github server", () => {
     expect(issues.verified).toBe("OK");
     expect(payroll.verified).toBe("OK");
     expect(h.influence.map((e) => [e.src, e.cls])).toEqual([
-      ["github.list_issues", "third-party"],
-      ["github.get_file_contents", "private"],
+      ["server:github", "third-party"],
+      ["server:github", "private"],
     ]);
   });
 
@@ -557,6 +557,20 @@ describe("composed github server", () => {
       await h.call("list_issues", { owner: "acme", repo: "website" });
       const r = await h.send(h.client.callParams("create_branch", PUBLIC_WRITE, privateOnly));
       expect(verdictOf(r)).toEqual({ reason: "INFLUENCE_DENIED" });
+    });
+
+    it("aCallWhoseBlockHoldsAnItemThatIsNotAnEntryIsRefused", async () => {
+      const h = setup();
+      await h.open();
+      const before = h.snapshot();
+      const bad = h.client.callParams("create_branch", PUBLIC_WRITE, [{ cls: "private" } as unknown as InfluenceEntry]);
+      const r = await h.send(bad);
+      expect(r.isError).toBe(true);
+      expect(verdictOf(r)).toEqual({ reason: "INFLUENCE_MISMATCH" });
+      expect(r._meta?.[META_ATTESTATION]).toBeUndefined();
+      // the tool did not run
+      expect(h.snapshot()).toEqual(before);
+      expect(h.outcome.records.map((x) => [x.tool, x.verdict])).toEqual([["create_branch", "INFLUENCE_MISMATCH"]]);
     });
 
     it("cleanSessionUnaffected", async () => {
