@@ -580,7 +580,7 @@ describe("demo server", () => {
   it("a run with no evidence file, or only the run record Paztport off writes, has no verify command", async () => {
     const offRun: RunOnce = async (spec, onLine, signal) => {
       const r = await playing(spec, onLine, signal);
-      writeFileSync(join(spec.runDir, "evidence.jsonl"), JSON.stringify({ v: 1, type: "run", rid: "r", ts: 1, prompt: "p" }) + "\n");
+      writeFileSync(join(spec.runDir, "evidence.jsonl"), JSON.stringify({ v: 2, type: "run", rid: "r", ts: 1, prompt: "p" }) + "\n");
       return r;
     };
     const off = await start({ deps: { runOnce: offRun } });

@@ -326,6 +326,15 @@ describe("demo page", () => {
     }
   });
 
+  it("the labels panel reads the labels the server signed, then the server's own outcome label, and not the events", () => {
+    const app = text("app.js");
+    expect(app).toContain("reply?.display?.labels");
+    expect(app).not.toContain("attestation.labels");
+    expect(app).not.toContain("response?.labels");
+    expect(app).toContain("ev.outcome?.label");
+    expect(app).toContain('unreadable(record, "blocks")');
+  });
+
   it("an off run's local drawer says nothing was checked, and a local run's score names all three sources", () => {
     const app = text("app.js");
     expect(app).toContain("Paztport was off, so nothing was checked.");

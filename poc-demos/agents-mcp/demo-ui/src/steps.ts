@@ -5,9 +5,10 @@ import { readOr } from "../../eval/src/verify.ts";
 import type { OutcomeRecord } from "../../mock-github-mcp/src/outcome.ts";
 import { BUILTIN_LOCAL_TOOLS, type Scenario } from "../../mock-github-mcp/src/scenario.ts";
 import {
-  folderRuleFor, readAttestation, readChain, readInfluence, readLocalDecision, readLocalRules, readProof,
-  type InfluenceClass, type InfluenceEntry, type LocalDecision, type LocalRules, type MerkleProof, type ResponseAttestation,
-  type Stamp,
+  entryOf, folderRuleFor, INFLUENCE, itemsUnder, labelOf, readAttestation, readBlocks, readChain, readLocalDecision,
+  readLocalRules, readProof,
+  type Block, type ContentLabel, type InfluenceClass, type InfluenceEntry, type LocalDecision, type LocalRules,
+  type MerkleProof, type ResponseAttestation, type Stamp,
 } from "@paztport/core";
 
 /** One tool call, in plain words. `index` counts from 1 in the order the model made the calls. */
@@ -33,12 +34,18 @@ export type Step = {
 };
 /**
  * What the page shows of an evidence record's tokens, decoded: a call's or a local record's chain, a response's
- * attestation, a local record's influence and route proof. `unreadable` names each token that does not read.
+ * attestation, the blocks of a call (its `paztport/extensions`) or of a local record, the entries a local record's hop
+ * held, the labels a response's attestation signed, and a local record's route proof. `unreadable` names each token
+ * that does not read.
  */
 export type Display = {
   chain?: Stamp[];
   attestation?: ResponseAttestation;
+  blocks?: Block[];
+  /** The entries under `influence` in a local record's last block, each as `entryOf` reads it. */
   influence?: InfluenceEntry[];
+  /** Every item under `influence` in the attestation's blocks that `labelOf` reads; the others are not shown. */
+  labels?: ContentLabel[];
   proof?: MerkleProof;
   unreadable?: string[];
 };
@@ -87,6 +94,10 @@ export const PLAIN_RULE: Record<string, string> = {
   EXPIRED:
     "A call is refused when its last stamp is more than 5 seconds from the server's clock, either way, or its run started more than 30 minutes before that clock or more than 5 seconds after it. That is a freshness limit, not a sign of an attack.",
 };
+/** A result the client withheld: the server's response required an extension the client does not act on. */
+const WITHHELD_REASON = "the client withheld the result: the response required an extension the client does not act on";
+/** A call in a session that gave the client nothing it requires of the server: it was not sent. */
+const NO_CALLS_REASON = "the call was not sent: no session with the server gave what the client requires of it";
 /** A local step's reason where the local gate's rule is not the server's. */
 const LOCAL_REASON: Record<string, string> = {
   EXPIRED: "the run started more than 30 minutes before the step, or more than 5 seconds after it, so the step was not allowed",
@@ -312,6 +323,10 @@ export function buildSteps(s: Scenario, logs: StepLogs, opts: BuildOptions = {})
         result = "error";
         reason = "the tool returned an error";
       } else result = "allowed";
+    } else if (response?.withheld === true) {
+      // the tool ran, so the server's outcome record says ALLOWED; what the page shows is what the client did with the result
+      result = "error";
+      reason = WITHHELD_REASON;
     } else if (o) {
       if (o.verdict !== "ALLOWED") {
         result = "refused";
@@ -331,6 +346,9 @@ export function buildSteps(s: Scenario, logs: StepLogs, opts: BuildOptions = {})
         result = "error";
         reason = "the tool returned an error";
       } else result = "allowed";
+    } else if (errorEvent?.code === "NO_CALLS") {
+      result = "error";
+      reason = NO_CALLS_REASON;
     } else if (errorEvent) {
       result = "error";
       reason = `the call failed before the server answered${str(errorEvent.code) ? ` (${str(errorEvent.code)})` : ""}`;
@@ -383,14 +401,17 @@ function clientRules(evidence: unknown[]): LocalRules | undefined {
 }
 
 /** A token an evidence record holds: the name the page shows for it, its reader, and where the display keeps its value. */
-type HeldToken = { name: string; token: unknown; read: (token: string) => unknown; into: keyof Display };
+type HeldToken = { name: string; token: unknown; read: (token: string) => unknown; into: "chain" | "attestation" | "blocks" | "proof" };
 
 /** The tokens a record holds that the page shows. */
 function tokensOf(r: Obj): HeldToken[] {
   const meta = (v: unknown): Obj => (isObj(v) && isObj(v._meta) ? v._meta : {});
   switch (r.type) {
     case "call":
-      return [{ name: "paztport/chain", token: meta(r.params)["paztport/chain"], read: readChain, into: "chain" }];
+      return [
+        { name: "paztport/chain", token: meta(r.params)["paztport/chain"], read: readChain, into: "chain" },
+        { name: "paztport/extensions", token: meta(r.params)["paztport/extensions"], read: readBlocks, into: "blocks" },
+      ];
     case "response": {
       const token = meta(r.result)["paztport/attestation"];
       return token === undefined ? [] : [{ name: "paztport/attestation", token, read: readAttestation, into: "attestation" }];
@@ -398,7 +419,7 @@ function tokensOf(r: Obj): HeldToken[] {
     case "local":
       return [
         { name: "chain", token: r.chain, read: readChain, into: "chain" },
-        { name: "influence", token: r.influence, read: readInfluence, into: "influence" },
+        { name: "blocks", token: r.blocks, read: readBlocks, into: "blocks" },
         ...(r.proof === null ? [] : [{ name: "proof", token: r.proof, read: readProof, into: "proof" } as const]),
       ];
   }
@@ -414,7 +435,21 @@ function display(r: Obj): Display {
     if (value === undefined) unreadable.push(name);
     else out[into] = value;
   }
-  return { ...(out as Display), ...(unreadable.length > 0 ? { unreadable } : {}) };
+  const shown = out as Display;
+  if (r.type === "local" && shown.blocks !== undefined) {
+    // the hop's own block is the last: the entries the session's influence held when the call was decided
+    const items = itemsUnder(shown.blocks.at(-1)!, INFLUENCE) ?? [];
+    const entries = readOr(() => items.map(entryOf));
+    if (entries === undefined) unreadable.push("influence");
+    else shown.influence = entries;
+  }
+  if (r.type === "response" && shown.attestation !== undefined) {
+    // what the server signed of its content; an item that does not read as a label is not shown
+    shown.labels = shown.attestation.blocks.flatMap((b) =>
+      (itemsUnder(b, INFLUENCE) ?? []).flatMap((item) => readOr(() => labelOf(item)) ?? []),
+    );
+  }
+  return { ...shown, ...(unreadable.length > 0 ? { unreadable } : {}) };
 }
 
 /** A local record's decision, or undefined when it does not read. */

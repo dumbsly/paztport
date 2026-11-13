@@ -900,7 +900,7 @@ function localSections(step, record, plain, attested) {
       "section",
       {},
       h("h3", {}, "What the agent held when this was decided"),
-      unreadable(record, "influence")
+      unreadable(record, "influence") || unreadable(record, "blocks")
         ? unreadableNote("influence")
         : held.length
           ? h("ul", {}, held.map((c) => h("li", {}, h("code", {}, c), plain[c] ? ` (${plain[c]})` : "")))
@@ -960,21 +960,15 @@ function openDrawer(step, ctx, opener) {
   const local = step.local ? shown.find((s) => s.record.type === "local") : undefined;
   if (step.local) sections.push(...localSections(step, local, plain, attested));
 
-  // labels: from the signed reply when there is one, else what the logs recorded
+  // labels: from the signed reply when there is one, else the server's own outcome log
   let labels = [];
   let source = "";
-  if (Array.isArray(attestation?.labels)) {
-    labels = attestation.labels.map((l) => (isObj(l) ? l.cls : undefined));
+  if (Array.isArray(reply?.display?.labels)) {
+    labels = reply.display.labels.map((l) => (isObj(l) ? l.cls : undefined));
     source = "Attached by the server to its signed reply.";
-  } else {
-    const response = events.find((e) => e.type === "response");
-    if (Array.isArray(response?.labels)) {
-      labels = response.labels;
-      source = "Recorded by Paztport for the server's reply.";
-    } else if (ev.outcome?.label) {
-      labels = [ev.outcome.label];
-      source = "Recorded in the mock server's outcome log.";
-    }
+  } else if (ev.outcome?.label) {
+    labels = [ev.outcome.label];
+    source = "Recorded in the mock server's outcome log.";
   }
   labels = [...new Set(labels.filter((l) => typeof l === "string"))];
   if (!step.local) sections.push(
