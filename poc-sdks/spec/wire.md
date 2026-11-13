@@ -23,7 +23,7 @@ Contents: [Encodings](#encodings) · [JSON](#json) · [Keys and files](#keys-and
 | Canonical encoding | Where this spec compares encoded values, it compares the text, so a value with two encodings matches only one of them. This covers every base64url value that is decoded (a token, a `sig`, a `nonce`, a key, a salt, a root, a Merkle sibling, an event payload), not only `sig`; a value that is only compared as text, such as an influence entry's `h` and `cid` or a stamp's `bind` and `infl`, is not decoded and not checked. A stamp whose `sig` is not canonical does not parse (see [Stamp field rules](#stamp-field-rules)). |
 | Canonical JSON | **JCS**, RFC 8785: object keys sorted by their UTF-16 code units, no whitespace, numbers in the ECMAScript shortest form, strings escaped as RFC 8785 §3.2.2.2 says ([Canonical bytes](#canonical-bytes)). JCS MUST fail on a lone surrogate, a non-finite number, or anything that is not plain JSON. Arrays keep their order. |
 | Hash | SHA-256. `H(x)` below is SHA-256 of the bytes `x`. |
-| Signatures | Ed25519 (RFC 8032), pure, with no pre-hash and no context. A signature is 64 bytes. A verifier MUST refuse a signature unless it passes the five checks of [Signatures](#signatures). |
+| Signatures | Ed25519 (RFC 8032), pure, with no pre-hash and no context. A signature is 64 bytes. A verifier MUST refuse a signature unless it passes the five rules of [Signatures](#signatures). |
 | Integers | `ts` is a number of milliseconds since the Unix epoch, a [protocol integer](#the-grammar): an integer in [0, 2^53 − 1], decided from its text. In signed bytes it is written in decimal, with no leading zeros, no `+` and no exponent. |
 
 `b64url(x)` is the base64url text of `x`, and `utf8(s)` the UTF-8 bytes of `s`. `‖` is byte concatenation,
@@ -36,8 +36,8 @@ and stamps `3|`.
 
 ### Signatures
 
-A verifier MUST refuse a signature unless all five of these hold. Each 32-byte value is read as a little-endian
-integer; `p = 2^255 − 19` is the field prime and `B` the base point.
+A verifier MUST refuse a signature unless all five of these rules hold. Each 32-byte value is read as a
+little-endian integer; `p = 2^255 − 19` is the field prime and `B` the base point.
 
 1. **Lengths.** The signature is 64 bytes, and the public key is exactly 44 bytes: the Ed25519 SubjectPublicKeyInfo
    prefix `302a300506032b6570032100` ([Keys and files](#keys-and-files)), then the 32-byte key `A`. Other bytes
@@ -55,14 +55,14 @@ integer; `p = 2^255 − 19` is the field prime and `B` the base point.
    `k = SHA-512(R ‖ A ‖ M) mod L` over `R` and `A` as written and the message `M`, with no multiplication by the
    cofactor.
 
-This is stricter than RFC 8032 requires. Checks 2 and 3 are the RFC's own (§5.1.7 decodes `S` as an integer below
+This is stricter than RFC 8032 requires. Rules 2 and 3 are the RFC's own (§5.1.7 decodes `S` as an integer below
 `L`, and §5.1.3 refuses a `y` at or above `p`), but the RFC lets a verifier check `[8][S]B = [8]R + [8][k]A` or the
 equation without the 8, and does not require it to refuse a point of small order. Two verifiers that choose
 differently disagree about the same bytes, which a protocol whose implementations accept and refuse the same bytes
 cannot allow.
 
-Checks 1 to 4 read only bytes. Each implementation makes them itself, in front of its library's Ed25519 verify,
-whatever that library already refuses, so the rule does not depend on which library is installed; check 5 is the
+Rules 1 to 4 read only bytes. Each implementation makes them itself, in front of its library's Ed25519 verify,
+whatever that library already refuses, so the rule does not depend on which library is installed; rule 5 is the
 library's. `ed25519.json` pins the rule ([its cases](README.md#ed25519json)).
 
 ## JSON
