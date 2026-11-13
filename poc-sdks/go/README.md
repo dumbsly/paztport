@@ -9,8 +9,8 @@ MCP profile: stamps and chains, policy material, the live and offline verifiers,
 the owner-aware rule, sessions, responder events, and v3 over HTTP at a receiver,
 a caller, a partner and an egress. It replays `spec/vectors/v3.json` and
 `json.json` but their sections that belong to the
-[MCP profile](../spec/README.md#the-mcp-profile), and `http-v3.json` and
-`events.json` in full. It leaves out:
+[MCP profile](../spec/README.md#the-mcp-profile), and `http-v3.json`,
+`events.json` and `ed25519.json` in full. It leaves out:
 
 - **The MCP profile**, local steps included.
 - **Any integration.** It sends nothing, logs nothing, publishes no events and

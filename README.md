@@ -167,7 +167,10 @@ with a clean copy, automatically, within seconds.
 The code is Apache-2.0. Every cryptographic primitive the SDKs use comes from each
 language's standard library (the JDK, Node's `node:crypto`, Go's `crypto`
 packages); the Java keygen tool also uses Bouncy Castle, to write X.509
-certificates.
+certificates. Before a library verifies an Ed25519 signature, the SDK checks the
+signature's and the key's bytes itself, by the spec's
+[signature rule](poc-sdks/spec/wire.md#signatures), so the three refuse the same
+bytes whatever their library accepts.
 
 ## Concepts
 
@@ -792,7 +795,7 @@ paztport/
 ├── docs/                     limits.md, the known limits in full; directions.md, where this could go
 ├── run                       front door: java-mesh, envoy-gateway, agents-mcp, test, bench
 ├── poc-sdks/
-│   ├── spec/                 the protocol spec, and vectors/: v3.json, which every SDK replays (Java and Go all of it but the MCP profile); http-v3.json, Java's and Go's; events.json, all three's; json.json, TypeScript's but its http bindings, Java's and Go's but the MCP profile's sections
+│   ├── spec/                 the protocol spec, and vectors/: v3.json, which every SDK replays (Java and Go all of it but the MCP profile); http-v3.json, Java's and Go's; events.json, all three's; json.json, TypeScript's but its http bindings, Java's and Go's but the MCP profile's sections; ed25519.json, all three's
 │   ├── scripts/              name check, link check, import check, jar check, tests for ./run, THIRD-PARTY.txt regeneration
 │   ├── java/                 core, http, spring (paztport-core, paztport-http, paztport-spring), tools/keygen, tools/policy-tool, tools/bench
 │   ├── typescript/           core, mcp (@paztport/core, @paztport/mcp), policy-tool

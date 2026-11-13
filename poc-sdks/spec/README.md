@@ -56,6 +56,7 @@ Design choices:
 | [`http-v3.json`](#http-v3json) | v3 over HTTP | Java (`paztport-http`) and Go (`poc-sdks/go`), Go every section. The TypeScript SDK does not speak v3 over HTTP and does not replay it. |
 | [`events.json`](#eventsjson) | Responder events | Written and replayed by Java (`paztport-core`), and replayed by TypeScript (`@paztport/core`) and Go (`poc-sdks/go`). |
 | [`json.json`](#jsonjson) | Reading and writing JSON ([wire.md](wire.md#json)) | TypeScript (`@paztport/core`, and `@paztport/mcp` for `toolsCall`), every section but the `http` cases of `bindings`, and Java (`paztport-core`, and `paztport-http` for `http`) and Go (`poc-sdks/go`) for every section but `jcs` and the MCP profile's `bindings` (`toolsCall`, `result`, `localTool`), which belong to the [MCP profile](#the-mcp-profile). |
+| [`ed25519.json`](#ed25519json) | The [signature rule](wire.md#signatures) | Written by a generator in `@paztport/core`'s tests, and replayed in full by TypeScript (`@paztport/core`), Java (`paztport-core`) and Go (`poc-sdks/go`). |
 
 | Part | Java SDK | TypeScript SDK | Go SDK |
 |---|---|---|---|
@@ -67,8 +68,9 @@ Design choices:
 | Operations over HTTP: confirming them from the receiver's routing | yes | no | no |
 | Responder events | yes | yes | yes |
 | Reading and writing JSON (`json.json`) | yes | yes | yes |
+| The signature rule (`ed25519.json`) | yes | yes | yes |
 
-A new implementation MUST pass `v3.json` and `json.json`, less their sections that belong to
+A new implementation MUST pass `ed25519.json`, and `v3.json` and `json.json` less their sections that belong to
 [the MCP profile](#the-mcp-profile) if it does not implement it: `recordedLocalStep`, `responseAttestation`,
 `sessionParams`, `sessionResult`, `bindMcpCall` and `bindResult` in `v3.json`, and `jcs` and the `toolsCall`,
 `result` and `localTool` cases of `bindings` in `json.json`. It MUST pass `http-v3.json`, and the `http` cases of
@@ -186,13 +188,13 @@ the spec's objects and times, never from any implementation's record format:
 - `verify`: live verify cases (each kind of receiver, operations named in `rcv` (a route through them, a chain
   naming another operation, a receiver naming none, an inner `rcv` naming another service's operation, an empty
   operation, an inner operation holding a `/` or a `#`, and a proof for another operation's route), a stamp whose
-  `v` is not 3, malformed `rcv` fields, the check order, the peer and attribution, replay, an altered owner, an origin not allowed, a stamp linked to
-  another origin, a stamp with another `rid` and one from another session, and
-  the pinned policy's window: at it, past it, out of range, and past it before a bad signature or a malformed
-  chain, and a stamp `ts` of −2^63, written exactly, and several pinned keyrings and roots: a proof under the
-  second root, a `rootId` pinned nowhere, a rotated key only in the second keyring, a chain whose keys come from
-  two keyrings, a proof under an expired root and one under a renewal of it, a key only in an expired keyring,
-  every keyring or every root expired, and a proof relabelled with the other root's `rootId`).
+  `v` is not 3, malformed `rcv` fields, the check order, the peer and attribution, replay, an altered owner, an
+  origin not allowed, a stamp linked to another origin, a stamp with another `rid` and one from another session, and
+  the pinned policy's window: at it, past it, out of range, and past it before a bad signature or a malformed chain,
+  and a stamp `ts` of −2^63, written exactly, and several pinned keyrings and roots: a proof under the second root,
+  a `rootId` pinned nowhere, a rotated key only in the second keyring, a chain whose keys come from two keyrings, a
+  proof under an expired root and one under a renewal of it, a key only in an expired keyring, every keyring or
+  every root expired, and a proof relabelled with the other root's `rootId`).
 - `offline`: offline cases (a recorded call, a stamp whose `v` is not 3, a broken receiver, the recorded time, age,
   prompt and replay checks, a record with no time, `recordedTs` `null`, and no age limits, `callMaxAgeMs` and
   `runMaxAgeMs` `null`, with the last stamp at the run window and 1 ms past it, and the origin at the call window
@@ -282,6 +284,41 @@ that first refuses it.
 - `bindings`: each binding ([wire.md](wire.md#bindings)) refusing a lone surrogate in one string it hashes (the
   prompt text, a response's `resultHash` or `toolCallId`, a `tools/call`'s tool, call id or argument, a result, a
   local tool's name or input, a Merkle leaf's route, an HTTP request's method or target).
+
+### ed25519.json
+
+Cases of the [signature rule](wire.md#signatures), each `{name, publicKey, message, signature, valid}`: `publicKey`
+is the base64url of the bytes handed to the verifier as a public key, some of which are not the Ed25519
+SubjectPublicKeyInfo, `message` and `signature` are base64url, and `valid` is the rule's answer. A replay hands the
+three to the implementation's verify and expects `valid`; a key the platform refuses to decode counts as not valid.
+`smallOrderY` lists the five `y` that check 4 refuses, each as its 32 little-endian bytes in hex, ascending as
+numbers. The file's `about` says which of them the case names call `y8`.
+
+- A signature by the key, one over the empty message, and one over another message.
+- `S` plus `L`, and `S` with its top bit set (check 2).
+- `R` the identity, `R` of order 8 with `S` made for the cofactored equation, `A` the identity and of orders 2, 4
+  and 8, under each sign bit where `x` is not 0, and `A` the identity and of order 2 with the sign bit set (check
+  4); and the identity written with `y = p + 1`, as `R` and as `A`, and `A` of order 4 written with `y = p` (check
+  3).
+- `R` and `A` each with a small-order part, which pass checks 1 to 4 and satisfy only the cofactored equation, so
+  check 5 alone refuses them; and `A` with a small-order part whose `k` is a multiple of 8, which satisfies both and
+  is valid.
+- A key whose `y` is on no curve point (check 5's decoding).
+- Signatures of 63 and 65 bytes, and keys of 31 bytes, under the X25519 identifier, with the SPKI length written in
+  long form and with a trailing byte (check 1).
+
+The cases were crafted, and every answer worked out, by RFC 8032 arithmetic written for the generator,
+`poc-sdks/typescript/core/test/vectors-ed25519-export.ts`, which imports nothing but Node's `node:` modules, so no
+SDK or library confirms its own answers. The generator also checks each case built to satisfy an equation, with its
+encodings read leniently: check 5's, or the cofactored equation and not check 5's. So a case meant for one check is
+not refused for some other reason. The TypeScript replay checks that the committed file is what the generator
+writes, and that the generator imports nothing else. Each SDK's replay also runs its bare library, with no check in
+front, and fails if the library disagrees with the file on any case that checks 1 to 4 let through. To regenerate
+the file:
+
+```bash
+cd poc-sdks/typescript && node core/test/vectors-ed25519-export.ts --write
+```
 
 ### The MCP profile
 

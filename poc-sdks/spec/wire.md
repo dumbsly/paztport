@@ -23,7 +23,7 @@ Contents: [Encodings](#encodings) · [JSON](#json) · [Keys and files](#keys-and
 | Canonical encoding | Where this spec compares encoded values, it compares the text, so a value with two encodings matches only one of them. This covers every base64url value that is decoded (a token, a `sig`, a `nonce`, a key, a salt, a root, a Merkle sibling, an event payload), not only `sig`; a value that is only compared as text, such as an influence entry's `h` and `cid` or a stamp's `bind` and `infl`, is not decoded and not checked. A stamp whose `sig` is not canonical does not parse (see [Stamp field rules](#stamp-field-rules)). |
 | Canonical JSON | **JCS**, RFC 8785: object keys sorted by their UTF-16 code units, no whitespace, numbers in the ECMAScript shortest form, strings escaped as RFC 8785 §3.2.2.2 says ([Canonical bytes](#canonical-bytes)). JCS MUST fail on a lone surrogate, a non-finite number, or anything that is not plain JSON. Arrays keep their order. |
 | Hash | SHA-256. `H(x)` below is SHA-256 of the bytes `x`. |
-| Signatures | Ed25519 (RFC 8032), pure, with no pre-hash and no context. A signature is 64 bytes. Verifiers SHOULD apply RFC 8032 §5.1.7 in full, including the check that S is below the group order. |
+| Signatures | Ed25519 (RFC 8032), pure, with no pre-hash and no context. A signature is 64 bytes. A verifier MUST refuse a signature unless it passes the five checks of [Signatures](#signatures). |
 | Integers | `ts` is a number of milliseconds since the Unix epoch, a [protocol integer](#the-grammar): an integer in [0, 2^53 − 1], decided from its text. In signed bytes it is written in decimal, with no leading zeros, no `+` and no exponent. |
 
 `b64url(x)` is the base64url text of `x`, and `utf8(s)` the UTF-8 bytes of `s`. `‖` is byte concatenation,
@@ -33,6 +33,37 @@ and `\n` is the single byte `0x0A`.
 another kind: roots `"paztport-root\n"`, keyrings `"paztport-keyring\n"`, reply certificates
 `"paztport-reply-cert\n"`, session replies `"paztport-session-reply\n"`, responder events `"paztport-event\n"`,
 and stamps `3|`.
+
+### Signatures
+
+A verifier MUST refuse a signature unless all five of these hold. Each 32-byte value is read as a little-endian
+integer; `p = 2^255 − 19` is the field prime and `B` the base point.
+
+1. **Lengths.** The signature is 64 bytes, and the public key is exactly 44 bytes: the Ed25519 SubjectPublicKeyInfo
+   prefix `302a300506032b6570032100` ([Keys and files](#keys-and-files)), then the 32-byte key `A`. Other bytes
+   that hold the same `A`, such as a DER length in long form or a trailing byte, are refused.
+2. **S below L.** `S`, the signature's last 32 bytes, is below
+   `L = 2^252 + 27742317777372353535851937790883648493`, the order of `B`.
+3. **Canonical points.** `R`, the signature's first 32 bytes, and `A` are canonical: for each, `y`, its 32 bytes
+   with the top bit cleared, is below `p`.
+4. **No point of small order.** Neither `R`'s `y` nor `A`'s is one of the five y-coordinates of the points of
+   small order: `0` (order 4), `1` (the identity), `p − 1` (order 2), and `y8` and `p − y8`, the y-coordinates of
+   the points of order 8, where
+   `y8 = 55188659117513257062467267217118295137698188065244968500265048394206261417927`. Testing `y` alone, with
+   the sign bit ignored, also refuses the two encodings of `x = 0` that set the sign bit.
+5. **The equation.** `R` and `A` decode to points of the curve (RFC 8032 §5.1.3), and `[S]B = R + [k]A`, where
+   `k = SHA-512(R ‖ A ‖ M) mod L` over `R` and `A` as written and the message `M`, with no multiplication by the
+   cofactor.
+
+This is stricter than RFC 8032 requires. Checks 2 and 3 are the RFC's own (§5.1.7 decodes `S` as an integer below
+`L`, and §5.1.3 refuses a `y` at or above `p`), but the RFC lets a verifier check `[8][S]B = [8]R + [8][k]A` or the
+equation without the 8, and does not require it to refuse a point of small order. Two verifiers that choose
+differently disagree about the same bytes, which a protocol whose implementations accept and refuse the same bytes
+cannot allow.
+
+Checks 1 to 4 read only bytes. Each implementation makes them itself, in front of its library's Ed25519 verify,
+whatever that library already refuses, so the rule does not depend on which library is installed; check 5 is the
+library's. `ed25519.json` pins the rule ([its cases](README.md#ed25519json)).
 
 ## JSON
 
