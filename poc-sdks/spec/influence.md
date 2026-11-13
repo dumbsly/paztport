@@ -287,7 +287,9 @@ services, whose handlers apply the rules, and the third row's MCP case says only
 This section belongs to [the MCP profile](README.md#the-mcp-profile).
 
 **Agent sessions.** The run's origin stamp names `influence` with `[]`. The client's stamp for each call carries
-the session's whole influence as its block's `influence` items, since the client added all of it.
+the session's whole influence as its block's `influence` items, since the client added all of it. That block is held
+to the wire limit ([wire.md](wire.md#limits)), so a session's influence has a ceiling: a client whose influence no
+longer fits makes no further stamped call in the session, and MUST NOT drop entries to make room.
 
 **The server's decision.** A server that acts on `influence` decides a write to a public destination, once the call
 has verified in an attested session ([sessions.md](sessions.md#the-server-decision)), by the every-stamp rule and

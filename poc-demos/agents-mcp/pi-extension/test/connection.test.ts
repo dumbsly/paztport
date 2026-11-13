@@ -12,6 +12,7 @@ import {
   INFLUENCE,
   influenceBlock,
   itemsUnder,
+  JSON_LIMITS,
   NO_EXTENSIONS,
   readAttestation,
   readBlocks,
@@ -897,6 +898,31 @@ describe("a client's requirement of its server", { timeout: 30_000 }, () => {
     expect(expected.flat().every((e) => typeof e.cid === "string")).toBe(true);
     expect(c.influence.entries()).toEqual(expected.flat());
     expect(outs.map((o) => o.details.added)).toEqual([["private"], ["third-party"]]);
+  });
+
+  it("aSessionWhoseInfluenceNoLongerFitsSendsNothing", async () => {
+    // each call's block holds every entry of the session, held to the wire limit: past it the call fails locally,
+    // and no entry is dropped to make room
+    const evidencePath = join(tmp, `evidence-${n++}.jsonl`);
+    const c = ctx();
+    const { conn, log } = await github(c, "enforce", { requires: ["influence"] }, { evidence: new EvidenceLog(evidencePath) });
+    expect(conn.status()).toBe("attested");
+    const entry: InfluenceEntry = { cls: "local-untrusted", src: "server:github", h: bindResult({ content: [] }) };
+    // more entries than the limit has bytes for, counting only each entry's own JSON
+    const count = Math.ceil(JSON_LIMITS.wireBytes / Buffer.byteLength(JSON.stringify(entry))) + 1;
+    c.influence.add(Array(count).fill(entry));
+    c.runs.start("fix the typo", Date.now());
+    const sent = spyRequests();
+    const out = await conn.call("list_issues", LIST, "toolu_F1");
+    expect(out.isError).toBe(true);
+    expect(out.text).toMatch(/^MCP server "github" error: cannot stamp the call \(.*\); nothing was sent$/);
+    expect(out.details).toMatchObject({ refused: true, session: "attested" });
+    expect(events(c)).toContainEqual(expect.objectContaining({ type: "error", callId: "toolu_F1", code: "STAMP_FAILED" }));
+    expect(sent.map((r) => r.method)).not.toContain("tools/call");
+    expect(records(log)).toEqual([]);
+    expect(records(evidencePath).filter((r) => r.type === "call")).toEqual([]);
+    // the store is as it was
+    expect(c.influence.entries()).toHaveLength(count);
   });
 
   it("anUnsafeSessionsResultAddsOneUntrustedEntry", async () => {

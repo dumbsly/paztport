@@ -472,6 +472,15 @@ changed it to, which is what the tool runs with.
   through them; in `off` mode, or through a tool the gate does not cover (another extension's), it
   can. Steering messages sent mid-run keep the current run's rid and origin. Only a
   new user prompt starts a new run.
+- **A session's influence has a ceiling.** Each call's block holds every entry of the session, and
+  the blocks token is held to the 256 KiB wire limit
+  ([wire.md](../../../poc-sdks/spec/wire.md#limits)). For this demo's entries that is about two
+  thousand of them (2,096 server labels, or 2,673 `local-untrusted` entries, measured). Past it every
+  attested call fails locally with `STAMP_FAILED`, before anything is sent, and every local call is
+  refused `UNCHECKABLE`, unsigned, until `/new` starts an empty session. No entry is dropped to make
+  room. A `bash` result can add two or more entries, so a long working session can reach it. Since
+  each call record holds the session's entries so far, the evidence file grows with the square of the
+  call count: the 19 calls of the demo page's recorded run make 114 KB.
 - **A result that cannot be recorded is not passed to the model.** Influence is recorded against a hash
   of the result's content, and content that cannot be hashed (text with a lone surrogate, say) has none.
   The model gets an error result saying `Paztport could not record this tool result, so it was withheld.`

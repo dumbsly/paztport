@@ -17,12 +17,14 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import {
   bindLocalTool,
+  bindResult,
   CALL_MAX_AGE_MS,
   commitBlock,
   decode,
   earliestNotAfter,
   extensionSettings,
   influenceBlock,
+  JSON_LIMITS,
   NonceCache,
   NONCE_TTL_MS,
   parseLocalRules,
@@ -34,6 +36,7 @@ import {
   verifyRecordedLocalStep,
   writeToken,
   type Block,
+  type InfluenceEntry,
   type JsonValue,
   type Stamp,
 } from "@paztport/core";
@@ -249,6 +252,23 @@ describe("LocalGate modes", () => {
     }
     expect(readFileSync(eventsPath, "utf8")).toBe("");
     expect(readFileSync(evidencePath, "utf8")).toBe("");
+  });
+
+  it("aSessionWhoseInfluenceNoLongerFitsRefusesEveryLocalCall", () => {
+    // the step's block holds every entry of the session, held to the wire limit: past it nothing can be signed, so
+    // every call is refused, and no entry is dropped to make room
+    const { gate, influence, eventsPath, evidencePath } = rig("enforce");
+    const entry: InfluenceEntry = { cls: "local-untrusted", src: "server:github", h: bindResult({ content: [] }) };
+    // more entries than the limit has bytes for, counting only each entry's own JSON
+    const count = Math.ceil(JSON_LIMITS.wireBytes / Buffer.byteLength(JSON.stringify(entry))) + 1;
+    influence.add(Array(count).fill(entry));
+    for (const [tool, input] of [["read", { path: "website/README.md" }], ["write", { path: "notes/n.md", content: "x" }]] as const) {
+      expect(gate.check(tool, input, `c-${tool}`), tool).toEqual({ block: true, reason: UNCHECKABLE_TEXT });
+      expect(gate.labelsFor(`c-${tool}`), tool).toBeUndefined();
+    }
+    expect(lines(eventsPath).map((e) => e.verdict)).toEqual(["UNCHECKABLE", "UNCHECKABLE"]);
+    expect(readFileSync(evidencePath, "utf8")).toBe("");
+    expect(influence.entries()).toHaveLength(count);
   });
 
   it("noRootRefusesEverything", () => {
