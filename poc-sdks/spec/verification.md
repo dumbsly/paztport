@@ -522,7 +522,7 @@ The offline verifier runs the live checks in the live order, with these differen
 | 2, 3 | With `signers`, for a chain that never leaves one process (a local step, [MCP profile](README.md#the-mcp-profile)): the origin MUST report the expected instance (`BAD_ORIGIN`), and each stamp MUST be by the expected service and instance (`BAD_SIGNATURE`). |
 | 5 | Every stamp carries the `rid` the record files it under, which defaults to the origin's (`RID_MISMATCH`). |
 | 7 | In place of freshness: the last stamp's `ts` equals the time recorded with it (a record with no recorded time fails), and when the run's records give start times, the origin's `ts` is one of them (`TIME_MISMATCH`). The last stamp is at most `RUN_MAX_AGE_MS` after the origin and the origin at most `CALL_MAX_AGE_MS` after the last stamp (`EXPIRED`), with the limits the live verifier used, each its default unless the deployment set it. Then the origin binds the run's recorded prompt (`PROMPT_MISMATCH`); a run with no prompt, or a disputed one, fails. |
-| 9 | Check 9a runs, and check 9b when the offline verifier is given an `allowedExtensions` of its own. Check 9c is live only: a recorded call or response was checked against `actsOn` live, which a record does not hold. An offline verifier that acts on an extension also applies that extension's reading of the items in the recorded blocks, as that extension says ([Reason codes](#reason-codes)); a core-only offline verifier reads no item. The extension's reading runs once the offline order gives `OK`, before a recorded call is held to its session's limits, so a call past them that holds an item that does not read gets the extension's code, not `OUTSIDE_SESSION`. For a recorded local step it runs after the chain check and before the step's own checks. |
+| 9 | Check 9a runs, and check 9b when the offline verifier is given an `allowedExtensions` of its own. Check 9c is live only: a recorded call or response was checked against `actsOn` live, which a record does not hold. An offline verifier that acts on an extension also applies that extension's reading of the items in the recorded blocks, as that extension says ([Reason codes](#reason-codes)); a core-only offline verifier reads no item. The extension's reading runs once the offline order gives `OK`, before a recorded call is held to its session's limits, so a call past them that holds an item that does not read gets the extension's code, not `OUTSIDE_SESSION`. For a recorded local step it runs after the chain check and before the step's `POLICY_EXPIRED` check. |
 | 10 | There is no peer offline. |
 | 11 | The nonce key has not been spent anywhere in the record set (`REPLAY`). A live cache that forgets after its window can't show that. |
 
@@ -552,7 +552,9 @@ Each kind of record is checked this way:
   step's; a decision that does not read, or one for another call, is `BINDING_MISMATCH`, as is a binding that
   differs from the one the stamp signed. Then the offline chain verifier with `signers`
   (the origin service then the client hop, both on the client's one instance), `sess = ""`, the client's root and
-  keyring, the age limits, and `nonceKey = JCS([rid, callId, "local"])`. Then, at the step's `ts`, the client's
+  keyring, the age limits, and `nonceKey = JCS([rid, callId, "local"])`. Then the extension's reading of the items in
+  the step's blocks: an item under `influence` that does not read is `INFLUENCE_MISMATCH`
+  ([influence.md](influence.md#entries)). Then, at the step's `ts`, the client's
   root and keyring are no later than their `notAfter` (`POLICY_EXPIRED`). Then the route verdict and proof the client
   recorded for the step MUST be what its chain proves (`PROOF_MISMATCH`); the `rulesHash` the step signed MUST be
   the client's (`RULES_MISMATCH`); and the decision it signed MUST be the one re-derived from those signed rules
