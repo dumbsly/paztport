@@ -194,9 +194,10 @@ a second form.
 
 A value at a limit is read, and one past it is refused.
 
-[Blocks](#blocks) have no limit of their own: a chain's blocks are one wire object, held to the limits above.
-Their array is one level, a block two, its `items` three and an extension's list four, so an item may itself be
-up to 28 levels deep.
+[Blocks](#blocks) have no limit of their own: they travel in one wire object, held to the limits above. In a
+request's blocks the array is one level, as is the object of `X-Path-Response`, so a block is two, its `items`
+three and an extension's list four, and an item may itself be up to 28 levels deep; inside an MCP attestation
+everything is one level deeper, so an item may be up to 27.
 
 ### Files
 
@@ -368,9 +369,9 @@ A chain is an array of stamps, **origin first**. It travels as its JCS bytes and
 The names in the second column are the agents demo's and the vectors'; the shape of each row is the rule.
 
 An MCP server id MUST NOT contain `/`, `|` or `.`, and a tool name MUST NOT contain `/` or `|`. `/` would add a
-route segment; `|` is refused because both are part of the route node `mcp:<server>.<tool>`, and neither may hold
-what a [route node](#routes) may not; and a `.` in the server id would make `mcp:a.b.c` ambiguous. A verifier MUST
-reject a call that breaks this (`CHAIN_MISSING`).
+route segment; `|` is refused because both are part of the route node `mcp:<server>.<tool>`, and a
+[route node](#routes) may not hold `|`; and a `.` in the server id would make `mcp:a.b.c` ambiguous. A verifier
+MUST reject a call that breaks this (`CHAIN_MISSING`).
 
 A service name MUST NOT contain `#`, so that an `rcv` that names an operation reads one way: the service before its
 first `#`, the operation after it. A policy owner MUST NOT sign a keyring that names such a service.
@@ -405,8 +406,8 @@ told apart from a hop that does not act on the extension at all.
 
 **The commitment.** A stamp's `ext` is `""` when its block is the empty block `{"items":{},"requires":[]}`, and
 otherwise `b64url(H(utf8(JCS(block))))`. A block that names an extension with `[]` is not the empty block:
-`{"items":{"example":[]},"requires":[]}` is committed to by its hash, so its signer's statement that it acts on
-`example` is signed like any item.
+the `ext` of `{"items":{"example":[]},"requires":[]}` is its commitment, not `""`, so its signer's statement that
+it acts on `example` is signed like any item.
 
 **Carrying.** A chain's blocks travel as one wire object: a JSON array holding one block per stamp, in chain
 order, carried as a token beside the chain ([MCP](#mcp), [HTTP](#http)). An absent token means every block is
@@ -424,21 +425,24 @@ extension `example`, adds one item and requires its receiver to act on `example`
   { "items": { "example": [ { "note": "..." } ] }, "requires": [ "example" ] } ]
 ```
 
-The origin's `ext` is `""`, and the second stamp's is the hash of its block's JCS bytes.
+The origin's `ext` is `""`, and the second stamp's is its block's commitment, `b64url(H(utf8(JCS(block))))`.
 
 **Forwarding.** A hop that extends a chain, whether or not it verifies, MUST send the blocks it received
-unchanged, then its own. Each stamp commits only to its own signer's block, so a claim, once made, cannot be
-dropped or altered by a later hop without failing check 9a at every honest hop after it. A hop's own block holds
-all of its own items for this request so far, not only those since its last call. It names exactly the
-extensions its signer acts on, with `[]` where it has nothing to add, and MUST NOT name one its signer does not
-act on, since the name is that statement. An origin starts a new request tree and carries nothing from the
-request it was sent.
+unchanged, then its own. Each stamp's signature covers its `ext`, the commitment to its own signer's block, so
+a claim, once made, cannot be dropped or altered by a later hop without failing check 9a at every honest hop
+after it. A hop's own block holds all of its own items for this request so far, not only those since its last
+call. Its `items` names exactly the extensions its signer acts on, with `[]` where it has nothing to add, and
+MUST NOT name one its signer does not act on, since a name there is that statement. An origin starts a new
+request tree and carries nothing from the request it was sent.
 
-**Requiring.** `requires` is the one way to demand an extension. Only the direct caller's binds: a receiver
-refuses, before its handler runs, a request whose last block requires an extension it does not act on
-([check 9c](verification.md#the-live-order)), and the `requires` of an earlier block binds no one. On a response
-the last block is the responder's, so a responder requires an extension of its caller the same way. `requires`
-has no default: a caller sets it for each destination.
+**Requiring.** `requires` is the one way a block demands an extension. Only the direct caller's binds: a
+receiver refuses, before its handler runs, a request whose last block requires an extension it does not act on
+([check 9c](verification.md#the-live-order)), unless it runs in audit mode, where 9c follows the mode as any
+other check does ([Modes and refusals](verification.md#modes-and-refusals)). The `requires` of an earlier block
+binds no hop after the one it was sent to. On a response the last block is the responder's, so a responder
+requires an extension of its caller the same way. `requires` may name an extension its signer does not act on,
+since it is the caller's setting for a destination: a hop that acts on nothing can still require an extension of
+the hop it calls. `requires` has no default: a caller sets it for each destination.
 
 ## Bindings
 
@@ -505,11 +509,11 @@ A member that is not a string is read as a token that does not read, and gets it
 
 `resultHash` is the result binding of the result it rides on. The attestation is a wire object with exactly the
 members `blocks`, `chain`, `proof` and `resultHash`: its `chain` is read as a [chain](#chains), its `blocks` as an
-array of [blocks](#blocks), one per stamp of `chain`, and its `proof` as a [proof object](#proof-object). An
-attestation with another member, one whose `blocks` does not read as an array of blocks, or one whose bytes are
-not its canonical bytes, does not read (`CHAIN_MISSING`). A `blocks` with another count than the chain's stamps,
-or a block that does not match its stamp's `ext`, reads, and is refused by
-[check 9a](verification.md#the-live-order) (`EXTENSION_MISMATCH`). A refusal carries the token of its verdict in
+array of [blocks](#blocks), and its `proof` as a [proof object](#proof-object). An attestation with another
+member, one whose `blocks` does not read as an array of blocks, or one whose bytes are not its canonical bytes,
+does not read (`CHAIN_MISSING`). `blocks` holds one block per stamp of `chain`, in chain order: a `blocks` with
+another count than the chain's stamps, or a block that does not match its stamp's `ext`, reads, and is refused
+by [check 9a](verification.md#the-live-order) (`EXTENSION_MISMATCH`). A refusal carries the token of its verdict in
 `result._meta["paztport/verdict"]` instead: `{ "reason": "<code>" }`, or `{ "reason": "<code>", "audit": true }`
 when an audit-mode server ran the call anyway. A verdict is a wire object with exactly a string `reason` and,
 optionally, an `audit` that is `true`; one with another member, or an `audit` of any other value, does not read. A
