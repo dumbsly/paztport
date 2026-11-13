@@ -18,6 +18,7 @@ export * from "./policy/policy.ts";
 export * from "./verify/reason.ts";
 export { readChain, signStamp, signingBytes, type Stamp } from "./stamp/stamp.ts";
 export * from "./stamp/binding.ts";
+export * from "./stamp/block.ts";
 export * from "./verify/nonce.ts";
 export {
   commitInfluence, influenceClasses, normalizeInfluence, readInfluence, type InfluenceClass, type InfluenceEntry,
