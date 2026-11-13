@@ -8,6 +8,7 @@ import {
   checkOwnMaterial,
   commitBlock,
   decideServerCall,
+  decideVerifiedCall,
   decode,
   describeNotAfter,
   describeOwnMaterialProblem,
@@ -21,7 +22,6 @@ import {
   NonceCache,
   NONCE_TTL_MS,
   provesPath,
-  readRequestInfluence,
   readSessionRequest,
   signStamp,
   verifyReplyCert,
@@ -30,7 +30,6 @@ import {
   type ExtensionSettings,
   type HandOver,
   type InfluenceClass,
-  type InfluenceFact,
   type JsonValue,
   type MerkleProof,
   type ReasonCode,
@@ -249,21 +248,19 @@ function labelClass(extensions: ExtensionSettings, cls: InfluenceClass | undefin
   return cls;
 }
 
-/** What a call that did not verify, or a server that does not act on influence, shows the decision: nothing. */
-const NOTHING_READ = { entries: [], everyStampNames: false } as const;
-
 /**
  * Handles a tools/call end to end, in the order of the server decision (spec sessions.md, The server decision). In an
  * attested session the call's chain is verified (checkCall), and a call that fails is refused with its code. A server
- * that acts on influence then reads the items handed on under `influence` as entries (readRequestInfluence): one that
- * does not read is INFLUENCE_MISMATCH, and the signer of its block goes to the server's `warn`, since the code names no
- * one. Then decideServerCall decides, over the facts given, the entries and the session's served classes. In enforce a
- * verdict other than OK gives an `isError` result carrying the verdict token of `{reason}` and `run` is not called; in
- * audit `run` is called anyway and its result carries the verdict token of `{reason, audit: true}`. `run` gets the
- * verdict and returns the result, with the class of its content when the server acts on influence. Only a verified
- * call's result is attested; an unsafe session's, or one whose chain failed, is returned unattested. A null `server` is
- * a deployment with no Paztport material: no handshake, so every call is in an unsafe session under `rules`. The `off`
- * switch is not a protocol mode; a deployment that has one does not call this.
+ * that acts on influence then decides a call that verified by decideVerifiedCall, over the items handed on under
+ * `influence`, the facts given and the session's served classes: an item that does not read is INFLUENCE_MISMATCH,
+ * and the signer of its block goes to the server's `warn`, since the code names no one. Then decideServerCall applies
+ * the unsafe-session gate. In enforce a verdict other than OK gives an `isError` result carrying the verdict token of
+ * `{reason}` and `run` is not called; in audit `run` is called anyway and its result carries the verdict token of
+ * `{reason, audit: true}`. `run` gets the verdict and returns the result, with the class of its content when the
+ * server acts on influence. Only a verified call's result is attested; an unsafe session's, or one whose chain failed,
+ * is returned unattested. A null `server` is a deployment with no Paztport material: no handshake, so every call is in
+ * an unsafe session under `rules`. The `off` switch is not a protocol mode; a deployment that has one does not call
+ * this.
  */
 export async function handleToolCall<R extends Record<string, unknown> & { _meta?: Record<string, unknown> }, D = undefined>(
   server: McpServerSession | null,
@@ -279,7 +276,6 @@ export async function handleToolCall<R extends Record<string, unknown> & { _meta
   const actsOnInfluence = server !== null && server.extensions.actsOn.has(INFLUENCE);
   let verdict: ReasonCode = "OK";
   let call: ServerCallCheck | null = null;
-  let request: { entries: readonly InfluenceFact[]; everyStampNames: boolean } = NOTHING_READ;
   if (server !== null && attested) {
     call = server.checkCall(params);
     verdict = call.reason;
@@ -290,29 +286,20 @@ export async function handleToolCall<R extends Record<string, unknown> & { _meta
       if (stamps === undefined) {
         throw new Error("a verified call's hand-over holds no influence, which the server acts on");
       }
-      // Not core's influenceReason: this needs the entries and the signer, and refuses a missing hand-over above,
-      // where that function lets the verifier's reason stand.
-      const read = readRequestInfluence(stamps);
-      if (read.reads) {
-        request = read;
-      } else {
-        verdict = "INFLUENCE_MISMATCH";
-        server.warn(`paztport: INFLUENCE_MISMATCH: the block signed by ${read.signer} holds a bad entry`);
+      const decided = decideVerifiedCall(stamps, {
+        isWrite: facts.isWrite,
+        publicDestination: facts.publicDestination,
+        served: sess?.served ?? [],
+        ...(facts.destinationOwner !== undefined ? { destinationOwner: facts.destinationOwner } : {}),
+      });
+      if (decided.verdict === "INFLUENCE_MISMATCH") {
+        server.warn(`paztport: INFLUENCE_MISMATCH: the block signed by ${decided.signer} holds a bad entry`);
       }
+      verdict = decided.verdict;
     }
   }
   if (verdict === "OK") {
-    verdict = decideServerCall({
-      tool: name,
-      isWrite: facts.isWrite,
-      publicDestination: facts.publicDestination,
-      attested,
-      actsOnInfluence,
-      served: sess?.served ?? [],
-      request,
-      disabledWhenUnsafe: rules.disabledWhenUnsafe,
-      ...(facts.destinationOwner !== undefined ? { destinationOwner: facts.destinationOwner } : {}),
-    });
+    verdict = decideServerCall({ tool: name, attested, disabledWhenUnsafe: rules.disabledWhenUnsafe });
   }
   const verified = call !== null && call.reason === "OK" ? call : null;
   if (verdict !== "OK" && mode === "enforce") {

@@ -155,9 +155,9 @@ A caller that acts on `influence` adds to what it holds, for each response to a 
 Over HTTP every entry a response adds, the `local-untrusted` one included, has `src = "http:<target>"` and
 `h = resultHash`. `<target>` is the caller's name for the service it sent the request to: the receiver's policy
 name, without any operation, which the response stamp must be by
-([naming the receiver](verification.md#receivers-the-peer-and-attribution)). Over MCP the entry for a label has
-`src = "server:<serverId>"` and `h = resultHash`. The responder cannot know the `src` a caller uses, so the caller
-chooses it.
+([naming the receiver](verification.md#receivers-the-peer-and-attribution)). Over MCP every entry a response adds,
+the `local-untrusted` one included, has `src = "server:<serverId>"` and `h = resultHash`. The responder cannot know
+the `src` a caller uses, so the caller chooses it.
 
 Over MCP the response chain's stamps are all the server's, so a response that verifies is silent unless every block
 of its attestation names `influence`, and holds an item that is not a label unless every `influence` item in any of

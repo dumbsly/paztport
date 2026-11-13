@@ -21,12 +21,12 @@ import {
   pinnedNotAfter, signRenewedRoot, rootSigningBytes, sessionStatus, signRoot, verifyRoot,
   callInSession, newRecordSet, parseLocalRules, recordedSession, rulesHash, stampLocalStep, verifyRecordedLocalStep,
   blockOf, callsAfter, commitBlock, extensionSettings, isAttestedSession, nonceKey, readBlocks, writeWire,
-  INFLUENCE, decideServerCall, entryOf, influenceReason, labelOf, labelToEntry, publicWriteRefused,
-  readRequestInfluence, readResponseLabels, readSessionReply, verifyResponse,
+  INFLUENCE, decideVerifiedCall, entryOf, labelOf, publicWriteRefused, readRequestInfluence, readSessionReply,
+  recordedCallReason, responseEntries, verifyResponse,
 } from "@paztport/core";
 import type {
-  ChainVerification, InfluenceFact, JsonValue, LocalRules, LocalVerdict, MerkleProof, Peer, ReplyCert, ReplyCheck,
-  Resolved, SessionReply, SessionRequest, SignedKeyring, SignedRoot, Stamp, StampItems,
+  ChainVerification, InfluenceFact, JsonValue, LocalRules, LocalVerdict, MerkleProof, Peer, ReasonCode, ReplyCert,
+  ReplyCheck, Resolved, SessionReply, SessionRequest, SignedKeyring, SignedRoot, Stamp, StampItems,
 } from "@paztport/core";
 import { InvalidParams, bindMcpCall, mcpReceiver, readSessionParams, sessionReplyToken } from "../src/index.ts";
 
@@ -574,39 +574,6 @@ const readsAs = (read: (item: JsonValue) => unknown, item: JsonValue): boolean =
   readOr(() => read(item)) !== undefined;
 
 /**
- * What a server that acts on influence decides for a call in an attested session once it verified, given the items
- * handed on under influence (sessions.md, The server decision): an item that does not read as an entry is
- * INFLUENCE_MISMATCH before any rule runs (step 2), and there is then no reading of whether every stamp names
- * influence; otherwise a write to a public destination is decided by the every-stamp rule, then the owner-aware rule
- * over the entries and the classes served (step 3).
- */
-function requestDecision(c: {
-  stamps: StampItems[]; served: InfluenceFact["cls"][]; write: boolean; destinationOwner: string | null;
-}) {
-  const read = readRequestInfluence(c.stamps);
-  if (!read.reads) return { reason: "INFLUENCE_MISMATCH", everyStampNames: null };
-  const reason = decideServerCall({
-    tool: "create_pull_request", isWrite: c.write, publicDestination: c.write, attested: true, actsOnInfluence: true,
-    served: c.served, request: read, disabledWhenUnsafe: [],
-    ...(c.destinationOwner === null ? {} : { destinationOwner: c.destinationOwner }),
-  });
-  return { reason, everyStampNames: read.everyStampNames };
-}
-
-/**
- * What a caller that acts on influence adds for a response (influence.md, Content labels): one entry per label when
- * the response verified and every block names influence with only labels under it, else one local-untrusted entry.
- * A label counts only when the whole response verifies, so `stamps`, what the blocks hold, is read only on OK. The
- * SDK's MCP client composes the same two functions; no core function gives the entries a response adds.
- */
-function responseEntries(c: { reason: string; stamps: StampItems[]; src: string; resultHash: string }) {
-  const labels = c.reason === "OK" ? readResponseLabels(c.stamps) : null;
-  return labels === null
-    ? [{ cls: "local-untrusted", src: c.src, h: c.resultHash }]
-    : labels.map((label) => labelToEntry(label, c.src, c.resultHash));
-}
-
-/**
  * The member `influence`: everything that needs the influence extension's rules (influence.md). Every answer is
  * stated by hand and checked against the library.
  */
@@ -698,7 +665,13 @@ function influenceSection(run: {
     const c = {
       name, stamps, served: o.served ?? [], write: o.write ?? true, destinationOwner: o.destinationOwner ?? "alice",
     };
-    check(`influence request ${name}`, requestDecision(c), expected);
+    const decided = decideVerifiedCall(stamps, {
+      isWrite: c.write, publicDestination: c.write, served: c.served,
+      ...(c.destinationOwner === null ? {} : { destinationOwner: c.destinationOwner }),
+    });
+    const read = readRequestInfluence(stamps);
+    const got = { reason: decided.verdict, everyStampNames: read.reads ? read.everyStampNames : null };
+    check(`influence request ${name}`, got, expected);
     return { ...c, expected };
   };
   const hop = (items: JsonValue[] | null): StampItems[] => [{ svc: "session", items: [] }, { svc: "pi", items }];
@@ -738,9 +711,9 @@ function influenceSection(run: {
   const L3 = { cls: "public", cid: "cid-3" };
   const server = (first: JsonValue[] | null, last: JsonValue[] | null): StampItems[] =>
     [{ svc: "mcp-entry", items: first }, { svc: "github-tools", items: last }];
-  const responseCase = (name: string, reason: string, stamps: StampItems[], expected: JsonValue[]) => {
+  const responseCase = (name: string, reason: ReasonCode, stamps: StampItems[], expected: JsonValue[]) => {
     const c = { name, reason, stamps, src: SRC, resultHash: run.RESULT_HASH };
-    check(`influence response ${name}`, responseEntries(c), expected);
+    check(`influence response ${name}`, responseEntries(reason, stamps, SRC, run.RESULT_HASH), expected);
     return { ...c, expected: { entries: expected } };
   };
   const response = [
@@ -1874,8 +1847,10 @@ export function buildVectors(): Record<string, unknown> {
           extensions: settingsOf(settings),
         },
       );
-      const read = settings.actsOn.includes(INFLUENCE) ? influenceReason(v) : v.reason;
-      const reason = callInSession(sessions[c.handshake]!, read, c.recordedTs.last);
+      const session = sessions[c.handshake]!;
+      const reason = settings.actsOn.includes(INFLUENCE)
+        ? recordedCallReason(v, session, c.recordedTs.last)
+        : callInSession(session, v.reason, c.recordedTs.last);
       if (reason === undefined) throw new Error(`recorded call ${name}: its session is not attested`);
       return { reason };
     });

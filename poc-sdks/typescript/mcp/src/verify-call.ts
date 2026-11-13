@@ -128,9 +128,9 @@ export type RecordedCall = {
  * for another call id than the record's is RID_MISMATCH. `cfg.seen` spans the whole record set. A session's keyring
  * and root are passed with no window (`notAfter: Infinity`), since callInSession judges the session's limits. Of the
  * extension checks it runs 9a, and 9b with an allowed list, never 9c: the call was held to the server's `actsOn` live.
- * A verifier that acts on an extension applies its reading of the items to an OK result (influenceReason, for
- * influence) before callInSession, so a call past its session's limits that holds an item that does not read gets
- * the extension's code. Never throws.
+ * A verifier that acts on an extension applies its reading of the items to an OK result before the session's limits:
+ * for influence, `recordedCallReason` does both in that order, so a call past its session's limits that holds an item
+ * that does not read gets the extension's code. Never throws.
  */
 export function verifyRecordedCall(params: unknown, call: RecordedCall, cfg: Omit<OfflineConfig, "nonceKey">): CallVerification {
   return checkCall(params, call.serverId, (input, key, callId) => {

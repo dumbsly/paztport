@@ -396,13 +396,12 @@ describe("session handshake", () => {
       const reply = handshake(srv, req);
       expect(reply.status, what).toBe("unsafe");
       expect(reply.disabled, what).toEqual(RULES.disabledWhenUnsafe);
-      const decide = (tool: string, isWrite: boolean) =>
+      const decide = (tool: string) =>
         decideServerCall({
-          tool, isWrite, publicDestination: true, attested: srv.session()?.status === "attested", actsOnInfluence: true,
-          served: srv.session()?.served ?? [], request: { entries: [], everyStampNames: true }, disabledWhenUnsafe: RULES.disabledWhenUnsafe,
+          tool, attested: srv.session()?.status === "attested", disabledWhenUnsafe: RULES.disabledWhenUnsafe,
         });
-      expect(decide("list_issues", false), what).toBe("OK");
-      expect(decide("create_pull_request", true), what).toBe("UNSAFE_SESSION");
+      expect(decide("list_issues"), what).toBe("OK");
+      expect(decide("create_pull_request"), what).toBe("UNSAFE_SESSION");
       // and a client judging the reply at that time refuses it, so it takes its replacement path
       expect(verifySessionReply(reply, req, cfg.policyPublicKey, "mcp-entry", now), what).toBe(false);
     }

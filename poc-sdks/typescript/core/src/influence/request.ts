@@ -1,6 +1,7 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
+import { callInSession, type RecordedSession } from "../offline/records.ts";
 import type { StampItems } from "../verify/extensions.ts";
 import type { ReasonCode } from "../verify/reason.ts";
 import type { ChainVerification } from "../verify/verify-chain.ts";
@@ -47,4 +48,15 @@ export function influenceReason(v: ChainVerification): ReasonCode {
   const stamps = v.ok ? v.handOver?.get(INFLUENCE) : undefined;
   if (stamps === undefined) return v.reason;
   return readRequestInfluence(stamps).reads ? v.reason : "INFLUENCE_MISMATCH";
+}
+
+/**
+ * A recorded call's result at an offline verifier that acts on `influence` (spec verification.md, Offline
+ * verification, row 9): the extension's reading of the items once the offline order gives OK (`influenceReason`), and
+ * only then the session's limits at `at`, the call's last stamp's `ts` (`callInSession`). So a call past its session's
+ * limits that holds an item that does not read is INFLUENCE_MISMATCH, not OUTSIDE_SESSION. Undefined, as
+ * `callInSession` gives it, for a session that is not attested at all.
+ */
+export function recordedCallReason(v: ChainVerification, session: RecordedSession, at: number): ReasonCode | undefined {
+  return callInSession(session, influenceReason(v), at);
 }

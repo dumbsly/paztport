@@ -7,9 +7,9 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
-  INFLUENCE, NonceCache, callInSession, callsAfter, canonicalize, checkSessionReply, decode, decideServerCall, encode,
-  entryOf, extensionSettings, influenceReason, isAttestedSession, labelOf, labelToEntry, newRecordSet,
-  publicWriteRefused, readBlocks, readRequestInfluence, readResponseLabels, recordedSession, sessionStatus,
+  INFLUENCE, NonceCache, callInSession, callsAfter, canonicalize, checkSessionReply, decode, decideVerifiedCall,
+  encode, entryOf, extensionSettings, isAttestedSession, labelOf, newRecordSet, publicWriteRefused, readBlocks,
+  readRequestInfluence, recordedCallReason, recordedSession, responseEntries, sessionStatus,
   readSessionRequest, readSessionReply, isCurrent, isNotAfter, pinnedNotAfter, printFile, signReplyCert,
   keyringSigningBytes, readKeyringFile, readReplyCertFile, readRootFile, replyCertSigningBytes, rootSigningBytes, sign,
   signKeyring, signRoot, signSessionReply, signingBytes, utf8, verifyChainOffline, verifyChain, verifyKeyring,
@@ -174,10 +174,12 @@ function replayRecordedCalls(v: any, c: any) {
         seen: records.spent, callMaxAgeMs: c.callMaxAgeMs, runMaxAgeMs: c.runMaxAgeMs, extensions: settingsOf(c),
       },
     );
-    // A verifier that acts on influence reads the items once the offline order gives OK, before the call is held to
-    // its session's limits (verification.md, Offline verification, row 9).
-    const read = c.actsOn.includes(INFLUENCE) ? influenceReason(result) : result.reason;
-    const reason = callInSession(sessions[call.handshake], read, call.recordedTs.last);
+    // a verifier that acts on influence reads the items before the session's limits (recordedCallReason)
+    const session = sessions[call.handshake];
+    const at = call.recordedTs.last;
+    const reason = c.actsOn.includes(INFLUENCE)
+      ? recordedCallReason(result, session, at)
+      : callInSession(session, result.reason, at);
     return { reason };
   });
 }
@@ -213,34 +215,6 @@ function replayResponseAttestation(v: any, c: any) {
     policyNotAfter: s.policyNotAfter, extensions: settingsOf(c),
   });
   return { reason: r.reason };
-}
-
-/**
- * An influence.request case: the items handed on read as entries, then the server's decision on the call, attested
- * and acting on influence (sessions.md, The server decision, steps 2 and 3). An item that does not read is
- * INFLUENCE_MISMATCH before any rule runs, and then there is no reading to say whether every stamp names influence.
- */
-function replayRequest(c: any) {
-  const read = readRequestInfluence(c.stamps);
-  if (!read.reads) return { reason: "INFLUENCE_MISMATCH", everyStampNames: null };
-  const reason = decideServerCall({
-    tool: "create_pull_request", isWrite: c.write, publicDestination: c.write, attested: true, actsOnInfluence: true,
-    served: c.served, request: read, disabledWhenUnsafe: [],
-    ...(c.destinationOwner === null ? {} : { destinationOwner: c.destinationOwner }),
-  });
-  return { reason, everyStampNames: read.everyStampNames };
-}
-
-/**
- * What a caller that acts on influence adds for a response (influence.md, Content labels): one entry per label when
- * the response verified and every block names influence with only labels under it, else one local-untrusted entry.
- * A label counts only when the whole response verifies, so `stamps`, what the blocks hold, is read only on OK.
- */
-function responseEntries(c: any) {
-  const labels = c.reason === "OK" ? readResponseLabels(c.stamps) : null;
-  return labels === null
-    ? [{ cls: "local-untrusted", src: c.src, h: c.resultHash }]
-    : labels.map((label) => labelToEntry(label, c.src, c.resultHash));
 }
 
 /** Whether `read` reads the item, as an entry or a label: a reader that refuses it throws. */
@@ -543,11 +517,17 @@ describe("known-answer vectors, version 4", () => {
   it.each(influenceCases("rule"))("influence rule %s", (_n, c: any) => {
     expect(publicWriteRefused(c.influence, c.destinationOwner ?? undefined)).toBe(c.refused);
   });
+  // The server's decision on a verified call's influence; an item that does not read leaves no reading of whether
+  // every stamp names influence.
   it.each(influenceCases("request"))("influence request %s", (_n, c: any) => {
-    expect(replayRequest(c)).toEqual(c.expected);
+    const owner = c.destinationOwner === null ? {} : { destinationOwner: c.destinationOwner };
+    const opts = { isWrite: c.write, publicDestination: c.write, served: c.served, ...owner };
+    const decided = decideVerifiedCall(c.stamps, opts);
+    const read = readRequestInfluence(c.stamps);
+    expect({ reason: decided.verdict, everyStampNames: read.reads ? read.everyStampNames : null }).toEqual(c.expected);
   });
   it.each(influenceCases("response"))("influence response %s", (_n, c: any) => {
-    expect(responseEntries(c)).toEqual(c.expected.entries);
+    expect(responseEntries(c.reason, c.stamps, c.src, c.resultHash)).toEqual(c.expected.entries);
   });
   it.each(influenceCases("recordedCall"))("influence recorded call %s", (_n, c: any) => {
     expect(c.actsOn).toEqual([INFLUENCE]);

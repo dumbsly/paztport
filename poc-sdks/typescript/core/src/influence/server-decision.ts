@@ -1,8 +1,10 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
+import type { StampItems } from "../verify/extensions.ts";
 import type { InfluenceClass } from "./influence.ts";
 import { guardedWriteRefused, type InfluenceFact } from "./influence-rule.ts";
+import { readRequestInfluence } from "./request.ts";
 
 /**
  * What the influence rule sees in an attested session: the request's influence plus every class this server served
@@ -15,34 +17,46 @@ function contextInfluence(request: readonly InfluenceFact[], served: Iterable<In
 }
 
 /**
- * The server's decision on a tools/call, once any chain it carries has verified and its items have read (spec
- * sessions.md, The server decision). In an attested session a server that acts on influence decides a write to a
- * public destination by the every-stamp rule, then the owner-aware rule over the request's entries and the classes
- * `served` in the session (spec influence.md, Over MCP); one that does not act on it allows the call. Otherwise (an
- * unsafe session, or no handshake yet) the tools in `disabledWhenUnsafe` are refused and every other tool runs
- * ungated.
+ * The decision of a server that acts on influence on a call that verified in an attested session (spec sessions.md,
+ * The server decision, steps 2 and 3), given `stamps`, the items the verifier handed on under `influence`, one entry
+ * per stamp in chain order. First every item must read as an entry: one that does not is INFLUENCE_MISMATCH, with the
+ * signer of the first block holding one, for the operator's log, since the code names no one. Only then is a write
+ * to a public destination decided, by the every-stamp rule and then the owner-aware rule over the entries and the
+ * classes `served` in the session (spec influence.md, Over MCP); anything else is allowed.
+ */
+export function decideVerifiedCall(
+  stamps: readonly StampItems[],
+  opts: {
+    isWrite: boolean;
+    publicDestination: boolean;
+    /** Every class this server has attested in a response in the session. */
+    served: Iterable<InfluenceClass>;
+    destinationOwner?: string;
+  },
+): { verdict: "OK" | "INFLUENCE_DENIED" } | { verdict: "INFLUENCE_MISMATCH"; signer: string } {
+  const read = readRequestInfluence(stamps);
+  if (!read.reads) {
+    return { verdict: "INFLUENCE_MISMATCH", signer: read.signer };
+  }
+  if (!opts.isWrite || !opts.publicDestination) {
+    return { verdict: "OK" };
+  }
+  const facts = contextInfluence(read.entries, opts.served);
+  const refused = guardedWriteRefused(read.everyStampNames, facts, opts.destinationOwner);
+  return { verdict: refused ? "INFLUENCE_DENIED" : "OK" };
+}
+
+/**
+ * The server's gate on a tools/call that no extension decides (spec sessions.md, The server decision, step 4): in an
+ * unsafe session, or with no handshake yet, the tools in `disabledWhenUnsafe` are refused and every other tool runs
+ * ungated; in an attested session the call is allowed here. A call that verified at a server that acts on influence
+ * is decided by `decideVerifiedCall` first.
  */
 export function decideServerCall(opts: {
   tool: string;
-  isWrite: boolean;
-  publicDestination: boolean;
   /** True only for a session opened as attested. */
   attested: boolean;
-  /** Whether the server acts on influence; without it an attested call is allowed. */
-  actsOnInfluence: boolean;
-  /** Every class this server has attested in a response in the session. */
-  served: Iterable<InfluenceClass>;
-  /** What the call's blocks hold: their entries, and whether every stamp names `influence`. */
-  request: { entries: readonly InfluenceFact[]; everyStampNames: boolean };
   disabledWhenUnsafe: readonly string[];
-  destinationOwner?: string;
-}): "OK" | "UNSAFE_SESSION" | "INFLUENCE_DENIED" {
-  if (!opts.attested) {
-    return opts.disabledWhenUnsafe.includes(opts.tool) ? "UNSAFE_SESSION" : "OK";
-  }
-  if (!opts.actsOnInfluence || !opts.isWrite || !opts.publicDestination) {
-    return "OK";
-  }
-  const facts = contextInfluence(opts.request.entries, opts.served);
-  return guardedWriteRefused(opts.request.everyStampNames, facts, opts.destinationOwner) ? "INFLUENCE_DENIED" : "OK";
+}): "OK" | "UNSAFE_SESSION" {
+  return !opts.attested && opts.disabledWhenUnsafe.includes(opts.tool) ? "UNSAFE_SESSION" : "OK";
 }

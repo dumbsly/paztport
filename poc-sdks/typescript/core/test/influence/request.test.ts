@@ -2,8 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { influenceReason, readRequestInfluence } from "../../src/influence/request.ts";
+import { influenceReason, readRequestInfluence, recordedCallReason } from "../../src/influence/request.ts";
 import type { InfluenceEntry } from "../../src/influence/influence.ts";
+import type { RecordedSession } from "../../src/offline/records.ts";
 import type { HandOver, StampItems } from "../../src/verify/extensions.ts";
 import type { ChainVerification } from "../../src/verify/verify-chain.ts";
 
@@ -66,5 +67,23 @@ describe("influenceReason", () => {
   it("anOkVerificationWithNoInfluenceInTheHandOverIsOk", () => {
     expect(influenceReason(ok(new Map([["example", [{ svc: "a", items: ["x"] }]]])))).toBe("OK");
     expect(influenceReason(ok(new Map()))).toBe("OK");
+  });
+});
+
+describe("recordedCallReason", () => {
+  // a session attested only up to time 100
+  const session: RecordedSession = { attested: true, attestedAt: (at) => at <= 100, responseNotAfter: undefined };
+  const good = ok(new Map([["influence", [{ svc: "a", items: [a] }]]]));
+  const bad = ok(new Map([["influence", [{ svc: "a", items: [a, notAnEntry] }]]]));
+  it("aCallThatReadsIsHeldToTheSessionsLimits", () => {
+    expect(recordedCallReason(good, session, 100)).toBe("OK");
+    expect(recordedCallReason(good, session, 101)).toBe("OUTSIDE_SESSION");
+  });
+  it("anItemThatDoesNotReadIsInfluenceMismatchBeforeTheSessionsLimits", () => {
+    expect(recordedCallReason(bad, session, 100)).toBe("INFLUENCE_MISMATCH");
+    expect(recordedCallReason(bad, session, 101)).toBe("INFLUENCE_MISMATCH");
+  });
+  it("aSessionThatIsNotAttestedGivesNoResult", () => {
+    expect(recordedCallReason(good, { ...session, attested: false }, 100)).toBeUndefined();
   });
 });

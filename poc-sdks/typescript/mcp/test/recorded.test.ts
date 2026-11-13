@@ -3,8 +3,8 @@
 
 import { describe, expect, it } from "vitest";
 import {
-  INFLUENCE, bindPrompt, buildTree, callInSession, commitBlock, extensionSettings, generateKeyPair, influenceBlock,
-  influenceReason, makeBlock, nonceKey, randomBytes, signStamp, writeToken,
+  INFLUENCE, bindPrompt, buildTree, commitBlock, extensionSettings, generateKeyPair, influenceBlock,
+  makeBlock, nonceKey, randomBytes, recordedCallReason, signStamp, writeToken,
 } from "@paztport/core";
 import type { Block, InfluenceEntry, JsonValue, OfflineConfig, RecordedSession } from "@paztport/core";
 import {
@@ -89,7 +89,7 @@ describe("verifyRecordedCall", () => {
     const session: RecordedSession = { attested: true, attestedAt: (at) => at < CALL_TS, responseNotAfter: undefined };
     const result = (blocks: readonly Block[]) => {
       const r = verifyRecordedCall(w.params("call-1", { title: "t" }, undefined, undefined, blocks), w.call, w.cfg());
-      return callInSession(session, influenceReason(r.result), CALL_TS);
+      return recordedCallReason(r.result, session, CALL_TS);
     };
     expect(result(BLOCKS)).toBe("OUTSIDE_SESSION");
     const bad = [BLOCKS[0]!, influenceBlock([{ ...entries[0]!, owner: "" }])];

@@ -9,7 +9,7 @@ import {
   decode,
   INFLUENCE,
   NO_REQUIREMENT,
-  readResponseLabels,
+  responseLabels,
   readSessionReply,
   replacementRequest,
   requireStampableNames,
@@ -332,7 +332,7 @@ export type ToolResultReading =
 /**
  * Reads a tools/call result: its verdict, its verification and what it adds to influence. In an attested session a
  * client that acts on `influence` takes the labels of a response that verified, every block of which names
- * `influence` with only labels under it (readResponseLabels), and counts any other result untrusted (spec influence.md,
+ * `influence` with only labels under it (responseLabels), and counts any other result untrusted (spec influence.md,
  * Content labels); one that does not act on it reads no influence. In an unsafe session a client that acts on
  * `influence` counts every result that is not a refusal untrusted. Never throws.
  */
@@ -372,8 +372,7 @@ export function readToolResult(raw: Record<string, unknown>, ctx: ResultContext)
       return { kind: "withheld", reason: "EXTENSION_REQUIRED", verifiedAt, influence: untrusted };
     }
     // A hand-over without `influence` takes no label, so a client never believes more than it was handed.
-    const stamps = readsInfluence && v.ok ? v.handOver?.get(INFLUENCE) : undefined;
-    const labels = stamps === undefined ? null : readResponseLabels(stamps);
+    const labels = readsInfluence ? responseLabels(v.reason, v.handOver?.get(INFLUENCE)) : null;
     const influence: ResultInfluence = labels === null ? untrusted : { kind: "labels", labels, hash };
     return { kind: "read", ...withVerdict, verification: v.reason, verifiedAt, influence };
   } catch {
