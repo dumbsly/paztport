@@ -318,6 +318,10 @@ signs the bytes of
 `paztport-stamp\n{"bind":"bind-2","ext":"","inst":"pi-é","prev":"prev-2","rcv":"local:read","rid":"rid-1","sess":"","svc":"pi","ts":1767225600000,"v":4}`,
 with `\n` the byte `0x0A` and `é` as `c3 a9`.
 
+`v4.json` pins the signed bytes of three stamps in `signingBytes`, among them this example and a stamp whose strings
+hold a quote, a newline and a `|`, and the signatures of an origin stamp, a call's stamp and a response stamp in
+`signatures`.
+
 ### Stamp field rules
 
 These hold for every stamp. A signer MUST NOT sign a stamp that breaks them, and a verifier MUST reject one
@@ -453,6 +457,14 @@ not act on it refuses the response, though the handler has run ([verification.md
 hop that acts on nothing can still require an extension of the hop it calls. `requires` has no default: a caller
 sets it for each destination.
 
+`v4.json` pins blocks in `blocks`. `read` reads tokens as a request's blocks: no blocks, one empty block, the example
+above, a name only in `items` and one only in `requires`, an extension named `constructor`, a name of 32 characters,
+items of every JSON type and an item at the depth limit, which read; and each kind of block this section says does not
+read, an object and `null` in place of the array, an item one level past the depth limit, and bytes that are not
+canonical, which do not. `commit` gives the JCS text and the `ext` of the empty block, `""`, of a block that names an
+extension with `[]`, of one that only requires it, of the example's second block, and of one that names two extensions,
+each list in the order written.
+
 ## Bindings
 
 A stamp's `bind` ties it to what its hop sent, so a chain copied onto a different payload fails. Every binding
@@ -486,10 +498,12 @@ Rules:
   with exactly these members, and `callId` the step's own; `verdict` is one of the local verdicts, `need` one of
   `read`, `write` and `exec`, and `via` one of `list`, `folder`, `never`, `missing` and `uncheckable`.
 
-`v3.json` pins the prompt, `tools/call` and result bindings in `bindPrompt`, `bindMcpCall` and `bindResult`, and a
-local-tool binding through the `local step ok` case. `http-v3.json` pins the HTTP
-binding with and without a query in `requestBinding`, and the HTTP result hash in `resultHash`. `json.json` pins the
-refusals in `bindings`: each binding but the response binding, given a lone surrogate in one string it hashes.
+`v4.json` pins the prompt, `tools/call`, result and response bindings in `bindPrompt`, `bindMcpCall`, `bindResult`
+and `bindResponse`, and the local-tool binding through `recordedLocalStep`, whose check computes it from each step's
+tool, input and decision. `http-v3.json` pins the HTTP binding with and without a query in `requestBinding`, and the
+HTTP result hash in `resultHash`. `json.json` pins the refusals in `bindings`: a lone surrogate in one string a
+binding hashes, for each binding but the HTTP result, which hashes no string it is given. Its two `response` cases
+also carry a `labels` input, from version 3's response binding, which a replay of version 4 ignores.
 
 ## Carrying a chain
 
@@ -633,7 +647,7 @@ shorter or longer path from reaching it.
 build. It is a label, compared for equality and never derived from the routes: a label derived from the routes
 would let anyone who guessed a policy confirm the guess. It labels the tree, not the signature, so a
 [renewed root](#the-signed-root) keeps it. The `rootId`s pinned in
-`v3.json` come from the vectors' own fixed construction (described in its `about`), for example `v128498df6662`
+`v4.json` come from the vectors' own fixed construction (described in its `about`), for example `v128498df6662`
 for the client policy in `policies.client`; a real build does not produce them.
 
 ## Routes
@@ -811,7 +825,7 @@ proof bundles stay valid and holders can pick up the renewed root one at a time.
 `rootId`, and two validly signed roots for one tree differ only in `notAfter`. Narrowing a policy is not
 renewing: it needs a new tree, a new `rootId` and new proof bundles.
 
-`v3.json` pins the signed bytes and signatures in `root`, all for the client policy under the `client-policy`
+`v4.json` pins the signed bytes and signatures in `root`, all for the client policy under the `client-policy`
 pin: a signed root, at its `notAfter` and 1 ms after, the largest `notAfter` and a renewed root, which verify; a
 tampered `notAfter`, a `notAfter` added to a signature made over `utf8(rootId ‖ "|" ‖ root)`, a root signed by
 another policy key and a keyring signature offered as a root signature, which fail; and a root with no `notAfter`,
@@ -845,7 +859,7 @@ signature, a session's keyring would be the client's own claim, and anyone who c
 their own keys. The policy owner MUST sign a keyring only after checking that each listed key is that service's
 current key; `notAfter` is when it stops vouching for them. A retired key needs a new keyring, not a renewed one.
 
-`v3.json` pins the signed bytes and signatures in `keyring`: a signed keyring, at its `notAfter` and 1 ms after,
+`v4.json` pins the signed bytes and signatures in `keyring`: a signed keyring, at its `notAfter` and 1 ms after,
 and the largest `notAfter`, which verify; a tampered service key, a tampered `notAfter`, a `notAfter` added to a
 signature made over `utf8("paztport-keyring\n" ‖ JCS({ "policy": policy, "services": services }))` and a root
 signature offered as a keyring signature, which fail; and a keyring with no `notAfter`, one whose `notAfter` is not
@@ -901,7 +915,7 @@ The Java policy tool issues a certificate when `PAZTPORT_REPLY_CERT_SVC` names t
 `--reply-cert-svc <name> [--reply-cert-days 7]`, beside the `--keyring <keyring.json>` it always takes. Both
 print only the file, the service and `notAfter`.
 
-`v3.json` pins the signed bytes and signatures in `replyCert`: a certificate for `mcp-entry` under the
+`v4.json` pins the signed bytes and signatures in `replyCert`: a certificate for `mcp-entry` under the
 `server-policy` pin, and, against the same pin, one with a tampered `notAfter`, one signed by `client-policy`,
 and one that names `client-policy`, all of which fail, one with an extra field, whose file a reader refuses, and
 one with the largest `notAfter`.

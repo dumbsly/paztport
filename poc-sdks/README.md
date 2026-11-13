@@ -11,9 +11,10 @@ policy, verification, influence and sessions. The demos in
   extension, and the policy command-line tools.
 - [go](go/README.md): one module, `github.com/dumbsly/paztport/poc-sdks/go`: the
   protocol's packages, and `paztporthttp` with its `wire` and `boundary` packages.
-- [spec](spec/README.md): the written protocol spec and the shared conformance vectors: `v3.json`, which every SDK
-  replays (the Java and Go SDKs all of it but the MCP profile), `http-v3.json`, which the Java and Go SDKs
-  replay, and `events.json`, `json.json` and `ed25519.json`, which all three replay.
+- [spec](spec/README.md): the written protocol spec and the shared conformance vectors: `v4.json`, which the
+  TypeScript SDK replays, `v3.json`, which the Java and Go SDKs replay but for its MCP profile sections,
+  `http-v3.json`, which the Java and Go SDKs replay, and `events.json`, `json.json` and `ed25519.json`, which all
+  three replay.
 - `scripts/`: the link, import and jar checks that `./run test` runs, the tests for `./run`,
   and `third-party.sh`, which regenerates `THIRD-PARTY.txt` from both Java trees.
 

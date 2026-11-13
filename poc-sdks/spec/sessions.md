@@ -26,7 +26,7 @@ the server ignores the params' `_meta`, and the client the result's. A server MU
 member, or whose `request` is missing, not a string or does not read, with JSON-RPC error `-32602` (Invalid params),
 and open no session. A client MUST take a result with any other member, or whose `reply` is missing or not a string,
 as `MALFORMED_REPLY`, as it takes a reply that does not read ([its check](#the-clients-check-of-the-reply)).
-`v3.json` pins the server's reading in `sessionParams` (MCP profile).
+`v4.json` pins the server's reading in `sessionParams`, and the client's in `sessionResult` (MCP profile).
 
 ### The request
 
@@ -59,7 +59,7 @@ if any, in place: the TypeScript server fails before it replaces it.
 A `clientKeyringSig` that is a string but does not verify is no malformed request: the session is unsafe live, and
 offline it is not attested.
 
-`v3.json` pins the reading of a request in `sessionRequest`: a well-formed request, and one whose `clientKeyringSig`
+`v4.json` pins the reading of a request in `sessionRequest`: a well-formed request, and one whose `clientKeyringSig`
 is missing, `null`, empty or a number, one with no `clientKeyringNotAfter`, one whose client root has no
 `notAfter` and one whose signed keyring names a service that is not a route node, each malformed.
 
@@ -193,6 +193,29 @@ continue, as above. `EXTENSION_REQUIRED` does not lead to the replacement: the r
 would only give the client an unsafe session with a server known not to act on the extension, in which it makes
 no call.
 
+`v4.json` pins the check in `sessionReply`, each case a reply checked at `now` against `pin` and `serverEntry`, with the
+extensions the client `requires`: the entry-key form attested and unsafe, the policy-key form attested, a check at the
+certificate's `notAfter` and one 1 ms after it, and forms that fail: a certificate for another service, for a key other
+than the keyring's entry key, or signed by another policy key; a reply signed by another service; a keyring altered
+after signing or signed by another policy key; an entry absent from the keyring; either of `serverKeyringSig` and
+`serverReplyCert` without the other, whichever key signed the reply; neither field, signed by the keyring's entry key; a
+server root signed by the entry key; an empty `serverKeyringSig`; a `null` `serverKeyringSig` and a `null`
+`serverReplyCert`, a certificate `notAfter` that is not an integer, a member the reply does not have and a keyring that
+names a service that is not a route node, each malformed; a pin mismatch; a `serverKeyringNotAfter` moved after signing,
+which fails the signature, and one dropped, one that is not an integer and one that is `null`, which are malformed; a
+server root `notAfter` moved after signing, which fails the signature, and one dropped and one that is not an integer,
+which are malformed; and an `extensions` that is missing, `null`, not an array, unsorted, names one twice or names
+`Example`, each malformed, and one changed after signing, which fails the signature. It pins the judging of the server's
+material too: a server root at its `notAfter`, and expired (in the entry-key form, in the policy-key form and in an
+unsafe reply), and expired with its `notAfter` moved past `now` in a reply signed again by the entry key; a server
+keyring at its `notAfter` and expired; and a `serverKeyringNotAfter` in a policy-key reply. And it pins step 5: an
+attested reply that lists what the client requires, lists more, lists none of it, or lists one of two names it requires;
+and, to a client with a requirement, an unsafe reply, another key's reply, a reply whose server root has expired and a
+reply without `extensions`, each given the outcome of an earlier step, not `EXTENSION_REQUIRED`. `sessionRequirement`
+pins what a client that requires extensions may do afterwards: after each outcome of the check, and after a JSON-RPC
+error or a timeout, with and without its switch, whether it makes calls and the `requires` its calls carry; and that a
+client with no requirement makes calls after a failed handshake and after an unsafe reply.
+
 ### Over HTTP
 
 The Java and Go SDKs carry the handshake over HTTP, in the version each SDK speaks
@@ -272,7 +295,7 @@ sess = b64url( H( 0x02 ‖ flags ‖ clientRootSig ‖ serverRootSig ‖ clientN
 | `keysHash` | 32 | `H(utf8(JCS({ "clientPolicyKey": clientPolicyKey, "clientKeyring": clientKeyring })))` |
 
 Each decoded value MUST have exactly the length shown, or there is no session id. `flags` says which roots are
-present, so input without a root can't be read as input with one. `v3.json` pins the layout in `deriveSessionId`.
+present, so input without a root can't be read as input with one. `v4.json` pins the layout in `deriveSessionId`.
 It does not cover `clientKeyringSig` or `clientKeyringNotAfter`: it binds the keyring itself, and the server
 checks the signature, over that window, before it attests.
 
@@ -304,7 +327,7 @@ unsafe, refusing the tools in its unsafe list and running the rest as for any un
 attested earlier are still verified against the client's material, and their calls are refused `POLICY_EXPIRED`
 once that expires ([verification.md](verification.md#the-live-order)).
 
-`v3.json` pins this in `sessionStatus`, each case a request, the server's own root and keyring, its policy key, the
+`v4.json` pins this in `sessionStatus`, each case a request, the server's own root and keyring, its policy key, the
 client keys it pinned and `now`: attested; an unpinned client key; the client's root and keyring each at its
 `notAfter`, expired, and expired with its window moved past `now`; the server's root and keyring at their
 `notAfter`; and each expired.

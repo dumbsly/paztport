@@ -87,6 +87,13 @@ live and offline, only for an item on a request's block. The code names no one a
 since the sender may be a hop that passed along a block it could not have read; the service logs the signer of the
 offending block for its operator.
 
+`v4.json` pins the reading of an item as an entry in `influence.entries`: the three required members, with a `cid`,
+an `owner` or both, and an empty `cid`, which read; and a string, an array, `null`, another member, an unknown
+`cls`, no `h`, a number as `src`, `h` or `cid`, an empty and a `null` `owner`, and a label, which do not. It pins the
+offline reading in `influence.recordedCall`: a record set whose calls hold an item that does not read, within their
+session's limits and past them, both `INFLUENCE_MISMATCH`, beside a call that reads at each, `OK` within them and
+`OUTSIDE_SESSION` past them.
+
 ## The every-stamp rule
 
 **What a request holds.** The influence a request holds at a service is every `influence` item the service is
@@ -118,6 +125,15 @@ for the opposite mistake, a write-guarding service deployed without the extensio
 `influence` of it is refused at [check 9c](verification.md#the-live-order), before the handler runs, rather than
 served by a service that would not apply the rule.
 
+`v4.json` pins the rule, with the owner-aware rule after it, in `influence.request`: what an attested MCP server
+that acts on `influence` decides from the items handed on and the classes it served ([Over MCP](#over-mcp)). Its
+cases are a chain whose every stamp names `influence`; a pass-along block, which refuses a public write whatever the
+entries say and leaves a read alone; untrusted content with someone else's private data, for a write and a read,
+and with the destination owner's own; a class served in the session; an item that is not an entry, for a write, a
+read and after a block that does not name `influence`, which is `INFLUENCE_MISMATCH` before either rule; and
+nothing handed on, where the every-stamp rule has no stamp to read and does not refuse, alone and with served
+classes that the owner-aware rule refuses.
+
 ## Content labels
 
 A server that acts on `influence` labels the content of each result it attests. A label is an item under
@@ -128,6 +144,10 @@ A server that acts on `influence` labels the content of each result it attests. 
   base64url);
 - `owner`, when present, MUST be non-empty, and the server MUST take it from its own records of whose data it
   served, never from the content.
+
+`v4.json` pins the reading of an item as a label in `influence.labels`: a `cid` and a `cls`, with an `owner`, and an
+empty `cid`, which read; and another member, an unknown `cls`, an empty `owner`, no `cid`, a number as `cid`, and an
+entry, which do not.
 
 The response stamp's `ext` commits to its block, so a label can't be changed in transit ([wire.md](wire.md#blocks)).
 A responder that acts on `influence` names it on every response it attests, with `[]` when it has no label. When any
@@ -162,6 +182,12 @@ the `src` a caller uses, so the caller chooses it.
 Over MCP the response chain's stamps are all the server's, so a response that verifies is silent unless every block
 of its attestation names `influence`, and holds an item that is not a label unless every `influence` item in any of
 them is a label. Either way it adds one `local-untrusted` entry.
+
+`v4.json` pins what a response adds over MCP in `influence.response`, each case the core check's result and the
+items under `influence` of each block of the response chain, with `src` `server:github` and `h` the result hash: a
+response that verifies with one label, with `[]` and then two labels, and with every block naming `influence` and
+no label, which adds nothing; and, adding one `local-untrusted` entry each, one with a label and an item that is not
+a label in one block or in another, a silent one, one refused at check 9c, and one whose signature fails.
 
 Some responses are never attested, so their callers always count them `local-untrusted`:
 
@@ -200,9 +226,9 @@ the service's own refusal of the write, not a result of verification, so it does
 is a verdict, which follows the mode: an audit-mode server runs the call and notes it ([Over MCP](#over-mcp)). Like
 `INFLUENCE_MISMATCH`, it names no one and is never attributable.
 
-`v3.json` pins the rule's truth table in `rule`: the two conditions above, not the every-stamp rule. In the agents
-demo, neither entries nor destinations have owners, so the rule reduces to "untrusted content plus any private data
-refuses a public write".
+`v4.json` pins the rule's truth table in `influence.rule`: the two conditions above, not the every-stamp rule. In the
+agents demo, neither entries nor destinations have owners, so the rule reduces to "untrusted content plus any private
+data refuses a public write".
 
 ### Trusted records
 

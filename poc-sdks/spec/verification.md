@@ -51,7 +51,8 @@ set, every name in `actsOn` MUST be in it, since a service cannot act on an exte
 ## The live order
 
 A live verifier runs these checks in this order, and the first that fails is the result. The order is part of the
-protocol: two implementations that order the checks differently disagree.
+protocol: `v4.json`'s `verify` pins the code each of its cases gives, cases that fail two checks at once among them,
+so two implementations that order the checks differently disagree.
 
 | # | Check | Fails with |
 |---|---|---|
