@@ -189,7 +189,8 @@ them is a label. Either way it adds one `local-untrusted` entry.
 items under `influence` of each block of the response chain, with `src` `server:github` and `h` the result hash: a
 response that verifies with one label, with `[]` and then two labels, and with every block naming `influence` and
 no label, which adds nothing; and, adding one `local-untrusted` entry each, one with a label and an item that is not
-a label in one block or in another, a silent one, one refused at check 9c, and one whose signature fails.
+a label in one block or in another, a silent one, one refused at check 9c, one whose signature fails, and a result
+no check ran on, as in an unsafe session.
 
 Some responses are never attested, so their callers always count them `local-untrusted`:
 

@@ -527,7 +527,7 @@ describe("known-answer vectors, version 4", () => {
     expect({ reason: decided.verdict, everyStampNames: read.reads ? read.everyStampNames : null }).toEqual(c.expected);
   });
   it.each(influenceCases("response"))("influence response %s", (_n, c: any) => {
-    expect(responseEntries(c.reason, c.stamps, c.src, c.resultHash)).toEqual(c.expected.entries);
+    expect(responseEntries(c.reason, c.stamps ?? undefined, c.src, c.resultHash)).toEqual(c.expected.entries);
   });
   it.each(influenceCases("recordedCall"))("influence recorded call %s", (_n, c: any) => {
     expect(c.actsOn).toEqual([INFLUENCE]);
@@ -551,6 +551,7 @@ describe("known-answer vectors, version 4", () => {
     ["responseAttestation", "the last block requires example, which the client does not act on"],
     ["influence.response", "a response refused at check 9c"],
     ["influence.response", "verified, one label and one item that is not a label"],
+    ["influence.response", "a result no check ran on, as in an unsafe session"],
     ["influence.recordedCall", "items under influence, at a verifier that acts on it"],
     // and the whole-branch review
     ["influence.request", "an origin block that does not name it, the caller's entries trusted, a write"],

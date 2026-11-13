@@ -151,7 +151,8 @@ const ABOUT =
   "is then null; response, {name, reason, stamps, src, resultHash, expected: {entries}}, the entries a client that " +
   "acts on influence adds for a response over MCP: the case hands the core check's result `reason` and `stamps`, what the " +
   "response's blocks hold under influence, one per stamp, both to the implementation, which takes labels only when " +
-  "the reason is OK; and recordedCall, in recordedCall's shape, at a verifier that acts on influence and reads the " +
+  "the reason is OK (for a result no check ran on, as in an unsafe session, `reason` is null, and `stamps` then " +
+  "null); and recordedCall, in recordedCall's shape, at a verifier that acts on influence and reads the " +
   "items once the offline order gives OK, before a call is held to its session's limits. " +
   "response, and the request cases whose `served` is not empty, record the MCP rule (every block of an MCP response " +
   "chain names influence; the classes an MCP server served in its session), so they are for an implementation that " +
@@ -745,9 +746,9 @@ function influenceSection(run: {
   const L3 = { cls: "public", cid: "cid-3" };
   const server = (first: JsonValue[] | null, last: JsonValue[] | null): StampItems[] =>
     [{ svc: "mcp-entry", items: first }, { svc: "github-tools", items: last }];
-  const responseCase = (name: string, reason: ReasonCode, stamps: StampItems[], expected: JsonValue[]) => {
+  const responseCase = (name: string, reason: ReasonCode | null, stamps: StampItems[] | null, expected: JsonValue[]) => {
     const c = { name, reason, stamps, src: SRC, resultHash: run.RESULT_HASH };
-    check(`influence response ${name}`, responseEntries(reason, stamps, SRC, run.RESULT_HASH), expected);
+    check(`influence response ${name}`, responseEntries(reason, stamps ?? undefined, SRC, run.RESULT_HASH), expected);
     return { ...c, expected: { entries: expected } };
   };
   const response = [
@@ -763,6 +764,8 @@ function influenceSection(run: {
     responseCase("verified, a block that does not name it", "OK", server(null, [L1]), untrusted),
     responseCase("a response refused at check 9c", "EXTENSION_REQUIRED", server([], [L1]), untrusted),
     responseCase("a response whose signature fails", "BAD_SIGNATURE", server([], [L1]), untrusted),
+    // An unsafe session runs no check on a result, so the caller has neither a reason nor stamps to hand over.
+    responseCase("a result no check ran on, as in an unsafe session", null, null, untrusted),
   ];
 
   // A record set at a verifier that acts on influence: an item that does not read is the extension's code, in the

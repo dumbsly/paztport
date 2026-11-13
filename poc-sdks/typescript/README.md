@@ -239,8 +239,8 @@ did not run; `malformed` for a result JCS cannot hash; `withheld` for a response
 the client does not act on (check 9c, `EXTENSION_REQUIRED`); and otherwise `read`, with the verification and what the
 result adds to influence. The application MUST NOT hand a `withheld` result on: it fails the call and does not retry it,
 since the tool ran. The context also carries `serverId`, the server's id from the client's configuration. For a client
-that acts on `influence`, a `read` or `withheld` result in an attested or unsafe session carries `{ kind: "entries",
-entries, hash }`: the entries it adds to the client's influence, built by core's `responseEntries` with `src`
+that acts on `influence`, a `read` result in an attested or unsafe session, and a `withheld` one, which only an
+attested session gives, carry `{ kind: "entries", entries, hash }`: the entries it adds to the client's influence, built by core's `responseEntries` with `src`
 `server:<serverId>` and `h` the result hash, which is there too for the client's record. That is an entry for each
 label of a response that verified and names `influence` in every block with only labels under it, and otherwise one
 `local-untrusted` entry, as for a `withheld` result and every result in an unsafe session. A `refused` result adds
