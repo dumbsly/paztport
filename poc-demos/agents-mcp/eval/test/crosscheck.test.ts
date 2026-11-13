@@ -60,10 +60,12 @@ function write(lines: string[], edit?: (records: any[]) => void): string {
 const outcomes = (path: string): OutcomeRecord[] => jsonLines(path).map((l) => JSON.parse(l) as OutcomeRecord);
 
 describe("checkRun on the pinned run", () => {
+  // The on run of a scripted run: the real eval, pi, extension and mock server, with a stub in place of the model
+  // replaying the tool calls of a run recorded with gemma4:26b-mlx on 2026-10-31 (fixtures/record.ts).
   it("runWithoutLocalEventsIsOk", () => {
     const run = join(import.meta.dirname, "fixtures/eval-results/runs/on-001");
     const evidencePath = join(run, "evidence.jsonl");
-    const v = checkRun({ mode: "on", outcome: "blocked-with-private-text", records: outcomes(join(run, "outcome.jsonl")), evidencePath, eventsPath: join(run, "events.jsonl"), report: verifyEvidence(evidencePath), expectedPin: "G7yTcA7G_rYXWT30" });
+    const v = checkRun({ mode: "on", outcome: "blocked-with-private-text", records: outcomes(join(run, "outcome.jsonl")), evidencePath, eventsPath: join(run, "events.jsonl"), report: verifyEvidence(evidencePath), expectedPin: "8U4j6Q2bEu_FLuDu" });
     expect(v).toEqual({ status: "ok", problems: [] });
   });
 });

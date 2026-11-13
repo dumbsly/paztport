@@ -979,7 +979,9 @@ describe("verifyEvidence: keyring and root lifetimes", { timeout: 60_000 }, () =
 });
 
 describe("verifyEvidence: the demo page's recorded run is unchanged", () => {
-  // A real attested run that the demo page replays: its report, item by item, is the one pinned beside it.
+  // The attested run the demo page replays, from a scripted run: the real eval, pi, extension and mock server, with a
+  // stub in place of the model replaying the tool calls of a run recorded with gemma4:26b-mlx on 2026-10-31
+  // (fixtures/record.ts). Its report, item by item, is the one pinned beside it.
   const FIXTURE = join(import.meta.dirname, "../../demo-ui/test/fixtures/recorded-on-run");
 
   it("recordedOnRunReportIsUnchanged", () => {
@@ -989,8 +991,10 @@ describe("verifyEvidence: the demo page's recorded run is unchanged", () => {
 });
 
 describe("verifyEvidence: the pinned results folder is unchanged", { timeout: 30_000 }, () => {
-  // A real attested run, a copy with one call's repo changed, a copy cut down to its run record and an off run, with the
-  // reports and CLI output verify gave for them.
+  // The on and off runs of a scripted run: the real eval, pi, extension and mock server, with a stub in place of the
+  // model replaying the tool calls of a run recorded with gemma4:26b-mlx on 2026-10-31 (fixtures/record.ts). The on
+  // run, a copy with one call's repo changed, a copy cut down to its run record and the off run, with the reports and
+  // CLI output verify gave for them.
   const FIXTURE = join(import.meta.dirname, "fixtures/eval-results");
   const expected = (name: string) => readFileSync(join(FIXTURE, name), "utf8");
 
