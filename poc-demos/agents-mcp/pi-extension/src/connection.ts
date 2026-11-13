@@ -36,8 +36,10 @@ import { ORIGIN_BLOCK, type RunState } from "./runs.ts";
 type EvidenceCallParams = Extract<EvidenceRecord, { type: "call" }>["params"];
 
 /**
- * What a connection's handshake left it with: `attested` and `unsafe` as the server answered, `no-calls` when the
- * client's requirement of the server lets it make no call in the session it got, and `off` when Paztport is off.
+ * What a connection's handshake left it with: `attested` when the server attested the session; `unsafe` when the
+ * client calls the server unattested, whether the server answered so, no handshake was sent (an unattested server, no
+ * pin) or a handshake failed, each with no requirement of the server or under its switch; `no-calls` when the client's
+ * requirement of the server lets it make no call in the session it got; and `off` when Paztport is off.
  */
 export type SessionState = "attested" | "unsafe" | "no-calls" | "off";
 

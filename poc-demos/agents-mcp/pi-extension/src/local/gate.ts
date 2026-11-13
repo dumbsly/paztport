@@ -81,14 +81,13 @@ function spellings(path: string): string[] {
 }
 
 /**
- * Checks pi tool calls against the signed client rules. In enforce mode each checked call during a
- * run is a signed client-mesh step: a version 4 stamp with an empty `sess`, naming `local:<tool>` as its receiver,
- * chained from the run's origin and bound to the input and the decision (the call id, what the gate resolved,
- * the verdict, whether the route is listed and the rules' hash), written to the evidence file with the decision,
- * the chain, the route proof and the blocks (the origin's, then the step's, which holds the session's influence)
- * as tokens. The input is bound and recorded with the workspace and
- * home folder paths replaced by "<workspace>" and "<home>" (encodePlaceholders, reversible); the tool runs with the
- * input as given.
+ * Checks pi tool calls against the signed client rules. In enforce mode each checked call during a run is a signed
+ * client-mesh step: a version 4 stamp with an empty `sess`, naming `local:<tool>` as its receiver, chained from the
+ * run's origin and bound to the input and the decision (the call id, what the gate resolved, the verdict, whether
+ * the route is listed and the rules' hash), written to the evidence file with the decision, the chain, the route
+ * proof and the blocks (the origin's, then the step's, which holds the session's influence) as tokens. The input is
+ * bound and recorded with the workspace and home folder paths replaced by "<workspace>" and "<home>"
+ * (encodePlaceholders, reversible); the tool runs with the input as given.
  * no-root mode has no rules to check against and refuses every call.
  * off mode allows everything and records nothing.
  *

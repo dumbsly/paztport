@@ -42,11 +42,11 @@ import {
  * comment: the binding of the call and the decision (BINDING_MISMATCH, also for a decision that does not read), the
  * chain with every offline check (the run's recorded prompt and start times, and the file's spent keys; its blocks
  * must be one per stamp and match each stamp's `ext`, else EXTENSION_MISMATCH), the reading of the items under
- * `influence` in those blocks (INFLUENCE_MISMATCH), POLICY_EXPIRED against the client record's root and keyring at the
- * step's time, PROOF_MISMATCH, RULES_MISMATCH and VERDICT_MISMATCH. The client signs the step's time itself: verify relies on it,
- * as on every recorded time, but no edit moves a window. A verified step is OK when it was allowed and REFUSED when it
- * was refused: local refusals are signed and checked, unlike the server's. A chain is version 4, its stamps naming pi and
- * then `local:<tool>` as their receivers (BINDING_MISMATCH).
+ * `influence` in those blocks (INFLUENCE_MISMATCH), POLICY_EXPIRED against the client record's root and keyring at
+ * the step's time, PROOF_MISMATCH, RULES_MISMATCH and VERDICT_MISMATCH. The client signs the step's time itself:
+ * verify relies on it, as on every recorded time, but no edit moves a window. A verified step is OK when it was
+ * allowed and REFUSED when it was refused: local refusals are signed and checked, unlike the server's. A chain is
+ * version 4, its stamps naming pi and then `local:<tool>` as their receivers (BINDING_MISMATCH).
  *
  * Verify does not look at the disk: it checks that the rules were applied correctly to what the gate saw, not
  * that the gate saw the disk correctly. Freshness windows do not apply offline: a local step is checked against

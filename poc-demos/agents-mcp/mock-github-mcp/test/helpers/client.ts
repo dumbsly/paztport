@@ -184,7 +184,8 @@ export function makeClient(opts: { withRoot?: boolean; forgeRoot?: boolean; tool
         { svc: "session", inst: "session-1", rid, ts: now, sess, rcv: "pi", bind: bindPrompt("test prompt"), block: originBlock },
         session.privateKey,
       );
-      // a tool outside the client policy has no proof, so the call carries none: stampToolCall writes a placeholder, dropped
+      // a tool outside the client policy has no proof, so the call carries none: stampToolCall only writes the proof it
+      // is given, without checking it, so it gets a placeholder, which is dropped from the call's _meta
       const proof = m.proofFor(name);
       const meta = stampToolCall(
         { name, args, callId },

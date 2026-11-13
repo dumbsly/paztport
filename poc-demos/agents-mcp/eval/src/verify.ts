@@ -9,10 +9,10 @@ import {
   extensionSettings,
   newRecordSet,
   readSessionReply,
-  recordedCallReason,
-  recordExtensionSettings,
   readSessionRequest,
+  recordedCallReason,
   recordedSession,
+  recordExtensionSettings,
   sha256,
   utf8,
   type ReasonCode,
@@ -46,8 +46,8 @@ import { ORIGIN_SVC, verifyClient, verifyLocal, type Client, type LocalResult, t
  *   time is not its run's.
  * - PROMPT_MISMATCH: a call or local step whose origin does not bind its run's recorded prompt (or its run has no
  *   record, or two that disagree); also a second run record for a rid with another prompt.
- * - OUTSIDE_SESSION: a call that verifies, with its items read, in a verified session, but recorded after its session's reply
- *   certificate, or a root or keyring of its handshake (either side's), expired.
+ * - OUTSIDE_SESSION: a call that verifies, with its items read, in a verified session, but recorded after its
+ *   session's reply certificate, or a root or keyring of its handshake (either side's), expired.
  * - PROOF_MISMATCH: a local record whose route proof does not prove `session/pi/local:<tool>` against the client
  *   root, or whose signed `routeAllowed` does not match whether it has a proof.
  * - RULES_MISMATCH: a local record whose signed rules hash is not the client record's.
@@ -205,8 +205,8 @@ const RECORD_TYPES = ["run", "session", "call", "response", "client", "local"];
 /** Why a file of format 1 records is refused whole. */
 const FORMAT_1 = "evidence format 1, written for protocol version 3 by an earlier version of this demo; this verify reads format 2";
 
-/** A file refused as a whole, with the reason: one UNREADABLE item for the file. */
-function refused(file: string, problem: string): VerifyReport {
+/** A file failed as a whole, with the reason: one UNREADABLE item for the file. */
+function failedFile(file: string, problem: string): VerifyReport {
   return { file, ok: false, items: [{ line: 0, type: "file", result: "UNREADABLE" }], pins: [], problem };
 }
 
@@ -247,7 +247,7 @@ function verifyFile(path: string, label: string): VerifyReport {
   // A file whose every readable record is format 1 was written for protocol version 3: one reason for the whole file,
   // not a list of lines it cannot read.
   if (lines.length === 0 && format1 > 0) {
-    return refused(label, FORMAT_1);
+    return failedFile(label, FORMAT_1);
   }
   if (lines.length === 0 && items.length === 0) {
     return unreadable(label, 0, "file"); // an empty file verifies nothing
@@ -554,7 +554,6 @@ export function signedEvidenceNeeded(runDir: string): string | undefined {
 }
 
 const nothingToCheck = (file: string): VerifyReport => ({ file, ok: true, items: [], pins: [], nothingToCheck: true });
-const needsSigned = refused;
 
 /**
  * Every `runs/<name>/evidence.jsonl` under a results folder, in name order, each reported on its own.
@@ -611,10 +610,10 @@ export function verifyResultsDir(dir: string): VerifyReport[] {
     // be edited or deleted)
     const need = signedEvidenceNeeded(join(dir, "runs", name));
     if (need !== undefined) {
-      reports.push(needsSigned(rel, need));
+      reports.push(failedFile(rel, need));
     } else if (expect === "signed") {
       const what = report !== undefined ? "has no signed records" : size === 0 ? "is empty" : "is missing";
-      reports.push(needsSigned(rel, `evidence.jsonl ${what}, but this run had Paztport on and results.json records its evidence as checked`));
+      reports.push(failedFile(rel, `evidence.jsonl ${what}, but this run had Paztport on and results.json records its evidence as checked`));
     } else if (expect !== undefined || report !== undefined) {
       reports.push(report ?? nothingToCheck(rel));
     } else if (size === 0) {

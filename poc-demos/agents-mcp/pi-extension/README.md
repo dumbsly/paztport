@@ -91,8 +91,9 @@ then classify the run from the outcome log as the
     reply did not list. On a server with no `requires`, or an empty one, it is a config error: there is
     nothing to continue without.
 - `eventsLog` (optional): a JSONL log for the demo UI. It records event types, server and tool names,
-  reason codes, influence class counts, rids and call ids. It never records content, arguments,
-  keys, signatures or hashes.
+  each session's status and its reason, reason codes, influence class counts, the classes a result
+  added (`added`) and whether it was withheld (`withheld`), rids and call ids. It never records
+  content, arguments, keys, signatures or hashes.
 
 - `evidenceLog` (optional): an opt-in JSONL file with what a third party needs to re-verify a run
   offline, kept apart from the events log. It holds the user prompt and rid of each run; for each
