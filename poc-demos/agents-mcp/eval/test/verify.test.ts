@@ -115,9 +115,8 @@ describe("verifyEvidence", { timeout: 30_000 }, () => {
       meta["paztport/attestation"] = changed(meta["paztport/attestation"], (att) => { att.blocks[1].items.influence[0].cls = "public"; });
     }));
     expect(r.ok).toBe(false);
-    const item = r.items.find((i) => i.callId === "toolu_c" && i.type === "response")!;
-    expect(item.result).not.toBe("OK");
-    expect(item.result).not.toBe("REFUSED");
+    // an edited label breaks the commitment of the stamp that signed its block
+    expect(r.items.find((i) => i.callId === "toolu_c" && i.type === "response")!.result).toBe("EXTENSION_MISMATCH");
   });
 
   it("aWithheldResponseRecordStillVerifiesAsItsChainDoes", async () => {
@@ -195,6 +194,19 @@ describe("verifyEvidence", { timeout: 30_000 }, () => {
   it("unsafeSessionIsBadSession", () => {
     const r = verifyEvidence(write(genuine, (rs) => { rs.find((x) => x.type === "session").status = "unsafe"; }));
     expect(results(r.items, "session")).toEqual(["BAD_SESSION"]);
+  });
+
+  it("aNoCallsSessionRecordIsBadSession", () => {
+    // the client recorded a sound attested reply as one it makes no call in (its reply did not list an extension the
+    // client required): verify judges the session the client concluded, so it is BAD_SESSION and the file fails
+    const r = verifyEvidence(write(genuine, (rs) => {
+      const s = rs.find((x) => x.type === "session");
+      s.status = "no-calls";
+      s.reason = "EXTENSION_REQUIRED";
+    }));
+    expect(r.ok).toBe(false);
+    expect(results(r.items, "session")).toEqual(["BAD_SESSION"]);
+    expect(results(r.items, "call")).toEqual(["NO_SESSION", "NO_SESSION", "NO_SESSION", "NO_SESSION"]);
   });
 
   it("callWithNoResponseIsReportedNotFailed", () => {

@@ -215,7 +215,10 @@ describe("the documents follow the code", () => {
   });
 
   it("noDemoDocumentSaysProtocolV3OfTheDemo", () => {
-    // the recorded eval was run on version 3, and its section says so; nothing else describes the demo as version 3
+    // the recorded eval was run on version 3, and its section says so; elsewhere version 3 is named only in a sentence
+    // that speaks of format 1, the evidence an earlier version of the demo wrote for it
+    const V3 = /protocol v(?:ersion ?)?3\b|\bversion 3\b/i;
+    const ofFormat1 = /format 1/;
     const readmes = (d: string): string[] =>
       readdirSync(d, { withFileTypes: true }).flatMap((e) =>
         e.name === "node_modules" || e.name.startsWith(".") ? [] : e.isDirectory() ? readmes(join(d, e.name)) : e.name === "README.md" ? [join(d, e.name)] : [],
@@ -231,7 +234,13 @@ describe("the documents follow the code", () => {
         expect(from).toBeGreaterThan(0);
         text = text.slice(0, from) + text.slice(text.indexOf("\n## ", from + 1));
       }
-      expect(text, relative(AGENTS, f)).not.toMatch(/protocol v3|Protocol v3/);
+      for (const s of flat(text).split(/(?<=[.!?])\s+/).filter((x) => V3.test(x))) {
+        expect(s, `${relative(AGENTS, f)}: ${s}`).toMatch(ofFormat1);
+      }
+    }
+    // the check itself fails a sentence that says it of the demo, in either spelling
+    for (const s of ["This demo speaks protocol version 3.", "The demo uses Protocol v3.", "Calls are stamped as version 3 says."]) {
+      expect(V3.test(s) && !ofFormat1.test(s), s).toBe(true);
     }
   });
 

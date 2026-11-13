@@ -54,7 +54,8 @@ import { ORIGIN_SVC, verifyClient, verifyLocal, type Client, type LocalResult, t
  * - VERDICT_MISMATCH: a local record whose verdict does not follow from the signed rules applied to what it records.
  *
  * Results that are this verifier's own, about the evidence file rather than the protocol:
- * - BAD_SESSION: the session record does not verify against its pin, or was not attested.
+ * - BAD_SESSION: the session record does not verify against its pin, or the server did not attest it, or the client
+ *   recorded it as other than attested (`unsafe`, or `no-calls`: a session it made no call in).
  * - NO_SESSION: a call whose server has no verified session before it (a response to it is NO_CALL).
  * - UNREADABLE: a line, record or file that cannot be read.
  * - NO_CALL: a response with no verified call before it (same server, rid and call id).
