@@ -72,20 +72,23 @@ then classify the run from the outcome log as the
   stderr when pi has none). setup-demo issues them for 30 days.
 - `servers[]`: `id` (`[A-Za-z0-9_-]+`), `command`, optional `args` and `env`, and `attested`. An
   attested server also takes `pin`, the path to the server policy public key file. It defaults to
-  `<clientDir>/server-policy.pub`.
-- `requires` (optional, attested servers only): the extensions the client requires of the server, as an
-  array of extension names. The client calls the server only in an attested session whose reply lists
-  each of them ([the client's check of the reply](../../../poc-sdks/spec/sessions.md#the-clients-check-of-the-reply),
-  "A client that requires extensions"); otherwise the session makes no calls
-  ([A session that makes no calls](#a-session-that-makes-no-calls)). The requirement applies in every
-  mode but `off`. `requires` on a server with `attested: false` is a config error, and so is a value
-  that is not an array of extension names. The example config, and the config the eval and the demo
-  page write for a run with Paztport on, require `influence` of the GitHub server: the client relies
-  on that server's rule for public writes, and a server deployed without the extension would not apply
-  it ([The every-stamp rule](../../../poc-sdks/spec/influence.md#the-every-stamp-rule)).
-- `continueWithoutRequired` (optional, default `false`): the switch that lets the client call the server
-  without what it `requires`, as a client with no requirement does, in whatever session the handshake
-  gave it. Its calls then do not require of the server the extensions the reply did not list.
+  `<clientDir>/server-policy.pub`. Each server also takes these two keys, which are read per server
+  and nowhere else (a top-level `requires` is ignored):
+  - `requires` (optional, attested servers only): the extensions the client requires of this server,
+    as an array of extension names. The client calls the server only in an attested session whose
+    reply lists each of them
+    ([the client's check of the reply](../../../poc-sdks/spec/sessions.md#the-clients-check-of-the-reply),
+    "A client that requires extensions"); otherwise the session makes no calls
+    ([A session that makes no calls](#a-session-that-makes-no-calls)). The requirement applies in every
+    mode but `off`. `requires` on a server with `attested: false` is a config error, and so is a value
+    that is not an array of extension names. The example config, and the config the eval and the demo
+    page write for a run with Paztport on, require `influence` of the GitHub server: the client relies
+    on that server's rule for public writes, and a server deployed without the extension would not
+    apply it ([The every-stamp rule](../../../poc-sdks/spec/influence.md#the-every-stamp-rule)).
+  - `continueWithoutRequired` (optional, per server, default `false`): the switch that lets the client
+    call this server without what it `requires`, as a client with no requirement does, in whatever
+    session the handshake gave it. Its calls then do not require of the server the extensions the
+    reply did not list.
 - `eventsLog` (optional): a JSONL log for the demo UI. It records event types, server and tool names,
   reason codes, influence class counts, rids and call ids. It never records content, arguments,
   keys, signatures or hashes.
@@ -159,8 +162,9 @@ in the evidence file has `status: "no-calls"` and the reason.
 The extension acts on `influence`. What a result adds to the session's influence is the SDK's reading
 of it, which follows [Content labels](../../../poc-sdks/spec/influence.md#content-labels): a response
 that verifies, every block of its attestation naming `influence` with only labels under it, adds one
-entry for each label, with `src` `server:<id>` and `h` the result's hash; any other result that is not a
-refusal adds one `local-untrusted` entry with the same `src` and `h`. That covers a response that fails
+entry for each label, with `src` `server:<id>` and `h` the result's hash; outside `off` mode, any other
+result that is not a refusal adds one `local-untrusted` entry with the same `src` and `h`. In `off` mode
+a result from a configured server adds nothing. That covers a response that fails
 verification, one that is silent or holds an item that is not a label, a withheld result (below), and
 every result in an unsafe session or from an unattested server. A refusal adds nothing, since the tool
 did not run, and so does a result that cannot be hashed, which is not used. The classes a result added
@@ -440,9 +444,10 @@ changed it to, which is what the tool runs with.
   `/new` starts an empty session. Reload keeps the messages, and `/resume`, `/fork` and `pi -c` or
   `--session` restore them, so on those session starts the influence is rebuilt from the restored
   branch: each of this extension's results counts with the classes it added (`added` in `details`), or
-  as `local-untrusted` when it has no `added`, as a result saved by an earlier version of this
-  extension, with `labels` in its place, does not (a result marked `refused` in `details`, a refusal or local
-  failure, counts for nothing, and in `off` mode none of these results count), and every other MCP
+  as `local-untrusted` when it has no `added` (a result marked `refused` in `details`, a refusal or local
+  failure, counts for nothing, and in `off` mode none of these results count). A result saved by an
+  earlier version of this extension has `labels` instead of `added`, and counts as `local-untrusted`.
+  Every other MCP
   result counts as `local-untrusted`, as it did live. A summary that `/tree` left of an abandoned
   branch is in context too, so the results on that branch count the same way. `/fork` and `/clone`
   write only the current path to the new session file, so that branch is looked up in the session
@@ -456,11 +461,12 @@ changed it to, which is what the tool runs with.
   through them; in `off` mode, or through a tool the gate does not cover (another extension's), it
   can. Steering messages sent mid-run keep the current run's rid and origin. Only a
   new user prompt starts a new run.
-- **A result that cannot be recorded is withheld.** Influence is recorded against a hash of the result's
-  content, and content that cannot be hashed (text with a lone surrogate, say) has none. The model gets an
-  error result saying `Paztport could not record this tool result, so it was withheld.` in its place, and
-  nothing is added to the influence, because the model never saw the content. A restored session cannot be
-  withheld from, so a restored result like that counts as `private` and `local-untrusted`.
+- **A result that cannot be recorded is not passed to the model.** Influence is recorded against a hash
+  of the result's content, and content that cannot be hashed (text with a lone surrogate, say) has none.
+  The model gets an error result saying `Paztport could not record this tool result, so it was withheld.`
+  in its place, and nothing is added to the influence, because the model never saw the content. This is
+  not the check 9c case of [A withheld result](#what-a-result-adds). A restored result was already in
+  the model's context, so a restored result like that counts as `private` and `local-untrusted`.
 - **Influence from local reads.** A read adds the label of the folder it read from, as the policy
   gives it. A folder with no label, or a read the rules do not place in a folder, counts as
   `local-untrusted`. A `bash` result adds the labels of the folders it read plus `local-untrusted`,

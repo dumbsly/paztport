@@ -205,7 +205,13 @@ describe("the documents follow the code", () => {
     const source = readFileSync(join(AGENTS, "pi-extension/src/config.ts"), "utf8");
     const keys = new Set([...source.matchAll(/\b(?:raw|v)\.([A-Za-z]+)\b/g)].map((m) => m[1]!));
     for (const key of ["requires", "continueWithoutRequired", "mode", "servers", "attested"]) expect(keys, key).toContain(key);
-    for (const key of keys) expect(PI_README, key).toMatch(new RegExp(`\`${key}[\`\\[]`));
+    // only the Config section counts: both keys are named elsewhere in the README too
+    const from = PI_README.indexOf("\n## Config\n");
+    expect(from).toBeGreaterThan(0);
+    const config = PI_README.slice(from, PI_README.indexOf("\n## ", from + 1));
+    for (const key of keys) expect(config, key).toMatch(new RegExp(`\`${key}[\`\\[]`));
+    // the requirement and its switch each have a list item of their own, nested under servers[]
+    for (const key of ["requires", "continueWithoutRequired"]) expect(config, key).toMatch(new RegExp(`^ +- \`${key}\` `, "m"));
   });
 
   it("noDemoDocumentSaysProtocolV3OfTheDemo", () => {
