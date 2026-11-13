@@ -522,7 +522,7 @@ describe("several pinned keyrings and roots", () => {
   // the same routes under a second policy, and the mesh root renewed: a new tree under the same rootId
   const second = buildTree([ROUTE, "session/pi"].map((path) => ({ salt: randomBytes(16), path })), 8, "v2");
   const renewed = buildTree([ROUTE, "session/pi"].map((path) => ({ salt: randomBytes(16), path })), 8, "v1");
-  const unpinned = buildTree([ROUTE, "session/pi"].map((path) => ({ salt: randomBytes(16), path })), 8, "v3");
+  const unpinned = buildTree([ROUTE, "session/pi"].map((path) => ({ salt: randomBytes(16), path })), 8, "unpinned");
   const both = ring({ session: session.publicKey, pi: pi.publicKey });
   const proofIn = (t: typeof tree): Over => ({ proof: writeToken(t.proofFor(ROUTE)) });
   const okPi = { ok: true, reason: "OK", suspectSvc: "pi", suspectInst: "pi-1" };

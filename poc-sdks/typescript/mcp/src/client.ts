@@ -69,9 +69,10 @@ function outcomeOf(
   requirement: Requirement,
 ): SessionOutcome {
   const after = callsAfter(check, reply?.extensions ?? [], requirement);
+  // An attested reply is never replaced, nor a sound one (UNSAFE, EXTENSION_REQUIRED), nor a server with no Paztport.
   const replaceSession = check === null
     ? reason !== "METHOD_NOT_FOUND"
-    : check !== "UNSAFE" && check !== "EXTENSION_REQUIRED";
+    : check !== "ATTESTED" && check !== "UNSAFE" && check !== "EXTENSION_REQUIRED";
   if (!after.calls) {
     return { status: "no-calls", reason, replaceSession };
   }
@@ -224,11 +225,16 @@ export type ToolCallStamp = {
  * The `_meta` for an attested tools/call: the tokens of the chain (the origin and a stamp by the calling hop over the
  * call's receiver, binding and block), of the route proof and of the blocks, `[originBlock, block]`, and the call id.
  * The blocks travel also when both are empty, so this SDK sends one form. Throws if a stamp cannot be signed or a
- * token written, or if `svc` or the receiver (`mcp:<server>.<tool>`) is not a route node.
+ * token written, if `svc` or the receiver (`mcp:<server>.<tool>`) is not a route node, or if `originBlock` is not the
+ * block the origin's `ext` commits to.
  */
 export function stampToolCall(call: { name: string; args: unknown; callId: string }, s: ToolCallStamp): Record<string, string> {
   const rcv = mcpReceiver(s.serverId, call.name);
   requireStampableNames(s.svc, rcv);
+  // Fails here rather than as EXTENSION_MISMATCH at the server, with nothing said locally.
+  if (commitBlock(s.originBlock) !== s.origin.ext) {
+    throw new Error("originBlock is not the block the origin stamp commits to");
+  }
   const hop = signStamp(
     {
       svc: s.svc,
@@ -274,7 +280,7 @@ function verdictOf(raw: Record<string, unknown>): { reason: string; audit: boole
 
 /**
  * What a result adds to the client's influence: its verified labels, or untrusted content; nothing for a refusal or
- * when Paztport is off, and nothing in an attested session for a client that does not act on `influence`.
+ * when Paztport is off, and nothing in any session for a client that does not act on `influence`.
  */
 export type ResultInfluence =
   | { kind: "labels"; labels: ContentLabel[]; hash: string }
@@ -282,13 +288,19 @@ export type ResultInfluence =
   | { kind: "none" };
 
 /**
- * The session a result arrived in. Off records nothing, so it hashes nothing. An attested call's
- * response is verified against the server's root and keyring, with the client's own extension settings, and must
- * end at `svc`, the client's own service that made the call; `now` is read only when it is.
+ * The session a result arrived in, with the client's own extension settings. Off records nothing, so it hashes
+ * nothing. In an unsafe session a client that acts on `influence` counts every result untrusted (spec sessions.md,
+ * Unsafe sessions), and one that does not reads no influence. An attested call's response is verified against the
+ * server's root and keyring, with the client's settings, and must end at `svc`, the client's own service that made
+ * the call; `now` is read only when it is.
  */
 export type ResultContext =
   | { session: "off" }
-  | { session: "unsafe" }
+  | {
+      session: "unsafe";
+      /** The extensions the client acts on: whether it counts the result untrusted. */
+      extensions: ExtensionSettings;
+    }
   | {
       session: "attested";
       reply: SessionReply;
@@ -321,8 +333,8 @@ export type ToolResultReading =
  * Reads a tools/call result: its verdict, its verification and what it adds to influence. In an attested session a
  * client that acts on `influence` takes the labels of a response that verified, every block of which names
  * `influence` with only labels under it (readResponseLabels), and counts any other result untrusted (spec influence.md,
- * Content labels); one that does not act on it reads no influence. In an unsafe session every result that is not a
- * refusal is untrusted. Never throws.
+ * Content labels); one that does not act on it reads no influence. In an unsafe session a client that acts on
+ * `influence` counts every result that is not a refusal untrusted. Never throws.
  */
 export function readToolResult(raw: Record<string, unknown>, ctx: ResultContext): ToolResultReading {
   const verdict = verdictOf(raw);
@@ -336,12 +348,9 @@ export function readToolResult(raw: Record<string, unknown>, ctx: ResultContext)
   let verifiedAt: number | undefined;
   try {
     const hash = bindResult(raw);
-    if (ctx.session !== "attested") {
-      return { kind: "read", ...withVerdict, influence: { kind: "untrusted", hash } };
-    }
     const readsInfluence = ctx.extensions.actsOn.has(INFLUENCE);
     const untrusted: ResultInfluence = readsInfluence ? { kind: "untrusted", hash } : { kind: "none" };
-    if (ctx.reply.serverRoot === null) {
+    if (ctx.session === "unsafe" || ctx.reply.serverRoot === null) {
       return { kind: "read", ...withVerdict, influence: untrusted };
     }
     verifiedAt = ctx.now();

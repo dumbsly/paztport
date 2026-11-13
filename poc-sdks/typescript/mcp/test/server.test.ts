@@ -976,6 +976,20 @@ describe("a server's extensions", () => {
       .rejects.toThrow("a server that acts on influence labels every result");
   });
 
+  it("aVerifiedCallWithNoInfluenceInItsHandOverIsAFaultThatRunsNothing", async () => {
+    // only a fault in this SDK reaches it: a check result whose hand-over lacks influence, built by hand
+    const { srv, client } = open();
+    const check = srv.checkCall.bind(srv);
+    srv.checkCall = (params) => ({ ...check(params), handOver: new Map() });
+    let ran = false;
+    for (const mode of ["enforce", "audit"] as const) {
+      await expect(srv.handleToolCall(client.callParams("list_issues", ARGS, []), PUBLIC_WRITE, mode, () => ((ran = true), run())))
+        .rejects.toThrow("a verified call's hand-over holds no influence");
+    }
+    expect(ran).toBe(false);
+    expect(srv.session()!.served.size).toBe(0);
+  });
+
   it("aCallWithNoBlocksIsEveryBlockEmpty", async () => {
     const { srv, client } = open();
     // stamped over empty blocks and sent without the token: at a server that acts on influence no stamp names it

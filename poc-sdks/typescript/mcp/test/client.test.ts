@@ -70,6 +70,8 @@ const ACTS = extensionSettings([INFLUENCE]);
 /** What a client requires of the server: influence, and with `continueWithout` it goes on without it. */
 const REQUIRES: Requirement = { extensions: [INFLUENCE], continueWithout: false };
 const CONTINUES: Requirement = { extensions: [INFLUENCE], continueWithout: true };
+/** An unsafe session, for a client that acts on influence. */
+const UNSAFE: ResultContext = { session: "unsafe", extensions: ACTS };
 
 const DAY_MS = 86_400_000;
 /** When both sides' roots and keyrings stop being valid: 2100-01-01. */
@@ -504,6 +506,19 @@ describe("stampToolCall", () => {
     expect(readChain(params._meta[META_CHAIN]!)[1]!.ext).toBe(commitBlock(block));
     expect(readBlocks(params._meta[META_EXTENSIONS]!)[1]!.requires).toEqual([INFLUENCE]);
   });
+  it("refusesAnOriginBlockTheOriginDoesNotCommitTo", () => {
+    const s = attestedSession();
+    const proof = toolCallProof(s.client.proofs, CLIENT_HOPS, "github", "list_issues")!;
+    const origin = originOf(s, influenceBlock([]));
+    const stamp = (originBlock: Block) =>
+      stampToolCall(
+        { name: "list_issues", args: {}, callId: "call-1" },
+        { origin, originBlock, svc: "pi", inst: "pi-1", privateKey: s.client.piKey, ts: Date.now(), block: EMPTY_BLOCK, proof, serverId: "github" },
+      );
+    expect(() => stamp(EMPTY_BLOCK)).toThrow("originBlock is not the block the origin stamp commits to");
+    expect(() => stamp(influenceBlock([{ cls: "public", src: "x", h: "h" }]))).toThrow("originBlock is not the block");
+    expect(() => stamp(influenceBlock([]))).not.toThrow();
+  });
   it("theHopNamesTheToolAsItsReceiverAndTheOriginIsUnchanged", () => {
     const s = attestedSession();
     const proof = toolCallProof(s.client.proofs, CLIENT_HOPS, "github", "create_pull_request")!;
@@ -675,12 +690,18 @@ describe("readToolResult", () => {
     expect(readToolResult({ ...RESULT }, ctx)).toEqual({ kind: "read", influence: { kind: "untrusted", hash: bindResult(RESULT) } });
   });
   it("unsafeSessionIsUntrusted", () => {
-    expect(readToolResult({ ...RESULT }, { session: "unsafe" })).toEqual({ kind: "read", influence: { kind: "untrusted", hash: bindResult(RESULT) } });
+    expect(readToolResult({ ...RESULT }, UNSAFE)).toEqual({ kind: "read", influence: { kind: "untrusted", hash: bindResult(RESULT) } });
+  });
+  it("anUnsafeSessionAddsNoInfluenceForAClientThatDoesNotActOnIt", () => {
+    const ctx: ResultContext = { session: "unsafe", extensions: NO_EXTENSIONS };
+    expect(readToolResult({ ...RESULT }, ctx)).toEqual({ kind: "read", influence: { kind: "none" } });
+    const noted = { ...RESULT, _meta: { "paztport/verdict": writeToken({ reason: "UNSAFE_SESSION", audit: true }) } };
+    expect(readToolResult(noted, ctx)).toEqual({ kind: "read", verdict: "UNSAFE_SESSION", influence: { kind: "none" } });
   });
   it("refusalIsNeverRecorded", () => {
     const s = attestedSession();
     const refusal = { content: [{ type: "text", text: "refused" }], isError: true, _meta: { "paztport/verdict": writeToken({ reason: "INFLUENCE_DENIED" }) } };
-    for (const ctx of [attestedContext(s, "call-1", neverCalled), { session: "unsafe" } as const, { session: "off" } as const]) {
+    for (const ctx of [attestedContext(s, "call-1", neverCalled), UNSAFE, { session: "off" } as const]) {
       expect(readToolResult(refusal, ctx)).toEqual({ kind: "refused", verdict: "INFLUENCE_DENIED", influence: { kind: "none" } });
     }
   });
@@ -688,26 +709,26 @@ describe("readToolResult", () => {
     // a reason that is not a refusal code, and a token that does not read as a verdict
     const tokens = [{ reason: "OK" }, { reason: "<b>trust me</b>" }, { reason: 5 }, { reason: "INFLUENCE_DENIED", audit: false }, "INFLUENCE_DENIED", null, {}].map(tokenOf);
     for (const verdict of [...tokens, "", "not a token", 5, null]) {
-      const r = readToolResult({ ...RESULT, _meta: { "paztport/verdict": verdict } }, { session: "unsafe" });
+      const r = readToolResult({ ...RESULT, _meta: { "paztport/verdict": verdict } }, UNSAFE);
       expect(r, String(verdict)).toEqual({ kind: "refused", verdict: "UNKNOWN", influence: { kind: "none" } });
     }
   });
   it("aVerdictThatIsNotATokenIsAnUnknownRefusal", () => {
     // a verdict sent as the object itself, not its token: withheld, never success or an audit note
     for (const verdict of [{ reason: "PATH_NOT_ALLOWED" }, { reason: "INFLUENCE_DENIED", audit: true }]) {
-      const r = readToolResult({ ...RESULT, _meta: { "paztport/verdict": verdict } }, { session: "unsafe" });
+      const r = readToolResult({ ...RESULT, _meta: { "paztport/verdict": verdict } }, UNSAFE);
       expect(r).toEqual({ kind: "refused", verdict: "UNKNOWN", influence: { kind: "none" } });
     }
   });
   it("offlineOnlyReasonIsNotAServerVerdict", () => {
     for (const reason of ["TIME_MISMATCH", "PROMPT_MISMATCH", "OUTSIDE_SESSION", "PROOF_MISMATCH", "RULES_MISMATCH", "VERDICT_MISMATCH"]) {
-      const r = readToolResult({ ...RESULT, _meta: { "paztport/verdict": writeToken({ reason }) } }, { session: "unsafe" });
+      const r = readToolResult({ ...RESULT, _meta: { "paztport/verdict": writeToken({ reason }) } }, UNSAFE);
       expect(r).toEqual({ kind: "refused", verdict: "UNKNOWN", influence: { kind: "none" } });
     }
   });
   it("auditVerdictIsReadAsAnOrdinaryResult", () => {
     const raw = { ...RESULT, _meta: { "paztport/verdict": writeToken({ reason: "INFLUENCE_DENIED", audit: true }) } };
-    expect(readToolResult(raw, { session: "unsafe" })).toEqual({
+    expect(readToolResult(raw, UNSAFE)).toEqual({
       kind: "read",
       verdict: "INFLUENCE_DENIED",
       influence: { kind: "untrusted", hash: bindResult(raw) },
@@ -716,7 +737,7 @@ describe("readToolResult", () => {
   it("unhashableResultIsMalformed", () => {
     const s = attestedSession();
     const raw = { content: [{ type: "text", text: "\ud800" }] };
-    expect(readToolResult(raw, { session: "unsafe" })).toEqual({ kind: "malformed" });
+    expect(readToolResult(raw, UNSAFE)).toEqual({ kind: "malformed" });
     expect(readToolResult(raw, attestedContext(s, "call-1", neverCalled))).toEqual({ kind: "malformed" });
   });
   it("offHashesAndRecordsNothing", () => {

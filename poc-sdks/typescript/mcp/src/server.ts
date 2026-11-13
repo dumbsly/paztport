@@ -284,17 +284,20 @@ export async function handleToolCall<R extends Record<string, unknown> & { _meta
     call = server.checkCall(params);
     verdict = call.reason;
     if (verdict === "OK" && actsOnInfluence) {
-      // A verified call at a server that acts on influence is always handed its items: none is a refusal, never [],
-      // which would read as a chain whose every stamp names influence.
+      // A verified call at a server that acts on influence is always handed its items, so none is a fault in this
+      // SDK: it throws, never defaults to [], which would read as a chain whose every stamp names influence.
       const stamps = call.handOver?.get(INFLUENCE);
-      const read = stamps === undefined ? undefined : readRequestInfluence(stamps);
-      if (read?.reads === true) {
+      if (stamps === undefined) {
+        throw new Error("a verified call's hand-over holds no influence, which the server acts on");
+      }
+      // Not core's influenceReason: this needs the entries and the signer, and refuses a missing hand-over above,
+      // where that function lets the verifier's reason stand.
+      const read = readRequestInfluence(stamps);
+      if (read.reads) {
         request = read;
       } else {
         verdict = "INFLUENCE_MISMATCH";
-        if (read?.reads === false) {
-          server.warn(`paztport: INFLUENCE_MISMATCH: the block signed by ${read.signer} holds a bad entry`);
-        }
+        server.warn(`paztport: INFLUENCE_MISMATCH: the block signed by ${read.signer} holds a bad entry`);
       }
     }
   }
