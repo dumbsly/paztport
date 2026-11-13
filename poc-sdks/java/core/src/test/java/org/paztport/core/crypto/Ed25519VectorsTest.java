@@ -39,8 +39,8 @@ class Ed25519VectorsTest {
     }
 
     @Test
-    void hasTwentyEightCases() {
-        assertEquals(28, vectors.get("cases").size());
+    void hasThirtyCases() {
+        assertEquals(30, vectors.get("cases").size());
     }
 
     @Test
@@ -95,7 +95,9 @@ class Ed25519VectorsTest {
     /** The JDK's Signature with nothing in front of it; a key or signature it refuses counts as not valid. */
     private static boolean bareLibrary(JsonNode c) {
         try {
-            PublicKey key = Crypto.decodePublicKey(Base64Url.decode(c.get("publicKey").textValue()));
+            // the JDK's own KeyFactory: Crypto.decodePublicKey now checks the bytes before the JDK sees them
+            PublicKey key = java.security.KeyFactory.getInstance("Ed25519").generatePublic(
+                    new java.security.spec.X509EncodedKeySpec(Base64Url.decode(c.get("publicKey").textValue())));
             Signature s = Signature.getInstance("Ed25519");
             s.initVerify(key);
             s.update(Base64Url.decode(c.get("message").textValue()));

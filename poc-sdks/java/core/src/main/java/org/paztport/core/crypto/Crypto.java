@@ -73,9 +73,11 @@ public final class Crypto {
      * every SDK refuses the same ones.
      */
     public static boolean verify(PublicKey key, byte[] message, byte[] signature) {
+        if (key == null || signature == null) {
+            return false;
+        }
         byte[] spki = key.getEncoded();
-        if (spki == null || spki.length != 44 || !Arrays.equals(spki, 0, 12, ED25519_SPKI_PREFIX, 0, 12)
-                || !Ed25519Strict.encodings(Arrays.copyOfRange(spki, 12, 44), signature)) {
+        if (!isEd25519Spki(spki) || !Ed25519Strict.encodings(Arrays.copyOfRange(spki, 12, 44), signature)) {
             return false;
         }
         try {
@@ -92,7 +94,20 @@ public final class Crypto {
         return key.getEncoded();
     }
 
+    /** True for exactly the 44 bytes of an Ed25519 SPKI: the fixed prefix, then the 32 key bytes. */
+    private static boolean isEd25519Spki(byte[] x509) {
+        return x509 != null && x509.length == 44 && Arrays.equals(x509, 0, 12, ED25519_SPKI_PREFIX, 0, 12);
+    }
+
+    /**
+     * Decodes an Ed25519 public key. The bytes are checked as they arrive: the JDK reads BER leniently (a length in
+     * long form, a trailing byte) and re-encodes canonically, so checking only its re-encoding would accept a key
+     * the other SDKs refuse.
+     */
     public static PublicKey decodePublicKey(byte[] x509) {
+        if (!isEd25519Spki(x509)) {
+            throw new IllegalArgumentException("invalid Ed25519 public key: not the 44-byte Ed25519 SPKI");
+        }
         try {
             return KeyFactory.getInstance(ED25519).generatePublic(new X509EncodedKeySpec(x509));
         } catch (GeneralSecurityException e) {

@@ -42,6 +42,17 @@ class CryptoTest {
     }
 
     @Test
+    void verifyIsFalseForANullSignature() {
+        KeyPair kp = Crypto.generateEd25519KeyPair();
+        assertFalse(Crypto.verify(kp.getPublic(), bytes("m"), null));
+    }
+
+    @Test
+    void verifyIsFalseForANullKey() {
+        assertFalse(Crypto.verify(null, bytes("m"), new byte[64]));
+    }
+
+    @Test
     void verifyFailsWhenMessageTampered() {
         KeyPair kp = Crypto.generateEd25519KeyPair();
         byte[] sig = Crypto.sign(kp.getPrivate(), bytes("original"));
