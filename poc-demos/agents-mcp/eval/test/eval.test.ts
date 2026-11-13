@@ -1195,6 +1195,22 @@ describe("recheckResultsDir", { timeout: 120_000 }, () => {
     expect(rc.disagreements).toEqual(expect.arrayContaining(['results.json says on-001\'s evidence check was "verified"; the files say "did not verify"', "results.json says 1 runs verified; the files say 0"]));
   });
 
+  it("aRunWhoseSessionWasNotAttestedRechecksAsTheStoredErrorWithoutAScenario", async () => {
+    // an on-run whose client made no call (its server did not list what it required): the eval stores an error, and
+    // the folder rechecked with no scenario reads the same events log and agrees
+    const o = opts({ runs: 1, modes: ["on"] });
+    const { fn } = stub((spec) => {
+      const event = { ts: 1, type: "session", server: "github", status: "no-calls", reason: "EXTENSION_REQUIRED" };
+      writeFileSync(join(spec.runDir, "events.jsonl"), JSON.stringify(event) + "\n");
+    }, noRecords);
+    const r = await runEval(o, { runOnce: fn, fetch: offline, log: quiet });
+    const reason = "the client got no attested session with the server (no-calls, EXTENSION_REQUIRED): its calls were not sent, or went unattested";
+    expect(r.runs[0]).toMatchObject({ outcome: "error", harnessFault: false, reason });
+    const rc = recheckResultsDir(o.outDir, stored(o.outDir));
+    expect(rc.runs[0]).toMatchObject({ outcome: "error", harnessFault: false, reason });
+    expect(rc.disagreements).toEqual([]);
+  });
+
   it("aRunFolderResultsJsonLeavesOutIsFlagged", async () => {
     const o = opts({ runs: 2, modes: ["off"] });
     await runEval(o, { runOnce: stub().fn, fetch: offline, log: quiet });

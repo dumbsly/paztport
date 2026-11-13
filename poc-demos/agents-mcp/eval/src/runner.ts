@@ -14,6 +14,11 @@ import { redactFile, withRealPath, type Redaction } from "./redact.ts";
 export { checkModelAvailable, parseModel, prepareAgentDir, type ModelRef } from "./models.ts";
 
 export type RunMode = "off" | "on" | "clean-off" | "clean-on" | "warning";
+/**
+ * The modes with Paztport on: the runner starts the extension in enforce mode and configures every server
+ * `attested: true`, so each run in them asks for an attested session with every server.
+ */
+export const ATTESTED_MODES: readonly RunMode[] = ["on", "clean-on"];
 export type RunSpec = {
   scenarioDir: string;
   mode: RunMode;
@@ -259,7 +264,7 @@ export async function runOnce(spec: RunSpec, onLine?: (file: LineFile, line: str
       mkdirSync(dirname(file), { recursive: true });
       writeFileSync(file, text);
     }
-    const enforced = spec.mode === "on" || spec.mode === "clean-on";
+    const enforced = ATTESTED_MODES.includes(spec.mode);
     // without Paztport nothing is signed, so those runs get no evidence log at all
     for (const f of ["transcript.jsonl", "events.jsonl", ...(enforced ? ["evidence.jsonl"] : []), "outcome.jsonl", "stderr.txt"]) writeFileSync(path(f), "");
     if (!enforced) rmSync(path("evidence.jsonl"), { force: true });
