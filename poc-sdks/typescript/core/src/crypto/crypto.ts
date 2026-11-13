@@ -54,6 +54,22 @@ export function sign(privateKey: string, message: Uint8Array): Uint8Array {
 
 /** The X.509 SPKI DER that wraps a 32-byte Ed25519 key: the only key form the signature rule accepts. */
 const ED25519_SPKI_PREFIX = Buffer.from("302a300506032b6570032100", "hex");
+const ED25519_KEY_BYTES = 32;
+
+/**
+ * The bytes `publicKey` decodes to when they are exactly the Ed25519 SPKI, the prefix and then a 32-byte key (rule 1
+ * of the signature rule); null for anything else, text that is not base64url included.
+ */
+function ed25519Spki(publicKey: string): Buffer | null {
+  let spki: Buffer;
+  try {
+    spki = Buffer.from(decode(publicKey));
+  } catch {
+    return null;
+  }
+  const prefix = ED25519_SPKI_PREFIX.length;
+  return spki.length === prefix + ED25519_KEY_BYTES && spki.subarray(0, prefix).equals(ED25519_SPKI_PREFIX) ? spki : null;
+}
 
 /**
  * The signature rule (spec wire.md, Signatures): the key is an Ed25519 SPKI and the encodings pass strictEncodings,
@@ -61,9 +77,8 @@ const ED25519_SPKI_PREFIX = Buffer.from("302a300506032b6570032100", "hex");
  */
 export function verify(publicKey: string, message: Uint8Array, signature: Uint8Array): boolean {
   try {
-    const spki = Buffer.from(decode(publicKey));
-    if (spki.length !== 44 || !spki.subarray(0, 12).equals(ED25519_SPKI_PREFIX)) return false;
-    if (!strictEncodings(spki.subarray(12), signature)) return false;
+    const spki = ed25519Spki(publicKey);
+    if (spki === null || !strictEncodings(spki.subarray(ED25519_SPKI_PREFIX.length), signature)) return false;
     const key = createPublicKey({ key: spki, format: "der", type: "spki" });
     return nodeVerify(null, message, key, signature);
   } catch {
@@ -82,12 +97,11 @@ export function keyPairMatches(privateKey: string, publicKey: string): boolean {
   }
 }
 
-/** True when `publicKey` is a base64url X.509 SPKI Ed25519 public key; false (never throws) for anything else, a non-string included. */
+/**
+ * True when `publicKey` is the base64url of exactly the 44-byte Ed25519 SPKI, the only key form verify accepts; false
+ * (never throws) for anything else, a non-string included. A key of small order passes, as it does in the Java and Go
+ * SDKs, though no signature verifies under it.
+ */
 export function isEd25519PublicKey(publicKey: unknown): boolean {
-  try {
-    if (typeof publicKey !== "string") return false;
-    return createPublicKey({ key: Buffer.from(decode(publicKey)), format: "der", type: "spki" }).asymmetricKeyType === "ed25519";
-  } catch {
-    return false;
-  }
+  return typeof publicKey === "string" && ed25519Spki(publicKey) !== null;
 }

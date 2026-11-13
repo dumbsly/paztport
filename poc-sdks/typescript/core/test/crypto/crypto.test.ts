@@ -4,7 +4,7 @@
 import { generateKeyPairSync, type KeyObject } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { encode } from "../../src/encoding/b64url.ts";
+import { decode, encode } from "../../src/encoding/b64url.ts";
 import { generateKeyPair, isEd25519PublicKey, keyPairMatches, sha256, sign, utf8, verify } from "../../src/crypto/crypto.ts";
 import { SMALL_ORDER_Y } from "../../src/crypto/ed25519-strict.ts";
 
@@ -63,5 +63,17 @@ describe("crypto", () => {
     expect(isEd25519PublicKey(undefined)).toBe(false);
     expect(isEd25519PublicKey("")).toBe(false);
     expect(isEd25519PublicKey("not base64url!")).toBe(false);
+  });
+  it("isEd25519PublicKeyRefusesOtherBytesThatHoldAnEd25519Key", () => {
+    // node:crypto decodes all three to the same Ed25519 key, but none is the 44-byte SPKI the signature rule accepts
+    const spki = Buffer.from(decode(generateKeyPair().publicKey));
+    const longForm = Buffer.concat([Buffer.from([0x30, 0x81, 0x2a]), spki.subarray(2)]);
+    const trailingByte = Buffer.concat([spki, Buffer.from([0])]);
+    const unusedBit = Buffer.from(spki);
+    unusedBit[11] = 0x01;
+    for (const key of [longForm, trailingByte, unusedBit]) {
+      expect(isEd25519PublicKey(encode(key))).toBe(false);
+      expect(verify(encode(key), utf8("m"), new Uint8Array(64))).toBe(false);
+    }
   });
 });

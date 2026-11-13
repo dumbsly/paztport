@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 import { generateKeyPair, sign, utf8 } from "../../src/crypto/crypto.ts";
-import { encode } from "../../src/encoding/b64url.ts";
+import { decode, encode } from "../../src/encoding/b64url.ts";
 import { canonicalize } from "../../src/encoding/jcs.ts";
 import { keyringSigningBytes, signKeyring, verifyKeyring } from "../../src/policy/keyring.ts";
 import type { SignedKeyring } from "../../src/policy/keyring.ts";
@@ -75,7 +75,9 @@ describe("policy owner", () => {
 
   it("refusesToRenewARootAgainstAMalformedPolicyKey", () => {
     const root = signRoot(new Uint8Array(32), "root-1", policy.privateKey, OLD);
-    for (const key of [undefined, null, "", "not base64url!", encode(new Uint8Array(12))]) {
+    // the policy key with a trailing byte still decodes in node:crypto, but is not the 44-byte Ed25519 SPKI
+    const trailingByte = encode(Uint8Array.from([...decode(policy.publicKey), 0]));
+    for (const key of [undefined, null, "", "not base64url!", encode(new Uint8Array(12)), trailingByte]) {
       expect(() => renewRoot(root, key as unknown as string, NEW, policy.privateKey), String(key)).toThrow(
         "root cannot be checked: the policy key is not an Ed25519 public key",
       );
