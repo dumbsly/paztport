@@ -255,9 +255,11 @@ whose item does not read to its `warn`; then applies `decideServerCall`; refuses
 notes the verdict on the result in audit; runs the tool, and attests the result of a call that verified. A verified call
 whose hand-over lacks `influence` at a server that acts on it is a fault in this SDK, not in the call, so
 `handleToolCall` throws rather than refuse it. The tool's `run` returns a `ToolRun`: its result and `cls`, the class of
-the content it holds, which a server that acts on `influence` labels the response with, so it throws for a result
-without one. A `null` session is a deployment with no Paztport material, so every call is in an unsafe session. The
-decisions are core's, so a server in another transport decides the same.
+the content it holds. A server that acts on `influence` adds `cls` to the session's served classes for every result it
+returns in an attested session, whether or not the call verified, which in audit mode it may not have, and labels an
+attested response with it; there it throws, after the tool has run, for a result without one, and in an unsafe
+session it does not read it. A `null` session is a deployment with no Paztport material, so every call is in an
+unsafe session. The decisions are core's, so a server in another transport decides the same.
 
 `verifyRecordedCall` checks a recorded `tools/call` offline, with `verifyChainOffline`.
 

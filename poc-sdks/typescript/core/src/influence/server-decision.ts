@@ -29,7 +29,7 @@ export function decideVerifiedCall(
   opts: {
     isWrite: boolean;
     publicDestination: boolean;
-    /** Every class this server has attested in a response in the session. */
+    /** Every class of a result this server has returned in the session, verified or not. */
     served: Iterable<InfluenceClass>;
     destinationOwner?: string;
   },

@@ -547,7 +547,7 @@ describe("response attestation", () => {
   });
   it("aServerThatActsOnInfluenceRequiresAClassToAttest", () => {
     const { srv } = setup();
-    expect(() => srv.attest(srv.session()!, RESULT, CALL)).toThrow("a server that acts on influence labels every result");
+    expect(() => srv.attest(srv.session()!, RESULT, CALL)).toThrow("a server that acts on influence needs the class of every result");
   });
   it("theResponseChainEndsAtTheCaller", () => {
     const { srv } = setup();
@@ -560,15 +560,9 @@ describe("response attestation", () => {
     const out = srv.attest(srv.session()!, RESULT, { ...CALL, caller: "other" }, "public");
     expect(client.verify(out, { rid: CALL.rid, toolCallId: CALL.callId }, reply.serverKeyring, reply.serverRoot!).reason).toBe("BINDING_MISMATCH");
   });
-  it("attestRecordsServedClass", () => {
-    const { srv, client } = setup();
-    expect([...srv.session()!.served]).toEqual([]);
+  it("attestLabelsButLeavesTheServedClassesToHandleToolCall", () => {
+    const { srv } = setup();
     srv.attest(srv.session()!, RESULT, CALL, "third-party");
-    srv.attest(srv.session()!, RESULT, { ...CALL, rid: "rid-2", callId: "call-2" }, "private");
-    srv.attest(srv.session()!, RESULT, { ...CALL, rid: "rid-3", callId: "call-3" }, "third-party");
-    expect(srv.session()!.served).toEqual(new Set(["third-party", "private"]));
-    // a new handshake starts a new session with nothing served
-    handshake(srv, client.request());
     expect(srv.session()!.served.size).toBe(0);
   });
   it("replayedResponseIsRejected", () => {
@@ -629,8 +623,6 @@ describe("response attestation", () => {
     const out = srv.attest(other, RESULT, CALL, "private");
     const att = readAttestation((out._meta as Record<string, string>)[META_ATTESTATION]!);
     expect(att.chain.map((s) => s.sess)).toEqual(["verified-session-id", "verified-session-id"]);
-    expect(other.served).toEqual(new Set(["private"]));
-    expect(srv.session()!.served.size).toBe(0);
   });
 });
 
@@ -794,6 +786,50 @@ describe("handleToolCall", () => {
     expect(out).toMatchObject({ verdict: "INFLUENCE_DENIED", ran: true });
     expect(verdictOf(out.result)).toEqual({ reason: "INFLUENCE_DENIED", audit: true });
     expect(meta(out.result)[META_ATTESTATION]).toBeDefined();
+  });
+
+  it("theClassesServedAreEveryResultsInTheSession", async () => {
+    const { srv, client } = open(["list_issues"]);
+    const call = (callId: string, cls: "third-party" | "private") =>
+      srv.handleToolCall(client.callParams("list_issues", ARGS, [], { rid: `r-${callId}`, callId }), READ, "enforce", () => ({ result: RESULT, cls }));
+    expect([...srv.session()!.served]).toEqual([]);
+    await call("c-1", "third-party");
+    await call("c-2", "private");
+    await call("c-3", "third-party");
+    expect(srv.session()!.served).toEqual(new Set(["third-party", "private"]));
+    // a new handshake starts a new session with nothing served
+    handshake(srv, client.request());
+    expect(srv.session()!.served.size).toBe(0);
+  });
+
+  it("auditServesTheClassOfACallThatFailedVerification", async () => {
+    // influence.md, Over MCP: every class served, so private data returned unattested still counts
+    const { srv, client } = open(["list_issues", "create_pull_request"]);
+    const params = client.callParams("list_issues", ARGS, []);
+    const failed = await srv.handleToolCall({ ...params, arguments: { owner: "x" } }, READ, "audit", () => ({ result: RESULT, cls: "private" }));
+    expect(failed).toMatchObject({ verdict: "BINDING_MISMATCH", ran: true, verified: null });
+    expect(meta(failed.result)[META_ATTESTATION]).toBeUndefined();
+    expect(srv.session()!.served).toEqual(new Set(["private"]));
+    // a verified public write whose chain holds one local-untrusted entry: refused by the served private class, noted
+    let ran = false;
+    const untrusted: InfluenceEntry[] = [{ cls: "local-untrusted", src: "server:github", h: "h1" }];
+    const write = await srv.handleToolCall(client.callParams("create_pull_request", ARGS, untrusted), PUBLIC_WRITE, "audit", () => {
+      ran = true;
+      return { result: RESULT, cls: "public" };
+    });
+    expect(ran).toBe(true);
+    expect(write).toMatchObject({ verdict: "INFLUENCE_DENIED", ran: true, verified: { reason: "OK" } });
+    expect(verdictOf(write.result)).toEqual({ reason: "INFLUENCE_DENIED", audit: true });
+  });
+
+  it("anUnsafeSessionNeedsNoClass", async () => {
+    const { srv, client } = open(["list_issues"], false);
+    expect(srv.session()!.status).toBe("unsafe");
+    const out = await srv.handleToolCall(client.callParams("list_issues", ARGS, []), READ, "enforce", () => ({ result: RESULT }));
+    expect(out).toMatchObject({ verdict: "OK", ran: true, verified: null });
+    expect(srv.session()!.served.size).toBe(0);
+    const none = await srv.handleToolCall({ name: "list_issues", arguments: ARGS }, READ, "enforce", () => ({ result: RESULT }));
+    expect(none).toMatchObject({ verdict: "OK", ran: true });
   });
 
   it("aFailedChainIsRefusedInEnforceAndNeverAttested", async () => {
@@ -972,7 +1008,7 @@ describe("a server's extensions", () => {
     const { srv, client } = open();
     const params = client.callParams("list_issues", ARGS, []);
     await expect(srv.handleToolCall(params, { isWrite: false, publicDestination: false }, "enforce", () => ({ result: RESULT })))
-      .rejects.toThrow("a server that acts on influence labels every result");
+      .rejects.toThrow("a server that acts on influence needs the class of every result");
   });
 
   it("aVerifiedCallWithNoInfluenceInItsHandOverIsAFaultThatRunsNothing", async () => {

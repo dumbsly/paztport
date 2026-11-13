@@ -290,8 +290,9 @@ the session's whole influence as its block's `influence` items, since the client
 has verified in an attested session ([sessions.md](sessions.md#the-server-decision)), by the every-stamp rule and
 then the owner-aware rule, over the client's influence, the items handed on from its call's blocks
 ([What the rules read](#what-the-rules-read)), plus every class the server has served in this session
-(`INFLUENCE_DENIED`). The served classes only add facts: a client that fails to record a `private` or `third-party`
-label can't launder it past the rule. A served class carries no owner, so it counts as unknown.
+(`INFLUENCE_DENIED`): the class of every result it returned, whether or not it attested it, so in audit mode that of
+a call that failed verification too. The served classes only add facts: a client that fails to record a `private` or
+`third-party` label can't launder it past the rule. A served class carries no owner, so it counts as unknown.
 
 An MCP server in audit mode runs every call and notes its verdict, `INFLUENCE_DENIED` and `INFLUENCE_MISMATCH`
 included, as for every code ([Modes and refusals](verification.md#modes-and-refusals)).

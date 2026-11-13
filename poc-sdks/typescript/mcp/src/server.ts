@@ -84,7 +84,10 @@ export type Session = {
   request: SessionRequest;
   /** The session's own replay cache, which a new handshake replaces. */
   nonces: NonceCache;
-  /** Every class this server has attested in a response in this session (sticky); empty unless it acts on influence. */
+  /**
+   * Every class of a result this server has returned in this session, whether or not its call verified (sticky; spec
+   * influence.md, Over MCP); empty unless it acts on influence. handleToolCall records it.
+   */
   served: Set<InfluenceClass>;
 };
 
@@ -128,9 +131,11 @@ export type RefusedToolResult = {
 };
 
 /**
- * What `run` returns: the tool's result, the class of the content it holds, and anything the caller wants back. A
- * server that acts on influence labels every response it attests with `cls`, so it requires one; handleToolCall throws
- * for a result without it.
+ * What `run` returns: the tool's result, the class of the content it holds, and anything the caller wants back. `cls`
+ * is required exactly for a call in an attested session at a server that acts on influence, verified or not: the
+ * server records it among the classes it served, and labels the response with it when it attests one. There a result
+ * without it makes handleToolCall throw, after the tool has run; in an unsafe session, and at a server that does not
+ * act on influence, it is not read.
  */
 export type ToolRun<R, D = undefined> = { result: R; cls?: InfluenceClass; detail?: D };
 
@@ -239,12 +244,17 @@ export function checkServerPolicy(policy: ServerPolicy, now: number): void {
 }
 
 /**
- * The class a result is labelled with, from what `run` returned: a server that acts on influence labels every
- * response it attests (spec influence.md, Content labels), so it throws for none; one that does not keeps no class.
+ * The class of a result returned in an attested session, from what `run` returned: a server that acts on influence
+ * records every class it serves there and labels every response it attests (spec influence.md, Content labels and
+ * Over MCP), so it throws for none; one that does not keeps no class.
  */
-function labelClass(extensions: ExtensionSettings, cls: InfluenceClass | undefined): InfluenceClass | undefined {
+function resultClass(extensions: ExtensionSettings, cls: InfluenceClass | undefined): InfluenceClass | undefined {
   if (!extensions.actsOn.has(INFLUENCE)) return undefined;
-  if (cls === undefined) throw new Error("a server that acts on influence labels every result: run returned no cls");
+  if (cls === undefined) {
+    throw new Error(
+      "a server that acts on influence needs the class of every result in an attested session: none given",
+    );
+  }
   return cls;
 }
 
@@ -256,11 +266,12 @@ function labelClass(extensions: ExtensionSettings, cls: InfluenceClass | undefin
  * and the signer of its block goes to the server's `warn`, since the code names no one. Then decideServerCall applies
  * the unsafe-session gate. In enforce a verdict other than OK gives an `isError` result carrying the verdict token of
  * `{reason}` and `run` is not called; in audit `run` is called anyway and its result carries the verdict token of
- * `{reason, audit: true}`. `run` gets the verdict and returns the result, with the class of its content when the
- * server acts on influence. Only a verified call's result is attested; an unsafe session's, or one whose chain failed,
- * is returned unattested. A null `server` is a deployment with no Paztport material: no handshake, so every call is in
- * an unsafe session under `rules`. The `off` switch is not a protocol mode; a deployment that has one does not call
- * this.
+ * `{reason, audit: true}`. `run` gets the verdict and returns the result, with the class of its content (`ToolRun`).
+ * At a server that acts on influence, the class of every result returned in an attested session joins the session's
+ * served classes, whether or not the call verified. Only a verified call's result is attested; an unsafe session's,
+ * or one whose chain failed, is returned unattested. A null `server` is a deployment with no Paztport material: no
+ * handshake, so every call is in an unsafe session under `rules`. The `off` switch is not a protocol mode; a
+ * deployment that has one does not call this.
  */
 export async function handleToolCall<R extends Record<string, unknown> & { _meta?: Record<string, unknown> }, D = undefined>(
   server: McpServerSession | null,
@@ -306,7 +317,10 @@ export async function handleToolCall<R extends Record<string, unknown> & { _meta
     return { result: refusedToolResult(verdict), verdict, ran: false, verified };
   }
   const { result, cls, detail } = await run({ verdict });
-  const label = server === null ? undefined : labelClass(server.extensions, cls);
+  // Served, verified or not (spec influence.md, Over MCP): the two differ only in audit mode, where a call that failed
+  // verification runs. `sess` is the session the call arrived in, though a handshake may have replaced it since.
+  const served = server !== null && attested ? resultClass(server.extensions, cls) : undefined;
+  if (served !== undefined) sess!.served.add(served);
   const noted: R =
     verdict !== "OK" ? { ...result, _meta: { ...result._meta, [META_VERDICT]: writeToken({ reason: verdict, audit: true }) } } : result;
   if (server === null || verified === null) {
@@ -314,7 +328,7 @@ export async function handleToolCall<R extends Record<string, unknown> & { _meta
   }
   const args = params.arguments ?? {};
   const { rid, callId, caller } = verified;
-  const attestedResult = server.attest(verified.session, noted, { rid, callId, name, args, caller }, label);
+  const attestedResult = server.attest(verified.session, noted, { rid, callId, name, args, caller }, served);
   return { result: attestedResult, verdict, ran: true, verified, detail: detail as D };
 }
 
@@ -442,8 +456,8 @@ export class McpServerSession {
    * checkCall's caller: the client that made the call. Each stamp commits to its block. A server that acts on
    * influence names it in both (spec influence.md, Content labels): the entry hop's adds nothing, and the tools hop's
    * holds one label of class `cls`, with a fresh content id, and requires `influence` of the client, so a client that
-   * would drop the label refuses the response; `cls` is required, and the class joins the session's served classes.
-   * One that does not attests with empty blocks.
+   * would drop the label refuses the response; `cls` is required. One that does not attests with empty blocks. The
+   * served classes are handleToolCall's to record, for every result it returns in an attested session.
    */
   attest<R extends Record<string, unknown> & { _meta?: Record<string, unknown> }>(
     session: Session,
@@ -452,7 +466,7 @@ export class McpServerSession {
     cls?: InfluenceClass,
   ): R {
     const [entry, tools] = this.policy.hops;
-    const label = labelClass(this.extensions, cls);
+    const label = resultClass(this.extensions, cls);
     const blocks: [Block, Block] = label === undefined
       ? [EMPTY_BLOCK, EMPTY_BLOCK]
       : [influenceBlock([]), influenceBlock([{ cls: label, cid: newContentId() }], [INFLUENCE])];
@@ -470,7 +484,6 @@ export class McpServerSession {
     );
     const attestation: ResponseAttestation = { blocks, chain: [s0, s1], proof: this.policy.routeProof, resultHash };
     const token = writeToken(attestation as unknown as JsonValue);
-    if (label !== undefined) session.served.add(label);
     return { ...result, _meta: { ...result._meta, [META_ATTESTATION]: token } };
   }
 }
