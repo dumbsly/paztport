@@ -6,19 +6,19 @@ import { cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, wri
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  bindLocalTool, buildTree, decode, encode, generateKeyPair, keyringSigningBytes, randomBytes, readChain, readInfluence,
-  readKeyring, readLocalDecision, readRoot, readSessionReply, readSessionRequest, readToken, sign, signRoot, signSessionReply, signStamp,
+  bindLocalTool, buildTree, decode, encode, generateKeyPair, itemsUnder, keyringSigningBytes, makeBlock, mintOrigin, randomBytes, readBlocks,
+  readChain, readKeyring, readProof, readLocalDecision, readRoot, readSessionReply, readSessionRequest, readToken, sign, signRoot, signSessionReply, signStamp,
   writeToken,
 } from "@paztport/core";
-import { bindMcpCall } from "@paztport/mcp";
+import { bindMcpCall, stampToolCall } from "@paztport/mcp";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ServerConnection } from "../../pi-extension/src/connection.ts";
 import { EventLog } from "../../pi-extension/src/events.ts";
 import { clientRecord, EvidenceLog } from "../../pi-extension/src/evidence.ts";
 import { InfluenceStore } from "../../pi-extension/src/influence.ts";
-import { loadClientMaterial, type ClientMaterial } from "../../pi-extension/src/keys.ts";
+import { loadClientMaterial, PI_SVC, type ClientMaterial } from "../../pi-extension/src/keys.ts";
 import { LocalGate } from "../../pi-extension/src/local/gate.ts";
-import { RunState } from "../../pi-extension/src/runs.ts";
+import { ORIGIN_BLOCK, RunState } from "../../pi-extension/src/runs.ts";
 import { githubArgs, resignDemo, setupDemo, type DemoWindows } from "../../pi-extension/test/helpers/demo.ts";
 import { verifyClient, verifyLocal } from "../src/verify-local.ts";
 import { pinFingerprint, verifyEvidence, verifyResultsDir, type VerifyItem } from "../src/verify.ts";
@@ -59,7 +59,7 @@ async function produce(pin = join(demo, "client/server-policy.pub"), dir = demo)
     await conn.connect();
     runs.start(PROMPT, Date.now());
     const rid = runs.current()!.rid;
-    evidence.write({ v: 1, type: "run", rid, ts: Date.now(), prompt: PROMPT });
+    evidence.write({ v: 2, type: "run", rid, ts: Date.now(), prompt: PROMPT });
     await conn.call("list_issues", { owner: "acme", repo: "website" }, "toolu_a");
     await conn.call("search_repositories", { query: "user:acme" }, "toolu_b");
     await conn.call("get_file_contents", { owner: "acme", repo: "payroll-notes", path: "README.md" }, "toolu_c");
@@ -108,7 +108,7 @@ describe("verifyEvidence", { timeout: 30_000 }, () => {
   it("tamperedLabelFails", () => {
     const r = verifyEvidence(write(genuine, (rs) => {
       const meta = rs.find((x) => x.type === "response" && x.callId === "toolu_c").result._meta;
-      meta["paztport/attestation"] = changed(meta["paztport/attestation"], (att) => { att.labels[0].cls = "public"; });
+      meta["paztport/attestation"] = changed(meta["paztport/attestation"], (att) => { att.blocks[1].items.influence[0].cls = "public"; });
     }));
     expect(r.ok).toBe(false);
     const item = r.items.find((i) => i.callId === "toolu_c" && i.type === "response")!;
@@ -239,6 +239,94 @@ describe("verifyEvidence", { timeout: 30_000 }, () => {
     expect(reports.map((x) => x.ok)).toEqual([true, false, false]);
     expect(verifyResultsDir(join(tmp, "no-such-dir")).every((x) => !x.ok)).toBe(true);
     expect(verifyResultsDir(join(tmp, "no-such-dir"))).toHaveLength(1);
+  });
+});
+
+describe("verifyEvidence: evidence format 2", { timeout: 30_000 }, () => {
+  const callOf = (rs: any[], id: string) => rs.find((x) => x.type === "call" && x.callId === id);
+
+  /** The records of `genuine` written as an earlier version of the demo wrote them: format 1, protocol version 3. */
+  const asFormat1 = (rs: any[]) => { for (const r of rs) r.v = 1; };
+
+  it("aFormat1FileIsRefusedWithOneReason", () => {
+    const path = write(genuine, asFormat1);
+    const r = verifyEvidence(path);
+    expect(r).toEqual({
+      file: path,
+      ok: false,
+      items: [{ line: 0, type: "file", result: "UNREADABLE" }],
+      pins: [],
+      problem: "evidence format 1, written for protocol version 3 by an earlier version of this demo; this verify reads format 2",
+    });
+    const cli = spawnSync(process.execPath, [MAIN, path], { encoding: "utf8" });
+    expect(cli.stdout).toBe(`FAIL ${path}: ${r.problem}\n`);
+    expect(cli.status).toBe(1);
+  });
+
+  it("aFormat1FileInAResultsFolderIsRefusedAsOneFile", () => {
+    const dir = join(tmp, `results-${n++}`);
+    mkdirSync(join(dir, "runs/on-001"), { recursive: true });
+    cpSync(write(genuine, asFormat1), join(dir, "runs/on-001/evidence.jsonl"));
+    const reports = verifyResultsDir(dir);
+    expect(reports.map((x) => [x.file, x.ok, x.items.length])).toEqual([["runs/on-001/evidence.jsonl", false, 1]]);
+    expect(reports[0]!.problem).toMatch(/^evidence format 1/);
+  });
+
+  it("aRecordOfAnotherFormatAmongFormat2IsAnUnreadableLine", () => {
+    // only a file with no format 2 record is refused whole: one stray record is judged as a line that cannot be read
+    const r = verifyEvidence(write(genuine, (rs) => { rs.find((x) => x.type === "run").v = 1; }));
+    expect(r.problem).toBeUndefined();
+    const runLine = genuine.findIndex((l) => JSON.parse(l).type === "run") + 1;
+    expect(r.items.filter((i) => i.result === "UNREADABLE").map((i) => [i.line, i.type])).toEqual([[runLine, "line"]]);
+  });
+
+  it("aCallWhoseBlockHoldsAnItemThatIsNotAnEntryIsInfluenceMismatch", () => {
+    // stamped with the client's own keys, so the chain verifies; only the reading of `influence` refuses it
+    const material = loadClientMaterial(join(demo, "client"));
+    const r = verifyEvidence(write(genuine, (rs) => {
+      const rec = callOf(rs, "toolu_a");
+      const meta = rec.params._meta;
+      const [origin] = readChain(meta["paztport/chain"]);
+      const hop = readChain(meta["paztport/chain"])[1]!;
+      const minted = mintOrigin(
+        { svc: origin!.svc, rid: origin!.rid, ts: origin!.ts, bind: origin!.bind, sess: origin!.sess, inst: origin!.inst, rcv: origin!.rcv, block: ORIGIN_BLOCK },
+        material.sessionKey,
+      );
+      rec.params._meta = stampToolCall(
+        { name: rec.params.name, args: rec.params.arguments, callId: rec.callId },
+        {
+          origin: minted,
+          originBlock: ORIGIN_BLOCK,
+          svc: PI_SVC,
+          inst: hop.inst,
+          privateKey: material.piKey,
+          ts: rec.now,
+          block: makeBlock({ influence: [{ cls: "private" }] }, []),
+          requires: [],
+          proof: readProof(meta["paztport/proof"]),
+          serverId: rec.server,
+        },
+      );
+    }));
+    expect(r.ok).toBe(false);
+    expect(r.items.find((i) => i.type === "call" && i.callId === "toolu_a")!.result).toBe("INFLUENCE_MISMATCH");
+    expect(results(r.items, "call").filter((x) => x === "OK")).toHaveLength(3);
+  });
+
+  it("aCallWithAnEditedExtensionsTokenIsExtensionMismatch", () => {
+    // removing the entries the call carried would make a later write look allowed; the stamp commits to the block
+    const r = verifyEvidence(write(genuine, (rs) => {
+      const meta = callOf(rs, "toolu_c").params._meta;
+      meta["paztport/extensions"] = changed(meta["paztport/extensions"], (blocks) => { blocks[1].items.influence = []; });
+    }));
+    expect(r.ok).toBe(false);
+    expect(r.items.find((i) => i.type === "call" && i.callId === "toolu_c")!.result).toBe("EXTENSION_MISMATCH");
+  });
+
+  it("aCallWithItsExtensionsTokenRemovedIsExtensionMismatch", () => {
+    // no token is every block empty, which the hop's stamp over a block of entries does not match
+    const r = verifyEvidence(write(genuine, (rs) => { delete callOf(rs, "toolu_c").params._meta["paztport/extensions"]; }));
+    expect(r.items.find((i) => i.type === "call" && i.callId === "toolu_c")!.result).toBe("EXTENSION_MISMATCH");
   });
 });
 
@@ -434,7 +522,7 @@ describe("verifyEvidence: fix round 1", { timeout: 30_000 }, () => {
   });
 
   it("onlyForgedRefusalsIsNotOk", () => {
-    const refusal = (callId: string) => ({ v: 1, type: "response", server: "github", tool: "create_branch", callId, rid: "r", now: 1, result: { isError: true, content: [{ type: "text", text: "Paztport refused this call: INFLUENCE_DENIED" }], _meta: { "paztport/verdict": writeToken({ reason: "INFLUENCE_DENIED" }) } } });
+    const refusal = (callId: string) => ({ v: 2, type: "response", server: "github", tool: "create_branch", callId, rid: "r", now: 1, result: { isError: true, content: [{ type: "text", text: "Paztport refused this call: INFLUENCE_DENIED" }], _meta: { "paztport/verdict": writeToken({ reason: "INFLUENCE_DENIED" }) } } });
     const lines = [genuine.find((l) => JSON.parse(l).type === "session")!, JSON.stringify(refusal("x")), JSON.stringify(refusal("y"))];
     const r = verifyEvidence(write(lines));
     expect(r.ok).toBe(false);
@@ -967,7 +1055,10 @@ describe("verifyEvidence: signed local steps", { timeout: 60_000 }, () => {
     expect(["l_read", "l_outside", "l_note", "l_route", "l_uncheck", "l_leak"].map((id) => decisionOf(localOf(rs, id)).verdict)).toEqual(["OK", "SCOPE_DENIED", "OK", "PATH_NOT_ALLOWED", "UNCHECKABLE", "INFLUENCE_DENIED"]);
     expect(decisionOf(localOf(rs, "l_outside")).resolved.paths).toEqual([{ need: "read", at: "outside" }]);
     expect(localOf(rs, "l_route").proof).toBeNull();
-    expect(readInfluence(localOf(rs, "l_leak").influence).map((e) => e.src)).toContain("server:local:read");
+    // the hop's block holds the entries the gate saw, under `influence`; the origin's holds none
+    const [origin, hop] = readBlocks(localOf(rs, "l_leak").blocks);
+    expect(itemsUnder(origin!, "influence")).toEqual([]);
+    expect((itemsUnder(hop!, "influence") as any[]).map((e) => e.src)).toContain("server:local:read");
   });
 
   it("aRecordWhoseObjectsAreNotTokensFailsClosed", () => {
@@ -984,7 +1075,7 @@ describe("verifyEvidence: signed local steps", { timeout: 60_000 }, () => {
     const valueCall = { ...call, params: { ...call.params, _meta: Object.fromEntries(meta) } };
     const { decision, ...local } = localOf(rs, "l_read");
     const { callId: _id, ...decided } = readToken(decision) as Record<string, unknown>;
-    const valueLocal = { ...local, ...decided, chain: valueOf(local.chain), proof: valueOf(local.proof), influence: valueOf(local.influence) };
+    const valueLocal = { ...local, ...decided, chain: valueOf(local.chain), proof: valueOf(local.proof), blocks: valueOf(local.blocks) };
     // the attestation of toolu_c's response and the verdict of toolu_d's refusal, each as its value
     const valueResult = (x: any) => ({
       ...x,
@@ -994,7 +1085,7 @@ describe("verifyEvidence: signed local steps", { timeout: 60_000 }, () => {
     const client = rs.find((x) => x.type === "client");
     const ring = readKeyring(client.keyring);
     const valueClient = {
-      v: 1, type: "client", keyring: ring.services, keyringSig: ring.sig, keyringNotAfter: ring.notAfter, policyPublicKey: ring.policy,
+      v: 2, type: "client", keyring: ring.services, keyringSig: ring.sig, keyringNotAfter: ring.notAfter, policyPublicKey: ring.policy,
       signedRoot: readRoot(client.root), rules: valueOf(client.rules), rulesProof: valueOf(client.rulesProof),
     };
     const inValueForm = (x: any) =>
@@ -1056,14 +1147,25 @@ describe("verifyEvidence: signed local steps", { timeout: 60_000 }, () => {
     expect(localResult(verifyEvidence(write(localLines, (rs) => decide(localOf(rs, "l_read"), (d) => { d.verdict = "MAYBE"; }))), "l_read")).toBe("BINDING_MISMATCH");
   });
 
-  it("tamperedInfluenceFails", () => {
-    // dropping the private entry would make the public write look allowed
+  it("aLocalRecordWithAnEntryRemovedIsExtensionMismatch", () => {
+    // dropping the private entry from the hop's block would make the public write look allowed; the stamp commits to the block
     const r = verifyEvidence(write(localLines, (rs) => {
       const rec = localOf(rs, "l_leak");
-      rec.influence = retoken(rec.influence, (influence: any) => influence.filter((e: any) => e.cls !== "private"));
+      rec.blocks = changed(rec.blocks, (blocks) => {
+        blocks[1].items.influence = blocks[1].items.influence.filter((e: any) => e.cls !== "private");
+      });
     }));
     expect(r.ok).toBe(false);
-    expect(localResult(r, "l_leak")).toBe("INFLUENCE_MISMATCH");
+    expect(localResult(r, "l_leak")).toBe("EXTENSION_MISMATCH");
+  });
+
+  it("aLocalRecordWithItsBlocksSwappedIsExtensionMismatch", () => {
+    const r = verifyEvidence(write(localLines, (rs) => {
+      const rec = localOf(rs, "l_leak");
+      rec.blocks = retoken(rec.blocks, (blocks: any) => [blocks[1], blocks[0]]);
+    }));
+    expect(r.ok).toBe(false);
+    expect(localResult(r, "l_leak")).toBe("EXTENSION_MISMATCH");
   });
 
   it("tamperedRulesFolderFails", () => {
@@ -1312,13 +1414,13 @@ describe("verifyEvidence: signed local steps", { timeout: 60_000 }, () => {
     expect(localResult(origin, "l_read")).toBe("BAD_ORIGIN");
   });
 
-  it("aStepWithAStampWhoseVersionIsNotThreeIsChainMissing", () => {
+  it("aStepWithAStampWhoseVersionIsNotFourIsChainMissing", () => {
     const recs: any[] = localLines.map((l) => JSON.parse(l));
     const client = verifyClient(recs.find((x) => x.type === "client"), []);
     const run = recs.find((x) => x.type === "run");
     const runOf = (rid: string) => (rid === run.rid ? { prompt: run.prompt as string, ts: new Set<number>([run.ts]) } : undefined);
     const rec = structuredClone(localOf(recs, "l_read"));
-    for (const v of [1, 2, 4]) {
+    for (const v of [1, 2, 3]) {
       for (const at of [[0], [1], [0, 1]]) {
         const odd = structuredClone(rec);
         rechain(odd, (c) => { for (const i of at) c[i].v = v; });
@@ -1402,7 +1504,7 @@ describe("verifyEvidence: signed local steps", { timeout: 60_000 }, () => {
     evidence.write(clientRecord(material));
     const ts = Date.now();
     runs.start(PROMPT, ts);
-    evidence.write({ v: 1, type: "run", rid: runs.current()!.rid, ts, prompt: PROMPT });
+    evidence.write({ v: 2, type: "run", rid: runs.current()!.rid, ts, prompt: PROMPT });
     const gate = new LocalGate({
       mode: "enforce",
       material,

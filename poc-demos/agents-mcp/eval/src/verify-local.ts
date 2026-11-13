@@ -37,13 +37,15 @@ import {
  * fields (`tool`, `callId`, `rid`, `now`, `input`) are well formed (UNREADABLE); there is a verified client record
  * (NO_CLIENT); then the library's recorded local step check, verifyRecordedLocalStep (verification.md §Offline
  * verification, MCP profile), with this demo's signers: the origin is svc "session" and the step svc "pi", both on
- * inst "pi-1". It reads the record's `decision`, `chain`, `proof` and `influence` tokens, each refused as its reader
- * refuses it, and its order is in its own comment: the binding of the call and the decision (BINDING_MISMATCH, also
- * for a decision that does not read), the chain with every offline check (the run's recorded prompt and start times,
- * and the file's spent keys), POLICY_EXPIRED against the client record's root and keyring at the step's time,
- * PROOF_MISMATCH, RULES_MISMATCH and VERDICT_MISMATCH. The client signs the step's time itself: verify relies on it,
+ * inst "pi-1". It reads the record's `decision`, `chain`, `proof` and `blocks` tokens (`blocks` is the token of the
+ * chain's blocks, [origin block, hop block]), each refused as its reader refuses it, and its order is in its own
+ * comment: the binding of the call and the decision (BINDING_MISMATCH, also for a decision that does not read), the
+ * chain with every offline check (the run's recorded prompt and start times, and the file's spent keys; its blocks
+ * must be one per stamp and match each stamp's `ext`, else EXTENSION_MISMATCH), the reading of the items under
+ * `influence` in those blocks (INFLUENCE_MISMATCH), POLICY_EXPIRED against the client record's root and keyring at the
+ * step's time, PROOF_MISMATCH, RULES_MISMATCH and VERDICT_MISMATCH. The client signs the step's time itself: verify relies on it,
  * as on every recorded time, but no edit moves a window. A verified step is OK when it was allowed and REFUSED when it
- * was refused: local refusals are signed and checked, unlike the server's. A chain is v3, its stamps naming pi and
+ * was refused: local refusals are signed and checked, unlike the server's. A chain is version 4, its stamps naming pi and
  * then `local:<tool>` as their receivers (BINDING_MISMATCH).
  *
  * Verify does not look at the disk: it checks that the rules were applied correctly to what the gate saw, not
@@ -143,7 +145,7 @@ export function verifyLocal(
   }
   const step = {
     tool: r.tool, callId: r.callId, rid: r.rid, now: r.now, input: r.input, decision: token(r.decision), chain: token(r.chain),
-    proof: r.proof === null ? null : token(r.proof), influence: token(r.influence),
+    proof: r.proof === null ? null : token(r.proof), blocks: token(r.blocks),
   };
   const run = runOf(r.rid);
   const v = verifyRecordedLocalStep(step, { client, signers: SIGNERS, ...(run !== undefined ? { run } : {}), seen });

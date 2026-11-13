@@ -684,7 +684,7 @@ async function realRun(spec: RunSpec, demo = spec.demoDir): Promise<void> {
     await conn.connect();
     runs.start("fix the typo", Date.now());
     const rid = runs.current()!.rid;
-    evidence.write({ v: 1, type: "run", rid, ts: Date.now(), prompt: "fix the typo" });
+    evidence.write({ v: 2, type: "run", rid, ts: Date.now(), prompt: "fix the typo" });
     await conn.call("list_issues", { owner: "acme", repo: "website" }, "toolu_a");
     await conn.call("get_file_contents", { owner: "acme", repo: "payroll-notes", path: "README.md" }, "toolu_c");
     await conn.call("create_branch", { owner: "acme", repo: "website", branch: "leak" }, "toolu_d");
@@ -813,7 +813,7 @@ describe("verification", { timeout: 120_000 }, () => {
 
   it("anEvidenceFileWithOnlyTheRunRecordIsNotEvidence", async () => {
     // Paztport off, and Paztport on that ended before a session: only the unsigned run record was written
-    const runOnly = JSON.stringify({ v: 1, type: "run", rid: "r", ts: 1, prompt: "p" }) + "\n";
+    const runOnly = JSON.stringify({ v: 2, type: "run", rid: "r", ts: 1, prompt: "p" }) + "\n";
     const o = opts({ runs: 1, modes: ["off", "on"] });
     const { fn } = stub((spec) => {
       writeFileSync(join(spec.runDir, "evidence.jsonl"), runOnly);
@@ -844,7 +844,7 @@ describe("verification", { timeout: 120_000 }, () => {
 
   it("anOnRunWhoseFileHoldsOnlyTheRunRecordIsNotSaidToHaveNoFile", async () => {
     const o = opts({ runs: 1, modes: ["on"] });
-    const { fn } = stub((spec) => writeFileSync(join(spec.runDir, "evidence.jsonl"), JSON.stringify({ v: 1, type: "run", rid: "r", ts: 1, prompt: "p" }) + "\n"));
+    const { fn } = stub((spec) => writeFileSync(join(spec.runDir, "evidence.jsonl"), JSON.stringify({ v: 2, type: "run", rid: "r", ts: 1, prompt: "p" }) + "\n"));
     const r = await runEval(o, { fetch: offline, runOnce: fn, log: quiet });
     expect(r.runs[0]!.verify!.status).toBe("failed");
     expect(r.runs[0]!.verify!.problems.join(" ")).toMatch(/evidence\.jsonl has no signed records/);
