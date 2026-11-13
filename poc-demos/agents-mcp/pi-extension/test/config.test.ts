@@ -116,6 +116,31 @@ describe("loadConfig", () => {
     }
   });
 
+  it("anUnknownTopLevelKeyIsRefused", () => {
+    // a requirement put at the top level, or a misspelt key, would otherwise configure nothing, silently
+    expect(() => loadConfig(write({ ...base, requires: ["influence"] }))).toThrow(/^config requires is not a config key$/);
+    expect(() => loadConfig(write({ ...base, evidencelog: "e.jsonl" }))).toThrow(/^config evidencelog is not a config key$/);
+  });
+
+  it("anUnknownServerKeyIsRefused", () => {
+    const server = (extra: Record<string, unknown>) => ({ ...base, servers: [{ id: "github", command: "node", attested: true, ...extra }] });
+    expect(() => loadConfig(write(server({ requries: ["influence"] })))).toThrow(/^config servers\[0\]\.requries is not a config key$/);
+    expect(() => loadConfig(write(server({ requires: ["influence"], continueWithoutRequire: true })))).toThrow(
+      /^config servers\[0\]\.continueWithoutRequire is not a config key$/,
+    );
+    const second = { ...base, servers: [base.servers[0], { id: "docs", command: "node", attested: false, pins: "x.pub" }] };
+    expect(() => loadConfig(write(second))).toThrow(/^config servers\[1\]\.pins is not a config key$/);
+  });
+
+  it("theSwitchWithoutARequirementIsRefused", () => {
+    const server = (extra: Record<string, unknown>) => ({ ...base, servers: [{ id: "github", command: "node", attested: true, ...extra }] });
+    for (const extra of [{ continueWithoutRequired: true }, { continueWithoutRequired: false }, { requires: [], continueWithoutRequired: true }]) {
+      expect(() => loadConfig(write(server(extra))), JSON.stringify(extra)).toThrow(/^config servers\[0\]\.continueWithoutRequired /);
+    }
+    const docs = { ...base, servers: [{ id: "docs", command: "node", attested: false, continueWithoutRequired: true }] };
+    expect(() => loadConfig(write(docs))).toThrow(/^config servers\[0\]\.continueWithoutRequired /);
+  });
+
   it("unreadableOrInvalidJsonNamesPath", () => {
     expect(() => loadConfig(join(tmp, "missing.json"))).toThrow(/missing\.json/);
     const bad = join(tmp, "bad.json");

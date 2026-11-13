@@ -73,7 +73,7 @@ then classify the run from the outcome log as the
 - `servers[]`: `id` (`[A-Za-z0-9_-]+`), `command`, optional `args` and `env`, and `attested`. An
   attested server also takes `pin`, the path to the server policy public key file. It defaults to
   `<clientDir>/server-policy.pub`. Each server also takes these two keys, which are read per server
-  and nowhere else (a top-level `requires` is ignored):
+  and nowhere else (a `requires` anywhere else is a config error, as any key the loader does not define is):
   - `requires` (optional, attested servers only): the extensions the client requires of this server,
     as an array of extension names. The client calls the server only in an attested session whose
     reply lists each of them
@@ -88,7 +88,8 @@ then classify the run from the outcome log as the
   - `continueWithoutRequired` (optional, per server, default `false`): the switch that lets the client
     call this server without what it `requires`, as a client with no requirement does, in whatever
     session the handshake gave it. Its calls then do not require of the server the extensions the
-    reply did not list.
+    reply did not list. On a server with no `requires`, or an empty one, it is a config error: there is
+    nothing to continue without.
 - `eventsLog` (optional): a JSONL log for the demo UI. It records event types, server and tool names,
   reason codes, influence class counts, rids and call ids. It never records content, arguments,
   keys, signatures or hashes.
@@ -109,7 +110,10 @@ then classify the run from the outcome log as the
   outside the agent's working directory.
 
 Relative `clientDir`, `pin`, `eventsLog` and `evidenceLog` paths resolve against the config file's directory.
-`command` and `args` are used as given.
+`command` and `args` are used as given. A key the loader does not define, at the top level or in a server, is a
+config error naming it and where (`config servers[0].requries is not a config key`): a misspelt or misplaced key
+would otherwise configure nothing, silently, and a misplaced `requires` would leave the client calling the server
+with no requirement.
 
 Each configured server runs as one child process per pi session. With the example config that is
 two processes, the mock GitHub server and the docs server, as in the mock server README. They start

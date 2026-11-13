@@ -39,9 +39,24 @@ export type PaztportConfig = {
 const MODES: readonly string[] = ["enforce", "no-root", "off"];
 const SERVER_ID = /^[A-Za-z0-9_-]+$/;
 const DEFAULT_PIN = "server-policy.pub";
+const CONFIG_KEYS: readonly string[] = ["mode", "clientDir", "clientPolicyDir", "servers", "eventsLog", "evidenceLog"];
+const SERVER_KEYS: readonly string[] = [
+  "id", "command", "args", "env", "attested", "pin", "requires", "continueWithoutRequired",
+];
 
 function isObject(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+/**
+ * Throws for the first member the loader does not define. A misplaced or misspelt key would otherwise configure
+ * nothing, silently: a `requires` in the wrong place leaves the client calling the server with no requirement.
+ */
+function onlyKnownKeys(v: Record<string, unknown>, known: readonly string[], at: string): void {
+  const unknown = Object.keys(v).find((k) => !known.includes(k));
+  if (unknown !== undefined) {
+    throw new Error(`config ${at}${unknown} is not a config key`);
+  }
 }
 
 function nonEmptyString(v: unknown, field: string): string {
@@ -56,6 +71,7 @@ function parseServer(v: unknown, i: number, dir: string, clientDir: string, seen
   if (!isObject(v)) {
     throw new Error(`config ${at} must be an object`);
   }
+  onlyKnownKeys(v, SERVER_KEYS, `${at}.`);
   const id = nonEmptyString(v.id, `${at}.id`);
   if (!SERVER_ID.test(id)) {
     throw new Error(`config ${at}.id must match ${SERVER_ID.source}`);
@@ -105,6 +121,9 @@ function parseServer(v: unknown, i: number, dir: string, clientDir: string, seen
     if (typeof v.continueWithoutRequired !== "boolean") {
       throw new Error(`config ${at}.continueWithoutRequired must be a boolean`);
     }
+    if (spec.requires === undefined || spec.requires.length === 0) {
+      throw new Error(`config ${at}.continueWithoutRequired needs a non-empty requires, to continue without`);
+    }
     spec.continueWithoutRequired = v.continueWithoutRequired;
   }
   return spec;
@@ -121,6 +140,7 @@ export function loadConfig(path: string): PaztportConfig {
   if (!isObject(raw)) {
     throw new Error("config must be a JSON object");
   }
+  onlyKnownKeys(raw, CONFIG_KEYS, "");
   const dir = dirname(resolve(path));
   if (typeof raw.mode !== "string" || !MODES.includes(raw.mode)) {
     throw new Error(`config mode must be one of ${MODES.join(", ")}`);
