@@ -1,5 +1,5 @@
 {
-  "about": "Paztport version 4 conformance vectors. Every case carries all of its inputs; keys and policies are named and defined in this file. Each key's private key is the PKCS#8 DER 302e020100300506032b657004220420 || seed, where seed = SHA-256(utf8(\"paztport-v3-vector-key:\" + name)), and its public key is the SPKI DER export; both are base64url. Each Merkle leaf salt is the first 16 bytes of SHA-256(utf8(\"paztport-v3-vector-salt:\" + route)), and the policy's routes fill the first leaves in order; padding leaf i is SHA-256(utf8(\"paztport-v3-vector-pad:\" + rootId + \":\" + i)), and a handshake nonce labelled l is the first 16 bytes of SHA-256(utf8(\"paztport-v3-vector-nonce:\" + l)). The v3 in these seed strings is historical: they are v3.json's, kept so that the keys, the policies and every section whose rule did not change are v3.json's value for value, and a file of other vectors can take its keys and policies from either. This placement and rootId derivation are for the vectors only; real builds use random slots and a random rootId. Ed25519 is deterministic, so the file is reproduced byte for byte. The core sections use a made-up extension, example, and name influence only as an opaque second name: no section outside a top-level member named influence needs an extension's rules. blocks.read reads each token as blocks: expected is OK with the blocks read, or REFUSED; blocks.commit gives a block's JCS text and its stamp's ext. Each verify and offline case, and each call of a recordedCall case, carries `blocks`, the blocks as received, and `blocksToken`, their token, which a verifier reads: both null when no token was received, which is one empty block per stamp; the one verify case whose blocks token does not read (\"a blocks token that does not read\") carries that token and blocks null. On each verify, offline and recordedCall case, `actsOn` is the extensions the verifier acts on, and `allowedExtensions` the names it carries, null for unset, which carries any name. A verify or offline case's expected is {reason, suspectSvc, suspectInst, handOver}: handOver is null unless the reason is OK, and then has one member per name in actsOn, each an array of {svc, items}, one per stamp in chain order, items null where the stamp's block does not name the extension. A verify case runs the live verifier `uses` times against one nonce cache of nonceTtlMs and expects the last result; each use is sent by `peer`, or, in a case with `peers` in place of `peer`, by peers[i] for use i (null: no peer). Its policyNotAfter is the earlier of the latest notAfter of the keyrings and the latest notAfter of the roots the verifier pins (one of each: the earlier of the two), which `now` must not pass. An offline case runs the offline verifier once: `recordedTs.last` is the recorded time of the last stamp, `rid` the record's rid, `prompt` the run's recorded prompt, and callMaxAgeMs and runMaxAgeMs the age limits; a null recordedTs is a record with no time, and a null limit is one not configured, which is absent, never 0; there is no peer, clock or nonce TTL, and `seen` is the set of nonce keys already spent in the record set. A policy's proof is looked up by `proofRoute` (null: no proof). A nonce key, in `nonceKey` and `seen`, is the JCS text of its array of strings, each string written as RFC 8785 writes strings. A sessionReply case is the client's check of `reply` at `now`, against `pin` and `serverEntry`, with the extensions it `requires` ([] when absent); offline the same reply opened an attested session exactly when the check gives ATTESTED or EXTENSION_REQUIRED, since step 5 is live only. A sessionRequirement case is what a client that requires the extensions `requires` may do after the handshake: `check` is the reply's check (null for a JSON-RPC error or a timeout), `listed` the reply's extensions ([] when it did not read) and `continueWithout` its switch; expected says whether it makes calls and the `requires` its calls carry. A sessionStatus case is the server's status for `request` at `now`, against its own `serverRoot` and `serverKeyring` (whose notAfter is its window), its policy key `serverPolicyKey` and the client policy keys `pinned`. A sessionRequest case is a request as received, its bytes in `requestToken`, read by the server: `expected` is OK for a well-formed request and MALFORMED for one it refuses (JSON-RPC -32602, HTTP 400 INVALID_PARAMS). The sections after sessionRequest pin the primitives the cases above rely on, each with its inputs: fixedInputs are `length` consecutive bytes from `start`, base64url, which deriveSessionId's cases name; the prompt and response bindings; and merkle, a tree of its own (depth 8, rootId merkle-vector) whose leaf hashes, node, root, proofs and proof headers (the base64url of each proof's JCS bytes) are recorded as the library computes them, and whose padding hashes are recorded as given, not derived. A verify or offline case may pin several keyrings and roots: `keyrings` ([{keyring, notAfter}], in place of `keyring`) and `roots` ([{policy, notAfter}], which pin those policies' roots), where `policy` then names only where the case's proof comes from; in an offline case a member without a notAfter has no window. A case's one `keyring`, or `policy`'s root when it has no `roots`, is a single member whose window is the case's policyNotAfter in a verify case and none in an offline case, and two `roots` naming one policy are its root and a renewal of it. The policy mesh-second is a second tree over mesh's routes, whose rootId and salts the vectors derive from the seed `second` as well as the routes (rootId = \"v\" + first 12 hex of SHA-256(utf8(routes joined by newline + newline + \"#second\")), salt = the first 16 bytes of SHA-256(utf8(\"paztport-v3-vector-salt:second:\" + route))); mesh-relabelled holds mesh's proofs with their rootId set to mesh-second's, over mesh's root. Cases may be added; a recorded answer changes only with a protocol change.",
+  "about": "Paztport version 4 conformance vectors. Every case carries all of its inputs; keys and policies are named and defined in this file. Each key's private key is the PKCS#8 DER 302e020100300506032b657004220420 || seed, where seed = SHA-256(utf8(\"paztport-v3-vector-key:\" + name)), and its public key is the SPKI DER export; both are base64url. Each Merkle leaf salt is the first 16 bytes of SHA-256(utf8(\"paztport-v3-vector-salt:\" + route)), and the policy's routes fill the first leaves in order; padding leaf i is SHA-256(utf8(\"paztport-v3-vector-pad:\" + rootId + \":\" + i)), and a handshake nonce labelled l is the first 16 bytes of SHA-256(utf8(\"paztport-v3-vector-nonce:\" + l)). The v3 in these seed strings is historical: they are v3.json's, kept so that the keys, the policies and every section whose rule did not change are v3.json's value for value, and a file of other vectors can take its keys and policies from either. This placement and rootId derivation are for the vectors only; real builds use random slots and a random rootId. Ed25519 is deterministic, so the file is reproduced byte for byte. The core sections use a made-up extension, example, and name influence only as an opaque second name: no section outside a top-level member named influence needs an extension's rules. blocks.read reads each token as blocks: expected is OK with the blocks read, or REFUSED; blocks.commit gives a block's JCS text and its stamp's ext. Each verify and offline case, and each call of a recordedCall case, carries `blocksToken`, the token the verifier reads, null when no token was received, which is one empty block per stamp, and `blocks`, the token's readable value. `blocks` is null where there is no token, and in the two verify cases whose token does not read as an array: \"a blocks token holding null, every ext empty\", whose token is the JCS of null, and \"a blocks token that does not read\", whose token is not canonical bytes and has no readable value. The verify case \"a block with a member blocks do not have\" carries its readable value, an array whose second element is no block. On each verify, offline and recordedCall case, `actsOn` is the extensions the verifier acts on, and `allowedExtensions` the names it carries, null for unset, which carries any name. A verify or offline case's expected is {reason, suspectSvc, suspectInst, handOver}: handOver is null unless the reason is OK, and then has one member per name in actsOn, each an array of {svc, items}, one per stamp in chain order, items null where the stamp's block does not name the extension. A verify case runs the live verifier `uses` times against one nonce cache of nonceTtlMs and expects the last result; each use is sent by `peer`, or, in a case with `peers` in place of `peer`, by peers[i] for use i (null: no peer). Its policyNotAfter is the earlier of the latest notAfter of the keyrings and the latest notAfter of the roots the verifier pins (one of each: the earlier of the two), which `now` must not pass. An offline case runs the offline verifier once: `recordedTs.last` is the recorded time of the last stamp, `rid` the record's rid, `prompt` the run's recorded prompt, and callMaxAgeMs and runMaxAgeMs the age limits; a null recordedTs is a record with no time, and a null limit is one not configured, which is absent, never 0; there is no peer, clock or nonce TTL, and `seen` is the set of nonce keys already spent in the record set. A policy's proof is looked up by `proofRoute` (null: no proof). A nonce key, in `nonceKey` and `seen`, is the JCS text of its array of strings, each string written as RFC 8785 writes strings. The nonceKey of the verify case \"a call id holding a noncharacter\" holds the noncharacter U+FFFF written as itself, as json.json already does, which a strict reader refuses, so a replay reads this file's own structure with any JSON reader, and only the tokens with the reader under test. A sessionReply case is the client's check of `reply` at `now`, against `pin` and `serverEntry`, with the extensions it `requires` ([] when absent); offline the same reply opened an attested session exactly when the check gives ATTESTED or EXTENSION_REQUIRED, since step 5 is live only. A sessionRequirement case is what a client that requires the extensions `requires` may do after the handshake: `check` is the reply's check (null for a JSON-RPC error or a timeout), `listed` the reply's extensions ([] when it did not read) and `continueWithout` its switch; expected says whether it makes calls and the `requires` its calls carry. A sessionStatus case is the server's status for `request` at `now`, against its own `serverRoot` and `serverKeyring` (whose notAfter is its window), its policy key `serverPolicyKey` and the client policy keys `pinned`. A sessionRequest case is a request as received, its bytes in `requestToken`, read by the server: `expected` is OK for a well-formed request and MALFORMED for one it refuses (JSON-RPC -32602, HTTP 400 INVALID_PARAMS). The sections after sessionRequest pin the primitives the cases above rely on, each with its inputs: fixedInputs are `length` consecutive bytes from `start`, base64url, which deriveSessionId's cases name; the prompt and response bindings; and merkle, a tree of its own (depth 8, rootId merkle-vector) whose leaf hashes, node, root, proofs and proof headers (the base64url of each proof's JCS bytes) are recorded as the library computes them, and whose padding hashes are recorded as given, not derived. A verify or offline case may pin several keyrings and roots: `keyrings` ([{keyring, notAfter}], in place of `keyring`) and `roots` ([{policy, notAfter}], which pin those policies' roots), where `policy` then names only where the case's proof comes from; in an offline case a member without a notAfter has no window. A case's one `keyring`, or `policy`'s root when it has no `roots`, is a single member whose window is the case's policyNotAfter in a verify case and none in an offline case, and two `roots` naming one policy are its root and a renewal of it. The policy mesh-second is a second tree over mesh's routes, whose rootId and salts the vectors derive from the seed `second` as well as the routes (rootId = \"v\" + first 12 hex of SHA-256(utf8(routes joined by newline + newline + \"#second\")), salt = the first 16 bytes of SHA-256(utf8(\"paztport-v3-vector-salt:second:\" + route))); mesh-relabelled holds mesh's proofs with their rootId set to mesh-second's, over mesh's root. Cases may be added; a recorded answer changes only with a protocol change.",
   "keys": {
     "session": {
       "pub": "MCowBQYDK2VwAyEAb0m5BDnl3LzmednUhwMpU9Oc58beN-Saat_c5CTamcY",
@@ -4439,6 +4439,188 @@
       }
     },
     {
+      "name": "an origin the call window ahead of now",
+      "chain": [
+        {
+          "v": 4,
+          "svc": "session",
+          "inst": "pi-1",
+          "rid": "rid-1",
+          "ts": 1767225605000,
+          "sess": "sess-1",
+          "rcv": "pi",
+          "bind": "GHG2oeO8ahTQudo8ccWAGXTPNXpDcXX_dY_l1pjy4Uk",
+          "ext": "_RHTwnyjmcO55gt97p7SE1Am-7G7y3WOE6SAQMMN4jQ",
+          "prev": "",
+          "sig": "mIuQ4uYTxeib1R2Mnf1rRHLh92CLsAQJ0W7s7GzxxmBE3U-tQ_75VR7uUaV_gyNl0Hu_u1Q8jtCyqoD8hOyNDQ"
+        },
+        {
+          "v": 4,
+          "svc": "pi",
+          "inst": "pi-1",
+          "rid": "rid-1",
+          "ts": 1767225600000,
+          "sess": "sess-1",
+          "rcv": "mcp:github.create_pull_request",
+          "bind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
+          "ext": "kcwzeTeKM7Fzc-7hdUOhO3RVpZocuLUkP2cO-lDGgYM",
+          "prev": "mIuQ4uYTxeib1R2Mnf1rRHLh92CLsAQJ0W7s7GzxxmBE3U-tQ_75VR7uUaV_gyNl0Hu_u1Q8jtCyqoD8hOyNDQ",
+          "sig": "wrI_-lBdkWFKyHDyntwIk1P_prB7Qdj-wuiH7dyZ4xcFTo_25YON0iRW1W7pSj_-tMXY_0JLbcMunOCZbSLiAQ"
+        }
+      ],
+      "chainToken": "W3siYmluZCI6IkdIRzJvZU84YWhUUXVkbzhjY1dBR1hUUE5YcERjWFhfZFlfbDFwank0VWsiLCJleHQiOiJfUkhUd255am1jTzU1Z3Q5N3A3U0UxQW0tN0c3eTNXT0U2U0FRTU1ONGpRIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiIiwicmN2IjoicGkiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiJzZXNzLTEiLCJzaWciOiJtSXVRNHVZVHhlaWIxUjJNbmYxclJITGg5MkNMc0FRSjBXN3M3R3p4eG1CRTNVLXRRXzc1VlI3dVVhVl9neU5sMEh1X3UxUThqdEN5cW9EOGhPeU5EUSIsInN2YyI6InNlc3Npb24iLCJ0cyI6MTc2NzIyNTYwNTAwMCwidiI6NH0seyJiaW5kIjoiMU9DUHJrZjJhUTJ6TVJPZzllOXkxSjJVdC1fZVlVSlNYTkxBbHZDREJvSSIsImV4dCI6Imtjd3plVGVLTTdGemMtN2hkVU9oTzNSVnBab2N1TFVrUDJjTy1sREdnWU0iLCJpbnN0IjoicGktMSIsInByZXYiOiJtSXVRNHVZVHhlaWIxUjJNbmYxclJITGg5MkNMc0FRSjBXN3M3R3p4eG1CRTNVLXRRXzc1VlI3dVVhVl9neU5sMEh1X3UxUThqdEN5cW9EOGhPeU5EUSIsInJjdiI6Im1jcDpnaXRodWIuY3JlYXRlX3B1bGxfcmVxdWVzdCIsInJpZCI6InJpZC0xIiwic2VzcyI6InNlc3MtMSIsInNpZyI6IndySV8tbEJka1dGS3lIRHludHdJazFQX3ByQjdRZGotd3VpSDdkeVo0eGNGVG9fMjVZT04waVJXMVc3cFNqXy10TVhZXzBKTGJjTXVuT0NaYlNMaUFRIiwic3ZjIjoicGkiLCJ0cyI6MTc2NzIyNTYwMDAwMCwidiI6NH1d",
+      "expectedBind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
+      "blocks": [
+        {
+          "items": {
+            "example": []
+          },
+          "requires": []
+        },
+        {
+          "items": {
+            "example": [
+              {
+                "note": "n1"
+              },
+              7
+            ]
+          },
+          "requires": []
+        }
+      ],
+      "blocksToken": "W3siaXRlbXMiOnsiZXhhbXBsZSI6W119LCJyZXF1aXJlcyI6W119LHsiaXRlbXMiOnsiZXhhbXBsZSI6W3sibm90ZSI6Im4xIn0sN119LCJyZXF1aXJlcyI6W119XQ",
+      "actsOn": [
+        "example"
+      ],
+      "allowedExtensions": null,
+      "policy": "client",
+      "proofRoute": "session/pi/mcp:github.create_pull_request",
+      "receiver": "mcp:github.create_pull_request",
+      "receiverInRoute": true,
+      "peer": null,
+      "keyring": {
+        "session": "session",
+        "pi": "pi"
+      },
+      "allowedOrigins": [
+        "session"
+      ],
+      "sess": "sess-1",
+      "nonceKey": "[\"rid-1\",\"call-1\",\"req\"]",
+      "now": 1767225600000,
+      "callMaxAgeMs": 5000,
+      "runMaxAgeMs": 1800000,
+      "nonceTtlMs": 15000,
+      "policyNotAfter": 4102444800000,
+      "uses": 1,
+      "expected": {
+        "reason": "OK",
+        "suspectSvc": "pi",
+        "suspectInst": "pi-1",
+        "handOver": {
+          "example": [
+            {
+              "svc": "session",
+              "items": []
+            },
+            {
+              "svc": "pi",
+              "items": [
+                {
+                  "note": "n1"
+                },
+                7
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "an origin 1 ms more than the call window ahead of now",
+      "chain": [
+        {
+          "v": 4,
+          "svc": "session",
+          "inst": "pi-1",
+          "rid": "rid-1",
+          "ts": 1767225605001,
+          "sess": "sess-1",
+          "rcv": "pi",
+          "bind": "GHG2oeO8ahTQudo8ccWAGXTPNXpDcXX_dY_l1pjy4Uk",
+          "ext": "_RHTwnyjmcO55gt97p7SE1Am-7G7y3WOE6SAQMMN4jQ",
+          "prev": "",
+          "sig": "Wv7zSaBhKEdt4tAr3aSzv8p19FFEONGG-OyqYfL2U2CHOtDMehi3rO8gB3KFkMlYf0qTIMktPBvqP4YfoOBSAg"
+        },
+        {
+          "v": 4,
+          "svc": "pi",
+          "inst": "pi-1",
+          "rid": "rid-1",
+          "ts": 1767225600000,
+          "sess": "sess-1",
+          "rcv": "mcp:github.create_pull_request",
+          "bind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
+          "ext": "kcwzeTeKM7Fzc-7hdUOhO3RVpZocuLUkP2cO-lDGgYM",
+          "prev": "Wv7zSaBhKEdt4tAr3aSzv8p19FFEONGG-OyqYfL2U2CHOtDMehi3rO8gB3KFkMlYf0qTIMktPBvqP4YfoOBSAg",
+          "sig": "LvW4oePOgF9xKBwJa8bnIEHSSCUOXsbWc-qiVQomSPh1-oD4d8vMNAFv3honqK4fGU8_XfkA3vgKuUQlBwzuBw"
+        }
+      ],
+      "chainToken": "W3siYmluZCI6IkdIRzJvZU84YWhUUXVkbzhjY1dBR1hUUE5YcERjWFhfZFlfbDFwank0VWsiLCJleHQiOiJfUkhUd255am1jTzU1Z3Q5N3A3U0UxQW0tN0c3eTNXT0U2U0FRTU1ONGpRIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiIiwicmN2IjoicGkiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiJzZXNzLTEiLCJzaWciOiJXdjd6U2FCaEtFZHQ0dEFyM2FTenY4cDE5RkZFT05HRy1PeXFZZkwyVTJDSE90RE1laGkzck84Z0IzS0ZrTWxZZjBxVElNa3RQQnZxUDRZZm9PQlNBZyIsInN2YyI6InNlc3Npb24iLCJ0cyI6MTc2NzIyNTYwNTAwMSwidiI6NH0seyJiaW5kIjoiMU9DUHJrZjJhUTJ6TVJPZzllOXkxSjJVdC1fZVlVSlNYTkxBbHZDREJvSSIsImV4dCI6Imtjd3plVGVLTTdGemMtN2hkVU9oTzNSVnBab2N1TFVrUDJjTy1sREdnWU0iLCJpbnN0IjoicGktMSIsInByZXYiOiJXdjd6U2FCaEtFZHQ0dEFyM2FTenY4cDE5RkZFT05HRy1PeXFZZkwyVTJDSE90RE1laGkzck84Z0IzS0ZrTWxZZjBxVElNa3RQQnZxUDRZZm9PQlNBZyIsInJjdiI6Im1jcDpnaXRodWIuY3JlYXRlX3B1bGxfcmVxdWVzdCIsInJpZCI6InJpZC0xIiwic2VzcyI6InNlc3MtMSIsInNpZyI6Ikx2VzRvZVBPZ0Y5eEtCd0phOGJuSUVIU1NDVU9Yc2JXYy1xaVZRb21TUGgxLW9ENGQ4dk1OQUZ2M2hvbnFLNGZHVThfWGZrQTN2Z0t1VVFsQnd6dUJ3Iiwic3ZjIjoicGkiLCJ0cyI6MTc2NzIyNTYwMDAwMCwidiI6NH1d",
+      "expectedBind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
+      "blocks": [
+        {
+          "items": {
+            "example": []
+          },
+          "requires": []
+        },
+        {
+          "items": {
+            "example": [
+              {
+                "note": "n1"
+              },
+              7
+            ]
+          },
+          "requires": []
+        }
+      ],
+      "blocksToken": "W3siaXRlbXMiOnsiZXhhbXBsZSI6W119LCJyZXF1aXJlcyI6W119LHsiaXRlbXMiOnsiZXhhbXBsZSI6W3sibm90ZSI6Im4xIn0sN119LCJyZXF1aXJlcyI6W119XQ",
+      "actsOn": [
+        "example"
+      ],
+      "allowedExtensions": null,
+      "policy": "client",
+      "proofRoute": "session/pi/mcp:github.create_pull_request",
+      "receiver": "mcp:github.create_pull_request",
+      "receiverInRoute": true,
+      "peer": null,
+      "keyring": {
+        "session": "session",
+        "pi": "pi"
+      },
+      "allowedOrigins": [
+        "session"
+      ],
+      "sess": "sess-1",
+      "nonceKey": "[\"rid-1\",\"call-1\",\"req\"]",
+      "now": 1767225600000,
+      "callMaxAgeMs": 5000,
+      "runMaxAgeMs": 1800000,
+      "nonceTtlMs": 15000,
+      "policyNotAfter": 4102444800000,
+      "uses": 1,
+      "expected": {
+        "reason": "EXPIRED",
+        "suspectSvc": "",
+        "suspectInst": "",
+        "handOver": null
+      }
+    },
+    {
       "name": "a call id holding a noncharacter",
       "chain": [
         {
@@ -6207,6 +6389,78 @@
         }
       ],
       "chainToken": "W3siYmluZCI6IkdIRzJvZU84YWhUUXVkbzhjY1dBR1hUUE5YcERjWFhfZFlfbDFwank0VWsiLCJleHQiOiJfUkhUd255am1jTzU1Z3Q5N3A3U0UxQW0tN0c3eTNXT0U2U0FRTU1ONGpRIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiIiwicmN2IjoicGkiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiJzZXNzLTEiLCJzaWciOiJDV3V5dkRwMDNwbWdDc2ttaW1LMV9HWFdjTGJOLUxFS2k5dElPUFFPNGx2ZHhrODQwMDFBMjcwLTZHNlNmdFY2Sm1DY0UwQ2xBT2FxMXhGVm15T2VDQSIsInN2YyI6InNlc3Npb24iLCJ0cyI6MTc2NzIyNTU5ODAwMCwidiI6NH0seyJiaW5kIjoiMU9DUHJrZjJhUTJ6TVJPZzllOXkxSjJVdC1fZVlVSlNYTkxBbHZDREJvSSIsImV4dCI6Imtjd3plVGVLTTdGemMtN2hkVU9oTzNSVnBab2N1TFVrUDJjTy1sREdnWU0iLCJpbnN0IjoicGktMSIsInByZXYiOiJDV3V5dkRwMDNwbWdDc2ttaW1LMV9HWFdjTGJOLUxFS2k5dElPUFFPNGx2ZHhrODQwMDFBMjcwLTZHNlNmdFY2Sm1DY0UwQ2xBT2FxMXhGVm15T2VDQSIsInJjdiI6Im1jcDpnaXRodWIuY3JlYXRlX3B1bGxfcmVxdWVzdCIsInJpZCI6InJpZC0xIiwic2VzcyI6InNlc3MtMSIsInNpZyI6ImlFX002OE5UZkdkUGFoRUEzOGVkcVdzNEpSU0dyTlJxczd4bTJnRlROQUtRbFdjaWUxSG9wNTl0SGhlVHd4NFlXTXBXeWRqU2xQNXB5SHlvZU1sdUF3Iiwic3ZjIjoicGkiLCJ0cyI6MTc2NzIyNTU5OTAwMCwidiI6NH1d",
+      "expectedBind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
+      "blocks": [
+        {
+          "items": {
+            "example": []
+          },
+          "requires": []
+        }
+      ],
+      "blocksToken": "W3siaXRlbXMiOnsiZXhhbXBsZSI6W119LCJyZXF1aXJlcyI6W119XQ",
+      "actsOn": [
+        "example"
+      ],
+      "allowedExtensions": null,
+      "policy": "client",
+      "proofRoute": "session/pi/mcp:github.create_pull_request",
+      "receiver": "mcp:github.create_pull_request",
+      "receiverInRoute": true,
+      "peer": null,
+      "keyring": {
+        "session": "session",
+        "pi": "pi"
+      },
+      "allowedOrigins": [
+        "session"
+      ],
+      "sess": "sess-1",
+      "nonceKey": "[\"rid-1\",\"call-1\",\"req\"]",
+      "now": 1767225600000,
+      "callMaxAgeMs": 5000,
+      "runMaxAgeMs": 1800000,
+      "nonceTtlMs": 15000,
+      "policyNotAfter": 4102444800000,
+      "uses": 1,
+      "expected": {
+        "reason": "EXTENSION_MISMATCH",
+        "suspectSvc": "",
+        "suspectInst": "",
+        "handOver": null
+      }
+    },
+    {
+      "name": "one block for two stamps, the stamp without one committing to the empty block",
+      "chain": [
+        {
+          "v": 4,
+          "svc": "session",
+          "inst": "pi-1",
+          "rid": "rid-1",
+          "ts": 1767225598000,
+          "sess": "sess-1",
+          "rcv": "pi",
+          "bind": "GHG2oeO8ahTQudo8ccWAGXTPNXpDcXX_dY_l1pjy4Uk",
+          "ext": "_RHTwnyjmcO55gt97p7SE1Am-7G7y3WOE6SAQMMN4jQ",
+          "prev": "",
+          "sig": "CWuyvDp03pmgCskmimK1_GXWcLbN-LEKi9tIOPQO4lvdxk84001A270-6G6SftV6JmCcE0ClAOaq1xFVmyOeCA"
+        },
+        {
+          "v": 4,
+          "svc": "pi",
+          "inst": "pi-1",
+          "rid": "rid-1",
+          "ts": 1767225599000,
+          "sess": "sess-1",
+          "rcv": "mcp:github.create_pull_request",
+          "bind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
+          "ext": "",
+          "prev": "CWuyvDp03pmgCskmimK1_GXWcLbN-LEKi9tIOPQO4lvdxk84001A270-6G6SftV6JmCcE0ClAOaq1xFVmyOeCA",
+          "sig": "R9L7HjZ3-MAxooxjkH-3R8W8u9JfZ7R1cN6bsKeyf2pBSx5DysTkzXKQleQQ1riqOX1WL7nZTPa3WDDjoS7JAA"
+        }
+      ],
+      "chainToken": "W3siYmluZCI6IkdIRzJvZU84YWhUUXVkbzhjY1dBR1hUUE5YcERjWFhfZFlfbDFwank0VWsiLCJleHQiOiJfUkhUd255am1jTzU1Z3Q5N3A3U0UxQW0tN0c3eTNXT0U2U0FRTU1ONGpRIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiIiwicmN2IjoicGkiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiJzZXNzLTEiLCJzaWciOiJDV3V5dkRwMDNwbWdDc2ttaW1LMV9HWFdjTGJOLUxFS2k5dElPUFFPNGx2ZHhrODQwMDFBMjcwLTZHNlNmdFY2Sm1DY0UwQ2xBT2FxMXhGVm15T2VDQSIsInN2YyI6InNlc3Npb24iLCJ0cyI6MTc2NzIyNTU5ODAwMCwidiI6NH0seyJiaW5kIjoiMU9DUHJrZjJhUTJ6TVJPZzllOXkxSjJVdC1fZVlVSlNYTkxBbHZDREJvSSIsImV4dCI6IiIsImluc3QiOiJwaS0xIiwicHJldiI6IkNXdXl2RHAwM3BtZ0Nza21pbUsxX0dYV2NMYk4tTEVLaTl0SU9QUU80bHZkeGs4NDAwMUEyNzAtNkc2U2Z0VjZKbUNjRTBDbEFPYXExeEZWbXlPZUNBIiwicmN2IjoibWNwOmdpdGh1Yi5jcmVhdGVfcHVsbF9yZXF1ZXN0IiwicmlkIjoicmlkLTEiLCJzZXNzIjoic2Vzcy0xIiwic2lnIjoiUjlMN0hqWjMtTUF4b294amtILTNSOFc4dTlKZlo3UjFjTjZic0tleWYycEJTeDVEeXNUa3pYS1FsZVFRMXJpcU9YMVdMN25aVFBhM1dERGpvUzdKQUEiLCJzdmMiOiJwaSIsInRzIjoxNzY3MjI1NTk5MDAwLCJ2Ijo0fV0",
       "expectedBind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
       "blocks": [
         {
@@ -15312,6 +15566,117 @@
         "influence"
       ],
       "expected": "PIN_MISMATCH"
+    },
+    {
+      "name": "the server's root expired, to a client with a requirement",
+      "request": {
+        "clientRoot": {
+          "rootId": "v128498df6662",
+          "root": "SOU3UQ3YhNm3n8xvLwVDNVE_OjYUyaxSc9I0GLoAFr4",
+          "sig": "vRROYYlhig1MqY75cgeaz0mBFn_ir026jAEFbA4YSU2h3Rtuxtc75CbzPy2zZl8OHzZBJxwpjzaYWkyO5i0dCg",
+          "notAfter": 4102444800000
+        },
+        "clientPolicyKey": "MCowBQYDK2VwAyEAfQNZTmPjT9_g3vetQl2BiLIQRjx52SazyRoXh7V227c",
+        "clientKeyring": {
+          "session": "MCowBQYDK2VwAyEAb0m5BDnl3LzmednUhwMpU9Oc58beN-Saat_c5CTamcY",
+          "pi": "MCowBQYDK2VwAyEAUd0vHKUihGesdJJMfvbah8t0g6b1whtUnRRslYPr1i8"
+        },
+        "clientKeyringSig": "xcsqLY3YpPl_iyunDY6ZjspXJN9Ynuga45ZVyXL0nrdfQfgunBmKzsdLrRtbkADI_mdKGyqGl8stG0ULpcCxDw",
+        "clientKeyringNotAfter": 4102444800000,
+        "nonce": "DnRxEJ-B4WC-BSlSIgnvEQ"
+      },
+      "requestToken": "eyJjbGllbnRLZXlyaW5nIjp7InBpIjoiTUNvd0JRWURLMlZ3QXlFQVVkMHZIS1VpaEdlc2RKSk1mdmJhaDh0MGc2YjF3aHRVblJSc2xZUHIxaTgiLCJzZXNzaW9uIjoiTUNvd0JRWURLMlZ3QXlFQWIwbTVCRG5sM0x6bWVkblVod01wVTlPYzU4YmVOLVNhYXRfYzVDVGFtY1kifSwiY2xpZW50S2V5cmluZ05vdEFmdGVyIjo0MTAyNDQ0ODAwMDAwLCJjbGllbnRLZXlyaW5nU2lnIjoieGNzcUxZM1lwUGxfaXl1bkRZNlpqc3BYSk45WW51Z2E0NVpWeVhMMG5yZGZRZmd1bkJtS3pzZExyUnRia0FESV9tZEtHeXFHbDhzdEcwVUxwY0N4RHciLCJjbGllbnRQb2xpY3lLZXkiOiJNQ293QlFZREsyVndBeUVBZlFOWlRtUGpUOV9nM3ZldFFsMkJpTElRUmp4NTJTYXp5Um9YaDdWMjI3YyIsImNsaWVudFJvb3QiOnsibm90QWZ0ZXIiOjQxMDI0NDQ4MDAwMDAsInJvb3QiOiJTT1UzVVEzWWhObTNuOHh2THdWRE5WRV9PallVeWF4U2M5STBHTG9BRnI0Iiwicm9vdElkIjoidjEyODQ5OGRmNjY2MiIsInNpZyI6InZSUk9ZWWxoaWcxTXFZNzVjZ2VhejBtQkZuX2lyMDI2akFFRmJBNFlTVTJoM1J0dXh0Yzc1Q2J6UHkyelpsOE9IelpCSnh3cGp6YVlXa3lPNWkwZENnIn0sIm5vbmNlIjoiRG5SeEVKLUI0V0MtQlNsU0lnbnZFUSJ9",
+      "reply": {
+        "serverRoot": {
+          "rootId": "v33dc7a7d5de4",
+          "root": "onAKorO9LjCxSJhkXsvdTMc-0VwbjPLoxjzUA2gbsDI",
+          "sig": "YNosiLsdA0ooWMX_clLOCLF7J3RSQhLVcfopsybVxVbhJLknd9BB4SHqy3wCbkdfiQXaxbSGAYAe8z58lpsgAw",
+          "notAfter": 1767225599999
+        },
+        "serverPolicyKey": "MCowBQYDK2VwAyEAOdyoxLQRNmlGbFkPnV76zvhKoT6dVmtC3o6ZUBRrB-I",
+        "serverKeyring": {
+          "mcp-entry": "MCowBQYDK2VwAyEAHBvgTd_hlBakY5DQ-jLgYs8ur1YIxJ0AdTwbAMpFJlw",
+          "github-tools": "MCowBQYDK2VwAyEA2cLgL1i2uBmypEWBIPWIC7hzFbubhFHijMwM_KOH-uA"
+        },
+        "serverKeyringSig": "DFfLolrqSjyD85_hqjhuviVPigEu0sPNPRHiC6O4Xk60vqH5wauAdDC1pCu79nNXWou3yPW8B1_YKb0KiMb_AA",
+        "serverKeyringNotAfter": 4102444800000,
+        "serverReplyCert": {
+          "policy": "MCowBQYDK2VwAyEAOdyoxLQRNmlGbFkPnV76zvhKoT6dVmtC3o6ZUBRrB-I",
+          "svc": "mcp-entry",
+          "key": "MCowBQYDK2VwAyEAHBvgTd_hlBakY5DQ-jLgYs8ur1YIxJ0AdTwbAMpFJlw",
+          "notAfter": 1798761600000,
+          "sig": "Di-W3XltVTD0v5qr14K2ctA6aMBFAWnbAimC3RxiD3_jGijp5TTJ76TgikwuOgvy9H_lFbNj-r_lbPo63gSVAA"
+        },
+        "nonce": "TJQb7rNCTipnIfTXkeDaKg",
+        "sess": "NQ048JvgWQNwBe-XksiMsdgCkB3cbeW3Ec6K5VMAs9w",
+        "status": "attested",
+        "disabled": [],
+        "extensions": [],
+        "sig": "IcD5TlcXAvzvKHDhhfEW0V8R2Zq6KNvsqGIDzSXgaxah99msaMfpv18dHNENO2yX-8YXNL5_e9kNm5KlCVlnDA"
+      },
+      "replyToken": "eyJkaXNhYmxlZCI6W10sImV4dGVuc2lvbnMiOltdLCJub25jZSI6IlRKUWI3ck5DVGlwbklmVFhrZURhS2ciLCJzZXJ2ZXJLZXlyaW5nIjp7ImdpdGh1Yi10b29scyI6Ik1Db3dCUVlESzJWd0F5RUEyY0xnTDFpMnVCbXlwRVdCSVBXSUM3aHpGYnViaEZIaWpNd01fS09ILXVBIiwibWNwLWVudHJ5IjoiTUNvd0JRWURLMlZ3QXlFQUhCdmdUZF9obEJha1k1RFEtakxnWXM4dXIxWUl4SjBBZFR3YkFNcEZKbHcifSwic2VydmVyS2V5cmluZ05vdEFmdGVyIjo0MTAyNDQ0ODAwMDAwLCJzZXJ2ZXJLZXlyaW5nU2lnIjoiREZmTG9scnFTanlEODVfaHFqaHV2aVZQaWdFdTBzUE5QUkhpQzZPNFhrNjB2cUg1d2F1QWREQzFwQ3U3OW5OWFdvdTN5UFc4QjFfWUtiMEtpTWJfQUEiLCJzZXJ2ZXJQb2xpY3lLZXkiOiJNQ293QlFZREsyVndBeUVBT2R5b3hMUVJObWxHYkZrUG5WNzZ6dmhLb1Q2ZFZtdEMzbzZaVUJSckItSSIsInNlcnZlclJlcGx5Q2VydCI6eyJrZXkiOiJNQ293QlFZREsyVndBeUVBSEJ2Z1RkX2hsQmFrWTVEUS1qTGdZczh1cjFZSXhKMEFkVHdiQU1wRkpsdyIsIm5vdEFmdGVyIjoxNzk4NzYxNjAwMDAwLCJwb2xpY3kiOiJNQ293QlFZREsyVndBeUVBT2R5b3hMUVJObWxHYkZrUG5WNzZ6dmhLb1Q2ZFZtdEMzbzZaVUJSckItSSIsInNpZyI6IkRpLVczWGx0VlREMHY1cXIxNEsyY3RBNmFNQkZBV25iQWltQzNSeGlEM19qR2lqcDVUVEo3NlRnaWt3dU9ndnk5SF9sRmJOai1yX2xiUG82M2dTVkFBIiwic3ZjIjoibWNwLWVudHJ5In0sInNlcnZlclJvb3QiOnsibm90QWZ0ZXIiOjE3NjcyMjU1OTk5OTksInJvb3QiOiJvbkFLb3JPOUxqQ3hTSmhrWHN2ZFRNYy0wVndialBMb3hqelVBMmdic0RJIiwicm9vdElkIjoidjMzZGM3YTdkNWRlNCIsInNpZyI6IllOb3NpTHNkQTBvb1dNWF9jbExPQ0xGN0ozUlNRaExWY2ZvcHN5YlZ4VmJoSkxrbmQ5QkI0U0hxeTN3Q2JrZGZpUVhheGJTR0FZQWU4ejU4bHBzZ0F3In0sInNlc3MiOiJOUTA0OEp2Z1dRTndCZS1Ya3NpTXNkZ0NrQjNjYmVXM0VjNks1Vk1Bczl3Iiwic2lnIjoiSWNENVRsY1hBdnp2S0hEaGhmRVcwVjhSMlpxNktOdnNxR0lEelNYZ2F4YWg5OW1zYU1mcHYxOGRITkVOTzJ5WC04WVhOTDVfZTlrTm01S2xDVmxuREEiLCJzdGF0dXMiOiJhdHRlc3RlZCJ9",
+      "pin": "server-policy",
+      "serverEntry": "mcp-entry",
+      "now": 1767225600000,
+      "requires": [
+        "influence"
+      ],
+      "expected": "BAD_SIGNATURE"
+    },
+    {
+      "name": "extensions missing, to a client with a requirement",
+      "request": {
+        "clientRoot": {
+          "rootId": "v128498df6662",
+          "root": "SOU3UQ3YhNm3n8xvLwVDNVE_OjYUyaxSc9I0GLoAFr4",
+          "sig": "vRROYYlhig1MqY75cgeaz0mBFn_ir026jAEFbA4YSU2h3Rtuxtc75CbzPy2zZl8OHzZBJxwpjzaYWkyO5i0dCg",
+          "notAfter": 4102444800000
+        },
+        "clientPolicyKey": "MCowBQYDK2VwAyEAfQNZTmPjT9_g3vetQl2BiLIQRjx52SazyRoXh7V227c",
+        "clientKeyring": {
+          "session": "MCowBQYDK2VwAyEAb0m5BDnl3LzmednUhwMpU9Oc58beN-Saat_c5CTamcY",
+          "pi": "MCowBQYDK2VwAyEAUd0vHKUihGesdJJMfvbah8t0g6b1whtUnRRslYPr1i8"
+        },
+        "clientKeyringSig": "xcsqLY3YpPl_iyunDY6ZjspXJN9Ynuga45ZVyXL0nrdfQfgunBmKzsdLrRtbkADI_mdKGyqGl8stG0ULpcCxDw",
+        "clientKeyringNotAfter": 4102444800000,
+        "nonce": "DnRxEJ-B4WC-BSlSIgnvEQ"
+      },
+      "requestToken": "eyJjbGllbnRLZXlyaW5nIjp7InBpIjoiTUNvd0JRWURLMlZ3QXlFQVVkMHZIS1VpaEdlc2RKSk1mdmJhaDh0MGc2YjF3aHRVblJSc2xZUHIxaTgiLCJzZXNzaW9uIjoiTUNvd0JRWURLMlZ3QXlFQWIwbTVCRG5sM0x6bWVkblVod01wVTlPYzU4YmVOLVNhYXRfYzVDVGFtY1kifSwiY2xpZW50S2V5cmluZ05vdEFmdGVyIjo0MTAyNDQ0ODAwMDAwLCJjbGllbnRLZXlyaW5nU2lnIjoieGNzcUxZM1lwUGxfaXl1bkRZNlpqc3BYSk45WW51Z2E0NVpWeVhMMG5yZGZRZmd1bkJtS3pzZExyUnRia0FESV9tZEtHeXFHbDhzdEcwVUxwY0N4RHciLCJjbGllbnRQb2xpY3lLZXkiOiJNQ293QlFZREsyVndBeUVBZlFOWlRtUGpUOV9nM3ZldFFsMkJpTElRUmp4NTJTYXp5Um9YaDdWMjI3YyIsImNsaWVudFJvb3QiOnsibm90QWZ0ZXIiOjQxMDI0NDQ4MDAwMDAsInJvb3QiOiJTT1UzVVEzWWhObTNuOHh2THdWRE5WRV9PallVeWF4U2M5STBHTG9BRnI0Iiwicm9vdElkIjoidjEyODQ5OGRmNjY2MiIsInNpZyI6InZSUk9ZWWxoaWcxTXFZNzVjZ2VhejBtQkZuX2lyMDI2akFFRmJBNFlTVTJoM1J0dXh0Yzc1Q2J6UHkyelpsOE9IelpCSnh3cGp6YVlXa3lPNWkwZENnIn0sIm5vbmNlIjoiRG5SeEVKLUI0V0MtQlNsU0lnbnZFUSJ9",
+      "reply": {
+        "serverRoot": {
+          "rootId": "v33dc7a7d5de4",
+          "root": "onAKorO9LjCxSJhkXsvdTMc-0VwbjPLoxjzUA2gbsDI",
+          "sig": "q_LVjnuhvlCWVbz_SOgKrD3n9fk5TtrfSZYJ-68Oqygyn_UwGiVv34Hjby2wdR3hue5gF2l6Lr_ZI0J0_bDzAw",
+          "notAfter": 4102444800000
+        },
+        "serverPolicyKey": "MCowBQYDK2VwAyEAOdyoxLQRNmlGbFkPnV76zvhKoT6dVmtC3o6ZUBRrB-I",
+        "serverKeyring": {
+          "mcp-entry": "MCowBQYDK2VwAyEAHBvgTd_hlBakY5DQ-jLgYs8ur1YIxJ0AdTwbAMpFJlw",
+          "github-tools": "MCowBQYDK2VwAyEA2cLgL1i2uBmypEWBIPWIC7hzFbubhFHijMwM_KOH-uA"
+        },
+        "serverKeyringSig": "DFfLolrqSjyD85_hqjhuviVPigEu0sPNPRHiC6O4Xk60vqH5wauAdDC1pCu79nNXWou3yPW8B1_YKb0KiMb_AA",
+        "serverKeyringNotAfter": 4102444800000,
+        "serverReplyCert": {
+          "policy": "MCowBQYDK2VwAyEAOdyoxLQRNmlGbFkPnV76zvhKoT6dVmtC3o6ZUBRrB-I",
+          "svc": "mcp-entry",
+          "key": "MCowBQYDK2VwAyEAHBvgTd_hlBakY5DQ-jLgYs8ur1YIxJ0AdTwbAMpFJlw",
+          "notAfter": 1798761600000,
+          "sig": "Di-W3XltVTD0v5qr14K2ctA6aMBFAWnbAimC3RxiD3_jGijp5TTJ76TgikwuOgvy9H_lFbNj-r_lbPo63gSVAA"
+        },
+        "nonce": "TJQb7rNCTipnIfTXkeDaKg",
+        "sess": "jjQHQ4Y-PtrmrhhcFR7kmtyby4F17OsAd0ucu6t6VW4",
+        "status": "attested",
+        "disabled": [],
+        "sig": "cUOMoygc3oHr1iWerTX_0fiIEmF77ftxhWHrKkFHYQp-nT42Ex4e_5o2PEhbcpM_8MU3-eR-CZZl8DPvJBYQBQ"
+      },
+      "replyToken": "eyJkaXNhYmxlZCI6W10sIm5vbmNlIjoiVEpRYjdyTkNUaXBuSWZUWGtlRGFLZyIsInNlcnZlcktleXJpbmciOnsiZ2l0aHViLXRvb2xzIjoiTUNvd0JRWURLMlZ3QXlFQTJjTGdMMWkydUJteXBFV0JJUFdJQzdoekZidWJoRkhpak13TV9LT0gtdUEiLCJtY3AtZW50cnkiOiJNQ293QlFZREsyVndBeUVBSEJ2Z1RkX2hsQmFrWTVEUS1qTGdZczh1cjFZSXhKMEFkVHdiQU1wRkpsdyJ9LCJzZXJ2ZXJLZXlyaW5nTm90QWZ0ZXIiOjQxMDI0NDQ4MDAwMDAsInNlcnZlcktleXJpbmdTaWciOiJERmZMb2xycVNqeUQ4NV9ocWpodXZpVlBpZ0V1MHNQTlBSSGlDNk80WGs2MHZxSDV3YXVBZERDMXBDdTc5bk5YV291M3lQVzhCMV9ZS2IwS2lNYl9BQSIsInNlcnZlclBvbGljeUtleSI6Ik1Db3dCUVlESzJWd0F5RUFPZHlveExRUk5tbEdiRmtQblY3Nnp2aEtvVDZkVm10QzNvNlpVQlJyQi1JIiwic2VydmVyUmVwbHlDZXJ0Ijp7ImtleSI6Ik1Db3dCUVlESzJWd0F5RUFIQnZnVGRfaGxCYWtZNURRLWpMZ1lzOHVyMVlJeEowQWRUd2JBTXBGSmx3Iiwibm90QWZ0ZXIiOjE3OTg3NjE2MDAwMDAsInBvbGljeSI6Ik1Db3dCUVlESzJWd0F5RUFPZHlveExRUk5tbEdiRmtQblY3Nnp2aEtvVDZkVm10QzNvNlpVQlJyQi1JIiwic2lnIjoiRGktVzNYbHRWVEQwdjVxcjE0SzJjdEE2YU1CRkFXbmJBaW1DM1J4aUQzX2pHaWpwNVRUSjc2VGdpa3d1T2d2eTlIX2xGYk5qLXJfbGJQbzYzZ1NWQUEiLCJzdmMiOiJtY3AtZW50cnkifSwic2VydmVyUm9vdCI6eyJub3RBZnRlciI6NDEwMjQ0NDgwMDAwMCwicm9vdCI6Im9uQUtvck85TGpDeFNKaGtYc3ZkVE1jLTBWd2JqUExveGp6VUEyZ2JzREkiLCJyb290SWQiOiJ2MzNkYzdhN2Q1ZGU0Iiwic2lnIjoicV9MVmpudWh2bENXVmJ6X1NPZ0tyRDNuOWZrNVR0cmZTWllKLTY4T3F5Z3luX1V3R2lWdjM0SGpieTJ3ZFIzaHVlNWdGMmw2THJfWkkwSjBfYkR6QXcifSwic2VzcyI6ImpqUUhRNFktUHRybXJoaGNGUjdrbXR5Ynk0RjE3T3NBZDB1Y3U2dDZWVzQiLCJzaWciOiJjVU9Nb3lnYzNvSHIxaVdlclRYXzBmaUlFbUY3N2Z0eGhXSHJLa0ZIWVFwLW5UNDJFeDRlXzVvMlBFaGJjcE1fOE1VMy1lUi1DWlpsOERQdkpCWVFCUSIsInN0YXR1cyI6ImF0dGVzdGVkIn0",
+      "pin": "server-policy",
+      "serverEntry": "mcp-entry",
+      "now": 1767225600000,
+      "requires": [
+        "influence"
+      ],
+      "expected": "MALFORMED_REPLY"
     }
   ],
   "sessionRequirement": [

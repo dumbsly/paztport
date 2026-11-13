@@ -45,6 +45,12 @@ const TS_MIN_CASE = "stamp ts of -2^63";
 const TS_MIN_TEXT = "-9223372036854775808";
 /** The verify case whose blocks token does not read: it carries that token, and `blocks` null (see checkTokens). */
 const UNREADABLE_BLOCKS_CASE = "a blocks token that does not read";
+/** The verify case whose blocks token is the JCS of null, beside `blocks` null. */
+const NULL_BLOCKS_CASE = "a blocks token holding null, every ext empty";
+/** The verify case whose blocks read as JSON, but whose second element is no block. */
+const EXTRA_MEMBER_CASE = "a block with a member blocks do not have";
+/** The verify case whose nonce key holds a noncharacter. */
+const NONCHARACTER_CASE = "a call id holding a noncharacter";
 
 const ABOUT =
   "Paztport version 4 conformance vectors. Every case carries all of its inputs; keys and policies are named and defined in this file. " +
@@ -60,9 +66,11 @@ const ABOUT =
   "The core sections use a made-up extension, example, and name influence only as an opaque second name: " +
   "no section outside a top-level member named influence needs an extension's rules. " +
   "blocks.read reads each token as blocks: expected is OK with the blocks read, or REFUSED; blocks.commit gives a block's JCS text and its stamp's ext. " +
-  "Each verify and offline case, and each call of a recordedCall case, carries `blocks`, the blocks as received, and `blocksToken`, their token, which a verifier reads: " +
-  "both null when no token was received, which is one empty block per stamp; the one verify case whose blocks token does not read " +
-  `("${UNREADABLE_BLOCKS_CASE}") carries that token and blocks null. ` +
+  "Each verify and offline case, and each call of a recordedCall case, carries `blocksToken`, the token the verifier reads, null when no token " +
+  "was received, which is one empty block per stamp, and `blocks`, the token's readable value. `blocks` is null where there is no token, and in " +
+  `the two verify cases whose token does not read as an array: "${NULL_BLOCKS_CASE}", whose token is the JCS of null, and ` +
+  `"${UNREADABLE_BLOCKS_CASE}", whose token is not canonical bytes and has no readable value. ` +
+  `The verify case "${EXTRA_MEMBER_CASE}" carries its readable value, an array whose second element is no block. ` +
   "On each verify, offline and recordedCall case, `actsOn` is the extensions the verifier acts on, and `allowedExtensions` the names it carries, " +
   "null for unset, which carries any name. " +
   "A verify or offline case's expected is {reason, suspectSvc, suspectInst, handOver}: handOver is null unless the reason is OK, and then has " +
@@ -74,6 +82,8 @@ const ABOUT =
   "`prompt` the run's recorded prompt, and callMaxAgeMs and runMaxAgeMs the age limits; a null recordedTs is a record with no time, and a null limit is one not configured, which is absent, never 0; there is no peer, clock or nonce TTL, and `seen` " +
   "is the set of nonce keys already spent in the record set. A policy's proof is looked up by `proofRoute` (null: no proof). " +
   "A nonce key, in `nonceKey` and `seen`, is the JCS text of its array of strings, each string written as RFC 8785 writes strings. " +
+  `The nonceKey of the verify case "${NONCHARACTER_CASE}" holds the noncharacter U+FFFF written as itself, as json.json already does, ` +
+  "which a strict reader refuses, so a replay reads this file's own structure with any JSON reader, and only the tokens with the reader under test. " +
   "A sessionReply case is the client's check of `reply` at `now`, against `pin` and `serverEntry`, with the extensions it `requires` ([] when absent); " +
   "offline the same reply opened an attested session exactly when the check gives ATTESTED or EXTENSION_REQUIRED, since step 5 is live only. " +
   "A sessionRequirement case is what a client that requires the extensions `requires` may do after the handshake: `check` is the reply's check " +
@@ -757,13 +767,16 @@ export function buildVectors(): Record<string, unknown> {
     live(callCase("a last stamp at the call window", { chain: callAt(NOW - 6000, NOW - CALL_MAX_AGE_MS) }), ok("pi", "pi-1", HANDED)),
     live(callCase("a last stamp 1 ms past the call window", { chain: callAt(NOW - 6000, NOW - CALL_MAX_AGE_MS - 1) }), no("EXPIRED")),
     live(callCase("a last stamp 1 ms ahead of the call window", { chain: callAt(NOW - 2000, NOW + CALL_MAX_AGE_MS + 1) }), no("EXPIRED")),
+    // the origin's third limit: at most the call window after now, though the last stamp is within it
+    live(callCase("an origin the call window ahead of now", { chain: callAt(NOW + CALL_MAX_AGE_MS, NOW) }), ok("pi", "pi-1", HANDED)),
+    live(callCase("an origin 1 ms more than the call window ahead of now", { chain: callAt(NOW + CALL_MAX_AGE_MS + 1, NOW) }), no("EXPIRED")),
     // A call id is hashed content and a nonce key the verifier's own text, so one holding a noncharacter verifies.
     ...(() => {
-      const callId = "call-￿";
+      const callId = "call-\uFFFF";
       const bind = bindMcpCall(TOOL, callId, ARGS);
       const first = stampBy(originFields, "session");
       const chain = [first, stampBy({ ...hopFields(first.sig), bind }, "pi")];
-      return [live(callCase("a call id holding a noncharacter", { chain, expectedBind: bind, nonceKey: nonceKey([RID, callId, "req"]) }), ok("pi", "pi-1", HANDED))];
+      return [live(callCase(NONCHARACTER_CASE, { chain, expectedBind: bind, nonceKey: nonceKey([RID, callId, "req"]) }), ok("pi", "pi-1", HANDED))];
     })(),
     // The verifier's own pinned policy: checked before the stamps, and naming no one, not even a peer.
     live(callCase("at policy notAfter", { policyNotAfter: NOW }), ok("pi", "pi-1", HANDED)),
@@ -825,11 +838,18 @@ export function buildVectors(): Record<string, unknown> {
         live(callCase("no blocks token, every ext empty, at a receiver acting on example", { chain: emptyCall, blocks: null }), ok("pi", "pi-1", NO_HAND_OVER)),
         live(callCase("an array of empty blocks", { chain: emptyCall, blocks: [EMPTY, EMPTY] }), ok("pi", "pi-1", NO_HAND_OVER)),
         // the token holds JSON null, which is no array of blocks, not an absent token
-        live(callCase("a blocks token holding null, every ext empty", { chain: emptyCall, blocks: null, blocksToken: tokenOf(null) }), no("EXTENSION_MISMATCH")),
+        live(callCase(NULL_BLOCKS_CASE, { chain: emptyCall, blocks: null, blocksToken: tokenOf(null) }), no("EXTENSION_MISMATCH")),
         live(callCase("no blocks token where a stamp commits to a block", { blocks: null }), no("EXTENSION_MISMATCH")),
         // the empty block's commitment is "", never the hash of its JCS
         live(callCase("ext the hash of the empty block", { chain: callWith(["", hashOf(EMPTY)]), blocks: [EMPTY, EMPTY] }), no("EXTENSION_MISMATCH")),
         live(callCase("one block too few", { blocks: [ORIGIN_BLOCK] }), no("EXTENSION_MISMATCH")),
+        // the missing block would be the empty block, which the last stamp commits to: still one block per stamp
+        live(
+          callCase("one block for two stamps, the stamp without one committing to the empty block", {
+            chain: callWith([extOf(ORIGIN_BLOCK), ""]), blocks: [ORIGIN_BLOCK],
+          }),
+          no("EXTENSION_MISMATCH"),
+        ),
         live(callCase("one block too many", { blocks: [ORIGIN_BLOCK, HOP_BLOCK, EMPTY] }), no("EXTENSION_MISMATCH")),
         live(callCase("the two blocks swapped", { blocks: [HOP_BLOCK, ORIGIN_BLOCK] }), no("EXTENSION_MISMATCH")),
         // the base blocks' JCS bytes after a space: the hashes would match, but the token is not canonical bytes
@@ -838,7 +858,7 @@ export function buildVectors(): Record<string, unknown> {
         ...(() => {
           const extra = { ...HOP_BLOCK, note: "n1" };
           const chain = callWith([extOf(ORIGIN_BLOCK), hashOf(extra)]);
-          return [live(callCase("a block with a member blocks do not have", { chain, blocks: [ORIGIN_BLOCK, extra] }), no("EXTENSION_MISMATCH"))];
+          return [live(callCase(EXTRA_MEMBER_CASE, { chain, blocks: [ORIGIN_BLOCK, extra] }), no("EXTENSION_MISMATCH"))];
         })(),
       ];
     })(),
@@ -1261,6 +1281,13 @@ export function buildVectors(): Record<string, unknown> {
       { requires: ["influence"] },
     ),
     sessionReplyCase("another key's reply, to a client with a requirement", reply("mcp-entry"), "PIN_MISMATCH", { pin: "client-policy", requires: ["influence"] }),
+    // Steps 1 and 3 come before step 5 too: each reply lists nothing, so checking the requirement early would give
+    // EXTENSION_REQUIRED.
+    sessionReplyCase(
+      "the server's root expired, to a client with a requirement", reply("mcp-entry", { serverRoot: serverRootUntil(NOW - 1) }), "BAD_SIGNATURE",
+      { requires: ["influence"] },
+    ),
+    sessionReplyCase("extensions missing, to a client with a requirement", reply("mcp-entry", {}, ["extensions"]), "MALFORMED_REPLY", { requires: ["influence"] }),
   ];
 
   // What a client that requires extensions may do in the session its handshake left it (sessions.md, A client that
