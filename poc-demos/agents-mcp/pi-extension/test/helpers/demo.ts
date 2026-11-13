@@ -15,6 +15,8 @@ const MOCK = join(import.meta.dirname, "../../../mock-github-mcp/src");
 export const MAIN = join(MOCK, "main.ts");
 export const DOCS = join(MOCK, "docs-main.ts");
 export const STUB = join(import.meta.dirname, "stub-server.ts");
+/** A server run as the demo's GitHub server whose responses also require `example` (`node EXAMPLE <demo>/server`). */
+export const EXAMPLE = join(import.meta.dirname, "example-server.ts");
 const SETUP = join(import.meta.dirname, "../../../scripts/setup-demo.ts");
 export const CANARY = "c0ffee";
 /** What the model is told for an INFLUENCE_DENIED or UNSAFE_SESSION refusal; written out here so a test pins the wording. */

@@ -30,7 +30,7 @@ import { InfluenceStore } from "../src/influence.ts";
 import { loadClientMaterial, type ClientMaterial } from "../src/keys.ts";
 import { ORIGIN_BLOCK, RunState } from "../src/runs.ts";
 import { POLICY_EXPIRED_TEXT } from "../src/refusals.ts";
-import { CANARY, DOCS, githubArgs, records, resignDemo, setupDemo, STUB, UNSAFE_TEXT } from "./helpers/demo.ts";
+import { CANARY, DOCS, EXAMPLE, githubArgs, records, resignDemo, setupDemo, STUB, UNSAFE_TEXT } from "./helpers/demo.ts";
 
 const CALL_ID = /^[A-Za-z0-9_-]{1,128}$/;
 const FIXED_README = "# Acme website\n\nWelcome to the Acme website.\n\nThis repository holds the public marketing site.\n";
@@ -877,6 +877,33 @@ describe("a client's requirement of its server", { timeout: 30_000 }, () => {
     const [plain] = records(normalPath).filter((r) => r.type === "response");
     expect(plain).toMatchObject({ v: 2, callId: "toolu_W2" });
     expect(plain).not.toHaveProperty("withheld");
+  });
+
+  it("aWithheldResultStillAddsItsEntry", async () => {
+    // a client that acts on influence, and a server whose response's last block also requires "example", which the
+    // client does not act on (check 9c): the result is withheld, and the reading's one local-untrusted entry is added
+    const evidencePath = join(tmp, `evidence-${n++}.jsonl`);
+    const c = ctx();
+    const conn = await connect(
+      c,
+      { id: "github", command: process.execPath, args: [EXAMPLE, join(demo, "server")], attested: true, pin: join(demo, "client/server-policy.pub") },
+      { evidence: new EvidenceLog(evidencePath) },
+    );
+    expect(conn.status()).toBe("attested");
+    c.runs.start("fix the typo", Date.now());
+    const out = await conn.call("list_issues", LIST, "toolu_X1");
+    expect(out.isError).toBe(true);
+    expect(out.text).toBe(WITHHELD_TEXT);
+    expect(out.details).toMatchObject({ verify: "EXTENSION_REQUIRED", withheld: true, added: ["local-untrusted"], session: "attested" });
+    expect(out.details.refused).toBeUndefined();
+    const [response] = records(evidencePath).filter((r) => r.type === "response");
+    expect(response).toMatchObject({ callId: "toolu_X1", withheld: true });
+    // the label the server signed is not believed: the entry is local-untrusted, for the result as received
+    const att = readAttestation(response!.result._meta["paztport/attestation"]);
+    expect(att.blocks[1]).toMatchObject({ requires: ["example", "influence"] });
+    expect(itemsUnder(att.blocks[1]!, INFLUENCE)).toEqual([{ cls: "public", cid: expect.any(String) }]);
+    expect(c.influence.entries()).toEqual([{ cls: "local-untrusted", src: "server:github", h: bindResult(response!.result) }]);
+    expect(readFileSync(c.eventsPath, "utf8")).not.toContain("Typo in README");
   });
 
   it("aVerifiedResultAddsAnEntryForEachLabel", async () => {
