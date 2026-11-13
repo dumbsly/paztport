@@ -51,7 +51,11 @@ The page has two tabs.
 
 **Run.** You choose a model, a scenario, Paztport on or off, the planted text (the scenario's own, or a file of yours), and how many runs. A panel says in plain words what will happen before you start, including the exact prompt the agent is given and whether the model is local or hosted.
 
-During a run, each tool call the agent makes appears as a row in plain words (for example "read issue 2 on acme/website"). A row opens an evidence drawer with the request, the response, and, with Paztport on, the signed record for that call and whether it verified. A call the server refused is shown as refused. Refusals are not signed; the drawer says what was checked for them instead.
+During a run, each tool call the agent makes appears as a row in plain words (for example "read issue 2 on acme/website"). A row opens an evidence drawer. It shows what happened to the call and, for a refusal, the rule in plain words and its reason code. For a call to the mock server it then shows the labels on what the server returned: with a signed reply, the labels the server signed in it (each item under `influence` in the reply's blocks that reads as a label; any other item is not shown), and otherwise the class the server's outcome log records. After that come the signed request chain, the signed reply's chain and the hash of the result, the `npm run verify` command that checks the run's evidence offline (once the run has finished, when it has evidence), and the lines of the outcome log, the events log and the evidence file for that call. A call the server refused is shown as refused. Refusals are not signed; the drawer says what was checked for them instead.
+
+For a local tool call the drawer shows the folder or program rule that decided it, the route proof, the signed local chain, and what the agent held when the call was decided, read from the influence entries in the step's signed block.
+
+Two more outcomes show as errors. A call whose result the client withheld, because the server's response required an extension the client does not act on, says so, although the server's log records the tool as run. A call made in a session that did not give the client what it requires of the server says that it was not sent.
 
 When the run ends, the page shows how it was classified (see the classes in the [eval README](../eval/README.md#reading-the-results)) and the agent's final answer. The classification comes from the mock server's log, not from the answer.
 

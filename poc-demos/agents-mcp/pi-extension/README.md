@@ -6,10 +6,12 @@ tools with pi, and sends every call itself:
 
 - **Stamps calls.** Each `tools/call` carries a signed chain: a prompt-origin stamp for the user
   prompt that started the run, then a `pi` stamp bound to this tool, call id and arguments. It also
-  carries the route proof and the influence the call was made under.
+  carries the route proof and one block per stamp: the origin's names the extension `influence` with
+  no entries, and pi's holds the influence the call was made under.
 - **Verifies responses.** Each response is checked against the server's signed policy. Its content
   labels (`public`, `private`, `third-party`) are added to the session's influence only if it
-  verifies. A response that fails, or comes from an unattested server, counts as `local-untrusted`.
+  verifies. A response that fails, or comes from an unattested server, counts as `local-untrusted`
+  ([What a result adds](#what-a-result-adds)).
 - **Lets the server decide.** The server refuses a public write once the context holds private
   content plus third-party or untrusted content (`INFLUENCE_DENIED`). The model gets that refusal as
   a tool error.
@@ -48,7 +50,7 @@ then classify the run from the outcome log as the
   "clientDir": "/path/to/paztport/poc-demos/agents-mcp/.demo/client",
   "eventsLog": "/path/to/runs/events.jsonl",
   "servers": [
-    { "id": "github", "command": "node", "args": ["…/main.ts", "--mode", "enforce", "…"], "attested": true },
+    { "id": "github", "command": "node", "args": ["…/main.ts", "--mode", "enforce", "…"], "attested": true, "requires": ["influence"] },
     { "id": "docs", "command": "node", "args": ["…/docs-main.ts"], "attested": false }
   ]
 }
@@ -71,6 +73,19 @@ then classify the run from the outcome log as the
 - `servers[]`: `id` (`[A-Za-z0-9_-]+`), `command`, optional `args` and `env`, and `attested`. An
   attested server also takes `pin`, the path to the server policy public key file. It defaults to
   `<clientDir>/server-policy.pub`.
+- `requires` (optional, attested servers only): the extensions the client requires of the server, as an
+  array of extension names. The client calls the server only in an attested session whose reply lists
+  each of them ([the client's check of the reply](../../../poc-sdks/spec/sessions.md#the-clients-check-of-the-reply),
+  "A client that requires extensions"); otherwise the session makes no calls
+  ([A session that makes no calls](#a-session-that-makes-no-calls)). The requirement applies in every
+  mode but `off`. `requires` on a server with `attested: false` is a config error, and so is a value
+  that is not an array of extension names. The example config, and the config the eval and the demo
+  page write for a run with Paztport on, require `influence` of the GitHub server: the client relies
+  on that server's rule for public writes, and a server deployed without the extension would not apply
+  it ([The every-stamp rule](../../../poc-sdks/spec/influence.md#the-every-stamp-rule)).
+- `continueWithoutRequired` (optional, default `false`): the switch that lets the client call the server
+  without what it `requires`, as a client with no requirement does, in whatever session the handshake
+  gave it. Its calls then do not require of the server the extensions the reply did not list.
 - `eventsLog` (optional): a JSONL log for the demo UI. It records event types, server and tool names,
   reason codes, influence class counts, rids and call ids. It never records content, arguments,
   keys, signatures or hashes.
@@ -79,14 +94,16 @@ then classify the run from the outcome log as the
   offline, kept apart from the events log. It holds the user prompt and rid of each run; for each
   handshake request sent, the request's token, the reply token the result carried and the pin it was
   checked against; on attested connections, each `tools/call` exactly as sent (name, arguments
-  and `_meta`: the chain, proof and influence tokens) with the time it was stamped, and each raw
-  result including its `_meta` with the time it was verified; and, in `enforce` mode, the client's
-  keyring, root and rules and each gated call's signed step ([Local tool gating](#local-tool-gating)).
-  Every Paztport object in it is a token, as the protocol carries it, and the
-  [eval README](../eval/README.md#the-evidence-format) gives each record's fields. It is non-secret:
-  no private keys. It does include prompts, tool arguments and tool results, so it can hold private
-  content. The model never sees it, and it is not workspace-guarded, so keep it outside the agent's
-  working directory.
+  and `_meta`: the chain, proof and blocks tokens, the blocks under `paztport/extensions`) with the time
+  it was stamped, and each raw result including its `_meta` with the time it was verified; and, in
+  `enforce` mode, the client's keyring, root and rules and each gated call's signed step
+  ([Local tool gating](#local-tool-gating)). Every Paztport object in it is a token, as the protocol
+  carries it, and the [eval README](../eval/README.md#the-evidence-format) gives each record's fields.
+  Every record is evidence format 2 (`"v": 2`), which holds protocol version 4 tokens; `npm run verify`
+  refuses a file in format 1, which an earlier version of this extension wrote for protocol version 3.
+  It is non-secret: no private keys. It does include prompts, tool arguments and tool results, so it
+  can hold private content. The model never sees it, and it is not workspace-guarded, so keep it
+  outside the agent's working directory.
 
 Relative `clientDir`, `pin`, `eventsLog` and `evidenceLog` paths resolve against the config file's directory.
 `command` and `args` are used as given.
@@ -105,14 +122,67 @@ of the server id and tool name, so it is at most 64 characters and unique.
 
 - `enforce`: the full harness. The extension runs a `paztport/session` handshake with each attested
   server. Calls are stamped and responses verified.
-- `no-root`: the handshake sends no client root, so the server opens an unsafe session. Reads work
-  and writes are refused (`UNSAFE_SESSION`). This shows what an unattested harness gets.
+- `no-root`: the handshake sends no client root, so the server opens an unsafe session. For a server
+  the client `requires` extensions of, without `continueWithoutRequired`, that means no calls at all
+  ([A session that makes no calls](#a-session-that-makes-no-calls)); with the example config that is the
+  GitHub server. Without a requirement, or with the switch, reads work and the mock server refuses
+  writes (`UNSAFE_SESSION`). This shows what an unattested harness gets.
 - `off`: no handshake, no stamps and no verification. Calls are plain `tools/call` under the **same
   tool names**, so on and off runs give the model identical tools. Pair it with the server's
   `--mode off` for a baseline. The config, keys and workspace guard are still checked.
 
 In an attested session, a tool call made before any user prompt is refused locally and nothing is
 sent.
+
+### A session that makes no calls
+
+The handshake is the SDK's `openSession`: it sends the session request, checks the reply, sends the
+replacement request the spec asks for after a failed handshake, and says whether the client may make
+calls under its requirement. When a server is configured with `requires` and the client may not, the
+session is `no-calls`: after an attested reply that does not list a required extension
+(`EXTENSION_REQUIRED`), an unsafe one (`UNSAFE`, as in `no-root` mode), a missing pin, a handshake that
+failed, or a server with no Paztport (Method not found). The server's tools stay registered, so the
+model sees the same tools. Each call to them fails locally, before anything is stamped or sent, with
+this text:
+
+```
+MCP server "<id>" error: no attested session gives what this client requires of the server (<reason>); nothing was sent
+```
+
+`<reason>` is the session's reason. The events log's `session` event has `status: "no-calls"` and the
+reason, each call adds an `error` event with the code `NO_CALLS` and that reason, and the call's
+`details` say `session: "no-calls"` and `refused: true`. When a handshake was sent, each of its records
+in the evidence file has `status: "no-calls"` and the reason.
+
+### What a result adds
+
+The extension acts on `influence`. What a result adds to the session's influence is the SDK's reading
+of it, which follows [Content labels](../../../poc-sdks/spec/influence.md#content-labels): a response
+that verifies, every block of its attestation naming `influence` with only labels under it, adds one
+entry for each label, with `src` `server:<id>` and `h` the result's hash; any other result that is not a
+refusal adds one `local-untrusted` entry with the same `src` and `h`. That covers a response that fails
+verification, one that is silent or holds an item that is not a label, a withheld result (below), and
+every result in an unsafe session or from an unattested server. A refusal adds nothing, since the tool
+did not run, and so does a result that cannot be hashed, which is not used. The classes a result added
+are its `added` in `details`, in order.
+
+The session's influence keeps its entries as recorded: in order, with repeats, never sorted or merged,
+since each call's block commits to them as written. The counts in `details` count every entry.
+
+**A withheld result.** A response whose last block requires an extension the client does not act on
+fails check 9c ([the live order](../../../poc-sdks/spec/verification.md#the-live-order)). The tool ran,
+so the call is not retried, but nothing of the result reaches the model or the events log. The model
+gets this text in its place:
+
+```
+MCP server "<id>" error: the server's response requires an extension this client does not act on; its result was withheld, and the call is not retried
+```
+
+The result adds its one `local-untrusted` entry, the response is written to the evidence file as
+received, with the time it was verified, and `details` carry `verify: "EXTENSION_REQUIRED"` and
+`withheld: true`. It is not marked `refused`, which means the extension recorded no influence for the
+call. The mock server requires only `influence` of the client, which this extension acts on, so the
+shipped servers never cause one.
 
 ## What the model sees
 
@@ -141,15 +211,19 @@ sent.
   to the user, who ends the session or chooses to continue it. Continuing would not clear what the
   session has read, so writes the influence rule refuses stay refused. This proof of concept doesn't
   pause; the model sees the refusal text and decides what to do next. Local failures, such as an
-  unreachable server, a malformed result, or no active run, come back as plain error text. A result that fails verification still
+  unreachable server, a malformed result, or no active run, come back as plain error text, and so do a
+  call in a session that makes no calls and a withheld result (see
+  [A session that makes no calls](#a-session-that-makes-no-calls) and
+  [What a result adds](#what-a-result-adds)). A result that fails verification still
   reaches the model; it is recorded as `local-untrusted`. That includes a result checked after the
   server's root, or its keyring in the entry-key form, passed its `notAfter` (`POLICY_EXPIRED` in
   `details.verify`), so a live run never credits what an offline check would refuse.
 - **Details.** Paztport data goes in the tool result's `details`: the server, call id, rid, verdict
-  and verification codes, the response's label classes, the session state, and influence **counts
-  per class**. A refusal or local failure is marked `refused: true`: the extension wrote its text and
-  recorded no influence for it. Details never hold keys, signatures, chains, proofs, hashes or
-  content. pi stores them with the session. pi-ai's provider converters (such as Anthropic and
+  and verification codes, `added` (the classes of the entries the result added, in order), `withheld`
+  for a withheld result, the session state and its reason, and influence **counts per class**. A refusal
+  or local failure, a call in a session that makes no calls included, is marked `refused: true`: the
+  extension wrote its text and recorded no influence for it. Details never hold keys, signatures,
+  chains, proofs, hashes or content. pi stores them with the session. pi-ai's provider converters (such as Anthropic and
   OpenAI) send only the content. A provider that is handed pi's whole context does receive
   `details`, though: pi's test faux provider passes the whole context to the function that writes its
   replies, and the `pi-messages` API posts it whole.
@@ -234,9 +308,10 @@ The first check that fails decides, in this order:
 
 In `enforce` mode, each call that reaches the gate during a run is a signed step in the client's
 chain: the stamp binds the call id, the input, what the gate resolved, the verdict, whether the route
-was listed, the hash of the rules, and the influence at that moment. The step is written to the
-evidence file whether the call was allowed or refused. The input is bound and recorded with the
-workspace path written as `<workspace>` and the home folder as `<home>`, in keys and values alike.
+was listed and the hash of the rules, and its block holds the session's influence entries at that
+moment. The step is written to the evidence file whether the call was allowed or refused. The input
+is bound and recorded with the workspace path written as `<workspace>` and the home folder as `<home>`,
+in keys and values alike.
 Both the spelling pi was given and the real path behind any symlinks are recognised. A path is
 replaced only when it appears whole: after the start of a string, a space, a quote, a bracket, `=`,
 `:`, `,` or a shell operator, and followed by `/`, the end or one of those. A longer folder name
@@ -356,15 +431,17 @@ changed it to, which is what the tool runs with.
 - **Trust on first use.** The server policy key is pinned from `server-policy.pub`, which setup-demo
   writes. Nothing else vouches for it. A missing or mismatched pin, or a failed handshake, leaves
   that server unsafe: reads work, writes are refused, and the reason is in `details` and the events
-  log.
+  log. For a server the client `requires` extensions of, without the switch, it leaves the session
+  making no calls instead.
 - **One origin per server session.** The prompt-origin stamp is minted once per run for each server
   session and reused for every call in that run. A new handshake starts a new server session, and
   the server's record of what it has served starts empty again.
 - **Influence is sticky for the pi session.** Everything recorded stays, even across prompts, until
   `/new` starts an empty session. Reload keeps the messages, and `/resume`, `/fork` and `pi -c` or
   `--session` restore them, so on those session starts the influence is rebuilt from the restored
-  branch: each of this extension's results counts with its label classes from `details`, or as
-  `local-untrusted` when it has none (a result marked `refused` in `details`, a refusal or local
+  branch: each of this extension's results counts with the classes it added (`added` in `details`), or
+  as `local-untrusted` when it has no `added`, as a result saved by an earlier version of this
+  extension, with `labels` in its place, does not (a result marked `refused` in `details`, a refusal or local
   failure, counts for nothing, and in `off` mode none of these results count), and every other MCP
   result counts as `local-untrusted`, as it did live. A summary that `/tree` left of an abandoned
   branch is in context too, so the results on that branch count the same way. `/fork` and `/clone`

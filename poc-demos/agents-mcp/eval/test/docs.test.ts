@@ -200,6 +200,35 @@ describe("the documents follow the code", () => {
     }
   });
 
+  it("thePiReadmeDocumentsRequiresAndItsSwitch", () => {
+    // every key loadConfig reads, of the config (`raw`) and of each server (`v`)
+    const source = readFileSync(join(AGENTS, "pi-extension/src/config.ts"), "utf8");
+    const keys = new Set([...source.matchAll(/\b(?:raw|v)\.([A-Za-z]+)\b/g)].map((m) => m[1]!));
+    for (const key of ["requires", "continueWithoutRequired", "mode", "servers", "attested"]) expect(keys, key).toContain(key);
+    for (const key of keys) expect(PI_README, key).toMatch(new RegExp(`\`${key}[\`\\[]`));
+  });
+
+  it("noDemoDocumentSaysProtocolV3OfTheDemo", () => {
+    // the recorded eval was run on version 3, and its section says so; nothing else describes the demo as version 3
+    const readmes = (d: string): string[] =>
+      readdirSync(d, { withFileTypes: true }).flatMap((e) =>
+        e.name === "node_modules" || e.name.startsWith(".") ? [] : e.isDirectory() ? readmes(join(d, e.name)) : e.name === "README.md" ? [join(d, e.name)] : [],
+      );
+    const files = readmes(AGENTS);
+    expect(files.map((f) => relative(AGENTS, f)).sort()).toEqual(
+      ["README.md", "demo-ui/README.md", "eval/README.md", "mock-github-mcp/README.md", "pi-extension/README.md"],
+    );
+    for (const f of files) {
+      let text = readFileSync(f, "utf8");
+      if (f === join(AGENTS, "eval/README.md")) {
+        const from = text.indexOf("\n## Recorded results\n");
+        expect(from).toBeGreaterThan(0);
+        text = text.slice(0, from) + text.slice(text.indexOf("\n## ", from + 1));
+      }
+      expect(text, relative(AGENTS, f)).not.toMatch(/protocol v3|Protocol v3/);
+    }
+  });
+
   it("theTermsNoteIsHedged", () => {
     for (const text of [EVAL_README, DEMO_README]) {
       expect(text).toMatch(/not legal advice/i);
