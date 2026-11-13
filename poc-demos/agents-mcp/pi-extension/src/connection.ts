@@ -86,10 +86,13 @@ const INST = "pi-1";
 const SERVER_ENTRY = "mcp-entry";
 /** The server hop a verified response must start at. */
 const SERVER_ORIGINS = [SERVER_ENTRY];
-/** What the model is told for a withheld result; it holds nothing of the result. */
+/**
+ * What the model is told for a withheld result; it holds nothing of the result. It says the tool ran: the client does
+ * not retry the call, and a model told only of an error might make the same write again (verification.md, check 9c).
+ */
 const WITHHELD_MESSAGE =
-  "the server's response requires an extension this client does not act on; its result was withheld, " +
-  "and the call is not retried";
+  "the tool ran on the server, but its response requires an extension this client does not act on, so its result " +
+  "was withheld; do not call it again for the same action";
 const SAFE_CALL_ID = /^[A-Za-z0-9_-]{1,128}$/;
 const RPC_ERRORS: Record<number, string> = {
   [JSON_RPC_ERROR_CODES.parseError]: "parse error",
@@ -387,11 +390,14 @@ export class ServerConnection {
       });
     }
     // `now` is the time the reading verified the response at; without one (a refusal, a malformed result) it is read
-    // here.
-    const respond = (result: unknown, now?: number) => {
+    // here. `withheld` marks a result the client withheld at check 9c, which is live only, so the record says it.
+    const respond = (result: unknown, now?: number, withheld?: true) => {
       if (attested !== undefined) {
         const at = now ?? this.now();
-        this.evidence.write({ v: EVIDENCE_VERSION, type: "response", server, tool, callId, rid: attested.rid, now: at, result });
+        const mark = withheld === true ? { withheld } : {};
+        this.evidence.write({
+          v: EVIDENCE_VERSION, type: "response", server, tool, callId, rid: attested.rid, now: at, result, ...mark,
+        });
       }
     };
     this.events.emit({ type: "call", server, tool, callId, ...withRid, session });
@@ -446,7 +452,7 @@ export class ServerConnection {
       this.influence.add(found.entries);
     }
     const added = found.kind === "entries" ? { added: found.entries.map((e) => e.cls) } : {};
-    respond(raw, reading.verifiedAt);
+    respond(raw, reading.verifiedAt, reading.kind === "withheld" ? true : undefined);
     if (reading.kind === "withheld") {
       // The tool ran, so the call is not retried; nothing of the result reaches the model or the events log.
       const extra = { ...withRid, verify: reading.reason, ...added, withheld: true as const };

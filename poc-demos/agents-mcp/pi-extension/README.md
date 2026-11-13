@@ -99,7 +99,9 @@ then classify the run from the outcome log as the
   handshake request sent, the request's token, the reply token the result carried and the pin it was
   checked against; on attested connections, each `tools/call` exactly as sent (name, arguments
   and `_meta`: the chain, proof and blocks tokens, the blocks under `paztport/extensions`) with the time
-  it was stamped, and each raw result including its `_meta` with the time it was verified; and, in
+  it was stamped, and each raw result including its `_meta` with the time it was verified (and
+  `withheld: true` for a [withheld result](#what-a-result-adds), the client's own unsigned note, since
+  check 9c is live only); and, in
   `enforce` mode, the client's keyring, root and rules and each gated call's signed step
   ([Local tool gating](#local-tool-gating)). Every Paztport object in it is a token, as the protocol
   carries it, and the [eval README](../eval/README.md#the-evidence-format) gives each record's fields.
@@ -185,11 +187,14 @@ so the call is not retried, but nothing of the result reaches the model or the e
 gets this text in its place:
 
 ```
-MCP server "<id>" error: the server's response requires an extension this client does not act on; its result was withheld, and the call is not retried
+MCP server "<id>" error: the tool ran on the server, but its response requires an extension this client does not act on, so its result was withheld; do not call it again for the same action
 ```
 
+It says the tool ran because its reader is a model: told only of an error, a model may make the same write
+again, which the client itself never does.
+
 The result adds its one `local-untrusted` entry, the response is written to the evidence file as
-received, with the time it was verified, and `details` carry `verify: "EXTENSION_REQUIRED"` and
+received, with the time it was verified and `withheld: true`, and `details` carry `verify: "EXTENSION_REQUIRED"` and
 `withheld: true`. It is not marked `refused`, which means the extension recorded no influence for the
 call. The mock server requires only `influence` of the client, which this extension acts on, so the
 shipped servers never cause one.

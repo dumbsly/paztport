@@ -141,8 +141,8 @@ const PAYROLL = { owner: "acme", repo: "payroll-notes", path: "README.md" };
 const NO_CALLS_TEXT = (reason: string) =>
   `no attested session gives what this client requires of the server (${reason}); nothing was sent`;
 const WITHHELD_TEXT =
-  'MCP server "github" error: the server\'s response requires an extension this client does not act on; its result was ' +
-  "withheld, and the call is not retried";
+  'MCP server "github" error: the tool ran on the server, but its response requires an extension this client does not ' +
+  "act on, so its result was withheld; do not call it again for the same action";
 
 /** The scenario A reads, then the first public write. */
 async function leakUntilBranch(conn: ServerConnection): Promise<CallOutcome[]> {
@@ -858,13 +858,24 @@ describe("a client's requirement of its server", { timeout: 30_000 }, () => {
     expect(records(log)).toHaveLength(1);
     // the response, as received, is in the evidence file; its text is in neither the outcome nor the events log
     const [response] = records(evidencePath).filter((r) => r.type === "response");
-    expect(response).toMatchObject({ v: 2, callId: "toolu_W1", rid: out.details.rid });
+    // the record says the client withheld it: check 9c is live only, so nothing offline would show it
+    expect(response).toMatchObject({ v: 2, callId: "toolu_W1", rid: out.details.rid, withheld: true });
     expect(JSON.stringify(response!.result)).toContain("Typo in README");
     expect(out.text).not.toContain("Typo in README");
     expect(readFileSync(c.eventsPath, "utf8")).not.toContain("Typo in README");
     expect(events(c).filter((e) => e.type === "response")).toEqual([
       expect.objectContaining({ callId: "toolu_W1", verify: "EXTENSION_REQUIRED", withheld: true, isError: true }),
     ]);
+
+    // a response read as usual carries no such member
+    const normalPath = join(tmp, `evidence-${n++}.jsonl`);
+    const normal = ctx();
+    const read = await github(normal, "enforce", {}, { evidence: new EvidenceLog(normalPath) });
+    normal.runs.start("fix the typo", Date.now());
+    expect((await read.conn.call("list_issues", LIST, "toolu_W2")).details.verify).toBe("OK");
+    const [plain] = records(normalPath).filter((r) => r.type === "response");
+    expect(plain).toMatchObject({ v: 2, callId: "toolu_W2" });
+    expect(plain).not.toHaveProperty("withheld");
   });
 
   it("aVerifiedResultAddsAnEntryForEachLabel", async () => {

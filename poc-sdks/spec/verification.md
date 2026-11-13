@@ -96,10 +96,11 @@ the same tests, with the caller's own `allowedExtensions` and `actsOn`. Its last
 
 **A response that fails check 9c is refused by the caller**, over MCP and HTTP alike: it is not handed to the
 application, and the call fails with `EXTENSION_REQUIRED`. The responder's handler has already run, so the caller
-MUST NOT retry the call on this ground. Only check 9c does this, since it is how a responder whose claims must
-not be lost keeps a caller that would drop them from using the response. A response that fails any other check is
-used, as not verified, and what an extension makes of an unverified response is the extension's to say. A caller
-with no verifier never runs the check, so it cannot refuse, and a responder learns nothing either way.
+MUST NOT retry the call on this ground; a caller whose application may repeat the call itself, as a model may, tells
+the application that the handler ran. Only check 9c does this, since it is how a responder whose claims must not be
+lost keeps a caller that would drop them from using the response. A response that fails any other check is used, as
+not verified, and what an extension makes of an unverified response is the extension's to say. A caller with no
+verifier never runs the check, so it cannot refuse, and a responder learns nothing either way.
 
 Why this order:
 

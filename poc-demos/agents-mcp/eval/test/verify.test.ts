@@ -6,9 +6,9 @@ import { cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, wri
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  bindLocalTool, buildTree, decode, encode, generateKeyPair, itemsUnder, keyringSigningBytes, makeBlock, mintOrigin, randomBytes, readBlocks,
-  readChain, readKeyring, readProof, readLocalDecision, readRoot, readSessionReply, readSessionRequest, readToken, sign, signRoot, signSessionReply, signStamp,
-  writeToken,
+  bindLocalTool, buildTree, decode, encode, generateKeyPair, itemsUnder, keyringSigningBytes, makeBlock, mintOrigin, NO_EXTENSIONS, randomBytes,
+  readBlocks, readChain, readKeyring, readProof, readLocalDecision, readRoot, readSessionReply, readSessionRequest, readToken, sign, signRoot,
+  signSessionReply, signStamp, writeToken, type ExtensionSettings,
 } from "@paztport/core";
 import { bindMcpCall, stampToolCall } from "@paztport/mcp";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -40,8 +40,11 @@ beforeAll(async () => {
 }, 60_000);
 afterAll(() => rmSync(tmp, { recursive: true, force: true }));
 
-/** A real attested run against the mock server (the demo keys in `dir`): three reads, then a write the server refuses. */
-async function produce(pin = join(demo, "client/server-policy.pub"), dir = demo): Promise<string[]> {
+/**
+ * A real attested run against the mock server (the demo keys in `dir`): three reads, then a write the server refuses.
+ * `extensions` are those the client acts on (the extension's own by default).
+ */
+async function produce(pin = join(demo, "client/server-policy.pub"), dir = demo, extensions?: ExtensionSettings): Promise<string[]> {
   const evidencePath = join(tmp, `gen-${n++}.jsonl`);
   const evidence = new EvidenceLog(evidencePath);
   const runs = new RunState();
@@ -54,6 +57,7 @@ async function produce(pin = join(demo, "client/server-policy.pub"), dir = demo)
     new EventLog(join(tmp, `events-${n++}.jsonl`)),
     undefined,
     evidence,
+    extensions,
   );
   try {
     await conn.connect();
@@ -114,6 +118,19 @@ describe("verifyEvidence", { timeout: 30_000 }, () => {
     const item = r.items.find((i) => i.callId === "toolu_c" && i.type === "response")!;
     expect(item.result).not.toBe("OK");
     expect(item.result).not.toBe("REFUSED");
+  });
+
+  it("aWithheldResponseRecordStillVerifiesAsItsChainDoes", async () => {
+    // a client that acts on no extension withholds every labelled response live (check 9c), and marks each record so;
+    // offline check 9c is not run, so each verifies as its chain does, and the member is not read
+    const lines = await produce(undefined, undefined, NO_EXTENSIONS);
+    const withheld = lines.map((l) => JSON.parse(l)).filter((r) => r.type === "response" && r.withheld === true);
+    expect(withheld.length).toBeGreaterThan(0);
+    const r = verifyEvidence(write(lines));
+    expect(r.ok).toBe(true);
+    for (const rec of withheld) {
+      expect(r.items.find((i) => i.type === "response" && i.callId === rec.callId)!.result, rec.callId).toBe("OK");
+    }
   });
 
   it("tamperedResultTextFails", () => {

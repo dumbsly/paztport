@@ -19,8 +19,12 @@ export type EvidenceRecord =
   | { v: 2; type: "session"; server: string; request: string; reply: string | null; pin: string | null; status: "attested" | "unsafe" | "no-calls"; reason?: string }
   /** `_meta` as sent: the chain, proof and blocks tokens, `paztport/extensions` and `paztport/callId`. */
   | { v: 2; type: "call"; server: string; tool: string; callId: string; rid: string; now: number; params: { name: string; arguments: Record<string, unknown>; _meta: Record<string, string> } }
-  /** `result` as received; its `_meta` holds the attestation or verdict token. */
-  | { v: 2; type: "response"; server: string; tool: string; callId: string; rid: string; now: number; result: unknown }
+  /**
+   * `result` as received; its `_meta` holds the attestation or verdict token. `withheld` is written only for a result
+   * the client withheld (its last block required an extension the client does not act on, check 9c): the client's own
+   * unsigned note, since check 9c is live only and an offline check of the response cannot show it.
+   */
+  | { v: 2; type: "response"; server: string; tool: string; callId: string; rid: string; now: number; result: unknown; withheld?: true }
   /**
    * The client mesh as the session loaded it: written once per session_start in enforce mode, before any local
    * record. `keyring` is the signed keyring's token (its services, policy key, window and signature), `root` the
