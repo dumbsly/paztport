@@ -683,8 +683,8 @@ describe("a client's requirement of its server", { timeout: 30_000 }, () => {
     const sent = spyRequests();
     const { conn, log } = await github(c, "enforce", { requires: ["example", "influence"] });
     expect(conn.status()).toBe("no-calls");
-    // the tools stay listed; each call fails before anything is stamped or sent
-    expect(conn.tools()).toHaveLength(9);
+    // no tool is listed; a call made all the same fails before anything is stamped or sent
+    expect(conn.tools()).toEqual([]);
     expect(events(c)).toContainEqual(
       { ts: expect.any(Number), type: "session", server: "github", status: "no-calls", reason: "EXTENSION_REQUIRED" },
     );
@@ -747,7 +747,8 @@ describe("a client's requirement of its server", { timeout: 30_000 }, () => {
       expect(conn.status(), reason).toBe("no-calls");
       expect(events(c), reason).toContainEqual(expect.objectContaining({ type: "session", status: "no-calls", reason }));
       c.runs.start("fix the typo", Date.now());
-      const out = await call(conn, conn.tools()[0]!.name, LIST);
+      // no tool is listed, so none is registered; a call made all the same is refused locally
+      const out = await call(conn, reason === "HANDSHAKE_ERROR" ? "echo" : "list_issues", LIST);
       expect(out.isError, reason).toBe(true);
       expect(out.text, reason).toBe(`MCP server "${out.details.server}" error: ${NO_CALLS_TEXT(reason)}`);
       expect(out.details, reason).toMatchObject({ session: "no-calls", sessionReason: reason, refused: true });
@@ -769,6 +770,31 @@ describe("a client's requirement of its server", { timeout: 30_000 }, () => {
     expect((await call(conn, "list_issues", LIST)).text).toBe(`MCP server "github" error: ${NO_CALLS_TEXT("PIN_MISSING")}`);
     expect(sent.map((r) => r.method).filter((m) => m === "paztport/session" || m === "tools/call")).toEqual([]);
     expect(records(log)).toEqual([]);
+  });
+
+  it("aNoCallsSessionListsNoTools", async () => {
+    // a tool the client cannot call has no use, and its description would reach the model unrecorded
+    const wrongPin = join(tmp, `wrong-${n++}.pub`);
+    writeFileSync(wrongPin, generateKeyPair().publicKey + "\n");
+    for (const [reason, spec] of [
+      ["PIN_MISMATCH", { pin: wrongPin, requires: ["influence"] }],
+      ["EXTENSION_REQUIRED", { requires: ["example", "influence"] }],
+    ] as const) {
+      const sent = spyRequests();
+      const c = ctx();
+      const { conn, log } = await github(c, "enforce", { ...spec, requires: [...spec.requires] });
+      expect(conn.status(), reason).toBe("no-calls");
+      expect(conn.tools(), reason).toEqual([]);
+      // the session event still says why
+      expect(events(c), reason).toContainEqual(expect.objectContaining({ type: "session", status: "no-calls", reason }));
+      c.runs.start("fix the typo", Date.now());
+      expect((await call(conn, "list_issues", LIST)).text, reason).toBe(`MCP server "github" error: ${NO_CALLS_TEXT(reason)}`);
+      const methods = sent.map((r) => r.method);
+      expect(methods, reason).not.toContain("tools/list");
+      expect(methods, reason).not.toContain("tools/call");
+      expect(records(log), reason).toEqual([]);
+      vi.restoreAllMocks();
+    }
   });
 
   it("withTheSwitchItCallsUnattested", async () => {

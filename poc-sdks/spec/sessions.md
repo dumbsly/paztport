@@ -150,11 +150,15 @@ to it only in an attested session whose reply lists each of them. On `EXTENSION_
 session. Nor does it make a call in an unsafe session with that server, however the session came to be unsafe:
 the reply's `status` said so (step 4), or the client took the replacement path, below, after an outcome from 1 to
 3, a JSON-RPC error or a timeout. A server that answers the handshake with `-32601` (Method not found) has no
-Paztport, and is treated as an unsafe session for this rule: no calls unless the switch below is set. The
-requirement is the caller's guard for a server that does not act on the extension, so neither the server, by
-answering `"unsafe"`, nor anyone able to make the handshake fail can switch it off. A configuration switch lets the
-client continue instead, in both cases: it then proceeds as a client with no requirement does, in the session the
-reply gave it, and its calls carry no `requires` for the names it could not get ([wire.md](wire.md#blocks)).
+Paztport, and is treated as an unsafe session for this rule: no calls unless the switch below is set. A client that
+sends no handshake at all, having no pin to check a reply against, is in an unsafe session with that server for this
+rule too. The requirement is the caller's guard for a server that does not act on the extension, so neither the
+server, by answering `"unsafe"`, nor anyone able to make the handshake fail can switch it off. A configuration
+switch lets the client continue instead, in both cases: it then proceeds as a client with no requirement does, in
+the session the reply gave it, and its calls carry no `requires` for the names it could not get
+([wire.md](wire.md#blocks)). Over MCP, a client that makes no call in a session with a server does not list the
+server's tools either (it sends no `tools/list`): a tool it cannot call has no use, and its description would reach
+the model unrecorded.
 
 `EXTENSION_REQUIRED` is an outcome of this check, as `PIN_MISMATCH` and `MALFORMED_REPLY` are; it shares its name
 with the verifier's code, as `BAD_SIGNATURE` already does. A mesh has no handshake, so there `requires` does this

@@ -274,6 +274,17 @@ describe("paztport pi extension", { timeout: 30_000 }, () => {
     expect(fetch.namespace).toEqual({ name: "mcp__docs", aliases: ["docs"] });
   });
 
+  it("noToolIsRegisteredForAServerTheClientMakesNoCallTo", async () => {
+    // the mock server lists ["influence"]; "example" is a valid name it does not act on, so the session makes no calls
+    const { pi, eventsPath } = setup([{ ...github(), requires: ["example", "influence"] }, docs()]);
+    await pi.emit("session_start", { reason: "startup" });
+    expect(pi.registrations.filter((name) => name.startsWith("mcp__github__"))).toEqual([]);
+    expect(pi.registrations).toContain("mcp__docs__fetch_docs");
+    expect(records(eventsPath)).toContainEqual(
+      expect.objectContaining({ type: "session", server: "github", status: "no-calls", reason: "EXTENSION_REQUIRED" }),
+    );
+  });
+
   it("sanitisesNamesAndDefaultsSchemaType", async () => {
     expect(mcpToolName("my-srv", "a.b/c")).toBe("mcp__my_srv__a_b_c");
     const long1 = mcpToolName("server", "x".repeat(80) + "1");

@@ -127,7 +127,7 @@ function describeError(e: unknown): { message: string; code: string; rpcCode?: n
  * One MCP server over stdio. In an attested session every tools/call carries the prompt-origin chain, the route proof
  * and the blocks: the origin's, and pi's with the influence the call was made under and what the session requires of
  * the server. Every result's reading gives what it adds to the influence. Unsafe and off sessions send plain calls; a
- * no-calls session sends none.
+ * no-calls session lists no tools and sends none.
  */
 export class ServerConnection {
   private readonly spec: ServerSpec;
@@ -174,7 +174,10 @@ export class ServerConnection {
     this.requirement = requirement(spec.requires ?? [], spec.continueWithoutRequired ?? false);
   }
 
-  /** Spawns the server, runs initialize, the paztport/session handshake (when due) and tools/list. Throws if the server cannot start. */
+  /**
+   * Spawns the server, runs initialize, the paztport/session handshake (when due) and, unless the session makes no
+   * calls, tools/list. Throws if the server cannot start.
+   */
   async connect(): Promise<void> {
     if (this.client !== undefined) {
       throw new Error(`MCP server "${this.spec.id}" is already connected`);
@@ -192,7 +195,9 @@ export class ServerConnection {
       await client.connect(transport);
       await this.handshake(client);
       this.events.emit({ type: "session", server: this.spec.id, status: this.state, ...(this.reason !== undefined ? { reason: this.reason } : {}) });
-      this.toolList = await client.listTools();
+      // A session the client makes no call in lists no tools: a tool it cannot call has no use, and its description
+      // would reach the model unrecorded (spec sessions.md, A client that requires extensions).
+      this.toolList = this.state === "no-calls" ? [] : await client.listTools();
     } catch (e) {
       this.events.emit({ type: "error", server: this.spec.id, code: "CONNECT_FAILED" });
       await client.close().catch(() => {});
@@ -274,6 +279,7 @@ export class ServerConnection {
     return this.state;
   }
 
+  /** The server's tools as listed at connect; none in a no-calls session. */
   tools(): Tool[] {
     return [...this.toolList];
   }

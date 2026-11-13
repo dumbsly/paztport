@@ -130,10 +130,10 @@ of the server id and tool name, so it is at most 64 characters and unique.
 - `enforce`: the full harness. The extension runs a `paztport/session` handshake with each attested
   server. Calls are stamped and responses verified.
 - `no-root`: the handshake sends no client root, so the server opens an unsafe session. For a server
-  the client `requires` extensions of, without `continueWithoutRequired`, that means no calls at all
-  ([A session that makes no calls](#a-session-that-makes-no-calls)); with the example config that is the
-  GitHub server. Without a requirement, or with the switch, reads work and the mock server refuses
-  writes (`UNSAFE_SESSION`). This shows what an unattested harness gets.
+  the client `requires` extensions of, without `continueWithoutRequired`, that means no calls at all, and
+  none of its tools registered ([A session that makes no calls](#a-session-that-makes-no-calls)); with
+  the example config that is the GitHub server. Without a requirement, or with the switch, reads work
+  and the mock server refuses writes (`UNSAFE_SESSION`). This shows what an unattested harness gets.
 - `off`: no handshake, no stamps and no verification. Calls are plain `tools/call` under the **same
   tool names**, so on and off runs give the model identical tools. Pair it with the server's
   `--mode off` for a baseline. The config, keys and workspace guard are still checked.
@@ -148,16 +148,18 @@ replacement request the spec asks for after a failed handshake, and says whether
 calls under its requirement. When a server is configured with `requires` and the client may not, the
 session is `no-calls`: after an attested reply that does not list a required extension
 (`EXTENSION_REQUIRED`), an unsafe one (`UNSAFE`, as in `no-root` mode), a missing pin, a handshake that
-failed, or a server with no Paztport (Method not found). The server's tools stay registered, so the
-model sees the same tools. Each call to them fails locally, before anything is stamped or sent, with
-this text:
+failed, or a server with no Paztport (Method not found). The extension then sends no `tools/list` to the
+server and registers none of its tools: a tool the client cannot call has no use, and its description
+would reach the model unrecorded, from a server that, after a failed handshake, could not even show it
+is the pinned one. The connection still refuses any call in such a session itself, before anything is
+stamped or sent, with this text:
 
 ```
 MCP server "<id>" error: no attested session gives what this client requires of the server (<reason>); nothing was sent
 ```
 
 `<reason>` is the session's reason. The events log's `session` event has `status: "no-calls"` and the
-reason, each call adds an `error` event with the code `NO_CALLS` and that reason, and the call's
+reason; a call refused this way adds an `error` event with the code `NO_CALLS` and that reason, and the call's
 `details` say `session: "no-calls"` and `refused: true`. When a handshake was sent, each of its records
 in the evidence file has `status: "no-calls"` and the reason.
 
@@ -195,7 +197,7 @@ shipped servers never cause one.
 ## What the model sees
 
 - **Tools.** The model sees the tool definitions from each server's `tools/list` as the server gives
-  them: name, description and input schema.
+  them: name, description and input schema. A server in a session that makes no calls lists none.
 - **Results.** A result holds only the server's `text` content items, joined by newlines. Images and
   other content types are dropped, and `_meta` never reaches the model. A refusal's text is replaced
   by one written locally. For `INFLUENCE_DENIED` and `UNSAFE_SESSION` it is:
