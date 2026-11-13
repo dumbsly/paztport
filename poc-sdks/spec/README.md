@@ -314,7 +314,8 @@ SDK or library confirms its own answers. The generator checks every answer again
 rule, and checks more of the cases built for one rule:
 
 - `S` plus `L`, and every case of rules 3 and 4 but `R` of order 8, satisfy rule 5's equation once their encodings
-  are read leniently, so only their rule refuses them.
+  are read leniently, so the equation does not refuse them; rule 5's decoding refuses those written with `y` at or
+  above `p` or with the sign bit set on `x = 0`, as rules 3 and 4 do.
 - The keys with the length in long form, with a trailing byte and with an unused bit claimed carry the signer's
   key: written as the Ed25519 SubjectPublicKeyInfo, it passes rules 1 to 4, and the signature satisfies rule 5's
   equation under it.

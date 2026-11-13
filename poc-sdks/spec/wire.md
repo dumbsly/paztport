@@ -64,10 +64,10 @@ equation that changes the answer only for a key with a small-order part, and the
 `A with a small-order part, k a multiple of 8` pins it.
 
 Rules 1 to 4 read only bytes. Paztport's three SDKs check them themselves, in front of their standard library's
-Ed25519 verify and whatever that library already refuses, so the SDKs' answers to rules 1 to 4 do not depend on
-the library. Rule 5 is the library's: no check in front can correct a library that checks another equation, and
-each SDK's replay of `ed25519.json` ([its cases](README.md#ed25519json)), which pins the whole rule, fails on one
-that does.
+Ed25519 verify, even where that library would refuse the same bytes, so the SDKs' answers to rules 1 to 4 do not
+depend on the library. Rule 5 is the library's: no check in front can correct a library that checks another
+equation, and each SDK's replay of `ed25519.json` ([its cases](README.md#ed25519json)), which pins the whole rule,
+fails on one that does.
 
 ## JSON
 
