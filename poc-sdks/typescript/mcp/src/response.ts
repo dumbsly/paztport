@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { verifyResponse } from "@paztport/core";
-import type { ContentLabel, VerifierConfig, VerifyResult } from "@paztport/core";
+import type { ChainVerification, VerifierConfig } from "@paztport/core";
 import { META_ATTESTATION, META_VERDICT } from "./meta.ts";
 import { readVerdict, type Verdict } from "./verdict.ts";
 
@@ -18,19 +18,20 @@ function metaOf(result: Record<string, unknown>, name: string): unknown {
 
 /**
  * Hands the attestation token in `result._meta` to core's response check, its last stamp naming `call.receiver`, the
- * client that made the call; an attestation that is not a string is CHAIN_MISSING. A client re-checking a recorded
- * response passes the time it recorded verifying it as `cfg.now`: the receiver records a response, so no stamp time
- * is known to match, unlike a call, which verifyRecordedCall checks against the time its own hop stamped it. Never
- * throws.
+ * client that made the call, with `cfg`'s extension settings: the hand-over holds the attestation's items under each
+ * extension the client acts on, on OK only. An attestation that is not a string is CHAIN_MISSING. A client
+ * re-checking a recorded response passes the time it recorded verifying it as `cfg.now`, and settings from
+ * recordExtensionSettings: the receiver records a response, so no stamp time is known to match, unlike a call, which
+ * verifyRecordedCall checks against the time its own hop stamped it. Never throws.
  */
 export function verifyMcpResponse(
   result: Record<string, unknown>,
   call: { rid: string; toolCallId: string; receiver: string },
   cfg: Omit<VerifierConfig, "nonceKey">,
-): { result: VerifyResult; labels: ContentLabel[] } {
+): ChainVerification {
   const attestation = metaOf(result, META_ATTESTATION);
   if (typeof attestation !== "string") {
-    return { result: { ok: false, reason: "CHAIN_MISSING", suspectSvc: "", suspectInst: "" }, labels: [] };
+    return { ok: false, reason: "CHAIN_MISSING", suspectSvc: "", suspectInst: "", handOver: null };
   }
   return verifyResponse(attestation, result, call, cfg);
 }

@@ -8,21 +8,28 @@ import {
   buildPolicy,
   canonicalize,
   checkSessionReply,
-  commitInfluence,
+  commitBlock,
   decode,
   encode,
+  extensionSettings,
   generateKeyPair,
+  INFLUENCE,
+  influenceBlock,
   newNonce,
   NonceCache,
   NONCE_TTL_MS,
+  readResponseLabels,
   readToken,
   signKeyring,
   signRoot,
   signStamp,
   utf8,
   writeToken,
+  type Block,
   type ContentLabel,
+  type ExtensionSettings,
   type InfluenceEntry,
+  type JsonValue,
   type MerkleProof,
   type ReasonCode,
   type SessionReply,
@@ -33,7 +40,7 @@ import {
   bindMcpCall,
   META_CALL_ID,
   META_CHAIN,
-  META_INFLUENCE,
+  META_EXTENSIONS,
   META_PROOF,
   verifyMcpResponse,
 } from "../../src/index.ts";
@@ -70,22 +77,38 @@ export const ALL_TOOLS = [
   "add_issue_comment",
 ];
 
+/** The settings of a test client that acts on influence, as the agents demo's does. */
+export const CLIENT_EXTENSIONS: ExtensionSettings = extensionSettings([INFLUENCE]);
+
+/** A call's blocks: the origin's, then the calling hop's. */
+export type CallBlocks = readonly [origin: Block, hop: Block];
+
 export type TestClient = {
   request(): SessionRequest;
   acceptReply(reply: SessionReply, pinnedServerKey: string): boolean;
+  /**
+   * A tools/call stamped by the client: by default the origin's block names `influence` with nothing and the hop's
+   * holds `influence` as its entries. `blocks` replaces both blocks, and `sent` replaces the blocks' token as sent
+   * (null sends none), so a test can send blocks other than those the stamps commit to.
+   */
   callParams(
     name: string,
     args: object,
     influence: InfluenceEntry[],
-    opts?: { now?: number; callId?: string; rid?: string },
+    opts?: { now?: number; callId?: string; rid?: string; blocks?: CallBlocks; sent?: unknown },
   ): Record<string, unknown>;
+  /**
+   * Verifies a response as this client, acting on `extensions` (influence by default): the result's code, and on OK
+   * the labels its blocks hold under influence, or null when it gives none.
+   */
   verify(
     result: CallToolResult,
     call: { rid: string; toolCallId: string },
     serverKeyring: Record<string, string>,
     serverRoot: SignedRoot,
     now?: number,
-  ): { reason: ReasonCode; labels: ContentLabel[] };
+    extensions?: ExtensionSettings,
+  ): { reason: ReasonCode; labels: ContentLabel[] | null };
 };
 
 /** The policy key every test client signs with, so a test server can pin it. */
@@ -174,8 +197,12 @@ export function makeClient(
       const now = o.now ?? Date.now();
       const rid = o.rid ?? `rid-${++seq}`;
       const callId = o.callId ?? `call-${seq}`;
+      const [originBlock, hopBlock] = o.blocks ?? [influenceBlock([]), influenceBlock(influence)];
       const s0 = signStamp(
-        { svc: "session", inst: "session-1", rid, ts: now, sess, rcv: "pi", bind: bindPrompt("test prompt"), infl: "", prev: "" },
+        {
+          svc: "session", inst: "session-1", rid, ts: now, sess, rcv: "pi", bind: bindPrompt("test prompt"),
+          ext: commitBlock(originBlock), prev: "",
+        },
         session.privateKey,
       );
       const s1 = signStamp(
@@ -187,7 +214,7 @@ export function makeClient(
           sess,
           rcv: `mcp:github.${name}`,
           bind: bindMcpCall(name, callId, args),
-          infl: commitInfluence(influence),
+          ext: commitBlock(hopBlock),
           prev: s0.sig,
         },
         pi.privateKey,
@@ -200,12 +227,14 @@ export function makeClient(
         _meta: {
           [META_CHAIN]: writeToken([s0, s1]),
           ...(proof !== undefined ? { [META_PROOF]: writeToken(proof) } : {}),
-          [META_INFLUENCE]: writeToken(influence),
+          ...("sent" in o
+            ? (o.sent === null ? {} : { [META_EXTENSIONS]: o.sent })
+            : { [META_EXTENSIONS]: writeToken([originBlock, hopBlock] as unknown as JsonValue) }),
           [META_CALL_ID]: callId,
         },
       };
     },
-    verify(result, call, serverKeyring, serverRoot, now = Date.now()) {
+    verify(result, call, serverKeyring, serverRoot, now = Date.now(), extensions = CLIENT_EXTENSIONS) {
       if (sess === undefined) {
         throw new Error("no accepted session");
       }
@@ -217,8 +246,10 @@ export function makeClient(
         nonces: responseNonces,
         now,
         policyNotAfter: serverRoot.notAfter,
+        extensions,
       });
-      return { reason: r.result.reason, labels: r.labels };
+      const stamps = r.ok ? r.handOver!.get(INFLUENCE) : undefined;
+      return { reason: r.reason, labels: stamps === undefined ? null : readResponseLabels(stamps) };
     },
   };
 }

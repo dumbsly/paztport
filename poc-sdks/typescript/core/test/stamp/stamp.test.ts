@@ -94,6 +94,13 @@ describe("stamp", () => {
     for (const f of files.filter((f) => f !== "stamp/stamp.ts")) {
       expect(readFileSync(new URL(f, src), "utf8"), f).not.toMatch(/\bv: [34]\b/);
     }
+    // the MCP package signs and reads stamps through the core, so it writes no version either
+    const mcp = new URL("../../../mcp/src/", import.meta.url);
+    const mcpFiles = readdirSync(mcp, { recursive: true, encoding: "utf8" }).filter((f) => f.endsWith(".ts"));
+    expect(mcpFiles).toContain("client.ts");
+    for (const f of mcpFiles) {
+      expect(readFileSync(new URL(f, mcp), "utf8"), `mcp/src/${f}`).not.toMatch(/\bv: [34]\b/);
+    }
     // in stamp.ts itself, the only code lines that write a 3 or a 4 are the constant and the type's member
     const code = readFileSync(new URL("stamp/stamp.ts", src), "utf8").split("\n").filter((l) => !/^\s*(\/\/|\/\*\*?|\*)/.test(l));
     expect(code.filter((l) => /\b[34]\b/.test(l)).map((l) => l.trim())).toEqual(["export const STAMP_VERSION = 4;", "v: 4;"]);

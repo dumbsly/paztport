@@ -8,11 +8,11 @@
 export const META_CHAIN = "paztport/chain";
 /** A tools/call's proof of its route. */
 export const META_PROOF = "paztport/proof";
-/** The influence entries a tools/call was made under, which its last stamp commits to. */
-export const META_INFLUENCE = "paztport/influence";
+/** A tools/call's blocks, one per stamp of its chain, each committed to by its stamp's `ext` (spec wire.md, MCP). */
+export const META_EXTENSIONS = "paztport/extensions";
 /** Carries the toolCallId that bindMcpCall covers, as a plain string. */
 export const META_CALL_ID = "paztport/callId";
-/** A result's attestation: the response chain, the server's route proof, the labels and the result hash. */
+/** A result's attestation: the response chain's blocks, the chain, the server's route proof and the result hash. */
 export const META_ATTESTATION = "paztport/attestation";
 /** The JSON-RPC method of the session handshake. */
 export const SESSION_METHOD = "paztport/session";
