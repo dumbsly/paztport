@@ -46,6 +46,7 @@ export {
 } from "./session/session.ts";
 export * from "./session/request.ts";
 export * from "./session/reply-check.ts";
+export * from "./session/requirement.ts";
 export * from "./session/reply-builder.ts";
 export * from "./policy/own-material.ts";
 export * from "./stamp/origin.ts";

@@ -30,6 +30,7 @@ function reply(): SessionReply {
       sess: "s",
       status: "attested",
       disabled: [],
+      extensions: [],
     },
     entry.privateKey,
   );
@@ -54,7 +55,7 @@ describe("serverPolicyNotAfter", () => {
 describe("checkSessionReply", () => {
   const T = 5;
   /** A request and the attested, entry-key-form reply that answers it. */
-  function handshake(status: "attested" | "unsafe" = "attested") {
+  function handshake(status: "attested" | "unsafe" = "attested", extensions: string[] = []) {
     const policy = generateKeyPair();
     const client = generateKeyPair();
     const entry = generateKeyPair();
@@ -83,6 +84,7 @@ describe("checkSessionReply", () => {
         sess,
         status,
         disabled: [],
+        extensions,
       },
       entry.privateKey,
     );
@@ -108,6 +110,22 @@ describe("checkSessionReply", () => {
     expect(checkSessionReply(token(h.reply), h.req, generateKeyPair().publicKey, "mcp-entry", T)).toBe("PIN_MISMATCH");
     expect(checkSessionReply(token(h.reply), h.req, h.pin, "github-tools", T)).toBe("BAD_SIGNATURE");
     expect(checkSessionReply(token(h.reply, { sess: "other" }), h.req, h.pin, "mcp-entry", T)).toBe("BAD_SIGNATURE");
+  });
+  it("checksTheRequiredExtensionsOfAnAttestedReplyLast", () => {
+    const listing = handshake("attested", ["influence"]);
+    const bare = handshake();
+    const check = (h: ReturnType<typeof handshake>, requires?: string[], pin = h.pin) =>
+      checkSessionReply(token(h.reply), h.req, pin, "mcp-entry", T, requires);
+    expect(check(listing, ["influence"])).toBe("ATTESTED");
+    expect(check(bare, ["influence"])).toBe("EXTENSION_REQUIRED");
+    expect(check(listing, ["influence", "other"])).toBe("EXTENSION_REQUIRED");
+    expect(check(bare)).toBe("ATTESTED");
+    expect(check(bare, [])).toBe("ATTESTED");
+    // step 4 comes first, and an unsound reply is never EXTENSION_REQUIRED
+    const unsafe = handshake("unsafe");
+    expect(check(unsafe, ["influence"])).toBe("UNSAFE");
+    expect(check(bare, ["influence"], generateKeyPair().publicKey)).toBe("PIN_MISMATCH");
+    expect(checkSessionReply(token(bare.reply), bare.req, bare.pin, "github-tools", T, ["influence"])).toBe("BAD_SIGNATURE");
   });
   it("judgesTheWindowsAtTheClientsClock", () => {
     const h = handshake();

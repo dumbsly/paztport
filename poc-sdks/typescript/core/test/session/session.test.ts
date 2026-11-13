@@ -14,6 +14,7 @@ import {
   deriveSessionId,
   isAttestedSession,
   newNonce,
+  readSessionReply,
   sessionStatus,
   signSessionReply,
   verifySessionReply,
@@ -63,6 +64,7 @@ function world() {
       sess: deriveSessionId(req.clientRoot?.sig ?? null, serverRoot.sig, req.nonce, serverNonce, req),
       status: "attested",
       disabled: [],
+      extensions: [],
     };
   };
   const pinned = [clientPolicy.publicKey];
@@ -376,6 +378,35 @@ describe("isAttestedSession", () => {
   });
   // "attested only when … the reply passes the client's check": its shape check included, so a reply the server
   // signed that the live client answers MALFORMED_REPLY is never attested offline either.
+  it.each([
+    ["no extensions member", undefined],
+    ["null", null],
+    ["an object", {}],
+    ["unsorted names", ["b", "a"]],
+    ["a name twice", ["a", "a"]],
+    ["a name that is not an extension name", ["A"]],
+    ["a number", [1]],
+  ])("aReplyWithExtensions%sDoesNotRead", (_what, extensions) => {
+    const w = world();
+    const { extensions: _x, ...rest } = w.body();
+    const body = extensions === undefined ? rest : { ...rest, extensions };
+    const reply = signSessionReply(body as Omit<SessionReply, "sig">, w.serverPolicy.privateKey);
+    expect(() => readSessionReply(token(reply))).toThrow();
+    expect(checkSessionReply(token(reply), w.req, w.serverPolicy.publicKey, ENTRY, NOW)).toBe("MALFORMED_REPLY");
+  });
+  it.each([["attested"], ["unsafe"]] as const)("readsTheExtensionsOfAn%sReply", (status) => {
+    const w = world();
+    for (const extensions of [[], ["example", "influence"]]) {
+      const reply = signSessionReply({ ...w.body(), status, extensions }, w.serverPolicy.privateKey);
+      expect(readSessionReply(token(reply)).extensions).toEqual(extensions);
+    }
+  });
+  it("theReplysSignatureCoversItsExtensions", () => {
+    const w = world();
+    const reply = signSessionReply({ ...w.body(), extensions: ["influence"] }, w.serverPolicy.privateKey);
+    expect(checkSessionReply(token(reply), w.req, w.serverPolicy.publicKey, ENTRY, NOW)).toBe("ATTESTED");
+    expect(checkSessionReply(token({ ...reply, extensions: [] }), w.req, w.serverPolicy.publicKey, ENTRY, NOW)).toBe("BAD_SIGNATURE");
+  });
   it("aSignedReplyThatFailsTheClientsShapeCheckIsNotAttested", () => {
     const w = world();
     const { disabled: _d, ...noDisabled } = w.body();

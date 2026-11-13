@@ -11,6 +11,7 @@ import { verifyKeyring, type SignedKeyring } from "../policy/keyring.ts";
 import { replyCertOf, verifyReplyCert, type ReplyCert } from "./reply-cert.ts";
 import { rootOf, verifyRoot, type SignedRoot } from "../policy/root.ts";
 import { isCurrent, isNotAfter } from "../policy/validity.ts";
+import { isExtensionName } from "../stamp/block.ts";
 
 /**
  * `clientKeyringSig` is the client policy key's signature over its keyring (see signKeyring), and
@@ -41,6 +42,8 @@ export type SessionReply = {
   sess: string;
   status: "attested" | "unsafe";
   disabled: string[];
+  /** The extensions the server acts on: extension names, sorted by UTF-16 code units, none twice. */
+  extensions: string[];
   sig: string;
 };
 
@@ -48,13 +51,13 @@ export type SessionReply = {
  * Reads a reply from its token: MalformedJson for bytes that are not exactly the canonical bytes of one value, and an
  * Error naming the member for a reply other than exactly its members: `serverRoot` null or a root with exactly its
  * own members, string `serverPolicyKey`, `nonce`, `sess` and `sig`, a `serverKeyring` of strings under route-node
- * names, `status` "attested" or "unsafe", a `disabled` array of strings, and, each only when present, a string
+ * names, `status` "attested" or "unsafe", a `disabled` array of strings, an `extensions` array of extension names, sorted, none twice, and, each only when present, a string
  * `serverKeyringSig`, which needs `serverKeyringNotAfter` beside it, an integer `serverKeyringNotAfter`, and a
  * `serverReplyCert` with exactly a certificate's members. A member whose value is null is present. Checks no signature.
  */
 export function readSessionReply(token: string): SessionReply {
   const o = object(readToken(token));
-  exactly(o, ["disabled", "nonce", "serverKeyring", "serverPolicyKey", "serverRoot", "sess", "sig", "status"], [
+  exactly(o, ["disabled", "extensions", "nonce", "serverKeyring", "serverPolicyKey", "serverRoot", "sess", "sig", "status"], [
     "serverKeyringNotAfter",
     "serverKeyringSig",
     "serverReplyCert",
@@ -64,6 +67,13 @@ export function readSessionReply(token: string): SessionReply {
   const disabled = array(o, "disabled").map((d) => {
     if (typeof d !== "string") throw new Error("member disabled holds a value that is not a string");
     return d;
+  });
+  const extensions = array(o, "extensions").map((e) => {
+    if (typeof e !== "string" || !isExtensionName(e)) throw new Error("member extensions holds a value that is not an extension name");
+    return e;
+  });
+  extensions.forEach((e, i) => {
+    if (i > 0 && !(extensions[i - 1]! < e)) throw new Error("member extensions is not sorted, or names one twice");
   });
   const serverKeyring = stringMap(o, "serverKeyring");
   requireRouteNodes(serverKeyring, "serverKeyring");
@@ -75,6 +85,7 @@ export function readSessionReply(token: string): SessionReply {
     sess: str(o, "sess"),
     status,
     disabled,
+    extensions,
     sig: str(o, "sig"),
   };
   if (Object.hasOwn(o, "serverKeyringSig")) {
