@@ -1,8 +1,11 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-import { checkCommitments, checkRoute, checkStamps, currentAt, readOrUndefined, reject } from "../internal/chain-checks.ts";
+import {
+  checkBinding, checkBlocks, checkRoute, checkStamps, currentAt, handOverOf, readBlocksToken, readOrUndefined, reject,
+} from "../internal/chain-checks.ts";
 import type { JsonValue } from "../encoding/json.ts";
+import type { ExtensionSettings, HandOver } from "./extensions.ts";
 import type { NonceCache } from "./nonce.ts";
 import type { VerifyResult } from "./reason.ts";
 import { isNotAfter } from "../policy/validity.ts";
@@ -21,16 +24,16 @@ export const NONCE_TTL_MS = 15_000;
 export type Peer = { svc: string; inst: string };
 
 /**
- * What a verifier is handed for one chain: `chain`, `influence` and `proof` are the tokens received, each read only by
- * the verifier.
+ * What a verifier is handed for one chain: `chain`, `blocks` and `proof` are the tokens received, each read only by the
+ * verifier.
  */
 export type VerifyInput = {
   /** The chain's token. */
   chain: string;
   /** The binding of what was received, which the last stamp's bind must equal (check 8). */
   expectedBind: string;
-  /** The influence list's token. */
-  influence: string;
+  /** The blocks' token, one block per stamp in chain order; null when none was received: every block empty. */
+  blocks: string | null;
   /** The route proof's token; null when none was received. */
   proof: string | null;
   /** Who received the chain: the last stamp's rcv must name it. */
@@ -60,13 +63,13 @@ export type VerifierConfig = {
   keyrings: readonly PinnedKeyring[];
   /** One or more roots; only those current at `now` are used. */
   roots: readonly PinnedRoot[];
-  /** The services a chain may start at (check 3). */
+  /** The services a chain may start at (check 2). */
   allowedOrigins: readonly string[];
   /** The session every stamp must carry (check 6), or "" for none. */
   sess: string;
-  /** The replay cache the nonce key is checked against and recorded in (check 10). */
+  /** The replay cache the nonce key is checked against and recorded in (check 11). */
   nonces: NonceCache;
-  /** This chain's nonce key, as the transport forms it. */
+  /** This chain's nonce key, as the transport forms it with `nonceKey`. */
   nonceKey: string;
   /** The time to verify at, in ms since the Unix epoch. */
   now: number;
@@ -79,7 +82,12 @@ export type VerifierConfig = {
   callMaxAgeMs?: number;
   /** The run lifetime in ms; RUN_MAX_AGE_MS when omitted. */
   runMaxAgeMs?: number;
+  /** The extensions this service acts on and the names it carries (checks 9b and 9c, and the hand-over). */
+  extensions: ExtensionSettings;
 };
+
+/** A verifier's result, and on OK the hand-over: non-null exactly when `ok`. */
+export type ChainVerification = VerifyResult & { handOver: HandOver | null };
 
 /** The attribution rule, in one place: with a peer, every result of checks 1 to 12 names it; without one, the chain's own rule stands. */
 function blame<R extends VerifyResult>(result: R, peer: Peer | null | undefined): R {
@@ -92,25 +100,28 @@ function policyCurrent(cfg: VerifierConfig): boolean {
 }
 
 /** Check 0's refusal: about the verifier's own config, not the request, so it names no suspect, not even a peer; expiry is not the sender's fault. */
-const POLICY_EXPIRED: VerifyResult = { ok: false, reason: "POLICY_EXPIRED", suspectSvc: "", suspectInst: "" };
+const POLICY_EXPIRED: ChainVerification = {
+  ok: false, reason: "POLICY_EXPIRED", suspectSvc: "", suspectInst: "", handOver: null,
+};
 
 /**
  * A VerifyInput with what the reader gave for each token: its value, or undefined for one that does not read and for no
- * proof.
+ * proof. `blocks` is null for no token, which is one empty block per stamp, and undefined for one that does not read
+ * as blocks: a caller passes one that reads as JSON `null` as undefined (`readBlocksToken`).
  */
-export type VerifyRead = Omit<VerifyInput, "chain" | "influence" | "proof"> & {
+export type VerifyRead = Omit<VerifyInput, "chain" | "blocks" | "proof"> & {
   chain: JsonValue | undefined;
-  influence: JsonValue | undefined;
+  blocks: JsonValue | undefined | null;
   proof: JsonValue | undefined;
 };
 
 /** Checks 1 to 12 in order; the result before attribution. */
-function check(input: VerifyRead, cfg: VerifierConfig): VerifyResult {
+function check(input: VerifyRead, cfg: VerifierConfig): ChainVerification {
   // The keyrings and roots current at now, once; a non-finite now expires none, and check 7 refuses it.
   const keyrings = currentAt(cfg.keyrings, cfg.now);
   const roots = currentAt(cfg.roots, cfg.now);
 
-  // 1-6. Parse, delimiter, origin, signatures and links then the receivers, shared rid, session.
+  // 1-6. Parse, origin, signatures and links, receivers, shared rid, session.
   const stamps = checkStamps(input.chain, { ...cfg, keyrings }, { receiver: input.receiver });
   if (typeof stamps === "string") {
     return reject(stamps);
@@ -128,59 +139,71 @@ function check(input: VerifyRead, cfg: VerifierConfig): VerifyResult {
     return reject("EXPIRED");
   }
 
-  // 8-9. Binding and influence commitment.
-  const commitment = checkCommitments(last, input.expectedBind, input.influence);
-  if (commitment !== undefined) {
-    return reject(commitment);
+  // 8. Binding.
+  const bound = checkBinding(last, input.expectedBind);
+  if (bound !== undefined) {
+    return reject(bound);
   }
 
-  // 10. Replay. A cache that forgets sooner than 2x the call window fails closed, before spending the nonce.
+  // 9a-9c. The blocks.
+  const blocks = checkBlocks(stamps, input.blocks, cfg.extensions, true);
+  if (typeof blocks === "string") {
+    return reject(blocks);
+  }
+
+  // 10. The transport peer is the last signer, before the nonce is spent.
+  if (input.peer != null && input.peer.svc !== last.svc) {
+    return reject("PEER_MISMATCH");
+  }
+
+  // 11. Replay. A cache that forgets sooner than 2x the call window fails closed, before spending the nonce.
   if (!(cfg.nonces.ttlMs >= 2 * callMax) || cfg.nonces.seenBefore(cfg.nonceKey, cfg.now)) {
     return reject("REPLAY");
   }
 
-  // 11. Route proven against a current root, ending at the receiver only when it is on the route.
+  // 12. Route proven against a current root, ending at the receiver only when it is on the route.
   const routed = checkRoute(stamps, input.receiverInRoute, input.proof, roots);
-  if (!routed.ok) {
-    return routed;
-  }
-
-  // 12. The transport peer is the last signer.
-  if (input.peer != null && input.peer.svc !== last.svc) {
-    return reject("PEER_MISMATCH");
-  }
-  return routed;
+  return { ...routed, handOver: routed.ok ? handOverOf(stamps, blocks, cfg.extensions) : null };
 }
 
 /**
- * Verifies a v3 chain received live. The first failure is the result:
+ * Verifies a chain received live, in the spec's live order (verification.md, The live order). The first failure is
+ * the result:
  * 0. now is at most `cfg.policyNotAfter` (POLICY_EXPIRED), before any token is read: past it no keyring, or no
  *    root, says any longer what the policy owner allows, so no later check means anything; it names no one, peer
  *    included. The checks after it use only the keyrings and roots current at now (now ≤ their notAfter);
- * 1. the chain's token reads, as stamps all v3 (CHAIN_MISSING);
- * 2. no field holds the `|` delimiter, rcv included (BAD_SIGNATURE);
- * 3. the origin's service is allowed (BAD_ORIGIN);
- * 4. each stamp is signed under one of the keys the current keyrings give its service, and links to the one
- *    before, over the whole chain (BAD_SIGNATURE, BROKEN_LINK); then each stamp's rcv addresses the next stamp's svc,
- *    naming it or an operation of it, and the last's is `input.receiver` (BINDING_MISMATCH);
+ * 1. the chain's token reads, as stamps each of the STAMP_VERSION with exactly a stamp's members (CHAIN_MISSING);
+ * 2. the origin's service is allowed (BAD_ORIGIN);
+ * 3. each stamp is signed under one of the keys the current keyrings give its service, and links to the one
+ *    before, over the whole chain (BAD_SIGNATURE, BROKEN_LINK);
+ * 4. then each stamp's rcv addresses the next stamp's svc, naming it or an operation of it, and the last's is
+ *    `input.receiver` (BINDING_MISMATCH);
  * 5. every stamp carries the origin's rid (RID_MISMATCH);
  * 6. every stamp is in the session (SESSION_UNKNOWN);
  * 7. the last stamp is within the call window of now, and the origin within the run's lifetime (EXPIRED);
  * 8. the last stamp binds `expectedBind` (BINDING_MISMATCH);
- * 9. and commits to the influence its token holds (INFLUENCE_MISMATCH);
- * 10. its nonce key is new to the cache (REPLAY);
- * 11. the route, the first service then each rcv (the last only when `receiverInRoute`), is proven by the
- *     proof its token holds against a current root with the proof's rootId (PATH_NOT_ALLOWED);
- * 12. with a peer, `peer.svc` is the last stamp's svc (PEER_MISMATCH).
- * With a peer, every result of checks 1 to 12 names it as the suspect; without one, only OK and PATH_NOT_ALLOWED name the last stamp.
+ * 9a. the blocks' token reads as blocks, one per stamp, each matching its stamp's ext; no token is one empty block per
+ *    stamp (EXTENSION_MISMATCH);
+ * 9b. with an allowed list, every name in any block's items or requires is in it (EXTENSION_NOT_ALLOWED);
+ * 9c. every name the last block requires is one the service acts on, unless the settings are a recorded response's
+ *    (EXTENSION_REQUIRED);
+ * 10. with a peer, `peer.svc` is the last stamp's svc (PEER_MISMATCH), so a request sent again by another peer spends
+ *    no nonce key;
+ * 11. its nonce key is new to the cache, which remembers keys for at least twice the call window (REPLAY);
+ * 12. the route, the first service then each rcv (the last only when `receiverInRoute`), is proven by the
+ *     proof its token holds against a current root with the proof's rootId (PATH_NOT_ALLOWED).
+ * With a peer, every result of checks 1 to 12 names it as the suspect; without one, only OK and PATH_NOT_ALLOWED name
+ * the last stamp. On OK the result holds the hand-over: for each name the service acts on, one entry per stamp in
+ * chain order, the stamp's svc and the items its block holds under the name, or null when it does not name it.
+ * Never throws.
  */
-export function verifyChain(input: VerifyInput, cfg: VerifierConfig): VerifyResult {
+export function verifyChain(input: VerifyInput, cfg: VerifierConfig): ChainVerification {
   if (!policyCurrent(cfg)) return { ...POLICY_EXPIRED };
   return verifyChainRead(
     {
       ...input,
       chain: readOrUndefined(input.chain),
-      influence: readOrUndefined(input.influence),
+      blocks: readBlocksToken(input.blocks),
       proof: readOrUndefined(input.proof),
     },
     cfg,
@@ -191,7 +214,7 @@ export function verifyChain(input: VerifyInput, cfg: VerifierConfig): VerifyResu
  * verifyChain on what the reader gave for each token, for a caller that has read them already. Internal: index.ts
  * does not export it.
  */
-export function verifyChainRead(input: VerifyRead, cfg: VerifierConfig): VerifyResult {
+export function verifyChainRead(input: VerifyRead, cfg: VerifierConfig): ChainVerification {
   if (!policyCurrent(cfg)) return { ...POLICY_EXPIRED };
   return blame(check(input, cfg), input.peer);
 }

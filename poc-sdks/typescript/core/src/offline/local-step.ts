@@ -7,6 +7,8 @@ import { decideLocalCall, type LocalVerdict } from "../influence/local-decision.
 import { localReceiver, localStepBind, readLocalDecision, type LocalDecision } from "../influence/local-step.ts";
 import { isNotAfter } from "../policy/validity.ts";
 import { rulesHash, type LocalRules } from "../policy/local-rules.ts";
+import { NO_EXTENSIONS } from "../verify/extensions.ts";
+import { nonceKey } from "../verify/nonce.ts";
 import type { ReasonCode } from "../verify/reason.ts";
 import { verifyChainOffline, type Signers } from "./verify-offline.ts";
 
@@ -99,7 +101,7 @@ export function verifyRecordedLocalStep(
     {
       chain: step.chain,
       expectedBind: bind,
-      influence: step.influence,
+      blocks: null,
       proof: step.proof,
       receiver: localReceiver(step.tool),
       receiverInRoute: true,
@@ -114,8 +116,9 @@ export function verifyRecordedLocalStep(
       allowedOrigins: signers.svcs.slice(0, 1),
       sess: "",
       seen: cfg.seen,
-      nonceKey: `${step.rid}|${step.callId}|local`,
+      nonceKey: nonceKey([step.rid, step.callId, "local"]),
       signers,
+      extensions: NO_EXTENSIONS,
       ...(cfg.runMaxAgeMs !== undefined ? { runMaxAgeMs: cfg.runMaxAgeMs } : {}),
       ...(cfg.callMaxAgeMs !== undefined ? { callMaxAgeMs: cfg.callMaxAgeMs } : {}),
     },

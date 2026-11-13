@@ -11,8 +11,10 @@ import { bindPrompt } from "../../src/stamp/binding.ts";
 import { generateKeyPair, randomBytes } from "../../src/crypto/crypto.ts";
 import { buildTree } from "../../src/policy/merkle.ts";
 import { NonceCache } from "../../src/verify/nonce.ts";
+import { commitBlock, EMPTY_BLOCK, makeBlock } from "../../src/stamp/block.ts";
 import { mintOrigin } from "../../src/stamp/origin.ts";
 import { signStamp } from "../../src/stamp/stamp.ts";
+import { NO_EXTENSIONS } from "../../src/verify/extensions.ts";
 import { verifyChain } from "../../src/verify/verify-chain.ts";
 
 /** An Ed25519 PKCS#8 private key whose 32-byte seed is `b` repeated. */
@@ -22,12 +24,13 @@ const SESSION_KEY = key(1);
 const RID = "cmlkLWZpeGVk";
 const SESS = "c2Vzcy1maXhlZA";
 const BIND = "lTDYRIdSYWE9xSD3h0zanGdyXnUEr9sgF_SKBkk_J1Y";
+const F = { svc: "session", rid: RID, ts: 1000, bind: BIND, sess: SESS, inst: "pi-1", rcv: "pi", block: EMPTY_BLOCK };
 
 describe("mintOrigin", () => {
   it("matchesTheRunStatesStamp", () => {
     expect(bindPrompt("Fix the README typo")).toBe(BIND);
-    expect(mintOrigin({ svc: "session", rid: RID, ts: 1000, bind: BIND, sess: SESS, inst: "pi-1", rcv: "pi" }, SESSION_KEY)).toEqual({
-      v: 3,
+    expect(mintOrigin(F, SESSION_KEY)).toEqual({
+      v: 4,
       svc: "session",
       inst: "pi-1",
       rid: RID,
@@ -35,16 +38,24 @@ describe("mintOrigin", () => {
       sess: SESS,
       rcv: "pi",
       bind: BIND,
-      infl: "",
+      ext: "",
       prev: "",
-      sig: "Xnqi9XsWMZNlegIbRLDxvqTwBJ3PO0B5zOkYwM5zCH8cmW0bwjr2ols66Uj6L6tHcresr5ofQYmbrS7xhnF-AA",
+      sig: "_RAnSM7Abwv23Ii8JtV_9pWCrcyFV8hqfS3rj2ag1IadhQTWss8unE4b5e86NGrtQiSLHs2tUMypsqB-_eBcBQ",
     });
   });
 
   it("signsAsTheServiceItIsGiven", () => {
-    const origin = mintOrigin({ svc: "run-origin", rid: RID, ts: 1000, bind: BIND, sess: SESS, inst: "pi-1", rcv: "pi" }, SESSION_KEY);
+    const origin = mintOrigin({ ...F, svc: "run-origin" }, SESSION_KEY);
     expect(origin.svc).toBe("run-origin");
-    expect(origin.sig).not.toBe(mintOrigin({ svc: "session", rid: RID, ts: 1000, bind: BIND, sess: SESS, inst: "pi-1", rcv: "pi" }, SESSION_KEY).sig);
+    expect(origin.sig).not.toBe(mintOrigin(F, SESSION_KEY).sig);
+  });
+
+  it("commitsToTheBlockItIsGiven", () => {
+    expect(mintOrigin(F, SESSION_KEY).ext).toBe("");
+    const block = makeBlock({ example: [] }, ["example"]);
+    const origin = mintOrigin({ ...F, block }, SESSION_KEY);
+    expect(origin.ext).toBe(commitBlock(block));
+    expect(origin.ext).not.toBe("");
   });
 
   it("verifiesAsTheFirstStampOfAChain", () => {
@@ -52,12 +63,12 @@ describe("mintOrigin", () => {
     const pi = generateKeyPair();
     const receiver = "mcp:github.t";
     const tree = buildTree([`session/pi/${receiver}`].map((path) => ({ salt: randomBytes(16), path })), 8, "v1");
-    const origin = mintOrigin({ svc: "session", rid: RID, ts: 1000, bind: BIND, sess: SESS, inst: "pi-1", rcv: "pi" }, session.privateKey);
-    expect(origin).toMatchObject({ v: 3, rcv: "pi" });
-    const hop = signStamp({ svc: "pi", inst: "pi-1", rid: RID, ts: 1000, sess: SESS, rcv: receiver, bind: "b1", infl: "", prev: origin.sig }, pi.privateKey);
+    const origin = mintOrigin(F, session.privateKey);
+    expect(origin).toMatchObject({ v: 4, rcv: "pi" });
+    const hop = signStamp({ svc: "pi", inst: "pi-1", rid: RID, ts: 1000, sess: SESS, rcv: receiver, bind: "b1", ext: "", prev: origin.sig }, pi.privateKey);
     const r = verifyChain(
       {
-        chain: writeToken([origin, hop]), expectedBind: "b1", influence: writeToken([]),
+        chain: writeToken([origin, hop]), expectedBind: "b1", blocks: null,
         proof: writeToken(tree.proofFor(`session/pi/${receiver}`)), receiver, receiverInRoute: true,
       },
       {
@@ -69,13 +80,14 @@ describe("mintOrigin", () => {
         nonceKey: "k",
         now: 1000,
         policyNotAfter: 4_102_444_800_000,
+        extensions: NO_EXTENSIONS,
       },
     );
     expect(r.reason).toBe("OK");
   });
 
-  it("refusesADelimiterInAField", () => {
-    expect(() => mintOrigin({ svc: "session", rid: RID, ts: 1000, bind: BIND, sess: "a|b", inst: "pi-1", rcv: "pi" }, SESSION_KEY)).toThrow("'|'");
-    expect(() => mintOrigin({ svc: "session", rid: RID, ts: 1000, bind: BIND, sess: SESS, inst: "pi-1", rcv: "p|i" }, SESSION_KEY)).toThrow(/^rcv must be a route node/);
+  it("signsAPipeInAFieldButNotInARouteNode", () => {
+    expect(mintOrigin({ ...F, sess: "a|b" }, SESSION_KEY).sess).toBe("a|b");
+    expect(() => mintOrigin({ ...F, rcv: "p|i" }, SESSION_KEY)).toThrow(/^rcv must be a route node/);
   });
 });

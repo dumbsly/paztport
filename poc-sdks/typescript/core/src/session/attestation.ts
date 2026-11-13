@@ -9,6 +9,7 @@ import { writeWire } from "../encoding/jcs.ts";
 import { readToken, type JsonObject, type JsonValue } from "../encoding/json.ts";
 import { array, exactly, object, str } from "../internal/fields.ts";
 import { parseProof, type MerkleProof } from "../policy/merkle.ts";
+import { nonceKey } from "../verify/nonce.ts";
 import type { VerifyResult } from "../verify/reason.ts";
 import { chainOf, type Stamp } from "../stamp/stamp.ts";
 import { verifyChainRead, type VerifierConfig } from "../verify/verify-chain.ts";
@@ -107,12 +108,12 @@ export function verifyResponse(
       {
         chain: read.chain,
         expectedBind,
-        influence: [],
+        blocks: null,
         proof: read.proof,
         receiver: call.receiver,
         receiverInRoute: false,
       },
-      { ...cfg, nonceKey: `${call.rid}|${call.toolCallId}|resp` },
+      { ...cfg, nonceKey: nonceKey([call.rid, call.toolCallId, "resp"]) },
     );
     return { result: r, labels: r.ok ? att.labels : [] };
   } catch {

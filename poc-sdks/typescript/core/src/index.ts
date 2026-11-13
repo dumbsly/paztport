@@ -16,16 +16,17 @@ export {
 } from "./policy/root.ts";
 export * from "./policy/policy.ts";
 export * from "./verify/reason.ts";
-export { readChain, signStamp, signingBytes, type Stamp } from "./stamp/stamp.ts";
+export { readChain, signStamp, signingBytes, STAMP_VERSION, type Stamp } from "./stamp/stamp.ts";
 export * from "./stamp/binding.ts";
 export * from "./stamp/block.ts";
 export * from "./verify/nonce.ts";
+export * from "./verify/extensions.ts";
 export {
   commitInfluence, influenceClasses, normalizeInfluence, readInfluence, type InfluenceClass, type InfluenceEntry,
 } from "./influence/influence.ts";
 export {
-  CALL_MAX_AGE_MS, NONCE_TTL_MS, RUN_MAX_AGE_MS, verifyChain, type Peer, type PinnedKeyring, type PinnedRoot,
-  type VerifierConfig, type VerifyInput,
+  CALL_MAX_AGE_MS, NONCE_TTL_MS, RUN_MAX_AGE_MS, verifyChain, type ChainVerification, type Peer, type PinnedKeyring,
+  type PinnedRoot, type VerifierConfig, type VerifyInput,
 } from "./verify/verify-chain.ts";
 export * from "./offline/verify-offline.ts";
 export * from "./offline/records.ts";

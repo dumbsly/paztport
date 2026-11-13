@@ -4,13 +4,15 @@
 import { describe, expect, it } from "vitest";
 import { generateKeyPair } from "../../src/crypto/crypto.ts";
 import { stampLocalStep } from "../../src/influence/local-step.ts";
+import { EMPTY_BLOCK } from "../../src/stamp/block.ts";
 import { mintOrigin } from "../../src/stamp/origin.ts";
 import { requireStampableNames } from "../../src/stamp/names.ts";
 import { signStamp } from "../../src/stamp/stamp.ts";
 
 const { privateKey } = generateKeyPair();
 const BAD = ["", ".", "..", "a/b", "a\\b", "a|b", "a\ud800b"];
-const origin = (svc: string, rcv: string) => () => mintOrigin({ svc, rid: "r", ts: 1, bind: "b", sess: "s", inst: "i", rcv }, privateKey);
+const origin = (svc: string, rcv: string) => () =>
+  mintOrigin({ svc, rid: "r", ts: 1, bind: "b", sess: "s", inst: "i", rcv, block: EMPTY_BLOCK }, privateKey);
 const localStep = (svc: string, toolName = "read") => () =>
   stampLocalStep(
     {
@@ -37,6 +39,11 @@ describe("stamping names", () => {
     expect(() => requireStampableNames("session", "pi😀")).not.toThrow();
   });
   it("signStamp stays the low-level builder and signs an empty rcv", () => {
-    expect(() => signStamp({ svc: "s", inst: "i", rid: "r", ts: 1, sess: "", rcv: "", bind: "b", infl: "", prev: "" }, privateKey)).not.toThrow();
+    expect(() => signStamp({ svc: "s", inst: "i", rid: "r", ts: 1, sess: "", rcv: "", bind: "b", ext: "", prev: "" }, privateKey)).not.toThrow();
+  });
+  it("signStamp signs a pipe in any field: only a route node refuses one", () => {
+    const fields = { svc: "a|b", inst: "a|b", rid: "a|b", ts: 1, sess: "a|b", rcv: "a|b", bind: "a|b", ext: "a|b", prev: "a|b" };
+    expect(signStamp(fields, privateKey)).toMatchObject(fields);
+    expect(() => origin("session", "a|b")()).toThrow(/^rcv must be a route node/);
   });
 });

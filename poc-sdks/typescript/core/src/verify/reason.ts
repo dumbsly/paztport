@@ -15,14 +15,14 @@ export type ReasonCode =
   | "OK"
   /** Check 1: no chain, or one that does not read, or a transport field around it that does not read. 403. */
   | "CHAIN_MISSING"
-  /** Check 3: the origin's service is not an allowed origin (offline, also: not the expected instance). 403. */
+  /** Check 2: the origin's service is not an allowed origin (offline, also: not the expected instance). 403. */
   | "BAD_ORIGIN"
   /**
-   * Check 2: a signed field holds `|`. Check 4: a stamp's service has no key in a current keyring, or its signature
-   * fails (offline, also: it is not by the expected signer). 403.
+   * Check 3: a stamp's service has no key in a current keyring, or its signature fails (offline, also: it is not by
+   * the expected signer). 403.
    */
   | "BAD_SIGNATURE"
-  /** Check 4: a stamp's `prev` is not the previous stamp's `sig`, or not empty at the origin. 403. */
+  /** Check 3: a stamp's `prev` is not the previous stamp's `sig`, or not empty at the origin. 403. */
   | "BROKEN_LINK"
   /**
    * Check 7: the last stamp is outside the call window, or the origin outside the run's lifetime (offline, outside the
@@ -40,11 +40,11 @@ export type ReasonCode =
    */
   | "BINDING_MISMATCH"
   /**
-   * Check 10: the nonce key was seen before, or the nonce cache forgets keys sooner than twice the call window. 403.
+   * Check 11: the nonce key was seen before, or the nonce cache forgets keys sooner than twice the call window. 403.
    */
   | "REPLAY"
   /**
-   * Check 11: the route is not proven against a current pinned root. 403. Also the client's local gate's verdict for a
+   * Check 12: the route is not proven against a current pinned root. 403. Also the client's local gate's verdict for a
    * tool its route list does not have.
    */
   | "PATH_NOT_ALLOWED"
@@ -56,24 +56,19 @@ export type ReasonCode =
   /**
    * Check 9a: the blocks do not read, are not one per stamp, or one does not match its stamp's `ext`. 403; but 400
    * at any other service about to serve the request: in audit mode, and at one that verifies no requests under a mode
-   * (verification.md, HTTP requests and responses). No verifier in this SDK gives it yet.
+   * (verification.md, HTTP requests and responses).
    */
   | "EXTENSION_MISMATCH"
-  /**
-   * Check 9b: a block names an extension the verifier's `allowedExtensions` does not hold. 403. No verifier in this
-   * SDK gives it yet.
-   */
+  /** Check 9b: a block holds, in `items` or `requires`, a name the verifier's `allowedExtensions` lacks. 403. */
   | "EXTENSION_NOT_ALLOWED"
-  /**
-   * Check 9c, live only: the sender requires an extension the receiver does not act on. 403. No verifier in this SDK
-   * gives it yet.
-   */
+  /** Check 9c, live only: the sender requires an extension the receiver does not act on. 403. */
   | "EXTENSION_REQUIRED"
-  /** Check 11 at an MCP server, against the client's policy: its name for PATH_NOT_ALLOWED there. */
+  /** Check 12 at an MCP server, against the client's policy: its name for PATH_NOT_ALLOWED there. */
   | "CLIENT_PATH_NOT_ALLOWED"
   /**
-   * Check 9: the influence does not read, or the last stamp does not commit to it. 403; but influence that does not
-   * read is refused 400 wherever verification has not refused the request first, in audit mode too.
+   * Given by the extension `influence`, outside the live order: an item under `influence` on a request's block does
+   * not read (influence.md, Entries). Over HTTP 400, in either mode, wherever verification has not refused the request
+   * first.
    */
   | "INFLUENCE_MISMATCH"
   /**
@@ -102,7 +97,7 @@ export type ReasonCode =
   | "RULES_MISMATCH"
   /** Offline only: a recorded local step whose decision, re-derived from its signed rules, is not the one it signed. */
   | "VERDICT_MISMATCH"
-  /** Check 12: the peer the transport authenticated is not the last signer. 403. */
+  /** Check 10: the peer the transport authenticated is not the last signer. 403. */
   | "PEER_MISMATCH"
   /**
    * Check 0: every keyring, or every root, the verifier pins is past its notAfter, so the policy owner no longer
@@ -129,7 +124,7 @@ export type OfflineReasonCode =
  * `suspectInst` its address. Without one, `suspectSvc` names the last service that provably sent the request,
  * proven by its key, and `suspectInst` the instance that service reported in its own stamp; they are set only
  * for `OK` and `PATH_NOT_ALLOWED`, and every other rejection leaves them empty, because the name would be
- * unsigned or the genuine stamp would belong to another request. A v3 stamp binds its receiver, so a chain
+ * unsigned or the genuine stamp would belong to another request. A stamp binds its receiver, so a chain
  * forwarded unchanged to another receiver is BINDING_MISMATCH, and names no one without a peer. POLICY_EXPIRED
  * names no one even with a peer: it is the verifier's own policy running out, not the sender's doing.
  */

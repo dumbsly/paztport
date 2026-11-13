@@ -4,7 +4,7 @@
 import { readToken, type JsonValue } from "../encoding/json.ts";
 import { array, bool, exactly, object, str } from "../internal/fields.ts";
 import { bindLocalTool } from "../stamp/binding.ts";
-import { commitInfluence, type InfluenceEntry } from "./influence.ts";
+import type { InfluenceEntry } from "./influence.ts";
 import type { LocalVerdict, Need, Resolved, ResolvedProgram } from "./local-decision.ts";
 import { requireStampableName } from "../stamp/names.ts";
 import { signStamp, type Stamp } from "../stamp/stamp.ts";
@@ -51,8 +51,8 @@ export function stampLocalStep(f: LocalStepFields, privateKey: string): Stamp {
   const bind = localStepBind(f);
   return signStamp(
     {
-      svc: f.svc, inst: f.inst, rid: f.rid, ts: f.ts, sess: "", rcv: localReceiver(f.toolName), bind,
-      infl: commitInfluence(f.influence), prev: f.prev,
+      svc: f.svc, inst: f.inst, rid: f.rid, ts: f.ts, sess: "", rcv: localReceiver(f.toolName), bind, ext: "",
+      prev: f.prev,
     },
     privateKey,
   );

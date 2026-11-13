@@ -4,10 +4,12 @@
 import { isWellFormed } from "../crypto/crypto.ts";
 import { bindPrompt } from "../stamp/binding.ts";
 import {
-  checkCommitments, checkRoute, checkStamps, currentAt, readOrUndefined, reject, type Signers,
+  checkBinding, checkBlocks, checkRoute, checkStamps, currentAt, handOverOf, readBlocksToken, readOrUndefined, reject,
+  type Signers,
 } from "../internal/chain-checks.ts";
-import type { VerifyResult } from "../verify/reason.ts";
-import { CALL_MAX_AGE_MS, RUN_MAX_AGE_MS, type VerifierConfig, type VerifyInput } from "../verify/verify-chain.ts";
+import {
+  CALL_MAX_AGE_MS, RUN_MAX_AGE_MS, type ChainVerification, type VerifierConfig, type VerifyInput,
+} from "../verify/verify-chain.ts";
 
 export type { Signers };
 
@@ -33,10 +35,11 @@ export type OfflineInput = Omit<VerifyInput, "peer"> & {
 
 /**
  * The keyrings and roots count for a record when its recorded time is at most their `notAfter`; a member whose
- * window its record kind judges itself has `notAfter: Infinity`, no window, and counts for every record.
+ * window its record kind judges itself has `notAfter: Infinity`, no window, and counts for every record. Of
+ * `extensions`, the allowed list is check 9b's and `actsOn` names what the hand-over holds; check 9c never runs.
  */
 export type OfflineConfig = Pick<
-  VerifierConfig, "keyrings" | "roots" | "allowedOrigins" | "sess" | "nonceKey"
+  VerifierConfig, "keyrings" | "roots" | "allowedOrigins" | "sess" | "nonceKey" | "extensions"
 > & {
   /** Every nonce key spent so far anywhere in the record set. A chain that reaches the replay check adds its own. */
   seen: Set<string>;
@@ -51,37 +54,27 @@ export type OfflineConfig = Pick<
   callMaxAgeMs?: number;
 };
 
-/** An offline verdict, with the suspect as in `VerifyResult`. */
-export type OfflineResult = VerifyResult;
+/** An offline verdict, with the suspect as in `VerifyResult` and the hand-over on OK. */
+export type OfflineResult = ChainVerification;
 
 /**
- * Verifies a chain read back from a record set, such as a client's evidence file, with the live v3
- * verifier's checks in the live order. The first failure is the result:
- * 0. some keyring and some root count for the record, their notAfter at or after its recorded time
- *    (POLICY_EXPIRED, naming no one); with no recorded time every one counts, and check 7 refuses the record;
- *    the checks after it use only those that count;
- * 1. the chain's token reads, as stamps all v3 (CHAIN_MISSING);
- * 2. no field holds the `|` delimiter, rcv included (BAD_SIGNATURE);
- * 3. the origin's service is allowed (BAD_ORIGIN); with `signers`, it reports their instance too;
- * 4. each stamp is signed under one of the keys the keyrings give its service, and links to the one before
- *    (BAD_SIGNATURE, BROKEN_LINK);
- *    with `signers`, each is by the expected service and instance, or it is BAD_SIGNATURE; then each
- *    stamp's rcv addresses the next stamp's svc, naming it or an operation of it, and the last's is `receiver`
- *    (BINDING_MISMATCH);
- * 5. every stamp carries the record's rid (RID_MISMATCH);
- * 6. every stamp is in the session (SESSION_UNKNOWN);
- * 7. in place of the live freshness window, which has no clock to be fresh against offline: the last stamp's
- *    time is the one recorded with it, and the origin's is one of the run's recorded times (TIME_MISMATCH);
- *    a record with no recorded time is TIME_MISMATCH; then the last stamp is within the run's lifetime of the
- *    origin, and the origin not more than the call window after it, each limit its configured one or its live
- *    default (EXPIRED); then the origin binds the run's recorded prompt (PROMPT_MISMATCH);
- * 8. the last stamp binds `expectedBind` (BINDING_MISMATCH);
- * 9. and commits to the influence its token holds (INFLUENCE_MISMATCH);
- * 10. its nonce key has not been spent anywhere in the record set (REPLAY), which a live cache that forgets
- *     after its window cannot show;
- * 11. the route, the first service then each rcv (the last only when `receiverInRoute`), is proven by the
- *     proof its token holds against a root with the proof's rootId (PATH_NOT_ALLOWED).
- * Checks 1 to 6, 8, 9 and 11 are the live verifier's own code.
+ * Verifies a chain read back from a record set, such as a client's evidence file: `verifyChain`'s checks in the live
+ * order, with the differences the spec's offline table gives (verification.md, Offline verification). The first
+ * failure is the result:
+ * 0. not against a clock: some keyring and some root count for the record, their notAfter at or after its recorded
+ *    time (POLICY_EXPIRED, naming no one); with no recorded time every one counts, and check 7 refuses the record;
+ * 2, 3. with `signers`, the origin reports their instance (BAD_ORIGIN), and each stamp is by the expected service
+ *    and instance (BAD_SIGNATURE);
+ * 5. every stamp carries the record's rid, the origin's by default (RID_MISMATCH);
+ * 7. in place of freshness: the last stamp's time is the one recorded with it, and the origin's one of the run's
+ *    recorded times (TIME_MISMATCH); then the last stamp is within the run's lifetime of the origin, and the origin
+ *    not more than the call window after it, each limit its configured one or its live default (EXPIRED); then the
+ *    origin binds the run's recorded prompt (PROMPT_MISMATCH);
+ * 9. checks 9a and 9b run, 9b only with an allowed list of the verifier's own; 9c is live only;
+ * 10. there is no peer;
+ * 11. its nonce key has not been spent anywhere in the record set (REPLAY), which a live cache that forgets after its
+ *     window cannot show.
+ * Checks 1 to 6, 8, 9a, 9b and 12 are the live verifier's own code. Never throws.
  */
 export function verifyChainOffline(input: OfflineInput, cfg: OfflineConfig): OfflineResult {
   // 0. The keyrings and roots that count at the record's own time, once; none of either names no one.
@@ -93,7 +86,7 @@ export function verifyChainOffline(input: OfflineInput, cfg: OfflineConfig): Off
     return reject("POLICY_EXPIRED");
   }
 
-  // 1-6. Parse, delimiter, origin, signatures and links then the receivers, the record's rid, session.
+  // 1-6. Parse, origin, signatures and links, receivers, the record's rid, session.
   const shape = { receiver: input.receiver, rid: input.rid, signers: cfg.signers };
   const stamps = checkStamps(readOrUndefined(input.chain), { ...cfg, keyrings }, shape);
   if (typeof stamps === "string") {
@@ -115,20 +108,27 @@ export function verifyChainOffline(input: OfflineInput, cfg: OfflineConfig): Off
     return reject("PROMPT_MISMATCH");
   }
 
-  // 8-9. Binding and influence commitment.
-  const commitment = checkCommitments(last, input.expectedBind, readOrUndefined(input.influence));
-  if (commitment !== undefined) {
-    return reject(commitment);
+  // 8. Binding.
+  const bound = checkBinding(last, input.expectedBind);
+  if (bound !== undefined) {
+    return reject(bound);
   }
 
-  // 10. Replay, across the whole record set.
+  // 9a-9b. The blocks; 9c is live only.
+  const blocks = checkBlocks(stamps, readBlocksToken(input.blocks), cfg.extensions, false);
+  if (typeof blocks === "string") {
+    return reject(blocks);
+  }
+
+  // 11. Replay, across the whole record set.
   if (cfg.seen.has(cfg.nonceKey)) {
     return reject("REPLAY");
   }
   cfg.seen.add(cfg.nonceKey);
 
-  // 11. Route proven against a root that counts for the record.
-  return checkRoute(stamps, input.receiverInRoute, readOrUndefined(input.proof), roots);
+  // 12. Route proven against a root that counts for the record.
+  const routed = checkRoute(stamps, input.receiverInRoute, readOrUndefined(input.proof), roots);
+  return { ...routed, handOver: routed.ok ? handOverOf(stamps, blocks, cfg.extensions) : null };
 }
 
 /** Whether `ts` is one of `run`, the run's recorded start times, or `run` is absent; never when it is not a Set. */

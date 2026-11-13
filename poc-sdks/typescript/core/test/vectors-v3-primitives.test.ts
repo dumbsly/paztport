@@ -1,14 +1,13 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-// Pinned bytes for cross-implementation conformance: the session id, the prompt and response bindings, the influence
-// commitment and the Merkle primitives, from v3.json. Change only with a protocol change.
+// Pinned bytes for cross-implementation conformance: the session id, the prompt binding and the Merkle primitives,
+// from v3.json. Change only with a protocol change.
 
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
-  bindPrompt, bindResponse, commitInfluence, decode, deriveSessionId, encode, encodeProof, leafHash, nodeHash,
-  readProof, verifyProof,
+  bindPrompt, decode, deriveSessionId, encode, encodeProof, leafHash, nodeHash, readProof, verifyProof,
 } from "../src/index.ts";
 
 const v = JSON.parse(readFileSync(new URL("../../../spec/vectors/v3.json", import.meta.url), "utf8"));
@@ -32,16 +31,8 @@ describe("known-answer vectors: the shared primitives", () => {
     expect(deriveSessionId(clientSig, serverSig, input("clientNonce"), input("serverNonce"), v.deriveSessionId.keys)).toBe(c.expected);
   });
 
-  it("bindResponse", () => {
-    expect(bindResponse(v.bindResponse.resultHash, v.bindResponse.callId, v.bindResponse.labels)).toBe(v.bindResponse.expected);
-  });
-
   it("bindPrompt", () => {
     expect(bindPrompt(v.bindPrompt.prompt)).toBe(v.bindPrompt.expected);
-  });
-
-  it("commitInfluence", () => {
-    expect(commitInfluence(v.commitInfluence.entries)).toBe(v.commitInfluence.expected);
   });
 
   it("merkle leaves, nodes and proofs", () => {
