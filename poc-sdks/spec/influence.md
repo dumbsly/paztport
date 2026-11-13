@@ -80,7 +80,10 @@ a request first, and serving it without the item would hide content from
 [the owner-aware rule](#the-owner-aware-rule). An MCP server in audit mode runs the call and notes the code in its
 verdict ([Over MCP](#over-mcp)). Offline, a verifier that acts on `influence` gives `INFLUENCE_MISMATCH` for an
 item on a recorded request's block that does not read, as the live service does
-([offline verification](verification.md#offline-verification)). The code names no one and is never attributable,
+([offline verification](verification.md#offline-verification)). A recorded response whose block holds an
+`influence` item that is not a label is judged as it is live: the core's result stands, `OK` when the response
+verifies, no label is taken from it, and it counts as one `local-untrusted` entry; `INFLUENCE_MISMATCH` is given,
+live and offline, only for an item on a request's block. The code names no one and is never attributable,
 since the sender may be a hop that passed along a block it could not have read; the service logs the signer of the
 offending block for its operator.
 
@@ -146,8 +149,8 @@ A caller that acts on `influence` adds to what it holds, for each response to a 
 - **Over MCP, a refusal:** a result whose verdict is not an audit note adds nothing, since the tool did not run
   ([the verdict rule](verification.md#the-mcp-server-and-client)).
 - **Any other response:** one `local-untrusted` entry, never dropped. That is a response that fails verification,
-  one that is not attested, over HTTP a refusal, and over MCP any result in an unsafe session that is not a
-  refusal.
+  a response refused at [check 9c](verification.md#the-live-order) included, since an entry only adds caution; one
+  that is not attested; over HTTP a refusal; and over MCP any result in an unsafe session that is not a refusal.
 
 Over HTTP every entry a response adds, the `local-untrusted` one included, has `src = "http:<target>"` and
 `h = resultHash`. `<target>` is the caller's name for the service it sent the request to: the receiver's policy
@@ -245,7 +248,10 @@ written:
 What is handed on, and when, is the core's ([the live order](verification.md#the-live-order)). The item check
 ([Entries](#entries)) reads the items handed on, verified or not. An unsafe session is none of these rows: there
 the server believes nothing from the call, and a tool or endpoint that `disabled` does not list runs with no
-influence rule at all ([sessions.md](sessions.md#unsafe-sessions)).
+influence rule at all ([sessions.md](sessions.md#unsafe-sessions)). Over MCP an audit-mode server notes a call that
+failed verification with the first failure's code and does not reach the decision on a guarded write, since it
+decides only a call that verified ([sessions.md](sessions.md#the-server-decision)): the second row is for HTTP
+services, whose handlers apply the rules, and the third row's MCP case says only that nothing is handed on.
 
 ## Over MCP
 
