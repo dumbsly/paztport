@@ -14,6 +14,8 @@ import java.security.SecureRandom;
 import java.security.Signature;
 import java.security.spec.PKCS8EncodedKeySpec;
 import java.security.spec.X509EncodedKeySpec;
+import java.util.Arrays;
+import java.util.HexFormat;
 
 /**
  * The only cryptography in the system: SHA-256 and Ed25519, both straight from
@@ -22,6 +24,8 @@ import java.security.spec.X509EncodedKeySpec;
 public final class Crypto {
 
     private static final String ED25519 = "Ed25519";
+    /** The X.509 SPKI prefix of an Ed25519 key: the 32 key bytes follow it. */
+    private static final byte[] ED25519_SPKI_PREFIX = HexFormat.of().parseHex("302a300506032b6570032100");
     private static final SecureRandom RANDOM = new SecureRandom();
 
     private Crypto() {
@@ -63,9 +67,17 @@ public final class Crypto {
 
     /**
      * Verifies a signature. Returns false (never throws) on any verification
-     * failure so callers can fail closed on a boolean.
+     * failure so callers can fail closed on a boolean. The key must be an
+     * Ed25519 X.509 SPKI and the encodings must pass {@link Ed25519Strict}
+     * before the JDK checks the equation: libraries differ on those bytes, and
+     * every SDK refuses the same ones.
      */
     public static boolean verify(PublicKey key, byte[] message, byte[] signature) {
+        byte[] spki = key.getEncoded();
+        if (spki == null || spki.length != 44 || !Arrays.equals(spki, 0, 12, ED25519_SPKI_PREFIX, 0, 12)
+                || !Ed25519Strict.encodings(Arrays.copyOfRange(spki, 12, 44), signature)) {
+            return false;
+        }
         try {
             Signature s = Signature.getInstance(ED25519);
             s.initVerify(key);
