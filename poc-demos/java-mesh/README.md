@@ -187,7 +187,7 @@ order data `private`, with the customer it belongs to as the owner. Both labels
 ride in the influence of every later request, so by the time the assistant calls
 `payment` or `mailer`, the influence holds untrusted text beside private data.
 The services that write to something outside the mesh then apply the
-[owner-aware rule](../../poc-sdks/spec/sessions-and-influence.md#the-owner-aware-rule)
+[owner-aware rule](../../poc-sdks/spec/influence.md#the-owner-aware-rule)
 through the SDK's `PublicWrites` bean. They supply only the destination's owner,
 from their own records, never from the request.
 
@@ -235,13 +235,13 @@ It sends no internal stamp, so the PSP learns one service name, `payment`, and
 never the route behind it: **the shop's map stays unseen.** It signs nothing
 unless `payment` verified the request's chain first, and in an unsafe session it
 signs and sends nothing. The handshake, the stamp and the partner's checks are in
-the [spec](../../poc-sdks/spec/sessions-and-influence.md#between-organisations) and
+the [spec](../../poc-sdks/spec/sessions.md#between-organisations) and
 the [Java SDK](../../poc-sdks/java/README.md); this demo only wires them up.
 
 ### Opening a blinded entry
 
 The influence `payment` sends is
-[blinded](../../poc-sdks/spec/sessions-and-influence.md#blinded-influence): one
+[blinded](../../poc-sdks/spec/influence.md#blinded-influence): one
 entry per class and owner, its `src` `boundary:payment` and its `h` a salted
 commitment to the originals of its group. The PSP can apply the owner-aware rule
 to it, but learns neither the shop's internal sources nor the content, and cannot

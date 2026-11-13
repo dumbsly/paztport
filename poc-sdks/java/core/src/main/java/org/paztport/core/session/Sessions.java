@@ -239,7 +239,7 @@ public final class Sessions {
     }
 
     /**
-     * Whether a recorded handshake opened an attested session, judged at {@code at} (sessions-and-influence.md
+     * Whether a recorded handshake opened an attested session, judged at {@code at} (sessions.md
      * &sect;Recorded handshakes): the reply, as recorded, is attested and passes the client's check against the
      * recorded pin and the server's entry service from the verifier's own configuration, both roots verify under
      * their sides' policy keys, and the client keyring's signature verifies. Never throws.

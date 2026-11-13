@@ -3,7 +3,7 @@
 This file defines the bytes: encodings, how JSON is read and written, keys, stamps, chains, bindings, the Merkle
 tree, operations, the signed root, the signed keyring, the reply certificate, events and the proof bundles.
 [verification.md](verification.md) says how a receiver checks them, and
-[sessions-and-influence.md](sessions-and-influence.md) covers the handshake and influence.
+[sessions.md](sessions.md) covers the handshake and [influence.md](influence.md) influence.
 
 The key words MUST, MUST NOT, SHOULD, SHOULD NOT and MAY are to be read as described in RFC 2119.
 
@@ -96,15 +96,15 @@ An object travels as its wire bytes, or as its **token**, the base64url of its w
 - **HTTP headers.** A chain, a proof, influence entries and a response's attestation each travel as a token, one
   header each ([HTTP (v3)](#http-v3)).
 - **HTTP bodies.** A session request, its reply and a handshake error `{"error"}`
-  ([sessions-and-influence.md](sessions-and-influence.md#over-http)), a refusal `{"reason"}`, an event's envelope
+  ([sessions.md](sessions.md#over-http)), a refusal `{"reason"}`, an event's envelope
   ([Events](#events)) and, in the PSP demo, a boundary opening travel as their wire bytes, the whole body.
 - **MCP** ([the MCP profile](README.md#the-mcp-profile)). Each value under `_meta` but `paztport/callId` is a
   token ([MCP (v3)](#mcp-v3)), and so are the `request` of `paztport/session`'s params and the `reply` of its
-  result ([sessions-and-influence.md](sessions-and-influence.md#the-handshake)). The JSON-RPC message around them is
+  result ([sessions.md](sessions.md#the-handshake)). The JSON-RPC message around them is
   MCP's own, read by its JSON parser.
 
 A record keeps each object as its token, as it was sent or received
-([Recorded handshakes](sessions-and-influence.md#recorded-handshakes)).
+([Recorded handshakes](sessions.md#recorded-handshakes)).
 
 ### Reading
 
@@ -138,13 +138,13 @@ the parent's answer.
 | A verdict (MCP profile) | A client, from MCP `_meta` ([the verdict rule](verification.md#the-mcp-server-and-client)) | `UNKNOWN`, a refusal |
 | A recorded verdict (MCP profile) | A verifier of a recorded response | No refusal: the result is judged as a response |
 | A local-tool decision (MCP profile) | A verifier of a recorded local step ([step 1](verification.md#offline-verification)) | `BINDING_MISMATCH` |
-| A session request | A server, over MCP or HTTP ([sessions-and-influence.md](sessions-and-influence.md#the-request)) | Invalid params: JSON-RPC `-32602`; over HTTP `400 {"error":"INVALID_PARAMS"}` |
-| `paztport/session` params (MCP profile) | A server ([the handshake](sessions-and-influence.md#the-handshake)) | Invalid params: JSON-RPC `-32602` |
-| A session reply | A client, live ([its check](sessions-and-influence.md#the-clients-check-of-the-reply)); a verifier of a [recorded handshake](sessions-and-influence.md#recorded-handshakes) | `MALFORMED_REPLY`; not attested |
-| A `paztport/session` result (MCP profile) | A client ([the handshake](sessions-and-influence.md#the-handshake)) | `MALFORMED_REPLY` |
-| A refusal `{"reason"}` | An egress reading its partner's `403` to a call ([sessions-and-influence.md](sessions-and-influence.md#over-http)) | None: the refusal gives no reason |
-| A handshake error `{"error"}` | No one: a client takes any answer but a `200` as a failed handshake ([sessions-and-influence.md](sessions-and-influence.md#over-http)) | None |
-| A boundary opening | A checker ([Opening an entry](sessions-and-influence.md#blinded-influence)) | Does not open; the PSP demo's check answers `400 {"reason":"MALFORMED_OPENING"}` for bytes that do not read or are not one JSON object |
+| A session request | A server, over MCP or HTTP ([sessions.md](sessions.md#the-request)) | Invalid params: JSON-RPC `-32602`; over HTTP `400 {"error":"INVALID_PARAMS"}` |
+| `paztport/session` params (MCP profile) | A server ([the handshake](sessions.md#the-handshake)) | Invalid params: JSON-RPC `-32602` |
+| A session reply | A client, live ([its check](sessions.md#the-clients-check-of-the-reply)); a verifier of a [recorded handshake](sessions.md#recorded-handshakes) | `MALFORMED_REPLY`; not attested |
+| A `paztport/session` result (MCP profile) | A client ([the handshake](sessions.md#the-handshake)) | `MALFORMED_REPLY` |
+| A refusal `{"reason"}` | An egress reading its partner's `403` to a call ([sessions.md](sessions.md#over-http)) | None: the refusal gives no reason |
+| A handshake error `{"error"}` | No one: a client takes any answer but a `200` as a failed handshake ([sessions.md](sessions.md#over-http)) | None |
+| A boundary opening | A checker ([Opening an entry](influence.md#blinded-influence)) | Does not open; the PSP demo's check answers `400 {"reason":"MALFORMED_OPENING"}` for bytes that do not read or are not one JSON object |
 | A keyring, root, reply certificate, proof bundle or local rules, as a [file](#files) | A service or client at startup, a policy tool | Malformed, and each reader names the file: a service or client does not start, and a policy tool writes nothing and exits as for any malformed input |
 
 ### The grammar
@@ -262,7 +262,7 @@ other character, a no-break space or a byte order mark included, is not that key
 | `proofs-<svc>.json` | [A proof bundle](#proof-bundles-and-who-holds-what) | no, but it reveals its own routes |
 | `ops-<svc>.json` | [An operation table](#operations), copied by the policy tool from beside `paths.yaml` | no |
 | `policy.pub` | The policy public key that a mesh's own services pin, written by the Java keygen | no |
-| `boundary.key` | An egress's [boundary key](sessions-and-influence.md#blinded-influence): 32 bytes as base64url. The Java keygen writes it only when it does not exist, since a new key makes the entries sent under the old one unopenable, and refuses an existing one that is not 32 bytes. It belongs to one egress service and its replicas, and MUST NOT be shared with another service | yes |
+| `boundary.key` | An egress's [boundary key](influence.md#blinded-influence): 32 bytes as base64url. The Java keygen writes it only when it does not exist, since a new key makes the entries sent under the old one unopenable, and refuses an existing one that is not 32 bytes. It belongs to one egress service and its replicas, and MUST NOT be shared with another service | yes |
 | `<side>-policy.pub` | A pinned policy public key (`server-policy.pub`, `client-policy.pub`) | no |
 
 **Expiry.** The policy key stays offline, so a root or keyring it once signed can't be withdrawn, only left to
@@ -292,10 +292,10 @@ order, whatever order they are shown in here.
 | `inst` | string | The signer's instance, as the signer reports it. Signed, but only the signer vouches for it. |
 | `rid` | string | The request id, minted at the origin and carried unchanged by every stamp. An origin MUST NOT reuse a `rid`: the [HTTP nonce key](verification.md#freshness-and-replay) names a request tree by it, so two trees with one `rid` would spend each other's keys. It SHOULD carry at least 122 random bits from a cryptographic random source, as a random UUID (RFC 9562, version 4) does, so that an origin's replicas need no coordination. |
 | `ts` | integer | When this stamp was signed, in ms since the Unix epoch: a protocol integer. |
-| `sess` | string | The session id ([sessions-and-influence.md](sessions-and-influence.md#the-session-id)), or `""` for a chain with no session: one that never leaves one process, such as a local step, or one inside a single HTTP mesh. |
+| `sess` | string | The session id ([sessions.md](sessions.md#the-session-id)), or `""` for a chain with no session: one that never leaves one process, such as a local step, or one inside a single HTTP mesh. |
 | `rcv` | string | The receiver this stamp was signed for: the next stamp's `svc`, or for the last stamp, the receiver of the chain. Over HTTP it may also name the [operation](#operations) the stamp invokes there. See [Receivers](#receivers). |
 | `bind` | string | The binding of what this hop sent. See [Bindings](#bindings). |
-| `infl` | string | The influence commitment: `""` for no influence, otherwise `b64url(H(utf8(JCS(normalise(entries)))))`, with `normalise` as defined in [sessions-and-influence.md](sessions-and-influence.md#normalisation-and-commitment). |
+| `infl` | string | The influence commitment: `""` for no influence, otherwise `b64url(H(utf8(JCS(normalise(entries)))))`, with `normalise` as defined in [influence.md](influence.md#normalisation-and-commitment). |
 | `prev` | string | The previous stamp's `sig`, exactly as written, or `""` at the origin. |
 | `sig` | string | `b64url` of the Ed25519 signature, by `svc`'s key, over the signed bytes. |
 
@@ -357,7 +357,7 @@ A chain is an array of stamps, **origin first**. It travels as its JCS bytes and
 | MCP tool call ([MCP profile](README.md#the-mcp-profile)) | `session`, `pi` | `pi`, then `mcp:<server>.<tool>`, where `<server>` is the server id and `<tool>` the tool name. |
 | MCP response ([MCP profile](README.md#the-mcp-profile)) | `mcp-entry`, `github-tools` | `github-tools`, then the calling client's `svc` (`pi`): the response chain ends at whoever made the call. |
 | Local step ([MCP profile](README.md#the-mcp-profile)) | `session`, `pi` (with `sess = ""`) | `pi`, then `local:<tool>`. |
-| Boundary stamp | the egress service | The partner's entry service ([sessions-and-influence.md](sessions-and-influence.md#between-organisations)). |
+| Boundary stamp | the egress service | The partner's entry service ([sessions.md](sessions.md#between-organisations)). |
 
 The names in the second column are the agents demo's and the vectors'; the shape of each row is the rule.
 
@@ -421,7 +421,7 @@ token, the base64url of the object's JCS bytes, read as [wire bytes](#reading), 
 |---|---|
 | `paztport/chain` | The chain's token: a JSON array of stamps, the run's origin, then the calling hop's stamp. |
 | `paztport/proof` | The token of the proof for the call's route, a [proof object](#proof-object). |
-| `paztport/influence` | The token of the influence entries the call was made under, a JSON array ([sessions-and-influence.md](sessions-and-influence.md#entries)). The last stamp's `infl` commits to them. |
+| `paztport/influence` | The token of the influence entries the call was made under, a JSON array ([influence.md](influence.md#entries)). The last stamp's `infl` commits to them. |
 | `paztport/callId` | The call id, a string, which the `tools/call` binding covers. |
 
 A member that is not a string is read as a token that does not read, and gets its reader's refusal
@@ -443,7 +443,7 @@ when an audit-mode server ran the call anyway. A verdict is a wire object with e
 optionally, an `audit` that is `true`; one with another member, or an `audit` of any other value, does not read. A
 verdict is not signed ([verification.md](verification.md#the-mcp-server-and-client)). The handshake is the
 JSON-RPC method `paztport/session`, whose params and result each carry one token
-([sessions-and-influence.md](sessions-and-influence.md#the-handshake)).
+([sessions.md](sessions.md#the-handshake)).
 
 ### HTTP (v3)
 
@@ -454,8 +454,8 @@ A request carries Paztport in three headers, each a token, the base64url of the 
 |---|---|
 | `X-Path-Chain` | The chain, as a JSON array of v3 stamps, origin first. The last stamp's `rcv` is the receiving service, or the operation it is sent to as `<service>#<operation>`, and its `bind` the [HTTP binding](#bindings) of the request sent. |
 | `X-Path-Proof` | The [proof object](#proof-object) for the full route, receiving service included. |
-| `X-Path-Influence` | The influence entries the request was made under, as a JSON array ([sessions-and-influence.md](sessions-and-influence.md#entries)). An absent header means `[]`. The last stamp's `infl` commits to them. |
-| `X-Path-Session` | The [session id](sessions-and-influence.md#the-session-id), as plain text, on a call made in a session opened by [the handshake over HTTP](sessions-and-influence.md#over-http). Inside a mesh, which has no handshake, it is absent. An absent header means no session; one that names no live session opened by the peer is refused `SESSION_UNKNOWN`. |
+| `X-Path-Influence` | The influence entries the request was made under, as a JSON array ([influence.md](influence.md#entries)). An absent header means `[]`. The last stamp's `infl` commits to them. |
+| `X-Path-Session` | The [session id](sessions.md#the-session-id), as plain text, on a call made in a session opened by [the handshake over HTTP](sessions.md#over-http). Inside a mesh, which has no handshake, it is absent. An absent header means no session; one that names no live session opened by the peer is refused `SESSION_UNKNOWN`. |
 
 **Paztport's headers.** Every header whose name begins with `X-Path-` is Paztport's: the four above,
 `X-Path-Response`, and any added later. Names are compared case-insensitively over ASCII, as HTTP compares field
@@ -774,7 +774,7 @@ rebuild and renew.
 
 `reply-cert.json` is the policy key's statement that `key` is service `svc`'s key until `notAfter`. It lets that
 key sign what the policy key would otherwise have to sign online, a
-[session reply](sessions-and-influence.md#the-reply), while the policy key stays offline:
+[session reply](sessions.md#the-reply), while the policy key stays offline:
 
 ```json
 { "key": "<that service's public key>", "notAfter": <integer>, "policy": "<policy public key>", "sig": "<b64url>", "svc": "<service>" }
@@ -925,7 +925,7 @@ callers can check the table it names operations from.
 | Party | Holds | Never holds |
 |---|---|---|
 | Policy owner | The policy private key, offline. It signs the root, the keyring and reply certificates. | |
-| Each service | Its own private key, and its own proof bundle. An entry service that answers session handshakes in the [entry-key form](sessions-and-influence.md#the-reply) also holds a current reply certificate for its key, and signs the replies with that key. | Other services' keys, other routes' salts. |
+| Each service | Its own private key, and its own proof bundle. An entry service that answers session handshakes in the [entry-key form](sessions.md#the-reply) also holds a current reply certificate for its key, and signs the replies with that key. | Other services' keys, other routes' salts. |
 | Each verifier | The pinned policy public key, and the signed roots and keyrings it pins: one of each, or more while a rollover is under way. | The tree, the route list or any salt but those in the proofs it is shown. |
 | The other side of a session | The peer side's policy key, pinned in advance, and the root and keyring it sends in the handshake. A client also knows the server's entry service by name, from its own configuration, to check an entry-key reply. | Its map. |
 

@@ -19,7 +19,7 @@ export type RecordedHandshake = {
   serverEntry: string;
 };
 
-/** What a recorded handshake gives the records that rely on it (sessions-and-influence.md §Recorded handshakes). */
+/** What a recorded handshake gives the records that rely on it (sessions.md §Recorded handshakes). */
 export type RecordedSession = {
   /** Whether it opened an attested session, judged at `at`: a time the client signed, a call's last stamp `ts`, never one read from the handshake record. */
   attestedAt: (at: number) => boolean;

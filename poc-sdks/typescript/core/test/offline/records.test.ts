@@ -1,7 +1,7 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-// One test per sentence of sessions-and-influence.md §Recorded handshakes, and of verification.md §Offline
+// One test per sentence of sessions.md §Recorded handshakes, and of verification.md §Offline
 // verification's recorded call, response and handshake.
 
 import { describe, expect, it } from "vitest";

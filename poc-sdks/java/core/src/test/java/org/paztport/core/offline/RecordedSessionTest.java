@@ -33,7 +33,7 @@ import org.paztport.core.session.SessionRequest;
 import org.paztport.core.session.Sessions;
 
 /**
- * One test per sentence of sessions-and-influence.md §Recorded handshakes, and of verification.md §Offline
+ * One test per sentence of sessions.md §Recorded handshakes, and of verification.md §Offline
  * verification's recorded handshake; the names are the TypeScript core's.
  */
 class RecordedSessionTest {

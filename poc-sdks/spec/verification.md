@@ -57,7 +57,7 @@ disagree.
 | 6 | Every stamp carries `sess`. | `SESSION_UNKNOWN` |
 | 7 | Freshness: the last stamp's `ts` is within `CALL_MAX_AGE_MS` of `now`, either way; the origin's `ts` is at most `RUN_MAX_AGE_MS` before `now` and at most `CALL_MAX_AGE_MS` after it. A non-finite `now` or limit fails. | `EXPIRED` |
 | 8 | The last stamp's `bind` equals `expectedBind`. | `BINDING_MISMATCH` |
-| 9 | The influence reads from its bytes ([sessions-and-influence.md](sessions-and-influence.md#entries)), and the last stamp's `infl` equals its commitment. | `INFLUENCE_MISMATCH` |
+| 9 | The influence reads from its bytes ([influence.md](influence.md#entries)), and the last stamp's `infl` equals its commitment. | `INFLUENCE_MISMATCH` |
 | 10 | The nonce cache remembers keys for at least 2 × `CALL_MAX_AGE_MS`, and `nonceKey` is new to it. A new key is recorded. | `REPLAY` |
 | 11 | The route, the origin's `svc` then each stamp's `rcv`, the last left off unless `receiverInRoute` ([wire.md](wire.md#routes)), is proven against a current pinned root, the one the proof's `rootId` names ([proof checks](wire.md#proof-object)). | `PATH_NOT_ALLOWED` |
 | 12 | With a `peer`, `peer.svc` equals the last stamp's `svc`. | `PEER_MISMATCH` |
@@ -144,7 +144,7 @@ destination any other way, by an address, an alias or a port, fails check 4 at a
 something the request or the destination says. Over HTTP that name, without any operation, is the caller's
 `<target>`: the service the response stamp must be by, and the `src` (`http:<target>`) of what the response adds
 to its influence. An egress names its partner's entry service by configuration
-([sessions-and-influence.md](sessions-and-influence.md#between-organisations)). (The Java and Go SDKs
+([sessions.md](sessions.md#between-organisations)). (The Java and Go SDKs
 take the name from the URL's host by default, its ASCII letters in lower case; a host that is not ASCII gets no
 name: [Java SDK README](../java/README.md#outbound-calls-and-response-checks).)
 
@@ -180,7 +180,7 @@ MCP wrappers (`verifyCall`, `verifyMcpResponse`, `McpServerSession.checkCall`) p
 no TLS, so for MCP over stdio the live order ends at check 11, and the peer check is core's.
 
 **A tool call, on the server.** The server checks a call only in an attested session
-([sessions-and-influence.md](sessions-and-influence.md#status)), against the client's root and keyring from the
+([sessions.md](sessions.md#status)), against the client's root and keyring from the
 handshake, with `allowedOrigins` = the client's origin service, `receiver = mcp:<serverId>.<tool>`,
 `receiverInRoute = true` and `nonceKey = <rid>|<callId>|req`. In order:
 
@@ -195,12 +195,12 @@ handshake, with `allowedOrigins` = the client's origin service, `receiver = mcp:
    tell the client's policy from its own.
 
 The influence is returned only when the call verifies. Then the server decides on the call
-([sessions-and-influence.md](sessions-and-influence.md#the-server-decision)). A refusal is answered as a result
+([sessions.md](sessions.md#the-server-decision)). A refusal is answered as a result
 with `isError: true` and the token of its verdict in `paztport/verdict`, and is not signed.
 
 **A response, on the client.** The client checks a response only in an attested session, against the server's
 root and keyring from the signed handshake reply as read
-([sessions-and-influence.md](sessions-and-influence.md#the-reply)), with `allowedOrigins` = the server's entry
+([sessions.md](sessions.md#the-reply)), with `allowedOrigins` = the server's entry
 service as the client's own configuration names it (`["mcp-entry"]` in the agents demo), never a value from the reply,
 `receiver` = the client's own `svc`,
 `receiverInRoute = false`, `influence = []` and `nonceKey = <rid>|<callId>|resp`. In order:
@@ -236,7 +236,7 @@ That is every [reason code](#reason-codes) except `OK` and the offline-only `TIM
 
 The Java and Go SDKs implement this section ([wire.md](wire.md#http-v3) has the headers). Inside a mesh there is no
 handshake: its services pin one policy key, root and keyring in advance, and `sess` is `""`. Between
-organisations there is one ([sessions-and-influence.md](sessions-and-influence.md#over-http)), and the partner
+organisations there is one ([sessions.md](sessions.md#over-http)), and the partner
 verifies as below with these inputs.
 
 **A request, at the receiver.** The receiver runs the live order, 0 to 12, with `receiver` = its own name,
@@ -276,13 +276,13 @@ another receiver fails check 4 at every later hop.
 the client presented in the handshake, pinned under the client policy key the partner pinned, with `sess` = the
 session id, the client's allowed origins, and the partner's own windows and nonce cache. A keyring or root past
 its `notAfter` at the handshake makes the session unsafe
-([sessions-and-influence.md](sessions-and-influence.md#status)), so no verifier is built on it; and once the
+([sessions.md](sessions.md#status)), so no verifier is built on it; and once the
 session's material expires, every call in it is `POLICY_EXPIRED`. The inputs are the same as above, with
 `receiver` = the partner's entry service, `receiverInRoute = true` and `peer` the authenticated client, who MUST
 be the boundary stamp's signer. The chain is one stamp, `prev` is `""`, and `expectedBind` and `influence` are of
 the request and the entries received. The session is the one `X-Path-Session` names, and only when the peer it was
 opened by, the certificate's issuer and name, is this call's
-([sessions-and-influence.md](sessions-and-influence.md#over-http)). In an unsafe session there is no verifier and
+([sessions.md](sessions.md#over-http)). In an unsafe session there is no verifier and
 nothing is verified. A replica's sessions share its one in-memory nonce cache, keyed as above.
 
 **The peer under mTLS.** When the request came with a client certificate the TLS layer verified, the receiver
@@ -347,7 +347,7 @@ A certificate is issued per service, not per instance, which is why `peer.inst` 
 from the certificate.
 
 A partner also binds each session to the peer that opened it: the certificate issuer's distinguished name and the
-service the certificate names ([sessions-and-influence.md](sessions-and-influence.md#over-http)). The issuer is
+service the certificate names ([sessions.md](sessions.md#over-http)). The issuer is
 compared as text, as an RFC 4514 string, so issuers are told apart by name, not by the CA's key. Only the partner
 that recorded it compares it, so two implementations need not write it byte for byte alike, but one partner MUST write
 it the same way every time. A certificate whose issuer name is empty, or that names no single service, opens no
@@ -393,7 +393,7 @@ A service that verifies requests does so in one of two modes. Nothing else is a 
 | Mode | On a result other than `OK` |
 |---|---|
 | `enforce` | The service refuses the request with the result's code. |
-| `audit` | The service runs every check, refuses nothing and reports the result: the request is served, but not as verified. Its chain is not taken as having passed the live order here, so its response is not attested, no boundary stamp is signed over it, and it cannot write a [trusted record](sessions-and-influence.md#trusted-records). |
+| `audit` | The service runs every check, refuses nothing and reports the result: the request is served, but not as verified. Its chain is not taken as having passed the live order here, so its response is not attested, no boundary stamp is signed over it, and it cannot write a [trusted record](influence.md#trusted-records). |
 
 A service that cannot tell which mode it is in MUST enforce, so that a mistake in its configuration fails closed.
 
@@ -406,11 +406,11 @@ client does not read that as a refusal ([the verdict rule](#the-mcp-server-and-c
 **The one exception.** In audit mode, a request whose influence does not read is still refused, with
 `400 {"reason":"INFLUENCE_MISMATCH"}`, and is not served. A receiver MUST NOT drop influence it can't read
 ([HTTP requests](#http-requests-and-responses)), in any mode, and serving the request without that influence would
-hide `private` content from [the owner-aware rule](sessions-and-influence.md#the-owner-aware-rule). In enforce mode
+hide `private` content from [the owner-aware rule](influence.md#the-owner-aware-rule). In enforce mode
 verification has refused such a request already: check 9 fails, if nothing before it does.
 
 **Attestation.** Neither mode changes who attests ([Who attests](#http-requests-and-responses); over MCP,
-[the server decision](sessions-and-influence.md#the-server-decision)). A response is attested only when the
+[the server decision](sessions.md#the-server-decision)). A response is attested only when the
 request passed the live order at that service. So in audit mode a request that failed is served, but its response
 is not attested, and its caller counts it `local-untrusted`. A service that attests but does not verify requests
 under a mode still runs the live order, once per request, before it attests; a failure there only withholds the
@@ -419,7 +419,7 @@ attestation.
 **Outside the modes.** How a deployment turns Paztport off on a hop is not part of the protocol. A hop that is off
 verifies, attests and reports nothing. Its callers count its responses `local-untrusted`, as any unattested
 response, so turning a hop off can only add caution downstream, never vouch for anything. It cannot be an egress
-([sessions-and-influence.md](sessions-and-influence.md#between-organisations)).
+([sessions.md](sessions.md#between-organisations)).
 
 **What a refusal carries.** A refusal is for the caller, so it can decide what to do next. Attribution is for the
 operator and the responder, and travels only in the service's own logs and in signed events. So a refusal MUST
@@ -429,7 +429,7 @@ suspect is usually the caller itself, and telling it would tip it off before the
 
 | Transport | A refusal |
 |---|---|
-| HTTP | Status `403`; or `400` for influence that does not read where verification has not refused the request first, which is in audit mode ([the one exception](#modes-and-refusals)) or at a service that verifies no requests ([HTTP requests](#http-requests-and-responses)). Either way with `Content-Type: application/json`, which MUST carry no parameters, and the body `{"reason":"<code>"}`, sent as UTF-8: one JSON object whose only member is `reason`, a string, written with no whitespace, so that every implementation sends the same bytes for the same code. A reader MUST ignore any media-type parameter, `charset` included, and read the body as its [wire bytes](wire.md#reading), which are UTF-8 as [RFC 8259](https://www.rfc-editor.org/rfc/rfc8259#section-8.1) §8.1 requires of JSON exchanged between systems; the `application/json` registration defines no `charset` parameter (§11). A body that does not read, or has any member but `reason`, gives no reason. The handshake endpoint's own errors, `400 {"error":"<code>"}` ([sessions-and-influence.md](sessions-and-influence.md#over-http)), answer a handshake, not a call, and are not refusals. |
+| HTTP | Status `403`; or `400` for influence that does not read where verification has not refused the request first, which is in audit mode ([the one exception](#modes-and-refusals)) or at a service that verifies no requests ([HTTP requests](#http-requests-and-responses)). Either way with `Content-Type: application/json`, which MUST carry no parameters, and the body `{"reason":"<code>"}`, sent as UTF-8: one JSON object whose only member is `reason`, a string, written with no whitespace, so that every implementation sends the same bytes for the same code. A reader MUST ignore any media-type parameter, `charset` included, and read the body as its [wire bytes](wire.md#reading), which are UTF-8 as [RFC 8259](https://www.rfc-editor.org/rfc/rfc8259#section-8.1) §8.1 requires of JSON exchanged between systems; the `application/json` registration defines no `charset` parameter (§11). A body that does not read, or has any member but `reason`, gives no reason. The handshake endpoint's own errors, `400 {"error":"<code>"}` ([sessions.md](sessions.md#over-http)), answer a handshake, not a call, and are not refusals. |
 | MCP ([profile](README.md#the-mcp-profile)) | A result with `isError: true` and `_meta["paztport/verdict"]` the token of `{ "reason": "<code>" }` ([wire.md](wire.md#mcp-v3)). An audit verdict adds `"audit": true`, and is not a refusal: the tool ran. |
 
 ## Offline verification
@@ -453,7 +453,7 @@ Each kind of record is checked this way:
   record's is `RID_MISMATCH`. The call counts in its session only up to the session's limits, judged at the last
   stamp's `ts` (see the handshake below). A call that otherwise verifies, in a session whose recorded handshake is
   attested, but whose last stamp's `ts` is past one of the session's limits
-  ([sessions-and-influence.md](sessions-and-influence.md#recorded-handshakes)), is `OUTSIDE_SESSION`.
+  ([sessions.md](sessions.md#recorded-handshakes)), is `OUTSIDE_SESSION`.
 - **A recorded response**: the client-side response check, with the live chain verifier at the time the client
   recorded verifying it, and one nonce cache that never forgets across the record set. Its `receiver` is the
   recorded call's verified last signer, the client that made the call. Check 0 runs at that time, with the
@@ -474,11 +474,11 @@ Each kind of record is checked this way:
   (`VERDICT_MISMATCH`). A client's gate never takes a local step on an origin outside those limits: it refuses it
   `EXPIRED`, unsigned, as it refuses one taken under an expired root or keyring.
 - **A recorded handshake**: attested only when the request and the reply read from their tokens
-  ([sessions-and-influence.md](sessions-and-influence.md#recorded-handshakes)), the reply is attested and verifies
+  ([sessions.md](sessions.md#recorded-handshakes)), the reply is attested and verifies
   against the pin, both roots verify against their sides' policy keys, and the client keyring's signature verifies.
   It is judged at the time of each call that relies on it: a root or keyring, on either side, counts only up to its
   `notAfter`, as the reply certificate does
-  ([sessions-and-influence.md](sessions-and-influence.md#recorded-handshakes)). A response relies on it too, but is
+  ([sessions.md](sessions.md#recorded-handshakes)). A response relies on it too, but is
   limited only by the server's root window and, in the entry-key form, the server keyring's, once the signatures
   covering them verify; the client's windows and the certificate do not limit it.
 
@@ -506,7 +506,7 @@ relies on every recorded time. No edit to a record moves a `notAfter`, because t
 | `POLICY_EXPIRED` | live, offline, client local | Every keyring, or every root, the verifier relies on has expired. Live: `now` is past `policyNotAfter`. Offline: the record's own time is past the `notAfter` of a root or keyring it relies on, or for pinned keyrings and roots, of every keyring or every root. Names no one. Client local: the local gate's refusal of a step under an expired root or keyring. |
 | `TIME_MISMATCH` | offline only | A stamp's time is not the one recorded with it, or no time is recorded. |
 | `PROMPT_MISMATCH` | offline only | The origin does not bind the run's recorded prompt. |
-| `OUTSIDE_SESSION` | offline only | A recorded call that otherwise verifies, in a session whose recorded handshake is attested, but whose last stamp's `ts` is past one of the session's limits ([recorded handshakes](sessions-and-influence.md#recorded-handshakes)). |
+| `OUTSIDE_SESSION` | offline only | A recorded call that otherwise verifies, in a session whose recorded handshake is attested, but whose last stamp's `ts` is past one of the session's limits ([recorded handshakes](sessions.md#recorded-handshakes)). |
 | `PROOF_MISMATCH` | offline only | A recorded local step ([MCP profile](README.md#the-mcp-profile)) whose recorded route verdict or proof disagrees with what its chain proves. |
 | `RULES_MISMATCH` | offline only | A recorded local step ([MCP profile](README.md#the-mcp-profile)) whose signed `rulesHash` is not the client's. |
 | `VERDICT_MISMATCH` | offline only | A recorded local step ([MCP profile](README.md#the-mcp-profile)) whose decision, re-derived from the signed rules, differs from the one it signed. |

@@ -274,7 +274,7 @@ final class VectorsHttpPartner {
         return e;
     }
 
-    /** sessions-and-influence.md, over HTTP: a call names its session, which must be one its own peer opened. */
+    /** sessions.md, over HTTP: a call names its session, which must be one its own peer opened. */
     static ArrayNode sessionHeader(Fixtures fx) {
         Material shop = fx.material("shop");
         ArrayNode a = arr();
@@ -311,7 +311,7 @@ final class VectorsHttpPartner {
         return a;
     }
 
-    /** sessions-and-influence.md, over HTTP: sessions by id, at most N per peer, the least recently used evicted. */
+    /** sessions.md, over HTTP: sessions by id, at most N per peer, the least recently used evicted. */
     static ArrayNode sessionRegistry(Fixtures fx) {
         Material shop = fx.material("shop");
         ArrayNode a = arr();
@@ -353,7 +353,7 @@ final class VectorsHttpPartner {
         return a;
     }
 
-    /** sessions-and-influence.md, over HTTP: the handshake endpoint's errors, and the peer it needs. */
+    /** sessions.md, over HTTP: the handshake endpoint's errors, and the peer it needs. */
     static ArrayNode handshakeErrors(Fixtures fx) {
         Material shop = fx.material("shop");
         // Each body is the shop's request in JCS member order but for the one flaw its case names, so that flaw is what
@@ -459,7 +459,7 @@ final class VectorsHttpPartner {
     }
 
     /**
-     * sessions-and-influence.md, trusted records, at the boundary: an attested call qualifies only with no
+     * influence.md, trusted records, at the boundary: an attested call qualifies only with no
      * third-party or local-untrusted content, in its stamp or in what the handler reads once it is accepted.
      */
     static ArrayNode partnerTrustedRecord(Fixtures fx) {
@@ -780,7 +780,7 @@ final class VectorsHttpPartner {
         return e;
     }
 
-    /** sessions-and-influence.md, between organisations: what the egress signs and sends, and when it sends nothing. */
+    /** sessions.md, between organisations: what the egress signs and sends, and when it sends nothing. */
     static ArrayNode egress(Fixtures fx, Chains ch) {
         Material shop = fx.material("shop");
         byte[] ok = utf8("{\"ok\":true}");

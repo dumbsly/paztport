@@ -232,7 +232,7 @@ What it does not check, stated plainly:
 
 Every item in a report has one result. `OK`, `REFUSED`, `NO_RESPONSE` and `UNBOUND` do not make a file fail; any other result does, and the `FAIL` line names the first.
 
-Most results are the protocol's own: the Paztport SDK gives them, as [the spec's offline verification](../../../poc-sdks/spec/verification.md#offline-verification) says, and [its reason codes](../../../poc-sdks/spec/verification.md#reason-codes) say what each means. Session records are [recorded handshakes](../../../poc-sdks/spec/sessions-and-influence.md#recorded-handshakes). The ones `verify` can report:
+Most results are the protocol's own: the Paztport SDK gives them, as [the spec's offline verification](../../../poc-sdks/spec/verification.md#offline-verification) says, and [its reason codes](../../../poc-sdks/spec/verification.md#reason-codes) say what each means. Session records are [recorded handshakes](../../../poc-sdks/spec/sessions.md#recorded-handshakes). The ones `verify` can report:
 
 | Result | Records | What it means here |
 | --- | --- | --- |

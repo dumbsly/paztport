@@ -872,7 +872,7 @@ The first call opens a session and every call after it shares it. `post` throws
 `verifiedChain()` is null. In an attested session it sends the influence blinded: one
 entry per class and owner, `src` `boundary:<this service>`, `h` a salted commitment
 to that group's originals (see
-[blinded influence](../spec/sessions-and-influence.md#blinded-influence)). It signs
+[blinded influence](../spec/influence.md#blinded-influence)). It signs
 one boundary stamp over that list and sends the proof for `<this service>/<partner>`;
 in an unsafe one it sends only `X-Path-Session`. A `BoundaryListener` bean, if there
 is one, gets `sent(rid, partner, originals, sent)` in each attested call, after the

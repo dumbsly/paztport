@@ -739,7 +739,7 @@ final class VectorsHttpRules {
         return a;
     }
 
-    /** sessions-and-influence.md, trusted records: a verified chain, and no untrusted content in what it holds. */
+    /** influence.md, trusted records: a verified chain, and no untrusted content in what it holds. */
     private static ArrayNode trustedRecord(Chains ch) {
         ArrayNode a = arr();
         a.add(expect(receiverCase("verified, no influence", Service.PAYMENT, "enforce",
@@ -1031,7 +1031,7 @@ final class VectorsHttpRules {
         return c;
     }
 
-    /** sessions-and-influence.md, over HTTP: an endpoint is the method and the dispatched handler's pattern. */
+    /** sessions.md, over HTTP: an endpoint is the method and the dispatched handler's pattern. */
     private static ArrayNode unsafeEndpoints() {
         List<String> disabled = List.of("POST /refund", "GET /statements/{id}");
         ArrayNode a = arr();

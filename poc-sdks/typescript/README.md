@@ -157,7 +157,7 @@ in an unsafe session. The decision on a public write is core's, so a server in a
 
 A server opens an attested session only for a client policy key in its `pinnedClientKeys`.
 `McpServerSession` holds no policy private key: it answers handshakes in the
-[entry-key form](../spec/sessions-and-influence.md#the-reply), signed by its entry
+[entry-key form](../spec/sessions.md#the-reply), signed by its entry
 service's key (`hops[0]`), with the `ServerPolicy`'s `keyringSig` and `replyCert`.
 Its constructor refuses to start, through the exported `checkServerPolicy` (core's `checkOwnMaterial` for the
 keyring and root, then this server's own checks), with a policy that does not hold together at the session's

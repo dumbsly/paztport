@@ -8,7 +8,7 @@ import { readToken, type JsonValue } from "../encoding/json.ts";
 import { array, exactly, object, str } from "../internal/fields.ts";
 
 /**
- * What kind of content an influence entry records (spec sessions-and-influence.md, Influence): content from outside
+ * What kind of content an influence entry records (spec influence.md, Influence): content from outside
  * the trust boundary, data that must not reach a public destination unless its owner's, content already public, or
  * content the client cannot vouch for.
  */

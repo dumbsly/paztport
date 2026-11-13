@@ -506,7 +506,7 @@ what is already public; and `local-untrusted` for content nothing vouches for, s
 as a response that was not attested. An entry may also name an owner, an opaque id
 of whose data it is, which the service that served the data takes from its own
 records, never from the content
-([influence](poc-sdks/spec/sessions-and-influence.md#influence)).
+([influence](poc-sdks/spec/influence.md)).
 
 #### The owner-aware rule
 
@@ -516,7 +516,7 @@ destination owner's, an unknown owner on either side counting as someone else's.
 untrusted content can still steer a customer's own data to that customer, but never
 someone else's data, or data whose owner nobody knows. The service applying the rule
 takes the destination's owner from its own records, never from the request
-([the owner-aware rule](poc-sdks/spec/sessions-and-influence.md#the-owner-aware-rule)).
+([the owner-aware rule](poc-sdks/spec/influence.md#the-owner-aware-rule)).
 
 #### Response attestation
 
@@ -532,7 +532,7 @@ caller adds the labels to its influence only when the whole response verifies, a
 counts any other response as one `local-untrusted` entry, never dropped. An MCP
 server attests a tool's result the same way, only for a call that verified
 ([who attests](poc-sdks/spec/verification.md#http-requests-and-responses),
-[content labels](poc-sdks/spec/sessions-and-influence.md#content-labels)).
+[content labels](poc-sdks/spec/influence.md#content-labels)).
 
 #### Sessions
 
@@ -545,8 +545,8 @@ sender's policy key is one it pinned in advance, the sender's root and keyring
 verify under that key, and both sides' roots and keyrings are current. Otherwise the
 session is unsafe: graded trust, not a refusal, in which the receiving side verifies
 nothing, refuses what it lists as disabled (`UNSAFE_SESSION`) and serves the rest
-([status](poc-sdks/spec/sessions-and-influence.md#status),
-[unsafe sessions](poc-sdks/spec/sessions-and-influence.md#unsafe-sessions)).
+([status](poc-sdks/spec/sessions.md#status),
+[unsafe sessions](poc-sdks/spec/sessions.md#unsafe-sessions)).
 
 Over MCP, in an attested session the server attests the result of each call that
 verified ([Response attestation](#response-attestation)). The client counts a
@@ -563,7 +563,7 @@ attest its replies (see
 [Limits of the concept](docs/limits.md#limits-of-the-concept)), so the egress counts
 each one `local-untrusted`. The Java and Go SDKs implement this; the TypeScript SDK
 does not
-([between organisations](poc-sdks/spec/sessions-and-influence.md#between-organisations)).
+([between organisations](poc-sdks/spec/sessions.md#between-organisations)).
 
 ### Design rules
 

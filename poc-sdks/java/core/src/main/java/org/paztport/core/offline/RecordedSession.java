@@ -15,7 +15,7 @@ import org.paztport.core.session.Sessions;
 
 /**
  * A handshake read back from a record set, and what it gives the records that rely on it
- * (sessions-and-influence.md &sect;Recorded handshakes): whether it opened an attested session at a given time and
+ * (sessions.md &sect;Recorded handshakes): whether it opened an attested session at a given time and
  * at all, and the limit on a response recorded in it. It is built from the request and reply
  * as recorded, the server policy key the client pinned, and the server's entry service from the verifier's own
  * configuration, never the record's.

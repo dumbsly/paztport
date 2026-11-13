@@ -1094,7 +1094,7 @@ export function buildVectors(): Record<string, unknown> {
   ];
 
 
-  // Recorded handshakes (sessions-and-influence.md §Recorded handshakes): the session a recorded request and reply
+  // Recorded handshakes (sessions.md §Recorded handshakes): the session a recorded request and reply
   // opened, judged offline at each `at`, at all (at the earliest of its limits), the policyNotAfter a response in it
   // is checked with, null when the server's signatures do not verify. The reply's session id is bound to the request
   // it answers.
