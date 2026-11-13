@@ -348,7 +348,7 @@ export function buildSteps(s: Scenario, logs: StepLogs, opts: BuildOptions = {})
       } else result = "allowed";
     } else if (errorEvent?.code === "NO_CALLS") {
       result = "error";
-      reason = NO_CALLS_REASON;
+      reason = `${NO_CALLS_REASON}${str(errorEvent.reason) ? ` (${str(errorEvent.reason)})` : ""}`;
     } else if (errorEvent) {
       result = "error";
       reason = `the call failed before the server answered${str(errorEvent.code) ? ` (${str(errorEvent.code)})` : ""}`;
@@ -438,8 +438,12 @@ function display(r: Obj): Display {
   const shown = out as Display;
   if (r.type === "local" && shown.blocks !== undefined) {
     // the hop's own block is the last: the entries the session's influence held when the call was decided
-    const items = itemsUnder(shown.blocks.at(-1)!, INFLUENCE) ?? [];
-    const entries = readOr(() => items.map(entryOf));
+    // blocks that read can still be empty: then there is no hop block, and so nothing to read the entries from
+    const entries = readOr(() => {
+      const hop = shown.blocks!.at(-1);
+      if (hop === undefined) throw new Error("no hop block");
+      return (itemsUnder(hop, INFLUENCE) ?? []).map(entryOf);
+    });
     if (entries === undefined) unreadable.push("influence");
     else shown.influence = entries;
   }

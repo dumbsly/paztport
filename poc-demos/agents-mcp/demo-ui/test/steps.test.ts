@@ -457,6 +457,14 @@ describe("local tool rows", () => {
     expect(display!.influence).toBeUndefined();
   });
 
+  it("aLocalRecordWithNoBlocksNamesItsInfluenceUnreadable", () => {
+    const logs = run();
+    const l1 = logs.evidence[1] as Record<string, unknown>;
+    logs.evidence[1] = { ...l1, blocks: writeToken([]) } as never;
+    const [display] = buildSteps(local, logs, { complete: true })[0]!.evidence.displays;
+    expect(display).toEqual({ chain: expect.any(Array), blocks: [], proof: PROOF, unreadable: ["influence"] });
+  });
+
   it("a local tool that errored is an error row; a call with no answer is left out until the run is complete", () => {
     const logs = run();
     logs.transcript.push(lend("l1", "write", true));
@@ -556,7 +564,7 @@ describe("the two outcomes the client reports itself", () => {
       { ts: 1, type: "error", server: "github", tool: "get_file_contents", callId: "w1", code: "NO_CALLS", reason: "EXTENSION_REQUIRED" },
     ];
     const [step] = buildSteps(scenario, { transcript: [call], events, outcome: [], evidence: [] }, { complete: true });
-    expect(step).toMatchObject({ result: "error", reason: "the call was not sent: no session with the server gave what the client requires of it" });
+    expect(step).toMatchObject({ result: "error", reason: "the call was not sent: no session with the server gave what the client requires of it (EXTENSION_REQUIRED)" });
     expect(step!.code).toBeUndefined();
   });
 });
