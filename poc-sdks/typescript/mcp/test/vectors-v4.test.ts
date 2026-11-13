@@ -537,7 +537,7 @@ describe("known-answer vectors, version 4", () => {
   // The cases the review of the spec asked version 4 to carry, each a statement that separates two readings.
   it.each([
     ["verify", "a block that only requires example, at a receiver that acts on it"],
-    ["influence.request", "a pass-along block, a write"],
+    ["influence.request", "a pass-along block (as the hand-over gives it: items null), a write"],
     ["verify", "ext the hash of the empty block"],
     ["verify", "no blocks token where a stamp commits to a block"],
     ["verify", "a block lists constructor"],

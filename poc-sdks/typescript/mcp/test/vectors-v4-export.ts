@@ -53,6 +53,9 @@ const NULL_BLOCKS_CASE = "a blocks token holding null, every ext empty";
 const EXTRA_MEMBER_CASE = "a block with a member blocks do not have";
 /** The verify and responseAttestation cases whose call id holds a noncharacter. */
 const NONCHARACTER_CASE = "a call id holding a noncharacter";
+/** The influence.request cases whose hop's block only requires influence, as the verifier hands it on. */
+const PASS_ALONG = "a pass-along block (as the hand-over gives it: items null)";
+const PASS_ALONG_WRITE = `${PASS_ALONG}, a write`;
 /** The responseAttestation case whose token writes the attestation's members out of JCS order (see checkTokens). */
 const UNSORTED_ATTESTATION_CASE = "an attestation whose members are not in JCS order";
 
@@ -108,34 +111,40 @@ const ABOUT =
   "(JSON-RPC -32602, HTTP 400 INVALID_PARAMS). " +
   "A recordedLocalStep case is a recorded local step: its `step` (the call's `tool`, `callId` and `input`; the " +
   "gate's decision, `resolved`, `verdict`, `routeAllowed` and `rulesHash`, recorded together as `decisionToken`; " +
-  "`rid`, `now`, the chain, `proofRoute`, and the blocks, the origin's naming influence with [] and the hop's " +
-  "holding the session's entries), checked against its `client` (`keyring` by name, `policy`'s root, their " +
-  "windows `rootNotAfter` and `keyringNotAfter`, and `rules`), its `signers`, its `run` (prompt and start times) " +
-  "and `seen`; expected is the reason, and the verdict the step signed when it verifies, else null. " +
-  "A responseAttestation case is a response as the client receives it: `attestationToken` (its readable value " +
-  "`attestation`, one block per stamp of the response chain), the `result` it answers, the `call` (`rid`, " +
-  "`toolCallId`, `receiver`), the client's `actsOn` and `allowedExtensions`, and the `server` its stamps are " +
-  "checked against; the client checks it once at `now`, check 9c included, and expected is the reason. " +
+  "`rid`, `now`, the chain, `proofRoute`, and the blocks, unless the case's name says otherwise the origin's naming " +
+  "influence with [] and the hop's holding the session's entries), checked against its `client` (`keyring` by name, " +
+  "`policy`'s root, their windows `rootNotAfter` and `keyringNotAfter`, and `rules`), its `signers`, its `run` " +
+  "(prompt and start times) and `seen`; expected is the reason, and the verdict the step signed when it verifies, " +
+  "else null. A responseAttestation case is a response as the client receives it: `attestationToken` (its readable " +
+  "value `attestation`, one block per stamp of the response chain unless the case's name says otherwise), the " +
+  "`result` it answers, the `call` (`rid`, `toolCallId`, `receiver`), the client's `actsOn` and " +
+  "`allowedExtensions`, and the `server` its stamps are checked against; the client checks it once at `now`, check " +
+  "9c included, and expected is the reason. " +
   `The attestationToken of "${UNSORTED_ATTESTATION_CASE}" writes the members chain, proof, ` +
   "blocks, resultHash, out of JCS order; every other is its value's JCS. " +
   "A sessionParams case is paztport/session's params as the server reads them (OK, or INVALID_PARAMS for " +
   "JSON-RPC -32602), and a sessionResult case its result as the client reads it (OK, or MALFORMED_REPLY); the OK " +
   'results carry the reply of the sessionReply case "entry-key form attested". ' +
-  "The sections after sessionRequest pin the primitives the cases above rely on, each with its inputs: fixedInputs are `length` consecutive bytes from `start`, base64url, " +
-  "which deriveSessionId's cases name; the prompt and response bindings; " +
+  "The sections fixedInputs, deriveSessionId, bindPrompt, bindResponse, merkle, bindMcpCall and bindResult, which " +
+  "follow sessionRequest, pin the primitives the cases above rely on, each with its inputs: fixedInputs are " +
+  "`length` consecutive bytes from `start`, base64url, which deriveSessionId's cases name; the prompt and response " +
+  "bindings; " +
   "merkle, a tree of its own (depth 8, rootId merkle-vector) whose leaf hashes, node, root, proofs and proof headers (the base64url of each proof's JCS bytes) are recorded as the library computes them, and whose padding hashes are recorded as given, not derived; " +
   "and the MCP profile's tools/call and result bindings, bindMcpCall and bindResult. " +
-  "The member influence holds: entries and labels, {name, item, reads}, whether the item reads as an entry on a " +
-  "request's block or as a label on a response's; rule, the owner-aware rule's truth table {name, influence, " +
+  "The member influence, last, holds: entries and labels, {name, item, reads}, whether the item reads as an entry " +
+  "on a request's block or as a label on a response's; rule, the owner-aware rule's truth table {name, influence, " +
   "destinationOwner, refused}, with a null owner unknown; request, {name, stamps, served, write, destinationOwner, " +
-  "expected: {reason, everyStampNames}}, what an attested MCP server that acts on influence decides for a call " +
-  "that verified, `stamps` the hand-over's entries for influence, `served` the classes it served in the session " +
-  "and `write` whether the call writes to a public destination, where an item that does not read as an entry is " +
-  "INFLUENCE_MISMATCH before any rule and everyStampNames is then null; response, {name, reason, stamps, src, " +
-  "resultHash, expected: {entries}}, the entries a client that acts on influence adds for a response, `reason` " +
-  "the core check's result and `stamps` what the response's blocks hold under influence, one per stamp, read only " +
-  "on OK; and recordedCall, in recordedCall's shape, at a verifier that acts on influence and reads the items once " +
-  "the offline order gives OK, before a call is held to its session's limits. " +
+  "expected: {reason, everyStampNames}}, what an attested MCP server that acts on influence decides from the items " +
+  "handed on under influence: `stamps` holds them, one {svc, items} per stamp, items null where the block does not " +
+  "name influence (a pass-along block among them), `served` is the classes the server served in the session and " +
+  "`write` whether the call writes to a public destination; `stamps` [] is nothing handed on (influence.md, What " +
+  "the rules read), where the every-stamp rule has no stamp to read and does not refuse, and everyStampNames is " +
+  "recorded true; an item that does not read as an entry is INFLUENCE_MISMATCH before any rule, and everyStampNames " +
+  "is then null; response, {name, reason, stamps, src, resultHash, expected: {entries}}, the entries a client that " +
+  "acts on influence adds for a response: the case hands the core check's result `reason` and `stamps`, what the " +
+  "response's blocks hold under influence, one per stamp, both to the implementation, which takes labels only when " +
+  "the reason is OK; and recordedCall, in recordedCall's shape, at a verifier that acts on influence and reads the " +
+  "items once the offline order gives OK, before a call is held to its session's limits. " +
   "A verify or offline case may pin several keyrings and roots: `keyrings` ([{keyring, notAfter}], in place of `keyring`) and `roots` ([{policy, notAfter}], which pin those policies' roots), " +
   "where `policy` then names only where the case's proof comes from; in an offline case a member without a notAfter has no window. " +
   "A case's one `keyring`, or `policy`'s root when it has no `roots`, is a single member whose window is the case's policyNotAfter in a verify case " +
@@ -663,7 +672,8 @@ function influenceSection(run: {
     expected: { reason: string; everyStampNames: boolean | null },
   ) => {
     const c = {
-      name, stamps, served: o.served ?? [], write: o.write ?? true, destinationOwner: o.destinationOwner ?? "alice",
+      name, stamps, served: o.served ?? [], write: o.write ?? true,
+      destinationOwner: o.destinationOwner === undefined ? "alice" : o.destinationOwner,
     };
     const decided = decideVerifiedCall(stamps, {
       isWrite: c.write, publicDestination: c.write, served: c.served,
@@ -682,8 +692,8 @@ function influenceSection(run: {
     // no untrusted content, so someone else's private data may be written
     requestCase("every stamp names it and nothing is untrusted", hop([PRIVATE_ALICE, PUBLIC]), { destinationOwner: "bob" }, ok),
     // a block that only requires influence does not name it: a hop that may have read anything
-    requestCase("a pass-along block, a write", hop(null), {}, { reason: "INFLUENCE_DENIED", everyStampNames: false }),
-    requestCase("a pass-along block, a read", hop(null), { write: false }, { reason: "OK", everyStampNames: false }),
+    requestCase(PASS_ALONG_WRITE, hop(null), {}, { reason: "INFLUENCE_DENIED", everyStampNames: false }),
+    requestCase(`${PASS_ALONG}, a read`, hop(null), { write: false }, { reason: "OK", everyStampNames: false }),
     requestCase("untrusted content and someone else's private data", hop([THIRD_PARTY, PRIVATE_BOB]), {}, denied),
     requestCase("untrusted content and someone else's private data, a read", hop([THIRD_PARTY, PRIVATE_BOB]), { write: false }, ok),
     requestCase("untrusted content and the destination owner's own private data", hop([THIRD_PARTY, PRIVATE_ALICE]), {}, ok),
