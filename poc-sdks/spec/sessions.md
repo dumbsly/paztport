@@ -348,8 +348,8 @@ A call made before any handshake is treated as in an unsafe session.
 
 ## The server decision
 
-Once a call has verified in an attested session ([verification.md](verification.md#the-mcp-server-and-client)),
-the server decides it:
+The server decides each call in this order, verifying it only in an attested session
+([verification.md](verification.md#the-mcp-server-and-client)):
 
 1. A call that failed verification is refused with its code.
 2. In an attested session, a call holding an item that an extension the server acts on refuses is refused with that

@@ -171,7 +171,8 @@ A caller that acts on `influence` adds to what it holds, for each response to a 
   ([the verdict rule](verification.md#the-mcp-server-and-client)).
 - **Any other response:** one `local-untrusted` entry, never dropped. That is a response that fails verification,
   a response refused at [check 9c](verification.md#the-live-order) included, since an entry only adds caution; one
-  that is not attested; over HTTP a refusal; and over MCP any result in an unsafe session that is not a refusal.
+  that is not attested; over HTTP a refusal; and over MCP any result in an unsafe session that is not a refusal. A
+  result that cannot be hashed has no `h` to record: it adds nothing, and the caller MUST NOT use it.
 
 Over HTTP every entry a response adds, the `local-untrusted` one included, has `src = "http:<target>"` and
 `h = resultHash`. `<target>` is the caller's name for the service it sent the request to: the receiver's policy

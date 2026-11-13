@@ -23,7 +23,7 @@ under [Conformance](#conformance).
 
 The **core** attests the path a request took: stamps and the chains they form, routes and the operations on them,
 freshness, the binding of each stamp to what its hop sent and to the hop it was handed to, and replay. A
-**profile** is a way of using the core that does not use the block slot extensions travel in: sessions
+**profile** is a way of using the core that puts no claim of its own in the block slot extensions travel in: sessions
 ([sessions.md](sessions.md)), MCP ([the MCP profile](#the-mcp-profile)), response attestation, the responder of
 events ([verification.md](verification.md#receiving-an-event)) and offline verification
 ([verification.md](verification.md#offline-verification)). An **extension** is a named kind of claim that a hop
