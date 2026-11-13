@@ -99,12 +99,11 @@ operation in an `rcv`.
   accepts either for a hop's next service, and takes the last `rcv` as exactly `receiver`). A live call or
   chain stamped for a different receiver is `BINDING_MISMATCH`, not a route failure, so a forwarded chain
   does not blame its last signer.
-- **The peer.** `peer` (`{ svc, inst }`) is the sender a transport authenticated. Given one, the verifier checks it
-  is the last signer (`PEER_MISMATCH`, check 10) before the nonce key is recorded, so a request sent again by
-  another peer spends nothing, and names it as the suspect in every result but `POLICY_EXPIRED`. No transport in
-  this repository supplies one: the MCP wrappers (`verifyCall`, `verifyMcpResponse`, `McpServerSession.checkCall`)
-  pass no peer, because stdio has no TLS, so for MCP over stdio check 10 is skipped, and the peer check is core's
-  (`verifyChain`).
+- **The peer.** `peer` (`{ svc, inst }`) is the sender a transport authenticated. Given one, the verifier checks it is
+  the last signer (`PEER_MISMATCH`, check 10) before the nonce key is recorded, so a request sent again by another peer
+  spends nothing, and names it as the suspect in every result but `POLICY_EXPIRED`. No transport in this SDK supplies
+  one: the MCP wrappers (`verifyCall`, `verifyMcpResponse`, `McpServerSession.checkCall`) pass no peer, because stdio
+  has no TLS, so for MCP over stdio check 10 is skipped, and the peer check is core's (`verifyChain`).
 - **The replay cache.** `nonceKey(parts)` writes a chain's key as the JCS text of an array of strings, each written
   as RFC 8785 writes strings, so a call id holding a noncharacter has a key. `NonceCache` is a concrete in-memory
   class, and `VerifierConfig.nonces` takes that class rather than an interface: its `seenBefore` is synchronous
@@ -142,15 +141,14 @@ operation in an `rcv`.
   each root and keyring, on either side, counts only up to its `notAfter`.
 - **A missing `notAfter`.** A root or keyring without a `notAfter` is malformed: `readRoot`, `readRootFile`
   and `readSessionRequest` refuse it, and `verifyRoot` and `verifyKeyring` never accept it.
-- **Checking a record set.** `recordedSession` reads a recorded handshake: attested at a time, at all (at the
-  earliest of its limits) and the `policyNotAfter` a response in it is checked with, undefined where the
-  server's signatures do not verify, which check 0 refuses (`POLICY_EXPIRED`). `callInSession` limits a
-  recorded call to its session (`OUTSIDE_SESSION`), `newRecordSet` holds a record set's spent keys and its
-  response cache that never forgets, and `verifyRecordedLocalStep` checks a recorded local step ([the MCP
-  profile](../spec/README.md#the-mcp-profile)) with its signers given. A verifier that acts on `influence` judges
-  a recorded call with `recordedCallReason`, which reads the items once the offline order gives `OK`, before the
-  session's limits, so a call past them that holds an item that does not read is `INFLUENCE_MISMATCH`. The agents
-  demo's `verify` calls them.
+- **Checking a record set.** `recordedSession` reads a recorded handshake: attested at a time, at all (at the earliest
+  of its limits) and the `policyNotAfter` a response in it is checked with, undefined where the server's signatures do
+  not verify, which check 0 refuses (`POLICY_EXPIRED`). `callInSession` limits a recorded call to its session
+  (`OUTSIDE_SESSION`), `newRecordSet` holds a record set's spent keys and its response cache that never forgets, and
+  `verifyRecordedLocalStep` checks a recorded local step ([the MCP profile](../spec/README.md#the-mcp-profile)) with its
+  signers given. The agents demo's `verify` calls these four. A verifier that acts on `influence` judges a recorded call
+  with `recordedCallReason` instead of `callInSession` alone: it reads the items once the offline order gives `OK`,
+  before the session's limits, so a call past them that holds an item that does not read is `INFLUENCE_MISMATCH`.
 - **The handshake's pieces.** `readSessionRequest` reads a request from its token, with exactly its members (a
   missing `clientKeyringSig` is refused, as in the Java SDK), `sessionRequest` and `replacementRequest` write
   one, and `buildSessionReply` answers it in the entry-key form, listing the extensions the server acts on, sorted,
@@ -177,15 +175,16 @@ operation in an `rcv`.
 
 ### The extension `influence`
 
-`influence` ([influence.md](../spec/influence.md)) is a set of functions over the hand-over, in
-`core/src/influence/`. The core's verifier imports none of them: a test pins that no file outside that folder, the
-local steps and the package's exports imports from it, so the core carries influence's items without reading them.
+`influence` ([influence.md](../spec/influence.md)) is a set of functions over the hand-over, in `core/src/influence/`.
+The core's verifier imports none of them: a test pins that no file outside that folder, the local steps and the
+package's exports imports from it, so the core's verifier carries influence's items without reading them.
 
-- **What a request holds.** `readRequestInfluence(stamps)` reads the items handed on under `influence`, one entry
-  of the hand-over per stamp: the entries, each read by `entryOf`, and whether every stamp names `influence`; or,
-  when an item does not read as an entry, the signer of the first block holding one, for the operator's log, since
-  `INFLUENCE_MISMATCH` names no one. `influenceReason` gives a verified request `INFLUENCE_MISMATCH` for such an
-  item, and otherwise the verifier's reason.
+- **What a request holds.** `entryOf` reads one item as an entry: an object with exactly a known `cls`, a string `src`
+  and `h`, and an optional string `cid` and non-empty string `owner`, or it throws. `readRequestInfluence(stamps)` reads
+  the items handed on under `influence`, one entry of the hand-over per stamp, each by `entryOf`: it gives the entries
+  and whether every stamp names `influence`; or, when an item does not read as an entry, the signer of the first block
+  holding one, for the operator's log, since `INFLUENCE_MISMATCH` names no one. `influenceReason` gives a verified
+  request `INFLUENCE_MISMATCH` for such an item, and otherwise the verifier's reason.
 - **The rules.** `guardedWriteRefused(everyStampNames, influence, destinationOwner?)` is the every-stamp rule, then
   the owner-aware rule, `publicWriteRefused`; the caller takes the destination's owner from its own records.
   `shapedOnlyByTrusted` says whether influence holds no untrusted content, the condition on the content for writing
@@ -194,11 +193,12 @@ local steps and the package's exports imports from it, so the core carries influ
   `influence` on a call that verified in an attested session: first every item must read as an entry
   (`INFLUENCE_MISMATCH`), then a write to a public destination is decided by `guardedWriteRefused` over the entries
   and the classes the server served in the session (`INFLUENCE_DENIED`); anything else is allowed.
-- **What a response adds.** `readResponseLabels(stamps)` reads the labels a response's blocks hold, or null when a
-  block does not name `influence` or an item is not a label. `responseLabels(reason, stamps)` takes them only when
-  the response check gave `OK`, and `responseEntries` turns a response into the entries a client that acts on
-  `influence` adds: one per label (`labelToEntry`), or else exactly one `local-untrusted` entry, each with the `src`
-  the caller names the server by and `h` the result hash.
+- **What a response adds.** `labelOf` reads one item as a label: an object with exactly a known `cls` and a string
+  `cid`, and an optional non-empty string `owner`, or it throws. `readResponseLabels(stamps)` reads the labels a
+  response's blocks hold, each by `labelOf`, or gives null when a block does not name `influence` or an item is not a
+  label. `responseLabels(reason, stamps)` takes them only when the response check gave `OK`, and `responseEntries` turns
+  a response into the entries a client that acts on `influence` adds: one per label (`labelToEntry`), or else exactly
+  one `local-untrusted` entry, each with the `src` the caller names the server by and `h` the result hash.
 - **Blocks.** `influenceBlock(items, requires?)` builds a block that names `influence` with the entries a hop adds
   or the labels a responder attaches, as written; `[]` names it with nothing to add.
 
@@ -232,13 +232,13 @@ the call `EXTENSION_MISMATCH`.
 did not run; `malformed` for a result JCS cannot hash; `withheld` for a response whose last block requires an extension
 the client does not act on (check 9c, `EXTENSION_REQUIRED`); and otherwise `read`, with the verification and what the
 result adds to influence. The application MUST NOT hand a `withheld` result on: it fails the call and does not retry it,
-since the tool ran. For a client that acts on `influence`, what a result adds is `labels` for a response that verified
-and names `influence` in every block with only labels under it, and `untrusted`, the result hash for one
-`local-untrusted` entry, for any other result it reads in an attested or unsafe session, a `withheld` one included; a
-refusal adds nothing, and nor does any result when Paztport is off (`session: "off"`). A client that does not act on
-`influence` reads `{ kind: "none" }` in every session. `verifyMcpResponse` is the response check `readToolResult` runs;
-a client re-checking a recorded response passes the time it recorded verifying it as `now`, and settings from
-`recordExtensionSettings`.
+since the tool ran. For a client that acts on `influence`, a `read` result in an attested or unsafe session adds
+`labels` when it is a response that verified and names `influence` in every block with only labels under it, and
+otherwise `untrusted`, the result hash for one `local-untrusted` entry, as a `withheld` result does; a `refused` result
+adds nothing, a `malformed` one carries no influence at all, and in a session that is `off` (Paztport switched off) no
+result adds anything. A client that does not act on `influence` reads `{ kind: "none" }` in every session.
+`verifyMcpResponse` is the response check `readToolResult` runs; a client re-checking a recorded response passes the
+time it recorded verifying it as `now`, and settings from `recordExtensionSettings`.
 
 **The server side.** `McpServerSession` takes the server's `ExtensionSettings` beside its policy and rules. Its replies
 list the extensions it acts on, and everything it does for influence it does exactly when it acts on `influence`: the
