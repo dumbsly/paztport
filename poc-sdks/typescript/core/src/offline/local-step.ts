@@ -8,7 +8,7 @@ import { localReceiver, localStepBind, readLocalDecision, type LocalDecision } f
 import { isNotAfter } from "../policy/validity.ts";
 import { rulesHash, type LocalRules } from "../policy/local-rules.ts";
 import { itemsUnder, readBlocks } from "../stamp/block.ts";
-import { extensionSettings } from "../verify/extensions.ts";
+import { NO_EXTENSIONS } from "../verify/extensions.ts";
 import { nonceKey } from "../verify/nonce.ts";
 import type { ReasonCode } from "../verify/reason.ts";
 import { verifyChainOffline, type Signers } from "./verify-offline.ts";
@@ -132,7 +132,7 @@ export function verifyRecordedLocalStep(
       nonceKey: key ?? "",
       signers,
       // the step's items are read below, where the route is not proven too, so the verifier hands nothing over
-      extensions: extensionSettings([]),
+      extensions: NO_EXTENSIONS,
       ...(cfg.runMaxAgeMs !== undefined ? { runMaxAgeMs: cfg.runMaxAgeMs } : {}),
       ...(cfg.callMaxAgeMs !== undefined ? { callMaxAgeMs: cfg.callMaxAgeMs } : {}),
     },
@@ -145,7 +145,7 @@ export function verifyRecordedLocalStep(
     return fail("RID_MISMATCH");
   }
   // The extension's reading of the items, once check 9a has matched the blocks to the stamps the step signed, and
-  // before the step's own checks (verification.md, Offline verification, row 9). No token is every block empty.
+  // before the step's POLICY_EXPIRED check and those after it (verification.md, Offline verification, row 9). No token is every block empty.
   let classes: Set<InfluenceClass>;
   try {
     const blocks = step.blocks === null ? [] : readBlocks(step.blocks);

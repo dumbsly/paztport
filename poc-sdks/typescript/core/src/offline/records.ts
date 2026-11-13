@@ -100,7 +100,7 @@ export function callInSession(session: RecordedSession, reason: ReasonCode, at: 
 }
 
 /**
- * One record set's replay state (verification.md §Offline verification, check 10): the nonce keys spent by its calls
+ * One record set's replay state (verification.md §Offline verification, check 11): the nonce keys spent by its calls
  * and local steps, one set for the whole set, and one nonce cache for its responses that never forgets. A live cache
  * forgets keys after its window, which offline would let a copy pass once a later record is far enough on. Nothing
  * in a session record resets either: a repeated handshake leaves them as they are.

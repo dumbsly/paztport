@@ -72,8 +72,8 @@ export type ReasonCode =
    */
   | "INFLUENCE_MISMATCH"
   /**
-   * No check of the live order: the owner-aware rule refused a public write, in a server's decision on a call or in
-   * the client's local gate.
+   * No check of the live order: the every-stamp rule or the owner-aware rule refused a public write, in a server's
+   * decision on a call or in the client's local gate.
    */
   | "INFLUENCE_DENIED"
   /** No check of the live order: in an unsafe session, the call reached an endpoint or tool disabled there. 403. */

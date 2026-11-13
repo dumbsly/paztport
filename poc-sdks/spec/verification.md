@@ -606,7 +606,7 @@ relies on every recorded time. No edit to a record moves a `notAfter`, because t
 | `CLIENT_PATH_NOT_ALLOWED` | server decision | An MCP server's name ([MCP profile](README.md#the-mcp-profile)) for `PATH_NOT_ALLOWED` against the client's policy. |
 | `UNSAFE_SESSION` | server decision | The tool is disabled in an unsafe session. |
 | `INFLUENCE_MISMATCH` | extension, live and offline | Its extension refused an item on a request's block that does not read ([influence.md](influence.md#entries)). |
-| `INFLUENCE_DENIED` | extension | Its extension refused a public write, at a service or in the client's local gate ([influence.md](influence.md#the-owner-aware-rule)). |
+| `INFLUENCE_DENIED` | extension | Its extension refused a public write, at a service or in the client's local gate: [the every-stamp rule](influence.md#the-every-stamp-rule) or [the owner-aware rule](influence.md#the-owner-aware-rule). |
 | `SCOPE_DENIED` | client local ([MCP profile](README.md#the-mcp-profile)) | The local gate: a path or program outside the signed rules. |
 | `UNCHECKABLE` | client local ([MCP profile](README.md#the-mcp-profile)) | The local gate could not tell what the call would touch. |
 

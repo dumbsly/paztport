@@ -13,11 +13,14 @@ import type { ContentLabel } from "./label.ts";
 export const INFLUENCE = "influence";
 
 /**
- * What kind of content an influence entry records (spec influence.md, Classes): content from outside the trust
- * boundary, data that must not reach a public destination unless its owner's, content already public, or content the
- * client cannot vouch for.
+ * The four classes, written here only (spec influence.md, Classes): content from outside the trust boundary, data that
+ * must not reach a public destination unless its owner's, content already public, or content the client cannot vouch
+ * for. Entries and labels both read `cls` with `classOf`.
  */
-export type InfluenceClass = "third-party" | "private" | "public" | "local-untrusted";
+const CLASSES = ["third-party", "private", "public", "local-untrusted"] as const;
+
+/** What kind of content an influence entry records: one of the four classes. */
+export type InfluenceClass = (typeof CLASSES)[number];
 /**
  * One record of content that shaped a call: its class, `src` naming the source (`server:<serverId>`, say), `h`
  * identifying the content, and, when it came from a label, the label's `cid` and any `owner`, a non-empty opaque id
@@ -25,13 +28,10 @@ export type InfluenceClass = "third-party" | "private" | "public" | "local-untru
  */
 export type InfluenceEntry = { cls: InfluenceClass; src: string; h: string; cid?: string; owner?: string };
 
-/** The four classes, written here only: entries and labels both read `cls` with `classOf`. */
-const CLASSES: readonly string[] = ["third-party", "private", "public", "local-untrusted"];
-
 /** The member `cls` of `o`, one of the four classes. Internal: index.ts does not export it. */
 export function classOf(o: JsonObject): InfluenceClass {
   const cls = str(o, "cls");
-  if (!CLASSES.includes(cls)) throw new Error("member cls is not an influence class");
+  if (!(CLASSES as readonly string[]).includes(cls)) throw new Error("member cls is not an influence class");
   return cls as InfluenceClass;
 }
 

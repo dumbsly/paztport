@@ -3,7 +3,7 @@
 
 // Builds spec/vectors/v4.json, the version 4 conformance vectors, as a pure function of fixed seeds; run with
 // `--write` from poc-sdks/typescript to write the file. Every case is checked against the library first, and
-// the export throws on any mismatch, so it can never record a wrong answer.
+// the export throws on any mismatch, so it records no answer the library does not give.
 
 import { createPrivateKey, createPublicKey } from "node:crypto";
 import { writeFileSync } from "node:fs";

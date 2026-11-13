@@ -20,7 +20,7 @@ export const RUN_MAX_AGE_MS = 1_800_000;
  */
 export const NONCE_TTL_MS = 15_000;
 
-/** The authenticated transport peer, supplied by the transport extension (e.g. from mTLS): its service name and its address. */
+/** The authenticated transport peer, supplied by the transport (e.g. from mTLS): its service name and its address. */
 export type Peer = { svc: string; inst: string };
 
 /**

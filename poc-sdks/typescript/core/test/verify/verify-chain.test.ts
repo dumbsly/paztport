@@ -9,7 +9,7 @@ import { generateKeyPair, randomBytes, sha256, utf8 } from "../../src/crypto/cry
 import { buildTree } from "../../src/policy/merkle.ts";
 import { commitBlock, EMPTY_BLOCK, makeBlock, type Block } from "../../src/stamp/block.ts";
 import { extensionSettings, NO_EXTENSIONS, recordExtensionSettings } from "../../src/verify/extensions.ts";
-import { NonceCache } from "../../src/verify/nonce.ts";
+import { NonceCache, nonceKey } from "../../src/verify/nonce.ts";
 import { readChain, signStamp, type Stamp } from "../../src/stamp/stamp.ts";
 import { verifyChain, type PinnedKeyring, type PinnedRoot, type VerifierConfig, type VerifyInput } from "../../src/verify/verify-chain.ts";
 
@@ -491,7 +491,7 @@ describe("the pinned policy's window", () => {
   it("expires while running: the same config refuses once its clock passes notAfter", () => {
     const c = cfg({ policyNotAfter: NOW + 1000 });
     expect(verify(chain(), {}, c).reason).toBe("OK");
-    expect(verify(chain(), {}, { ...c, now: NOW + 1001, nonceKey: "rid-1|pi|call-2" })).toEqual(expired);
+    expect(verify(chain(), {}, { ...c, now: NOW + 1001, nonceKey: nonceKey(["rid-1", "call-2", "req"]) })).toEqual(expired);
   });
   it("is checked before the stamps, and names no peer", () => {
     const c = cfg({ policyNotAfter: NOW - 1 });

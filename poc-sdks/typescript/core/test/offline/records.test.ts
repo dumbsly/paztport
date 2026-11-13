@@ -279,7 +279,7 @@ function checkCall(h: ReturnType<typeof handshake>, chain: Stamp[], ts: number, 
     },
     {
       keyrings: [{ keys: h.request.clientKeyring, notAfter: Infinity }], roots: [{ root: h.clientTree.root, rootId: "c1", notAfter: Infinity }],
-      allowedOrigins: ["session"], sess: h.reply.sess, seen: spent, nonceKey: "rid-1|call-1|req", extensions: NO_EXTENSIONS,
+      allowedOrigins: ["session"], sess: h.reply.sess, seen: spent, nonceKey: nonceKey(["rid-1", "call-1", "req"]), extensions: NO_EXTENSIONS,
     },
   );
 }
@@ -316,7 +316,7 @@ describe("newRecordSet: replay across a record set", () => {
     const h = handshake();
     const records = newRecordSet();
     expect(checkCall(h, call(h, NOW), NOW, records.spent).reason).toBe("OK");
-    expect(records.spent.has("rid-1|call-1|req")).toBe(true);
+    expect(records.spent.has(nonceKey(["rid-1", "call-1", "req"]))).toBe(true);
     // a copy recorded much later is still a replay: the set never forgets
     expect(checkCall(h, call(h, FAR), FAR, records.spent).reason).toBe("REPLAY");
   });
