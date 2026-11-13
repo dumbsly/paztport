@@ -112,12 +112,15 @@ function hashContent(content: unknown): string | undefined {
 
 const text = (t: string) => [{ type: "text" as const, text: t }];
 
-/** The influence classes in a restored result's details.labels, or undefined if they are not a list of classes. */
-function classesOf(labels: unknown): InfluenceClass[] | undefined {
-  if (!Array.isArray(labels) || !labels.every((l) => typeof l === "string" && Object.hasOwn(CLASSES, l))) {
+/**
+ * The influence classes in a restored result's details (a local result's `paztport.labels`, or a server result's
+ * `added`), or undefined if they are not a list of classes.
+ */
+function classesOf(classes: unknown): InfluenceClass[] | undefined {
+  if (!Array.isArray(classes) || !classes.every((c) => typeof c === "string" && Object.hasOwn(CLASSES, c))) {
     return undefined;
   }
-  return labels as InfluenceClass[];
+  return classes as InfluenceClass[];
 }
 
 /**
@@ -282,7 +285,9 @@ export default function paztport(pi: ExtensionAPI): void {
       if (mode === "off" || d.refused === true) {
         return;
       }
-      const classes = classesOf(d.labels);
+      // `added`, the classes the live path added; a result saved before it existed has `labels` instead, which are not
+      // read, so it counts as local-untrusted
+      const classes = classesOf(d.added);
       const h = hashContent(m.content);
       if (h === undefined) {
         influence.recordUnknown(`server:${d.server}`, UNRECORDABLE_HASH);
@@ -305,8 +310,8 @@ export default function paztport(pi: ExtensionAPI): void {
    * Records the influence of the tool results on a restored session branch, as the live path did:
    * pi keeps a session's messages over a reload, and resume, fork and a startup with -c or --session
    * restore them, so what reached the model then is still in its context (R16). Our results (details
-   * naming a configured server, with an influence summary) give their label classes, without cids,
-   * or local-untrusted when they have no labels; refusals and local errors (details.refused) give
+   * naming a configured server, with an influence summary) give the classes they added (`added`), without
+   * cids, or local-untrusted when they carry no `added`; refusals and local errors (details.refused) give
    * nothing, and in off mode none of ours count. Every other MCP or MCP resource result is
    * local-untrusted, as in tool_result.
    *

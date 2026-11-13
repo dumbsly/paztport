@@ -304,7 +304,7 @@ describe("evidence file", { timeout: 30_000 }, () => {
     expect(text).not.toContain("paztport/");
     expect(text.toLowerCase()).not.toContain(CANARY);
     for (const e of records(c.eventsPath)) {
-      expect(Object.keys(e).filter((k) => !["ts", "type", "server", "tool", "callId", "rid", "session", "status", "reason", "verdict", "verify", "labels", "isError", "classes", "code", "rpcCode"].includes(k))).toEqual([]);
+      expect(Object.keys(e).filter((k) => !["ts", "type", "server", "tool", "callId", "rid", "session", "status", "reason", "verdict", "verify", "added", "isError", "classes", "code", "rpcCode"].includes(k))).toEqual([]);
     }
   });
 });

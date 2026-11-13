@@ -5,12 +5,14 @@ import { JSON_RPC_ERROR_CODES, McpClient, McpError, McpTimeoutError, StdioTransp
 import {
   callsAfter,
   encode,
+  extensionSettings,
   influenceBlock,
   NonceCache,
   NONCE_TTL_MS,
   randomBytes,
   requirement,
   sessionRequest,
+  type ExtensionSettings,
   type InfluenceClass,
   type Requirement,
   type SessionReply,
@@ -39,6 +41,9 @@ type EvidenceCallParams = Extract<EvidenceRecord, { type: "call" }>["params"];
  */
 export type SessionState = "attested" | "unsafe" | "no-calls" | "off";
 
+/** The extensions this client acts on and carries: `influence`. */
+export const CLIENT_EXTENSIONS: ExtensionSettings = extensionSettings(["influence"]);
+
 export type CallOutcome = {
   /** Only the remote result's text content (or a local error message); never _meta. */
   text: string;
@@ -51,8 +56,17 @@ export type CallOutcome = {
     verdict?: string;
     /** Response verification reason code ("OK" when verified); attested sessions only. */
     verify?: string;
-    /** Classes of the verified response labels. */
-    labels?: InfluenceClass[];
+    /**
+     * The classes of the entries the result added to the session's influence, in order (the reading's `entries`):
+     * one for each label of a response that verified, otherwise `local-untrusted`. Absent when the reading gives no
+     * entries: a refusal, a local error, off mode, or a client that does not act on `influence`.
+     */
+    added?: InfluenceClass[];
+    /**
+     * Set when the server's response required an extension this client does not act on (check 9c): its text was
+     * withheld and the call failed, but the tool ran, so the outcome is not `refused`.
+     */
+    withheld?: true;
     /** Influence entry counts per class after this call; never hashes or content. */
     influence: Record<string, number>;
     session: SessionState;
@@ -72,6 +86,10 @@ const INST = "pi-1";
 const SERVER_ENTRY = "mcp-entry";
 /** The server hop a verified response must start at. */
 const SERVER_ORIGINS = [SERVER_ENTRY];
+/** What the model is told for a withheld result; it holds nothing of the result. */
+const WITHHELD_MESSAGE =
+  "the server's response requires an extension this client does not act on; its result was withheld, " +
+  "and the call is not retried";
 const SAFE_CALL_ID = /^[A-Za-z0-9_-]{1,128}$/;
 const RPC_ERRORS: Record<number, string> = {
   [JSON_RPC_ERROR_CODES.parseError]: "parse error",
@@ -108,7 +126,7 @@ function describeError(e: unknown): { message: string; code: string; rpcCode?: n
 /**
  * One MCP server over stdio. In an attested session every tools/call carries the prompt-origin chain, the route proof
  * and the blocks: the origin's, and pi's with the influence the call was made under and what the session requires of
- * the server. Every response is verified before its labels are recorded. Unsafe and off sessions send plain calls; a
+ * the server. Every result's reading gives what it adds to the influence. Unsafe and off sessions send plain calls; a
  * no-calls session sends none.
  */
 export class ServerConnection {
@@ -119,6 +137,7 @@ export class ServerConnection {
   private readonly runs: RunState;
   private readonly events: EventLog;
   private readonly evidence: EvidenceLog;
+  private readonly extensions: ExtensionSettings;
   /** What this client requires of the server, from its configuration; it applies in every mode but off. */
   private readonly requirement: Requirement;
   private readonly now: () => number;
@@ -141,6 +160,7 @@ export class ServerConnection {
     events: EventLog,
     now: () => number = Date.now,
     evidence: EvidenceLog = new EvidenceLog(undefined),
+    extensions: ExtensionSettings = CLIENT_EXTENSIONS,
   ) {
     this.spec = spec;
     this.mode = mode;
@@ -150,6 +170,7 @@ export class ServerConnection {
     this.events = events;
     this.now = now;
     this.evidence = evidence;
+    this.extensions = extensions;
     this.requirement = requirement(spec.requires ?? [], spec.continueWithoutRequired ?? false);
   }
 
@@ -385,8 +406,19 @@ export class ServerConnection {
       this.mode === "off"
         ? { session: "off" }
         : attested !== undefined
-          ? { session: "attested", reply: attested.reply, svc: PI_SVC, rid: attested.rid, callId, allowedOrigins: SERVER_ORIGINS, nonces: this.responseNonces, now: () => this.now() }
-          : { session: "unsafe" };
+          ? {
+              session: "attested",
+              serverId: server,
+              reply: attested.reply,
+              svc: PI_SVC,
+              rid: attested.rid,
+              callId,
+              allowedOrigins: SERVER_ORIGINS,
+              nonces: this.responseNonces,
+              now: () => this.now(),
+              extensions: this.extensions,
+            }
+          : { session: "unsafe", serverId: server, extensions: this.extensions };
     const reading = readToolResult(raw, ctx);
     if (reading.kind === "refused") {
       respond(raw);
@@ -402,21 +434,27 @@ export class ServerConnection {
       respond(raw, reading.verifiedAt);
       return fail("malformed tools/call result", "MALFORMED_RESULT", withRid);
     }
+    // What the result adds is the reading's, for a withheld result as for one that is read: no entry is built here.
     const found = reading.influence;
-    if (found.kind === "labels") {
-      this.influence.recordLabels(server, found.labels, found.hash);
-    } else if (found.kind === "untrusted") {
-      this.influence.recordUntrusted(`server:${server}`, found.hash);
+    if (found.kind === "entries") {
+      this.influence.add(found.entries);
     }
+    const added = found.kind === "entries" ? { added: found.entries.map((e) => e.cls) } : {};
     respond(raw, reading.verifiedAt);
+    if (reading.kind === "withheld") {
+      // The tool ran, so the call is not retried; nothing of the result reaches the model or the events log.
+      const extra = { ...withRid, verify: reading.reason, ...added, withheld: true as const };
+      const out = details(extra);
+      this.events.emit({ type: "response", server, tool, callId, ...extra, isError: true, classes: out.influence });
+      return { text: `MCP server "${server}" error: ${WITHHELD_MESSAGE}`, isError: true, details: out };
+    }
     const text = textOf(raw);
-    const labels: InfluenceClass[] | undefined = found.kind === "labels" ? found.labels.map((l) => l.cls) : undefined;
     const isError = raw.isError === true;
     const extra = {
       ...withRid,
       ...(reading.verdict !== undefined ? { verdict: reading.verdict } : {}),
       ...(reading.verification !== undefined ? { verify: reading.verification } : {}),
-      ...(labels !== undefined ? { labels } : {}),
+      ...added,
     };
     const out = details(extra);
     this.events.emit({ type: "response", server, tool, callId, ...extra, isError, classes: out.influence });

@@ -7,11 +7,18 @@ import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { McpClient } from "@earendil-works/pi-mcp";
 import {
+  bindResult,
   generateKeyPair,
+  INFLUENCE,
   influenceBlock,
+  itemsUnder,
+  NO_EXTENSIONS,
+  readAttestation,
   readBlocks,
   readSessionReply,
   readSessionRequest,
+  responseEntries,
+  type ExtensionSettings,
   type InfluenceEntry,
 } from "@paztport/core";
 import type { ExtensionMode, ServerSpec } from "../src/config.ts";
@@ -59,10 +66,10 @@ function ctx(mode: ExtensionMode = "enforce", m: ClientMaterial = material, now?
   return { mode, influence: new InfluenceStore(), runs: new RunState(), events: new EventLog(eventsPath), eventsPath, material: m, now };
 }
 
-type ConnOptions = { evidence?: EvidenceLog };
+type ConnOptions = { evidence?: EvidenceLog; extensions?: ExtensionSettings };
 
 async function connect(c: Ctx, spec: ServerSpec, opts: ConnOptions = {}): Promise<ServerConnection> {
-  const conn = new ServerConnection(spec, c.mode, c.material, c.influence, c.runs, c.events, c.now, opts.evidence);
+  const conn = new ServerConnection(spec, c.mode, c.material, c.influence, c.runs, c.events, c.now, opts.evidence, opts.extensions);
   opened.push(conn);
   await conn.connect();
   return conn;
@@ -133,6 +140,9 @@ const LIST = { owner: "acme", repo: "website" };
 const PAYROLL = { owner: "acme", repo: "payroll-notes", path: "README.md" };
 const NO_CALLS_TEXT = (reason: string) =>
   `no attested session gives what this client requires of the server (${reason}); nothing was sent`;
+const WITHHELD_TEXT =
+  'MCP server "github" error: the server\'s response requires an extension this client does not act on; its result was ' +
+  "withheld, and the call is not retried";
 
 /** The scenario A reads, then the first public write. */
 async function leakUntilBranch(conn: ServerConnection): Promise<CallOutcome[]> {
@@ -156,7 +166,7 @@ describe("ServerConnection", { timeout: 30_000 }, () => {
     const out = await conn.call("list_issues", { owner: "acme", repo: "website" }, "toolu_A1");
     expect(out.isError).toBe(false);
     expect(out.text).toContain("Typo in README");
-    expect(out.details).toMatchObject({ server: "github", callId: "toolu_A1", rid: c.runs.current()!.rid, verify: "OK", labels: ["third-party"], session: "attested" });
+    expect(out.details).toMatchObject({ server: "github", callId: "toolu_A1", rid: c.runs.current()!.rid, verify: "OK", added: ["third-party"], session: "attested" });
     expect(out.details.verdict).toBeUndefined();
     expect(out.details.refused).toBeUndefined();
     expect(out.details.influence["third-party"]).toBe(1);
@@ -253,7 +263,7 @@ describe("ServerConnection", { timeout: 30_000 }, () => {
     ]) {
       expect(refused.isError).toBe(true);
       expect(refused.details.verdict).toBe("INFLUENCE_DENIED");
-      expect(refused.details.labels).toBeUndefined();
+      expect(refused.details.added).toBeUndefined();
       expect(refused.details.verify).toBeUndefined();
       expect(refused.details.refused).toBe(true);
       expect(refused.details.influence).toEqual(summary);
@@ -274,7 +284,7 @@ describe("ServerConnection", { timeout: 30_000 }, () => {
     expect(records(log)).toEqual([expect.objectContaining({ verdict: "ALLOWED", label: "private" })]);
     expect(out.isError).toBe(false);
     expect(out.details.verify).toBe("EXPIRED");
-    expect(out.details.labels).toBeUndefined();
+    expect(out.details.added).toEqual(["local-untrusted"]);
     expect(out.details.refused).toBeUndefined();
     expect(c.influence.entries()).toEqual([expect.objectContaining({ cls: "local-untrusted", src: "server:github" })]);
     expect(reads).toBe(3);
@@ -303,7 +313,7 @@ describe("ServerConnection", { timeout: 30_000 }, () => {
         const out = await call(conn, "get_file_contents", { owner: "acme", repo: "payroll-notes", path: "README.md" });
         expect(out.isError, which).toBe(false);
         expect(out.details.verify, `${which} at ${at - notAfter}`).toBe(verify);
-        expect(out.details.labels).toBeUndefined();
+        expect(out.details.added).toEqual(["local-untrusted"]);
         expect(c.influence.entries()).toEqual([expect.objectContaining({ cls: "local-untrusted", src: "server:github" })]);
         expect(reads).toBe(3);
       }
@@ -318,7 +328,7 @@ describe("ServerConnection", { timeout: 30_000 }, () => {
     expect(branch!.isError).toBe(false);
     expect(branch!.details.verdict).toBe("INFLUENCE_DENIED");
     expect(branch!.details.verify).toBe("OK");
-    expect(branch!.details.labels).toEqual(["public"]);
+    expect(branch!.details.added).toEqual(["public"]);
     expect(branch!.details.refused).toBeUndefined();
     expect(c.influence.classes().has("public")).toBe(true);
     expect(records(log).at(-1)).toMatchObject({ tool: "create_branch", verdict: "INFLUENCE_DENIED", audit: true });
@@ -523,7 +533,7 @@ describe("ServerConnection", { timeout: 30_000 }, () => {
     c.runs.start("fix the typo", Date.now());
     expect((await call(d, "fetch_docs", { page: "contributing" })).isError).toBe(false);
     const payroll = await call(conn, "get_file_contents", { owner: "acme", repo: "payroll-notes", path: "README.md" });
-    expect(payroll.details.labels).toEqual(["private"]);
+    expect(payroll.details.added).toEqual(["private"]);
     const branch = await call(conn, "create_branch", { owner: "acme", repo: "website", branch: "credits" });
     expect(branch.isError).toBe(true);
     expect(branch.details.verdict).toBe("INFLUENCE_DENIED");
@@ -771,7 +781,8 @@ describe("a client's requirement of its server", { timeout: 30_000 }, () => {
     expect(out.isError).toBe(false);
     // it went out with no _meta, as a client with no requirement sends it in an unsafe session
     expect(JSON.parse(out.text).meta).toBe(false);
-    expect(out.details).toMatchObject({ session: "unsafe", sessionReason: "HANDSHAKE_ERROR" });
+    expect(out.details).toMatchObject({ session: "unsafe", sessionReason: "HANDSHAKE_ERROR", added: ["local-untrusted"] });
+    expect(c.influence.entries()).toEqual([{ cls: "local-untrusted", src: "server:stub", h: expect.any(String) }]);
   });
 
   it("noRootWithARequirementMakesNoCall", async () => {
@@ -791,6 +802,77 @@ describe("a client's requirement of its server", { timeout: 30_000 }, () => {
     expect(plain.conn.status()).toBe("off");
     expect((await call(plain.conn, "list_issues", LIST)).isError).toBe(false);
     expect(records(plain.log).map((r) => r.verdict)).toEqual(["ALLOWED"]);
+  });
+
+  it("aWithheldResultFailsTheCallOnce", async () => {
+    // a client that does not act on influence: the server labels its response and requires influence of the client
+    // (check 9c), so the result is withheld
+    const evidencePath = join(tmp, `evidence-${n++}.jsonl`);
+    const c = ctx();
+    const { conn, log } = await github(c, "enforce", {}, { evidence: new EvidenceLog(evidencePath), extensions: NO_EXTENSIONS });
+    expect(conn.status()).toBe("attested");
+    c.runs.start("fix the typo", Date.now());
+    const out = await conn.call("list_issues", LIST, "toolu_W1");
+    expect(out.isError).toBe(true);
+    expect(out.text).toBe(WITHHELD_TEXT);
+    expect(out.details).toMatchObject({
+      server: "github",
+      callId: "toolu_W1",
+      rid: c.runs.current()!.rid,
+      verify: "EXTENSION_REQUIRED",
+      withheld: true,
+      session: "attested",
+    });
+    // the tool ran, so this is no refusal; and a client that does not act on influence reads none
+    expect(out.details.refused).toBeUndefined();
+    expect(out.details.added).toBeUndefined();
+    expect(c.influence.entries()).toEqual([]);
+    // made once, and not retried
+    expect(records(log).filter((r) => r.callId === "toolu_W1")).toEqual([expect.objectContaining({ tool: "list_issues", verdict: "ALLOWED" })]);
+    expect(records(log)).toHaveLength(1);
+    // the response, as received, is in the evidence file; its text is in neither the outcome nor the events log
+    const [response] = records(evidencePath).filter((r) => r.type === "response");
+    expect(response).toMatchObject({ v: 2, callId: "toolu_W1", rid: out.details.rid });
+    expect(JSON.stringify(response!.result)).toContain("Typo in README");
+    expect(out.text).not.toContain("Typo in README");
+    expect(readFileSync(c.eventsPath, "utf8")).not.toContain("Typo in README");
+    expect(events(c).filter((e) => e.type === "response")).toEqual([
+      expect.objectContaining({ callId: "toolu_W1", verify: "EXTENSION_REQUIRED", withheld: true, isError: true }),
+    ]);
+  });
+
+  it("aVerifiedResultAddsAnEntryForEachLabel", async () => {
+    const evidencePath = join(tmp, `evidence-${n++}.jsonl`);
+    const c = ctx();
+    const { conn } = await github(c, "enforce", { requires: ["influence"] }, { evidence: new EvidenceLog(evidencePath) });
+    c.runs.start("fix the typo", Date.now());
+    const outs = [await call(conn, "get_file_contents", PAYROLL), await call(conn, "list_issues", LIST)];
+    // what each response adds, read from its attestation as received by the SDK's responseEntries
+    const expected = records(evidencePath)
+      .filter((r) => r.type === "response")
+      .map((r) => {
+        const att = readAttestation(r.result._meta["paztport/attestation"]);
+        expect(att.resultHash).toBe(bindResult(r.result));
+        const stamps = att.chain.map((s, i) => ({ svc: s.svc, items: itemsUnder(att.blocks[i]!, INFLUENCE) }));
+        return responseEntries("OK", stamps, "server:github", att.resultHash);
+      });
+    expect(expected.map((entries) => entries.map((e) => e.cls))).toEqual([["private"], ["third-party"]]);
+    expect(expected.flat().every((e) => typeof e.cid === "string")).toBe(true);
+    expect(c.influence.entries()).toEqual(expected.flat());
+    expect(outs.map((o) => o.details.added)).toEqual([["private"], ["third-party"]]);
+  });
+
+  it("anUnsafeSessionsResultAddsOneUntrustedEntry", async () => {
+    const c = ctx("no-root");
+    const { conn } = await github(c);
+    expect(conn.status()).toBe("unsafe");
+    const sent = spyRequests();
+    const out = await call(conn, "get_file_contents", PAYROLL);
+    expect(out.isError).toBe(false);
+    const raw = sent.find((r) => r.method === "tools/call")!.result as Record<string, unknown>;
+    expect(c.influence.entries()).toEqual(responseEntries(null, undefined, "server:github", bindResult(raw)));
+    expect(c.influence.entries()).toEqual([{ cls: "local-untrusted", src: "server:github", h: bindResult(raw) }]);
+    expect(out.details.added).toEqual(["local-untrusted"]);
   });
 });
 
