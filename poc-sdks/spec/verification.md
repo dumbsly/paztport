@@ -73,10 +73,9 @@ protocol: two implementations that order the checks differently disagree.
 Otherwise the result is `OK`.
 
 On `OK` the verifier hands the service, for each name in `actsOn`, one entry per stamp in chain order: the stamp's
-`svc`, and either that its block does not name the extension, or the items its block holds under it. In audit mode a
-served request whose chain read is handed on the same way, but as not verified
-([Modes and refusals](#modes-and-refusals)). The core reads no item; what an item means, and what the service does
-with it, is its extension's to say.
+`svc`, and either that its block does not name the extension, or the items its block holds under it. What audit mode
+hands on is in [Modes and refusals](#modes-and-refusals). The core reads no item; what an item means, and what the
+service does with it, is its extension's to say.
 
 Only the direct caller's `requires` binds the receiver: check 9c reads the last block alone, so the `requires` of
 an earlier block binds no hop after the one it was sent to ([wire.md](wire.md#blocks)). A response is checked by
@@ -404,10 +403,10 @@ connects to (TLS hostname verification, RFC 9110 §4.3.4). That is why a respons
 passed the live order, 0 to 12, at that service, as for a request at the receiver above: its own pinned material,
 `receiver` as a request at the receiver supplies it, the request's proof and blocks, and the peer when there is one.
 This holds whether or not the service refuses requests that fail: one that does not enforce MUST still run the live
-order before it attests, and a failure there withholds the attestation. Such a service refuses a request only over
-its blocks. In audit mode one that fails check 9a is answered `400 {"reason":"EXTENSION_MISMATCH"}`
-([the one exception](#modes-and-refusals)). At a service that runs the live order only to attest, a failure of the
-order, a mismatch at check 9a included, only withholds the attestation; but blocks that do not read as an array of
+order before it attests, and a failure there withholds the attestation. In audit mode a request that fails check 9a
+is answered `400 {"reason":"EXTENSION_MISMATCH"}` ([the one exception](#modes-and-refusals)). At a service that
+runs the live order only to attest, a failure of the order, a mismatch at check 9a included, only withholds the
+attestation; but blocks that do not read as an array of
 blocks, one per stamp, are answered the same `400`, as at any [hop that verifies nothing](#http-requests-and-responses),
 not merely left unattested. A response stamp is shaped like a request stamp, so attesting a chain nobody checked would
 let anyone mint stamps under the service's key: on a forged one-stamp chain with an empty `sig`, the response is a
@@ -458,11 +457,12 @@ serve whose chain read, whichever earlier check failed, and refuses one that fai
 read as an array of blocks, or the request is refused the same way. A hop MUST send the blocks it received unchanged
 ([HTTP requests](#http-requests-and-responses)), in any mode, and a service cannot hand its extensions items it could
 not verify. In enforce mode verification has refused such a request already: check 9a fails, if nothing before it
-does. Checks 9b and 9c follow the mode like any other check. In audit mode a served request whose chain read is
-handed on as on `OK` ([the live order](#the-live-order)), one entry per stamp for each name in `actsOn`, but as not
-verified, and only items under names `allowedExtensions` allows are handed on; where the chain did not read there
-are no stamps, and nothing is handed on. Over MCP there is no exception: an audit-mode server runs every call and
-notes its verdict, whatever the code.
+does. Checks 9b and 9c follow the mode like any other check. In audit mode a served request whose blocks passed
+check 9a is handed on as on `OK` ([the live order](#the-live-order)), one entry per stamp for each name in `actsOn`,
+but as not verified, and only items under names `allowedExtensions` allows are handed on; where the chain did not
+read, or the blocks did not pass check 9a, nothing is handed on. Over MCP there is no exception: an audit-mode server
+runs every call and notes its verdict, whatever the code, and a call whose blocks did not pass check 9a runs with
+nothing handed on to its extensions.
 
 **Attestation.** Neither mode changes who attests ([Who attests](#http-requests-and-responses); over MCP,
 [the server decision](sessions.md#the-server-decision)). A response is attested only when the
