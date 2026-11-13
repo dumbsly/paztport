@@ -51,19 +51,23 @@ little-endian integer; `p = 2^255 − 19` is the field prime and `B` the base po
    the points of order 8, where
    `y8 = 55188659117513257062467267217118295137698188065244968500265048394206261417927`. Testing `y` alone, with
    the sign bit ignored, also refuses the two encodings of `x = 0` that set the sign bit.
-5. **The equation.** `R` and `A` decode to points of the curve (RFC 8032 §5.1.3), and `[S]B = R + [k]A`, where
-   `k = SHA-512(R ‖ A ‖ M) mod L` over `R` and `A` as written and the message `M`, with no multiplication by the
-   cofactor.
+5. **The equation.** `R` and `A` decode to points of the curve (RFC 8032 §5.1.3), and `[S]B = R + [k]A`, with no
+   multiplication by the cofactor. `k` is the 64-byte SHA-512 digest of `R ‖ A ‖ M`, over `R` and `A` as written
+   and the message `M`, read as a little-endian integer and reduced mod `L`.
 
 This is stricter than RFC 8032 requires. Rules 2 and 3 are the RFC's own (§5.1.7 decodes `S` as an integer below
 `L`, and §5.1.3 refuses a `y` at or above `p`), but the RFC lets a verifier check `[8][S]B = [8]R + [8][k]A` or the
 equation without the 8, and does not require it to refuse a point of small order. Two verifiers that choose
-differently disagree about the same bytes, which a protocol whose implementations accept and refuse the same bytes
-cannot allow.
+differently disagree about the same bytes: one service could accept a stamp that another, or an offline audit,
+refuses. The RFC also multiplies `A` by the digest as it is, where rule 5 reduces it mod `L` first. Under rule 5's
+equation that changes the answer only for a key with a small-order part, and the case
+`A with a small-order part, k a multiple of 8` pins it.
 
-Rules 1 to 4 read only bytes. Each implementation makes them itself, in front of its library's Ed25519 verify,
-whatever that library already refuses, so the rule does not depend on which library is installed; rule 5 is the
-library's. `ed25519.json` pins the rule ([its cases](README.md#ed25519json)).
+Rules 1 to 4 read only bytes. Paztport's three SDKs check them themselves, in front of their standard library's
+Ed25519 verify and whatever that library already refuses, so the SDKs' answers to rules 1 to 4 do not depend on
+the library. Rule 5 is the library's: no check in front can correct a library that checks another equation, and
+each SDK's replay of `ed25519.json` ([its cases](README.md#ed25519json)), which pins the whole rule, fails on one
+that does.
 
 ## JSON
 

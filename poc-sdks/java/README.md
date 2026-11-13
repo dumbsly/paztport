@@ -1,9 +1,12 @@
 # Java SDK
 
 A Maven build (`paztport-sdk-parent`, JDK 25 or newer; the Spring starter needs
-Spring Boot 4.1) of three libraries, two one-shot tools and a benchmark. Every
-cryptographic primitive comes from the standard JDK; `keygen` uses Bouncy Castle
-only to build its X.509 certificates, which the JDK signs.
+Spring Boot 4.1) of three libraries, two one-shot tools and a benchmark. SHA-256,
+HMAC-SHA256 and Ed25519 come from the standard JDK, each named by its JDK provider,
+so a provider an application installs ahead of the JDK's is not used for them;
+random bytes come from the JDK's `SecureRandom`, which follows the application's
+provider order. `keygen` uses Bouncy Castle only to build its X.509 certificates,
+which the JDK signs.
 
 It implements protocol v3 as the [spec](../spec/README.md) defines it, and carries
 it over HTTP. It replays `spec/vectors/http-v3.json`, `events.json` and

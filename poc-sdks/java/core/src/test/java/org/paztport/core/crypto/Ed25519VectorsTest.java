@@ -8,8 +8,11 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import java.io.IOException;
+import java.security.GeneralSecurityException;
+import java.security.KeyFactory;
 import java.security.PublicKey;
 import java.security.Signature;
+import java.security.spec.X509EncodedKeySpec;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HexFormat;
@@ -77,7 +80,7 @@ class Ed25519VectorsTest {
                 assertFalse(rulesOneToFour(c), c.get("name").textValue());
             }
         }
-        System.out.println("JDK Signature alone answers otherwise on: " + wrong);
+        System.out.println("SunEC alone answers otherwise on: " + wrong);
     }
 
     /** The SDK's verify; a key the JDK refuses at decode time is a key that does not verify. */
@@ -92,17 +95,20 @@ class Ed25519VectorsTest {
                 Base64Url.decode(c.get("signature").textValue()));
     }
 
-    /** The JDK's Signature with nothing in front of it; a key or signature it refuses counts as not valid. */
+    /**
+     * SunEC, the provider Crypto names, with nothing in front of it; a key or signature it refuses counts as not
+     * valid.
+     */
     private static boolean bareLibrary(JsonNode c) {
         try {
-            // the JDK's own KeyFactory: Crypto.decodePublicKey now checks the bytes before the JDK sees them
-            PublicKey key = java.security.KeyFactory.getInstance("Ed25519").generatePublic(
-                    new java.security.spec.X509EncodedKeySpec(Base64Url.decode(c.get("publicKey").textValue())));
-            Signature s = Signature.getInstance("Ed25519");
+            // SunEC's own KeyFactory: Crypto.decodePublicKey checks the bytes before SunEC sees them
+            PublicKey key = KeyFactory.getInstance("Ed25519", "SunEC").generatePublic(
+                    new X509EncodedKeySpec(Base64Url.decode(c.get("publicKey").textValue())));
+            Signature s = Signature.getInstance("Ed25519", "SunEC");
             s.initVerify(key);
             s.update(Base64Url.decode(c.get("message").textValue()));
             return s.verify(Base64Url.decode(c.get("signature").textValue()));
-        } catch (java.security.GeneralSecurityException | IllegalArgumentException e) {
+        } catch (GeneralSecurityException | IllegalArgumentException e) {
             return false;
         }
     }

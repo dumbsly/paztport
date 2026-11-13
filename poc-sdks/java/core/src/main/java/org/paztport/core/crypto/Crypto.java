@@ -19,10 +19,10 @@ import java.util.HexFormat;
 
 /**
  * SHA-256 and Ed25519, both straight from the JDK. No shared secrets; verifiers
- * need only public keys. Each primitive names the JDK provider that implements
- * it, so a provider an application installs ahead of the JDK's (Bouncy Castle,
- * say, which checks Ed25519's cofactored equation) does not change what the SDK
- * accepts. A JDK without that provider fails closed.
+ * need only public keys. Both name the JDK provider that implements them, so a
+ * provider an application installs ahead of the JDK's (Bouncy Castle, say, which
+ * checks Ed25519's cofactored equation) does not change what the SDK accepts. A
+ * JDK without that provider fails closed.
  */
 public final class Crypto {
 

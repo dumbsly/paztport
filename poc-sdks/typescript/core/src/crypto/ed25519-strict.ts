@@ -2,8 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Rules 2 to 4 of the signature rule (spec wire.md, Signatures), checked on the bytes before the library verifies.
-// RFC 8032 leaves these to the verifier, and libraries choose differently: the three SDKs carry the same checks, so
-// they refuse the same bytes whatever their library accepts. spec/vectors/ed25519.json pins them.
+// Rules 2 and 3 are RFC 8032's own, though not every library makes them, and the RFC leaves refusing a point of small
+// order to the verifier. The three SDKs make the same checks whatever their library already refuses, so on these
+// bytes their answers do not depend on the library. spec/vectors/ed25519.json pins them.
 
 /** 32 little-endian bytes from hex written most significant digit first, so the constants read as the numbers they are. */
 function littleEndian(hex: string): Uint8Array {

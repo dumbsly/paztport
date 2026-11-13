@@ -4,14 +4,15 @@
 package keys
 
 // Rules 2 to 4 of the signature rule (spec wire.md, Signatures), checked on the bytes before the library
-// verifies. RFC 8032 leaves these to the verifier, and libraries choose differently: the three SDKs carry the
-// same checks, so they refuse the same bytes whatever their library accepts. spec/vectors/ed25519.json pins them.
+// verifies. Rules 2 and 3 are RFC 8032's own, though not every library makes them, and the RFC leaves refusing a
+// point of small order to the verifier. The three SDKs make the same checks whatever their library already
+// refuses, so on these bytes their answers do not depend on the library. spec/vectors/ed25519.json pins them.
 
 // leBytes is 32 little-endian bytes, the order an Ed25519 encoding and its scalar are written in.
 type leBytes [32]byte
 
-// littleEndian returns the 32 bytes of the number hex[0:2]... writes most significant digit first, so the
-// constants below read as the numbers they are.
+// littleEndian returns, as 32 little-endian bytes, the number that hex writes most significant digit first, so
+// the constants below read as the numbers they are.
 func littleEndian(hex string) leBytes {
 	var out leBytes
 	for i := range out {

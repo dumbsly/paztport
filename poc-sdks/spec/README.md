@@ -287,34 +287,46 @@ that first refuses it.
 
 ### ed25519.json
 
-Cases of the [signature rule](wire.md#signatures), each `{name, publicKey, message, signature, valid}`: `publicKey`
-is the base64url of the bytes handed to the verifier as a public key, some of which are not the Ed25519
-SubjectPublicKeyInfo, `message` and `signature` are base64url, and `valid` is the rule's answer. A replay hands the
+Cases of the [signature rule](wire.md#signatures), each `{name, publicKey, message, signature, valid}`. `publicKey`
+is the base64url of the bytes handed to the verifier as a public key; some of them are not the Ed25519
+SubjectPublicKeyInfo. `message` and `signature` are base64url, and `valid` is the rule's answer. A replay hands the
 three to the implementation's verify and expects `valid`; a key the platform refuses to decode counts as not valid.
 `smallOrderY` lists the five `y` that rule 4 refuses, each as its 32 little-endian bytes in hex, ascending as
 numbers. The file's `about` says which of them the case names call `y8`.
 
-- A signature by the key, one over the empty message, and one over another message.
+- A signature by the key and one over the empty message, both valid, and a signature over another message, which
+  rule 5 refuses.
 - `S` plus `L`, and `S` with its top bit set (rule 2).
-- `R` the identity, `R` of order 8 with `S` made for the cofactored equation, `A` the identity and of orders 2, 4
-  and 8, under each sign bit where `x` is not 0, and `A` the identity and of order 2 with the sign bit set (rule
-  4); and the identity written with `y = p + 1`, as `R` and as `A`, and `A` of order 4 written with `y = p` (rule
-  3).
+- `R` the identity, `R` the identity with the sign bit set, `R` of order 8 with `S` made for the cofactored
+  equation, `A` the identity and of orders 2, 4 and 8, under each sign bit where `x` is not 0, and `A` the identity
+  and of order 2 with the sign bit set (rule 4); and the identity written with `y = p + 1`, as `R` and as `A`, and
+  `A` of order 4 written with `y = p` (rule 3).
 - `R` and `A` each with a small-order part, which pass rules 1 to 4 and satisfy only the cofactored equation, so
   rule 5 alone refuses them; and `A` with a small-order part whose `k` is a multiple of 8, which satisfies both and
   is valid.
 - A key whose `y` is on no curve point (rule 5's decoding).
 - Signatures of 63 and 65 bytes, and keys of 31 bytes, under the X25519 identifier, with the SPKI length written in
-  long form and with a trailing byte (rule 1).
+  long form, with a trailing byte, and with a bit string that claims an unused bit (rule 1).
 
 The cases were crafted, and every answer worked out, by RFC 8032 arithmetic written for the generator,
 `poc-sdks/typescript/core/test/vectors-ed25519-export.ts`, which imports nothing but Node's `node:` modules, so no
-SDK or library confirms its own answers. The generator also checks each case built to satisfy an equation, with its
-encodings read leniently: rule 5's, or the cofactored equation and not rule 5's. So a case meant for one rule is
-not refused for some other reason. The TypeScript replay checks that the committed file is what the generator
-writes, and that the generator imports nothing else. Each SDK's replay also runs its bare library, with no check in
-front, and fails if the library disagrees with the file on any case that rules 1 to 4 let through. To regenerate
-the file:
+SDK or library confirms its own answers. The generator checks every answer against its own reading of the whole
+rule, and checks more of the cases built for one rule:
+
+- `S` plus `L`, and every case of rules 3 and 4 but `R` of order 8, satisfy rule 5's equation once their encodings
+  are read leniently, so only their rule refuses them.
+- The keys with the length in long form, with a trailing byte and with an unused bit claimed carry the signer's
+  key: written as the Ed25519 SubjectPublicKeyInfo, it passes rules 1 to 4, and the signature satisfies rule 5's
+  equation under it.
+- `R` of order 8 and the two cases with a small-order part that rule 5 refuses satisfy the cofactored equation and
+  not rule 5's. Those two, and the key whose `y` is on no curve point, pass rules 1 to 4.
+- The valid case with a small-order part has a `k` that is a multiple of 8 and a 64-byte digest that is not, so
+  rule 5's equation with the digest left unreduced refuses it.
+
+The other cases have only the first check; of those meant for one rule, `S` with its top bit set is also refused by
+rule 5's equation. The TypeScript replay checks that the committed file is what the generator writes, and that
+the generator imports nothing else. Each SDK's replay also runs its bare library, with no check in front, and fails
+if the library disagrees with the file on any case that rules 1 to 4 let through. To regenerate the file:
 
 ```bash
 cd poc-sdks/typescript && node core/test/vectors-ed25519-export.ts --write

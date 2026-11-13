@@ -167,10 +167,12 @@ with a clean copy, automatically, within seconds.
 The code is Apache-2.0. Every cryptographic primitive the SDKs use comes from each
 language's standard library (the JDK, Node's `node:crypto`, Go's `crypto`
 packages); the Java keygen tool also uses Bouncy Castle, to write X.509
-certificates. Before a library verifies an Ed25519 signature, the SDK checks the
+certificates. Before a library verifies an Ed25519 signature, each SDK checks the
 signature's and the key's bytes itself, by the spec's
-[signature rule](poc-sdks/spec/wire.md#signatures), so the three refuse the same
-bytes whatever their library accepts.
+[signature rule](poc-sdks/spec/wire.md#signatures), so the SDKs refuse the same
+encodings whatever their libraries would accept. The equation itself is the
+library's, and each SDK's replay of the shared vectors fails on a library that
+checks a different one.
 
 ## Concepts
 

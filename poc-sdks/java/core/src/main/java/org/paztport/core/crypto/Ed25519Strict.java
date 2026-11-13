@@ -8,8 +8,9 @@ import java.util.HexFormat;
 
 /**
  * Rules 2 to 4 of the signature rule (spec wire.md, Signatures), checked on the bytes before the JDK verifies.
- * RFC 8032 leaves these to the verifier, and libraries choose differently: the three SDKs carry the same checks, so
- * they refuse the same bytes whatever their library accepts. {@code spec/vectors/ed25519.json} pins them.
+ * Rules 2 and 3 are RFC 8032's own, though not every library makes them, and the RFC leaves refusing a point of small
+ * order to the verifier. The three SDKs make the same checks whatever their library already refuses, so on these
+ * bytes their answers do not depend on the library. {@code spec/vectors/ed25519.json} pins them.
  */
 final class Ed25519Strict {
 
