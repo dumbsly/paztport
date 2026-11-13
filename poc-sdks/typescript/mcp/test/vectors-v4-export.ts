@@ -63,9 +63,13 @@ const ABOUT =
   "Paztport version 4 conformance vectors. Every case carries all of its inputs; keys and policies are named and defined in this file. " +
   `Each key's private key is the PKCS#8 DER ${PKCS8_ED25519_PREFIX} || seed, where seed = SHA-256(utf8("paztport-v3-vector-key:" + name)), ` +
   "and its public key is the SPKI DER export; both are base64url. " +
-  `Each Merkle leaf salt is the first ${SALT_BYTES} bytes of SHA-256(utf8("paztport-v3-vector-salt:" + route)), and the policy's routes fill the ` +
-  'first leaves in order; padding leaf i is SHA-256(utf8("paztport-v3-vector-pad:" + rootId + ":" + i)), ' +
-  'and a handshake nonce labelled l is the first 16 bytes of SHA-256(utf8("paztport-v3-vector-nonce:" + l)). ' +
+  `Each policy is a Merkle tree of depth ${DEPTH} whose routes fill the first leaves in the order its routes list them. ` +
+  'Its rootId is "v" + the first 12 hex digits of SHA-256(utf8(its routes joined by newline)), ' +
+  `each route's leaf salt is the first ${SALT_BYTES} bytes of SHA-256(utf8("paztport-v3-vector-salt:" + route)), ` +
+  'and the leaf hash in each slot i after the routes, up to 2^depth − 1, is SHA-256(utf8("paztport-v3-vector-pad:" + rootId + ":" + i)), ' +
+  "taken as it is, not hashed as a leaf; mesh-second, below, derives its rootId and salts with a seed as well. " +
+  'A handshake nonce labelled l is the first 16 bytes of SHA-256(utf8("paztport-v3-vector-nonce:" + l)), base64url: ' +
+  "every request's nonce is labelled client, and every reply's server. " +
   "The v3 in these seed strings is historical: they are v3.json's, kept so that the keys, the policies and every section whose rule did not change " +
   "are v3.json's value for value, and a file of other vectors can take its keys and policies from either. " +
   "This placement and rootId derivation are for the vectors only; real builds use random slots and a random rootId. " +
