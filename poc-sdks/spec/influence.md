@@ -122,9 +122,9 @@ A server that acts on `influence` labels the content of each result it attests. 
 The response stamp's `ext` commits to its block, so a label can't be changed in transit ([wire.md](wire.md#blocks)).
 A responder that acts on `influence` names it on every response it attests, with `[]` when it has no label. When
 any block of the response holds a label, it also puts `influence` in the `requires` of the response's last block,
-so a caller that does not act on `influence` refuses the response ([check 9c](verification.md#the-live-order))
-instead of dropping the labels. Check 9c reads only the last block: over HTTP the response has one block, and over
-MCP the last block of the attestation is the one that must name it.
+so a caller that does not act on `influence` refuses the response ([check 9c](verification.md#the-live-order)),
+not handing it to its application, instead of dropping the labels. Check 9c reads only the last block: over HTTP
+the response has one block, and over MCP the last block of the attestation is the one that must name it.
 
 A caller that acts on `influence` adds to what it holds, for each response to a call it makes:
 
@@ -132,8 +132,8 @@ A caller that acts on `influence` adds to what it holds, for each response to a 
   `{ cls, src, h: resultHash, cid, owner }`, with `owner` only when the label has one. A label counts only when the
   whole response verifies.
 - **A response with an `influence` item that does not read as a label:** no label from that response, and one
-  `local-untrusted` entry, as for a response that did not verify. A caller cannot refuse a response, only decline
-  to believe it.
+  `local-untrusted` entry, as for a response that did not verify. The extension cannot refuse a response, only
+  decline to believe it: only the core's check 9c refuses one.
 - **A silent response,** one that verifies but whose block does not name `influence`: one `local-untrusted` entry,
   as a response from a service that does not attest adds.
 - **Over MCP, a refusal:** a result whose verdict is not an audit note adds nothing, since the tool did not run

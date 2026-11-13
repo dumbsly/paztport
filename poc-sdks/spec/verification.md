@@ -82,6 +82,13 @@ an earlier block binds no hop after the one it was sent to ([wire.md](wire.md#bl
 the same tests, with the caller's own `allowedExtensions` and `actsOn`. Its last block is the responder's, so check
 9c holds the caller to what the responder requires of it.
 
+**A response that fails check 9c is refused by the caller**, over MCP and HTTP alike: it is not handed to the
+application, and the call fails with `EXTENSION_REQUIRED`. The responder's handler has already run, so the caller
+MUST NOT retry the call on this ground. Only check 9c does this, since it is how a responder whose claims must
+not be lost keeps a caller that would drop them from using the response. A response that fails any other check is
+used, as not verified, and what an extension makes of an unverified response is the extension's to say. A caller
+with no verifier never runs the check, so it cannot refuse, and a responder learns nothing either way.
+
 Why this order:
 
 - **The verifier's own policy first.** Check 0 is about the verifier's configuration, not the request, so it
@@ -249,7 +256,8 @@ service as the client's own configuration names it (`["mcp-entry"]` in the agent
    the call id, and `policyNotAfter` the server root's `notAfter`, or in the entry-key form the earlier of it and
    `serverKeyringNotAfter`. In the policy-key form the keyring carries no signature of its own, only the reply's.
 
-What a response's blocks hold counts for the client only when the whole response verifies.
+What a response's blocks hold counts for the client only when the whole response verifies. A response that fails
+check 9c is refused, and the call fails ([the live order](#the-live-order)).
 
 **A verdict, on the client.** A refusal is unsigned by design: it can only withhold a result, never add a
 claim. A client reads a result's `paztport/verdict` from its token ([wire.md](wire.md#mcp)). It MUST treat a
@@ -432,7 +440,8 @@ names an operation with a `key`, and no peer. In order:
 
 No peer is passed, because TLS hostname verification already authenticated the server as the target, and the
 receiver check ties the stamp to it. What a response's blocks hold counts for the caller only when the whole
-response verifies.
+response verifies. A response that fails check 9c is refused, and the call fails
+([the live order](#the-live-order)).
 
 ## Modes and refusals
 

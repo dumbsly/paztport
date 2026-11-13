@@ -440,9 +440,10 @@ receiver refuses, before its handler runs, a request whose last block requires a
 ([check 9c](verification.md#the-live-order)), unless it runs in audit mode, where 9c follows the mode as any
 other check does ([Modes and refusals](verification.md#modes-and-refusals)). The `requires` of an earlier block
 binds no hop after the one it was sent to. On a response the last block is the responder's, so a responder
-requires an extension of its caller the same way. `requires` may name an extension its signer does not act on,
-since it is the caller's setting for a destination: a hop that acts on nothing can still require an extension of
-the hop it calls. `requires` has no default: a caller sets it for each destination.
+requires an extension of its caller the same way, and a caller that does not act on it refuses the response,
+though the handler has run ([verification.md](verification.md#the-live-order)). `requires` may name an extension
+its signer does not act on, since it is the caller's setting for a destination: a hop that acts on nothing can
+still require an extension of the hop it calls. `requires` has no default: a caller sets it for each destination.
 
 ## Bindings
 
