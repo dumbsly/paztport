@@ -15,11 +15,14 @@ const write = (over: Partial<Parameters<typeof decideServerCall>[0]> = {}) =>
     isWrite: true,
     publicDestination: true,
     attested: true,
+    actsOnInfluence: true,
     served: [],
-    clientInfluence: [],
+    request: { entries: [], everyStampNames: true },
     disabledWhenUnsafe: DISABLED,
     ...over,
   });
+/** The request's influence: these entries, every stamp naming `influence`. */
+const named = (...entries: InfluenceFact[]) => ({ entries, everyStampNames: true });
 
 describe("publicWriteDecision", () => {
   it("decidesOnlyAWriteToAPublicDestination", () => {
@@ -37,29 +40,42 @@ describe("publicWriteDecision", () => {
 });
 
 describe("decideServerCall", () => {
-  it("clientInfluenceAloneDecides", () => {
-    expect(write({ clientInfluence: [fact("private"), fact("third-party")] })).toBe("INFLUENCE_DENIED");
-    expect(write({ clientInfluence: [fact("private"), fact("local-untrusted")] })).toBe("INFLUENCE_DENIED");
-    expect(write({ clientInfluence: [fact("third-party"), fact("public")] })).toBe("OK");
+  it("theRequestsInfluenceAloneDecides", () => {
+    expect(write({ request: named(fact("private"), fact("third-party")) })).toBe("INFLUENCE_DENIED");
+    expect(write({ request: named(fact("private"), fact("local-untrusted")) })).toBe("INFLUENCE_DENIED");
+    expect(write({ request: named(fact("third-party"), fact("public")) })).toBe("OK");
     expect(write()).toBe("OK");
   });
   it("servedClassesCountWhenTheClientOmitsThem", () => {
-    expect(write({ served: new Set<InfluenceClass>(["private"]), clientInfluence: [fact("third-party")] })).toBe("INFLUENCE_DENIED");
+    expect(write({ served: new Set<InfluenceClass>(["private"]), request: named(fact("third-party")) }))
+      .toBe("INFLUENCE_DENIED");
     expect(write({ served: ["private"] })).toBe("OK");
     expect(write({ served: ["private", "third-party"] })).toBe("INFLUENCE_DENIED");
   });
   it("theOwnerOfPrivateDataMustBeTheDestinationOwner", () => {
     const mine = [fact("third-party"), fact("private", "alice")];
-    expect(write({ clientInfluence: mine, destinationOwner: "alice" })).toBe("OK");
-    expect(write({ clientInfluence: mine, destinationOwner: "bob" })).toBe("INFLUENCE_DENIED");
+    expect(write({ request: named(...mine), destinationOwner: "alice" })).toBe("OK");
+    expect(write({ request: named(...mine), destinationOwner: "bob" })).toBe("INFLUENCE_DENIED");
   });
   it("aServedPrivateClassHasNoOwnerSoItIsRefused", () => {
-    expect(write({ served: ["private"], clientInfluence: [fact("third-party")], destinationOwner: "alice" })).toBe("INFLUENCE_DENIED");
+    expect(write({ served: ["private"], request: named(fact("third-party")), destinationOwner: "alice" }))
+      .toBe("INFLUENCE_DENIED");
   });
   it("onlyPublicWritesAreDecided", () => {
     const served: InfluenceClass[] = ["private", "third-party"];
     expect(write({ served, publicDestination: false })).toBe("OK");
     expect(write({ served, tool: "list_issues", isWrite: false })).toBe("OK");
+  });
+  it("aStampThatDoesNotNameInfluenceRefusesAPublicWrite", () => {
+    expect(write({ request: { entries: [], everyStampNames: false } })).toBe("INFLUENCE_DENIED");
+  });
+  it("aServerThatDoesNotActOnInfluenceAllowsAnAttestedCall", () => {
+    expect(write({ actsOnInfluence: false, request: { entries: [], everyStampNames: false } })).toBe("OK");
+    expect(write({ actsOnInfluence: false, served: ["private"], request: named(fact("third-party")) })).toBe("OK");
+  });
+  it("aReadIsNotDecidedByTheEveryStampRule", () => {
+    expect(write({ tool: "list_issues", isWrite: false, request: { entries: [], everyStampNames: false } })).toBe("OK");
+    expect(write({ publicDestination: false, request: { entries: [], everyStampNames: false } })).toBe("OK");
   });
   it("anAttestedSessionIgnoresTheUnsafeGate", () => {
     expect(DISABLED).toContain("create_branch");
@@ -73,7 +89,8 @@ describe("decideServerCall", () => {
   it("aWriteLeftOutOfTheUnsafeListIsUngated", () => {
     const bad = [fact("private"), fact("third-party")];
     const disabledWhenUnsafe = ["create_pull_request"];
-    expect(write({ attested: false, served: ["private", "third-party"], clientInfluence: bad, disabledWhenUnsafe })).toBe("OK");
+    const served: InfluenceClass[] = ["private", "third-party"];
+    expect(write({ attested: false, served, request: named(...bad), disabledWhenUnsafe })).toBe("OK");
     expect(write({ attested: false, tool: "create_pull_request", disabledWhenUnsafe })).toBe("UNSAFE_SESSION");
   });
 });

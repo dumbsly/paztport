@@ -30,7 +30,7 @@ describe("bindLocalTool", () => {
   });
 
   it("bindResponseRefusesALoneSurrogateInTheCallId", () => {
-    expect(() => bindResponse("h", "call\ud800", [])).toThrow(TypeError);
+    expect(() => bindResponse("h", "call\ud800")).toThrow(TypeError);
   });
 
   it("matchesThePinnedVector", () => {

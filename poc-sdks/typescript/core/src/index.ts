@@ -22,8 +22,11 @@ export * from "./stamp/block.ts";
 export * from "./verify/nonce.ts";
 export * from "./verify/extensions.ts";
 export {
-  commitInfluence, influenceClasses, normalizeInfluence, readInfluence, type InfluenceClass, type InfluenceEntry,
+  entryOf, INFLUENCE, influenceBlock, influenceClasses, type InfluenceClass, type InfluenceEntry,
 } from "./influence/influence.ts";
+export * from "./influence/label.ts";
+export * from "./influence/request.ts";
+export * from "./influence/response.ts";
 export {
   CALL_MAX_AGE_MS, NONCE_TTL_MS, RUN_MAX_AGE_MS, verifyChain, type ChainVerification, type Peer, type PinnedKeyring,
   type PinnedRoot, type VerifierConfig, type VerifyInput,
@@ -53,8 +56,8 @@ export * from "./influence/influence-rule.ts";
 export * from "./influence/server-decision.ts";
 export * from "./influence/label-entry.ts";
 export * from "./verify/verdict-codes.ts";
-export * from "./influence/local-decision.ts";
-export * from "./influence/local-step.ts";
+export * from "./local/local-decision.ts";
+export * from "./local/local-step.ts";
 export * from "./policy/routes.ts";
 export * from "./event/envelope.ts";
 export * from "./event/verifier.ts";

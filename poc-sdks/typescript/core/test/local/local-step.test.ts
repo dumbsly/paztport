@@ -6,12 +6,13 @@
 
 import { describe, expect, it } from "vitest";
 import { encode } from "../../src/encoding/b64url.ts";
-import type { InfluenceEntry } from "../../src/influence/influence.ts";
+import { influenceBlock, type InfluenceEntry } from "../../src/influence/influence.ts";
 import type { JsonValue } from "../../src/encoding/json.ts";
 import { writeToken } from "../../src/encoding/jcs.ts";
+import { commitBlock, EMPTY_BLOCK } from "../../src/stamp/block.ts";
 import {
   LOCAL_RECEIVER_PREFIX, localReceiver, localStepBind, readLocalDecision, stampLocalStep, type LocalDecision,
-} from "../../src/influence/local-step.ts";
+} from "../../src/local/local-step.ts";
 
 /** An Ed25519 PKCS#8 private key whose 32-byte seed is `b` repeated. */
 const key = (b: number) => encode(Uint8Array.from([...Buffer.from("302e020100300506032b657004220420", "hex"), ...new Array<number>(32).fill(b)]));
@@ -24,8 +25,9 @@ const INFLUENCE: InfluenceEntry[] = [
   { cls: "private", src: "server:github", h: "h1" },
   { cls: "third-party", src: "server:github", h: "h1" },
 ];
-const INFL = "K2uFRtqOJRvmqTeC77iMkgmlQbmzYb91qUyd8417TOI";
-const step = { svc: "pi", inst: "pi-1", rid: RID, ts: 2000, prev: PREV, influence: INFLUENCE };
+/** The commitment to the gate's block, the session's influence, written by hand from its JCS bytes. */
+const EXT = "S-hunPYP5kE58pbHpkSu53moA9sED-DvQMGQwCWCwBg";
+const step = { svc: "pi", inst: "pi-1", rid: RID, ts: 2000, prev: PREV, block: influenceBlock(INFLUENCE) };
 
 describe("stampLocalStep", () => {
   it("allowedReadMatchesTheGatesStamp", () => {
@@ -43,7 +45,7 @@ describe("stampLocalStep", () => {
       PI_KEY,
     );
     expect(stamp).toEqual({
-      v: 3,
+      v: 4,
       svc: "pi",
       inst: "pi-1",
       rid: RID,
@@ -51,9 +53,9 @@ describe("stampLocalStep", () => {
       sess: "",
       rcv: "local:read",
       bind: "jwh996pnIOX6duRgrsapCa2qnpdwrMiYVmW5VFxeEl4",
-      infl: INFL,
+      ext: EXT,
       prev: PREV,
-      sig: "2b4uZWSlZ1rvbDzKs26hSrUtxvSeTLos81L7aMm1gV1wXDf4L5YqFrkzJApn4xBjbPNmQ8PIRp9OMyMwmXeXCg",
+      sig: "-TxGpA2rwiKcSAxrwXLBleeF7FX7mae4XE0xFmjagHLn-qXZp_7QDpRg-wsDF8KWLHGaFdluyJ4pdX9fURVDBg",
     });
   });
 
@@ -73,7 +75,7 @@ describe("stampLocalStep", () => {
     );
     expect(stamp.bind).toBe("AX64BK_1LR20VO6HXvhYKFeMGOxsdByR0Huo3FbQdHU");
     expect(stamp.rcv).toBe("local:write");
-    expect(stamp.sig).toBe("3Tw536O9NfIPry6H54TzOYgJB9Ow6qndZuI4NuhI12aelrLO8CEtYI5zwUUw3j5GQ4wFMQw8aFJ39WeuHMJIDw");
+    expect(stamp.sig).toBe("XUnCblL8X1zd4AvUZUJ3vcO7SWwvg8EL2uG7Eq_L-YZuQiNlTH836yEQCxFD_wVzC8UHICdWd95stzsjw0yuBQ");
   });
 
   it("unlistedWithNoRulesMatchesTheGatesStamp", () => {
@@ -92,7 +94,25 @@ describe("stampLocalStep", () => {
     );
     expect(stamp.bind).toBe("LF1MWJUcFAoGc5VzK3WV2TH8YL9XlOOo6MHe_mbN-8o");
     expect(stamp.rcv).toBe("local:ls");
-    expect(stamp.sig).toBe("20J8BL7wEDyGAEyLzYXuGBGxgLGX1Ay7tIGiSRJzhoHgJ1kzlwaEbHCXkulW3bRE4QM8cX9tnqdMzpfw_hwLDw");
+    expect(stamp.sig).toBe("bWUyZAU9fo7ls9HhE1iB72tINBtu7c-CqFqhiJn0lEtpFq7iSfi024wF2XySOk9qi5C9knKHuFgp5U-TvHzaAQ");
+  });
+});
+
+describe("stampLocalStep's block", () => {
+  const fields = {
+    ...step,
+    toolName: "read",
+    toolCallId: "call-1",
+    input: { path: "<workspace>/website/README.md" },
+    resolved: { paths: [], programs: [], parse: "ok" as const, readOnly: true },
+    verdict: "OK" as const,
+    listed: true,
+    rulesHash: HASH,
+  };
+  it("theStampCommitsToTheBlockItIsGiven", () => {
+    expect(commitBlock(step.block)).toBe(EXT);
+    expect(stampLocalStep(fields, PI_KEY).ext).toBe(commitBlock(fields.block));
+    expect(stampLocalStep({ ...fields, block: EMPTY_BLOCK }, PI_KEY).ext).toBe("");
   });
 });
 

@@ -4,7 +4,7 @@
 import { readToken, type JsonValue } from "../encoding/json.ts";
 import { array, bool, exactly, object, str } from "../internal/fields.ts";
 import { bindLocalTool } from "../stamp/binding.ts";
-import type { InfluenceEntry } from "./influence.ts";
+import { commitBlock, type Block } from "../stamp/block.ts";
 import type { LocalVerdict, Need, Resolved, ResolvedProgram } from "./local-decision.ts";
 import { requireStampableName } from "../stamp/names.ts";
 import { signStamp, type Stamp } from "../stamp/stamp.ts";
@@ -35,24 +35,25 @@ export type LocalStepFields = {
   listed: boolean;
   /** rulesHash of the rules that decided, null with none. */
   rulesHash: string | null;
-  /** The influence the call was decided under. */
-  influence: InfluenceEntry[];
+  /** The step's block, which its stamp commits to: the gate's own items, the session's influence among them. */
+  block: Block;
 };
 
 /**
- * A local tool call as a signed client-mesh step: a v3 stamp with an empty `sess`, naming `local:<tool>` as its
+ * A local tool call as a signed client-mesh step: a stamp with an empty `sess`, naming `local:<tool>` as its
  * receiver, bound to the input and the decision (the call id, what was resolved, the verdict, whether the route
- * is listed and which rules decided), so none of them can be changed in the evidence after signing. Throws, signing
- * nothing, if `svc` is not a route node (see `requireStampableName`). The tool part of the receiver is not checked: it
- * is data, and the signed refusal of an unlisted tool, whatever it is named, verifies without a proof of its route.
+ * is listed and which rules decided), and committing to `f.block`, so none of them can be changed in the evidence
+ * after signing. Throws, signing nothing, if `svc` is not a route node (see `requireStampableName`). The tool part of
+ * the receiver is not checked: it is data, and the signed refusal of an unlisted tool, whatever it is named, verifies
+ * without a proof of its route.
  */
 export function stampLocalStep(f: LocalStepFields, privateKey: string): Stamp {
   requireStampableName("svc", f.svc);
   const bind = localStepBind(f);
   return signStamp(
     {
-      svc: f.svc, inst: f.inst, rid: f.rid, ts: f.ts, sess: "", rcv: localReceiver(f.toolName), bind, ext: "",
-      prev: f.prev,
+      svc: f.svc, inst: f.inst, rid: f.rid, ts: f.ts, sess: "", rcv: localReceiver(f.toolName), bind,
+      ext: commitBlock(f.block), prev: f.prev,
     },
     privateKey,
   );

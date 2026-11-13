@@ -6,8 +6,8 @@
 // only node:path's pure posix helpers, never node:fs.
 
 import { posix } from "node:path";
-import type { InfluenceClass } from "./influence.ts";
-import { publicWriteRefused } from "./influence-rule.ts";
+import type { InfluenceClass } from "../influence/influence.ts";
+import { publicWriteRefused } from "../influence/influence-rule.ts";
 import type { FolderRule, LocalRules } from "../policy/local-rules.ts";
 
 export type Need = "read" | "write" | "exec";

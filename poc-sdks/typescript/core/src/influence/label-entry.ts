@@ -1,8 +1,8 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-import type { ContentLabel } from "../session/attestation.ts";
 import type { InfluenceEntry } from "./influence.ts";
+import type { ContentLabel } from "./label.ts";
 
 /**
  * The influence entry a verified response's label adds: `{ cls, src, h: resultHash, cid, owner }`, with `owner` only

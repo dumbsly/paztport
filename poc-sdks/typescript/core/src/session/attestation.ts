@@ -2,90 +2,74 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { encode } from "../encoding/b64url.ts";
-import { concat, randomBytes, sha256, utf8 } from "../crypto/crypto.ts";
+import { sha256, utf8 } from "../crypto/crypto.ts";
 import { bindResult } from "../stamp/binding.ts";
-import type { InfluenceClass } from "../influence/influence.ts";
-import { writeWire } from "../encoding/jcs.ts";
-import { readToken, type JsonObject, type JsonValue } from "../encoding/json.ts";
-import { array, exactly, object, str } from "../internal/fields.ts";
+import { blocksOf, type Block } from "../stamp/block.ts";
+import { readToken, type JsonObject } from "../encoding/json.ts";
+import { exactly, object, str } from "../internal/fields.ts";
 import { parseProof, type MerkleProof } from "../policy/merkle.ts";
 import { nonceKey } from "../verify/nonce.ts";
-import type { VerifyResult } from "../verify/reason.ts";
+import type { ReasonCode } from "../verify/reason.ts";
 import { chainOf, type Stamp } from "../stamp/stamp.ts";
-import { verifyChainRead, type VerifierConfig } from "../verify/verify-chain.ts";
+import { verifyChainRead, type ChainVerification, type VerifierConfig } from "../verify/verify-chain.ts";
 
-export type ContentLabel = { cls: InfluenceClass; cid: string; owner?: string };
-/** A response's attestation: the server's stamps, the last naming the calling client as its receiver. */
-export type ResponseAttestation = { chain: Stamp[]; proof: MerkleProof; labels: ContentLabel[]; resultHash: string };
+/**
+ * A response's attestation: the server's stamps, the last naming the calling client as its receiver, one block per
+ * stamp, the proof of the server's route, and the result hash.
+ */
+export type ResponseAttestation = { blocks: Block[]; chain: Stamp[]; proof: MerkleProof; resultHash: string };
 /** The call a response answers, and the client it was sent to: the service that made the call. */
 type ResponseCall = { rid: string; toolCallId: string; receiver: string };
 
-const CLASSES: readonly string[] = ["third-party", "private", "public", "local-untrusted"];
-
-export function newContentId(): string {
-  return encode(randomBytes(16));
-}
-
-/** The value the last response stamp binds: covers the result hash, the call id and the labels. */
-export function bindResponse(resultHash: string, toolCallId: string, labels: ContentLabel[]): string {
+/**
+ * The value the last response stamp binds (spec wire.md, Bindings, Response): `b64url(H(utf8(resultHash ‖ "\n" ‖
+ * toolCallId)))`. Throws on a call id holding a newline, and on a lone surrogate in either, which has no UTF-8 form.
+ */
+export function bindResponse(resultHash: string, toolCallId: string): string {
   if (toolCallId.includes("\n")) {
     throw new Error("toolCallId must not contain newlines");
   }
-  return encode(sha256(concat(utf8(resultHash + "\n" + toolCallId + "\n"), writeWire(labels as JsonValue))));
+  return encode(sha256(utf8(resultHash + "\n" + toolCallId)));
 }
 
-/** A label by the schema: `cls` of a class, `cid` a string, and `owner` a non-empty string or absent. */
-function labelOf(value: JsonValue): ContentLabel {
-  const o = object(value);
-  exactly(o, ["cls", "cid"], ["owner"]);
-  const cls = str(o, "cls");
-  if (!CLASSES.includes(cls)) {
-    throw new Error("member cls is not a class");
-  }
-  const cid = str(o, "cid");
-  if (!Object.hasOwn(o, "owner")) {
-    return { cls: cls as InfluenceClass, cid };
-  }
-  const owner = str(o, "owner");
-  if (owner === "") {
-    throw new Error("member owner is empty");
-  }
-  return { cls: cls as InfluenceClass, cid, owner };
-}
-
-/** The attestation's object by its schema: exactly `chain`, `proof`, `labels` and `resultHash`. */
+/**
+ * The attestation's object by its schema (spec wire.md, Carrying a chain, MCP): exactly `blocks`, `chain`, `proof` and
+ * `resultHash`, `blocks` an array of blocks. A count of blocks other than the chain's, or a block that does not match
+ * its stamp, reads: check 9a refuses it.
+ */
 function attestationOf(o: JsonObject): ResponseAttestation {
-  exactly(o, ["chain", "proof", "labels", "resultHash"]);
+  exactly(o, ["blocks", "chain", "proof", "resultHash"]);
   return {
+    blocks: blocksOf(o.blocks!),
     chain: chainOf(o.chain!),
     proof: parseProof(o.proof!),
-    labels: array(o, "labels").map(labelOf),
     resultHash: str(o, "resultHash"),
   };
 }
 
 /**
  * Reads a response attestation from its token: MalformedJson for bytes that do not read, an Error naming the member
- * for an attestation the schema refuses. Its chain is read as a chain, its proof as a proof, each label by the
- * label's schema.
+ * for an attestation the schema refuses. Its blocks are read as blocks, its chain as a chain, its proof as a proof.
  */
 export function readAttestation(token: string): ResponseAttestation {
   return attestationOf(object(readToken(token)));
 }
 
 /**
- * Verifies a response received live, given its attestation's token: v3 only, its last stamp naming `call.receiver`,
- * the client that made the call. The route is the server's own, so the receiver is off it. Never throws; an
- * attestation that does not read is CHAIN_MISSING, and labels are returned only when the whole response verifies
- * for this call.
+ * Verifies a response received live, given its attestation's token (spec verification.md, The MCP server and client,
+ * A response, on the client): its last stamp naming `call.receiver`, the client that made the call. The route is the
+ * server's own, so the receiver is off it. Never throws: an attestation that does not read is CHAIN_MISSING, and the
+ * hand-over of the attestation's blocks comes with OK only, as `verifyChain` gives it.
  */
 export function verifyResponse(
   attestation: string,
   result: Record<string, unknown>,
   call: ResponseCall,
   cfg: Omit<VerifierConfig, "nonceKey">,
-): { result: VerifyResult; labels: ContentLabel[] } {
-  const fail = (reason: VerifyResult["reason"]) => ({ result: { ok: false as const, reason, suspectSvc: "", suspectInst: "" }, labels: [] });
+): ChainVerification {
+  const fail = (reason: ReasonCode): ChainVerification => ({
+    ok: false, reason, suspectSvc: "", suspectInst: "", handOver: null,
+  });
   try {
     if (typeof call?.rid !== "string" || typeof call.toolCallId !== "string" || call.toolCallId.includes("\n") || typeof call.receiver !== "string") {
       return fail("CHAIN_MISSING");
@@ -100,22 +84,23 @@ export function verifyResponse(
       if (att.resultHash !== bindResult(result)) {
         return fail("BINDING_MISMATCH");
       }
-      expectedBind = bindResponse(att.resultHash, call.toolCallId, att.labels);
+      expectedBind = bindResponse(att.resultHash, call.toolCallId);
     } catch {
       return fail("BINDING_MISMATCH");
     }
-    const r = verifyChainRead(
+    // The blocks as read, never null: `attestationOf` has read them as an array of blocks, so they are not taken for
+    // an absent token.
+    return verifyChainRead(
       {
         chain: read.chain,
         expectedBind,
-        blocks: null,
+        blocks: read.blocks!,
         proof: read.proof,
         receiver: call.receiver,
         receiverInRoute: false,
       },
       { ...cfg, nonceKey: nonceKey([call.rid, call.toolCallId, "resp"]) },
     );
-    return { result: r, labels: r.ok ? att.labels : [] };
   } catch {
     return fail("CHAIN_MISSING");
   }

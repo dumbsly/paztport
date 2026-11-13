@@ -13,7 +13,7 @@ import {
   type Resolved,
   type ResolvedPath,
   type ResolvedProgram,
-} from "../../src/influence/local-decision.ts";
+} from "../../src/local/local-decision.ts";
 
 const rules = parseLocalRules({
   v: 1,

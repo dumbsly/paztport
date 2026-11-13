@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 import { generateKeyPair } from "../../src/crypto/crypto.ts";
-import { stampLocalStep } from "../../src/influence/local-step.ts";
+import { stampLocalStep } from "../../src/local/local-step.ts";
 import { EMPTY_BLOCK } from "../../src/stamp/block.ts";
 import { mintOrigin } from "../../src/stamp/origin.ts";
 import { requireStampableNames } from "../../src/stamp/names.ts";
@@ -16,7 +16,7 @@ const origin = (svc: string, rcv: string) => () =>
 const localStep = (svc: string, toolName = "read") => () =>
   stampLocalStep(
     {
-      svc, inst: "i", rid: "r", ts: 1, prev: "", influence: [], toolName, toolCallId: "c", input: {},
+      svc, inst: "i", rid: "r", ts: 1, prev: "", block: EMPTY_BLOCK, toolName, toolCallId: "c", input: {},
       resolved: { paths: [], programs: [], parse: "ok", readOnly: true }, verdict: "OK", listed: true, rulesHash: null,
     },
     privateKey,

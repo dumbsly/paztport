@@ -136,7 +136,8 @@ describe("json.json", () => {
     // @paztport/mcp's tests replay toolsCall; http is Java's.
     const refusals: Record<string, (i: Record<string, any>) => unknown> = {
       prompt: (i) => bindPrompt(i.text),
-      response: (i) => bindResponse(i.resultHash, i.toolCallId, i.labels),
+      // The `labels` input predates version 4, whose response binding has none; it is ignored.
+      response: (i) => bindResponse(i.resultHash, i.toolCallId),
       result: (i) => bindResult(i.result),
       localTool: (i) => bindLocalTool(i.tool, i.input, i.resolved),
       merkleLeaf: (i) => leafHash(new Uint8Array(Buffer.from(i.salt, "hex")), i.route),

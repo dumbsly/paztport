@@ -3,8 +3,10 @@
 
 import { describe, expect, it } from "vitest";
 import type { InfluenceClass } from "../../src/influence/influence.ts";
-import { publicWriteRefused, shapedOnlyByTrusted, type InfluenceFact } from "../../src/influence/influence-rule.ts";
-import { decideLocal } from "../../src/influence/local-decision.ts";
+import {
+  guardedWriteRefused, publicWriteRefused, shapedOnlyByTrusted, type InfluenceFact,
+} from "../../src/influence/influence-rule.ts";
+import { decideLocal } from "../../src/local/local-decision.ts";
 import { parseLocalRules } from "../../src/policy/local-rules.ts";
 
 const ALL: InfluenceClass[] = ["third-party", "private", "public", "local-untrusted"];
@@ -81,6 +83,20 @@ describe("publicWriteRefused", () => {
   ];
   it.each(OWNED)("%s", (_name, influence, destinationOwner, refused) => {
     expect(publicWriteRefused(influence, destinationOwner)).toBe(refused);
+  });
+});
+
+describe("guardedWriteRefused", () => {
+  it("aStampThatDoesNotNameInfluenceRefusesWhateverTheEntriesSay", () => {
+    expect(guardedWriteRefused(false, [])).toBe(true);
+  });
+  it("everyStampNamingItWithNothingIsAllowed", () => {
+    expect(guardedWriteRefused(true, [])).toBe(false);
+  });
+  it("thenTheOwnerAwareRuleDecides", () => {
+    const untrusted: InfluenceFact = { cls: "third-party" };
+    expect(guardedWriteRefused(true, [untrusted, { cls: "private", owner: "bob" }], "alice")).toBe(true);
+    expect(guardedWriteRefused(true, [untrusted, { cls: "private", owner: "alice" }], "alice")).toBe(false);
   });
 });
 
