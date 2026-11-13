@@ -97,16 +97,16 @@ answers.
 | Reading and writing JSON (`json.json`) | yes | yes | yes |
 | The signature rule (`ed25519.json`) | yes | yes | yes |
 
-A new implementation of version 4 MUST pass `ed25519.json`; `json.json` less `jcs` and the `toolsCall`, `result`
-and `localTool` cases of `bindings` if it does not implement [the MCP profile](#the-mcp-profile), and less the
-`http` cases of `bindings` if it does not speak HTTP; and `v4.json` less its member `influence` and, if it does not
-implement the MCP profile, less that profile's sections: `recordedLocalStep`, `responseAttestation`,
-`sessionParams`, `sessionResult`, `bindMcpCall` and `bindResult`. Outside `influence`, only `recordedLocalStep`
-needs an extension's rules: the other sections that hold blocks use made-up extensions, `example` among them, and
-name `influence` only as an opaque name, so an implementation that acts on no extension passes them, and a
-`responseAttestation` case expects the core's reason alone. An implementation that acts on `influence` MUST also
-pass `influence`, and so MUST one that implements the MCP profile, whose local steps act on it: a recorded local
-step's check reads the entries in its blocks, and derives the gate's verdict again under their classes
+A new implementation of version 4 MUST pass `ed25519.json`; `json.json` less `jcs` and the `toolsCall`, `result` and
+`localTool` cases of `bindings` if it does not implement [the MCP profile](#the-mcp-profile), and less the `http` cases
+of `bindings` if it does not speak HTTP; and `v4.json` less its member `influence` and, if it does not implement the MCP
+profile, less that profile's sections: `recordedLocalStep`, `responseAttestation`, `sessionParams`, `sessionResult`,
+`bindMcpCall` and `bindResult`. Outside `influence`, only `recordedLocalStep` needs an extension's rules: the other
+sections that hold blocks use made-up extensions, `example` among them, and name `influence` only as an opaque name, so
+an implementation with no extension's rules passes them, since the core never reads an item, and a `responseAttestation`
+case expects the core's reason alone. An implementation that acts on `influence` MUST also pass `influence`, and so MUST
+one that implements the MCP profile, whose local steps act on it: a recorded local step's check reads the entries in its
+blocks, and derives the gate's verdict again under their classes
 ([verification.md](verification.md#offline-verification), [influence.md](influence.md#over-mcp)). It MUST pass
 `events.json` if it sends or receives responder events. No vector file records version 4 over HTTP.
 
@@ -117,21 +117,21 @@ the `toolsCall`, `result` and `localTool` cases of `bindings` in `json.json`. It
 `http` cases of `bindings` in `json.json`, if it speaks v3 over HTTP, less `operations` if it does not name
 operations, and `events.json` if it sends or receives responder events.
 
-`v4.json` and `v3.json` are self-contained: every case carries its inputs, and keys and policies are named and
-defined in the file. Each file's `about` field says how its keys, salts and padding are derived, so the file can be
-rebuilt byte for byte; a verify case runs the live verifier `uses` times against one nonce cache, and the last
-result is the one expected. An offline case runs the offline verifier once, with no peer, clock or nonce TTL:
-`recordedTs.last` is the recorded time of the last stamp, and `seen` is the set of nonce keys already spent in the
-record set. A verify or offline case may pin several keyrings and roots: `keyrings`, in place of `keyring`, is a
-list of `{keyring, notAfter}`, and `roots` a list of `{policy, notAfter}`, whose roots the verifier pins; `policy`
-then names only where the case's proof comes from. A case's one `keyring`, or `policy`'s root when it has no
-`roots`, is a single member whose window is the case's `policyNotAfter` in a verify case and none in an offline
-case, and two `roots` naming one policy are its root and a renewal of it. A verify case's members each have a
-`notAfter`, and its `policyNotAfter` is the earlier of the latest `notAfter` among its keyrings and the latest among
-its roots (with one of each, the earlier of the two). An offline member with no `notAfter` has no window. A
-`keyring`, `root` or `replyCert` case's `signingBytes` is null when its `file` does not read: a reader refuses it,
-it never verifies, and its signature is never consulted. `current`, when present, gives whether it is valid at each
-`at`.
+`v4.json` and `v3.json` are self-contained: every case carries its inputs, and keys and policies are named and defined
+in the file. Each file's `about` field says how its keys, leaf salts and padding are derived, and `v4.json`'s also how
+each policy's `rootId` and each handshake nonce are (`v3.json`'s gives the `rootId` of `mesh-second` alone, and holds
+the others and its nonces as values), so either file can be rebuilt byte for byte; a verify case runs the live verifier
+`uses` times against one nonce cache, and the last result is the one expected. An offline case runs the offline verifier
+once, with no peer, clock or nonce TTL: `recordedTs.last` is the recorded time of the last stamp, and `seen` is the set
+of nonce keys already spent in the record set. A verify or offline case may pin several keyrings and roots: `keyrings`,
+in place of `keyring`, is a list of `{keyring, notAfter}`, and `roots` a list of `{policy, notAfter}`, whose roots the
+verifier pins; `policy` then names only where the case's proof comes from. A case's one `keyring`, or `policy`'s root
+when it has no `roots`, is a single member whose window is the case's `policyNotAfter` in a verify case and none in an
+offline case, and two `roots` naming one policy are its root and a renewal of it. A verify case's members each have a
+`notAfter`, and its `policyNotAfter` is the earlier of the latest `notAfter` among its keyrings and the latest among its
+roots (with one of each, the earlier of the two). An offline member with no `notAfter` has no window. A `keyring`,
+`root` or `replyCert` case's `signingBytes` is null when its `file` does not read: a reader refuses it, it never
+verifies, and its signature is never consulted. `current`, when present, gives whether it is valid at each `at`.
 
 A case carries an object it says was received as a token, beside the object's readable value, and a replay reads
 only the token. Each `verify` and `offline` case, each call of a `recordedCall` case and each `recordedLocalStep`
@@ -172,14 +172,14 @@ the spec's objects and times, never from any implementation's record format:
   the session is attested, and `null` otherwise.
   A recorded `request` may hold material a reader refuses as malformed (no `clientKeyringSig`, no
   `clientKeyringNotAfter`, or a client root without `notAfter`): the session it opened is never attested.
-- A **`recordedCall`** case is one record set: `handshakes` in the `recordedHandshake` shape, then `calls`, checked
-  in order against one set of spent nonce keys that starts empty. Each call names the handshake whose session it was
-  made in by its index, `handshake`, and carries an offline case's chain inputs (`chain`, `expectedBind`, its
-  blocks, `proofRoute` in `policy`, `receiver`, `receiverInRoute`, `nonceKey`, `rid`, `recordedTs`, `prompt`).
-  It is checked by the offline verifier with the case's `allowedOrigins`, `callMaxAgeMs` and `runMaxAgeMs`, the
-  client keyring and root of that handshake's request and the session id of its reply; then a call that verifies but
-  whose `recordedTs.last` is past one of the session's limits is `OUTSIDE_SESSION`. `expected[i]` is the `reason` for
-  `calls[i]`. Every handshake here is attested: the spec gives a call relying on one that is not no result.
+- A **`recordedCall`** case is one record set: `handshakes` in the `recordedHandshake` shape, then `calls`, checked in
+  order against one set of spent nonce keys that starts empty. Each call names the handshake whose session it was made
+  in by its index, `handshake`, and carries an offline case's chain inputs (`chain`, `expectedBind`, its blocks,
+  `proofRoute` in `policy`, `receiver`, `receiverInRoute`, `nonceKey`, `rid`, `recordedTs`, `prompt`). It is checked by
+  the offline verifier with the case's `allowedOrigins`, `callMaxAgeMs` and `runMaxAgeMs`, the client keyring and root
+  of that handshake's request and the session id of its reply; then a call that verifies but whose `recordedTs.last` is
+  past one of the session's limits is `OUTSIDE_SESSION`. `expected[i]` is an object holding the `reason` for `calls[i]`.
+  Every handshake here is attested: the spec gives a call relying on one that is not no result.
 - A **`recordedLocalStep`** case ([MCP profile](#the-mcp-profile)) is a recorded local step: `step` (`tool`,
   `callId`, `rid`, `now`, `input`, `resolved`, `verdict`, `routeAllowed`, `rulesHash`, `decisionToken`, `chain`,
   `proofRoute` and its blocks), the `client` it is checked against (`keyring` by name, the root of `policy`, in which
@@ -220,24 +220,26 @@ cd poc-sdks/typescript && node mcp/test/vectors-v4-export.ts --write
   ([wire.md](wire.md#blocks) lists the cases).
 - `signingBytes` and `signatures`: version 4 signed bytes and signatures.
 - `keyring`, `root` and `replyCert`: as in `v3.json` ([below](#v3json)).
-- `verify`: live verify cases (each kind of receiver, operations named in `rcv` (a route through them, a chain naming
-  another operation, a receiver naming none, an inner `rcv` naming another service's operation, an empty operation, an
-  inner operation holding a `/`, a `#` or a `|`, and a proof for another operation's route), a stamp whose `v` is 3 and
-  one with `infl` in place of `ext`, malformed `rcv` fields, a `|` in `rid` and `inst`, which verifies, and in a service
-  name, which has no key, the check order, the peer and attribution, replay, an item altered, an origin not allowed, a
-  stamp linked to another origin, a stamp with another `rid` and one from another session, the last stamp the call
-  window before `now` and 1 ms more, and 1 ms more than the call window after it, the origin the run's lifetime before
-  `now` and the call window after it, and 1 ms more than each, a stamp `ts` of −2^63, written exactly, a call id holding
-  a noncharacter, and the pinned policy's window and several pinned keyrings and roots, as in `v3.json`; then the
-  blocks: no token, an array of empty blocks, a token holding `null`, no token where a stamp commits to a block, an
-  `ext` that is the hash of the empty block, one block too few, one too many and one for two stamps, two blocks swapped,
-  a token that does not read and a block with a member blocks do not have; a name the allowed list does not hold, in
-  `items` and only in the first block's `requires`, and the same name with no list; the caller's `requires` of an
-  extension the receiver does not act on, and an earlier block's; `constructor` required, acted on where no block lists
-  it, listed, and listed where the allowed list does not hold it; a block that only requires an extension the receiver
-  acts on, and one naming `example` and `influence` at a receiver acting on both; five cases that each fail two of
-  checks 8 to 10, which give the earlier check's code; a request sent by another peer, then once and then twice by its
-  signer; and a request with no proof sent twice).
+- `verify`: live verify cases. As in `v3.json`: each kind of receiver; operations named in `rcv` (a route through them,
+  a chain naming another operation, a receiver naming none, an inner `rcv` naming another service's operation, an empty
+  operation, an inner operation holding a `/` or a `#`, and a proof for another operation's route); malformed `rcv`
+  fields; a bad signature found before a bad receiver; the peer and attribution; replay; an origin not allowed, a stamp
+  linked to another origin, a stamp with another `rid` and one from another session; the pinned policy's window; a stamp
+  `ts` of −2^63, written exactly; and several pinned keyrings and roots. New or changed in version 4: a stamp whose `v`
+  is 3 and one with `infl` in place of `ext`; an inner operation holding a `|`, `BINDING_MISMATCH` as for a `/` or a
+  `#`; a `|` in `rid` and `inst`, which verifies, and in a service name, which has no key; a wrong peer found before an
+  unproven route, which `v3.json`'s case of the same inputs found after it; an item altered, in place of an altered
+  owner; the last stamp the call window before `now` and 1 ms more, and 1 ms more than the call window after it, and the
+  origin the run's lifetime before `now` and the call window after it, and 1 ms more than each; a call id holding a
+  noncharacter; the blocks: no token, an array of empty blocks, a token holding `null`, no token where a stamp commits
+  to a block, an `ext` that is the hash of the empty block, one block too few, one too many and one for two stamps, two
+  blocks swapped, a token that does not read and a block with a member blocks do not have; a name the allowed list does
+  not hold, in `items` and only in the first block's `requires`, and the same name with no list; the caller's `requires`
+  of an extension the receiver does not act on, and an earlier block's; `constructor` required, acted on where no block
+  lists it, listed, and listed where the allowed list does not hold it; a block that only requires an extension the
+  receiver acts on, and one naming `example` and `influence` at a receiver acting on both; five cases that each fail two
+  of checks 8 to 10, which give the earlier check's code; a request sent by another peer, then once and then twice by
+  its signer; and a request with no proof sent twice.
 - `offline`: offline cases (as in `v3.json`, with a stamp whose `v` is 3; and an item altered, a name the allowed
   list does not hold, the same name with no list, and a last block requiring an extension the verifier does not act
   on, which is `OK`, since check 9c is live only).
@@ -268,23 +270,23 @@ cd poc-sdks/typescript && node mcp/test/vectors-v4-export.ts --write
   the entries a client that acts on it adds for a response; and `recordedCall`, recorded calls at a verifier that
   acts on it.
 
-Beside the form above, `v4.json` carries these members. `blocks` is null where `blocksToken` is, no token received,
-which is one empty block per stamp, and in the two `verify` cases whose token does not read as an array: "a blocks
+Beside the form above, `v4.json` carries these members. `blocks` is null where `blocksToken` is null (no token received,
+which is one empty block per stamp), and in the two `verify` cases whose token does not read as an array: "a blocks
 token holding null, every ext empty", whose token is the JCS of `null`, and "a blocks token that does not read". A
-`responseAttestation` case's attestation holds one block per stamp of the response chain unless its name says
-otherwise. On each `verify`, `offline`, `recordedCall` and `responseAttestation` case, `actsOn` is the extensions the
-verifier acts on, and `allowedExtensions` the names it carries, null for unset, which carries any name. A `verify` or
-`offline` case's `expected` is `{reason, suspectSvc, suspectInst, handOver}`: `handOver` is null unless the reason
-is `OK`, and then has one member per name in `actsOn`, each an array of `{svc, items}`, one per stamp in chain order,
-with `items` null where the stamp's block does not name the extension. A `verify` case may have `peers` in place of
-`peer`: use `i` is sent by `peers[i]`, null for no peer. A nonce key, in `nonceKey` and `seen`, is the JCS text of
-its array of strings ([verification.md](verification.md#freshness-and-replay)); the `verify` case "a call id holding
-a noncharacter"'s `nonceKey`, and the `responseAttestation` case of that name's `call.toolCallId`, hold U+FFFF
-written as itself, as `json.json` does, so a replay reads the file's own structure with any JSON reader, and only
-the tokens with the reader under test. A `sessionReply` case's `requires`, `[]` when absent, is what the client
-requires of the server. A `recordedLocalStep` step's blocks are, unless the case's name says otherwise, the origin's,
-naming `influence` with `[]`, and the client hop's, holding the session's entries. The file's `about` gives the
-shape of `sessionRequirement` and of each section of `influence`.
+`responseAttestation` case's attestation holds one block per stamp of the response chain unless its name says otherwise.
+On each `verify`, `offline`, `recordedCall` and `responseAttestation` case, `actsOn` is the extensions the verifier acts
+on, and `allowedExtensions` the names it carries, null for unset, which carries any name. A `verify` or `offline` case's
+`expected` is `{reason, suspectSvc, suspectInst, handOver}`: `handOver` is null unless the reason is `OK`, and then has
+one member per name in `actsOn`, each an array of `{svc, items}`, one per stamp in chain order, with `items` null where
+the stamp's block does not name the extension. A `verify` case may have `peers` in place of `peer`: use `i` is sent by
+`peers[i]`, null for no peer. A nonce key, in `nonceKey` and `seen`, is the JCS text of its array of strings
+([verification.md](verification.md#freshness-and-replay)); the `verify` case "a call id holding a noncharacter"'s
+`nonceKey`, and the `responseAttestation` case of that name's `call.toolCallId`, hold U+FFFF written as itself, as
+`json.json` does, so a replay reads the file's own structure with any JSON reader, and only the tokens with the reader
+under test. A `sessionReply` case's `requires`, `[]` when absent, is what the client requires of the server. A
+`recordedLocalStep` step's blocks are, unless the case's name says otherwise, the origin's, naming `influence` with
+`[]`, and the client hop's, holding the session's entries. The file's `about` gives the shape of `sessionRequirement`
+and of each section of `influence`.
 
 ### v3.json
 
@@ -412,11 +414,11 @@ that first refuses it.
   an impossible length; characters outside the url-safe alphabet; surrounding whitespace).
 - `jcs` ([MCP profile](#the-mcp-profile)): hashed content as JCS writes it (RFC 8785's Appendix B numbers, its
   §3.2.2 sample and §3.2.3 sorting example, `-0`, a noncharacter, and a lone surrogate refused).
-- `bindings`: each binding ([wire.md](wire.md#bindings)) but the HTTP result, which hashes no string it is given,
-  refusing a lone surrogate in one string it hashes (the prompt text, a response's `resultHash` or `toolCallId`, a
-  `tools/call`'s tool, call id or argument, a result, a local tool's name or input, a Merkle leaf's route, an HTTP
-  request's method or target). The two `response` cases also carry a `labels` input, from version 3's response binding,
-  which a replay of version 4 ignores.
+- `bindings`: each binding ([wire.md](wire.md#bindings)) but the HTTP result, which hashes no string it is given, and
+  the Merkle leaf ([wire.md](wire.md#the-merkle-tree)), each refusing a lone surrogate in one string it hashes (the
+  prompt text, a response's `resultHash` or `toolCallId`, a `tools/call`'s tool, call id or argument, a result, a local
+  tool's name or input, a Merkle leaf's route, an HTTP request's method or target). The two `response` cases also carry
+  a `labels` input, from version 3's response binding, which a replay of version 4 ignores.
 
 ### ed25519.json
 
@@ -470,19 +472,16 @@ cd poc-sdks/typescript && node core/test/vectors-ed25519-export.ts --write
 
 The MCP profile is the part of the protocol that only an MCP client and server speak: the `tools/call`, result and
 local-tool [bindings](wire.md#bindings), the MCP tool call and response chains, and local steps (a client's own tool
-calls, signed by the client alone, with their route, nonce key and recorded check). An implementation that speaks
-the protocol over HTTP only need not implement the profile, and the HTTP rules never refer to it. An implementation
-that claims the profile MUST implement all of it, and MUST pass its cases: the `bindMcpCall`, `bindResult`,
-`recordedLocalStep`, `responseAttestation`, `sessionParams` and `sessionResult` sections of `v4.json` (and of
-`v3.json` for version 3), and in `json.json`, the `jcs` section and the `toolsCall`, `result` and `localTool` cases
-of `bindings`. These are the cases whose replay needs profile code. Local steps act on the extension `influence`:
-the client's gate decides a write into a public folder by the owner-aware rule
-([influence.md](influence.md#over-mcp)), and a recorded step's check reads the entries in its blocks and derives
-that decision again, so an implementation that claims the profile passes `v4.json`'s `influence` too
-([Conformance](#conformance)). Every `verify` case is replayable by an HTTP-only implementation, since a
-route and a receiver are opaque strings there. Three offline results belong to the profile alone (`PROOF_MISMATCH`,
-`RULES_MISMATCH` and `VERDICT_MISMATCH`, [verification.md](verification.md#reason-codes)). Each passage of the spec
-that belongs to it says so and links here.
+calls, signed by the client alone, with their route, nonce key and recorded check). An implementation that speaks the
+protocol over HTTP only need not implement the profile, and the HTTP rules never refer to it. An implementation that
+claims the profile MUST implement all of it, and MUST pass its cases: the `bindMcpCall`, `bindResult`,
+`recordedLocalStep`, `responseAttestation`, `sessionParams` and `sessionResult` sections of `v4.json` (and of `v3.json`
+for version 3), and in `json.json`, the `jcs` section and the `toolsCall`, `result` and `localTool` cases of `bindings`.
+These are the cases whose replay needs profile code. Its local steps act on the extension `influence`, so it passes
+`v4.json`'s `influence` too ([Conformance](#conformance) says why). Every `verify` case is replayable by an HTTP-only
+implementation, since a route and a receiver are opaque strings there. Three offline results belong to the profile alone
+(`PROOF_MISMATCH`, `RULES_MISMATCH` and `VERDICT_MISMATCH`, [verification.md](verification.md#reason-codes)). Each
+passage of the spec that belongs to it says so and links here.
 
 ### The HTTP rules in http-v3.json
 
