@@ -209,6 +209,15 @@ Engineering shortcuts of this repository, not of the design.
   management on a port of its own, out of its callers' reach, as Boot's
   `management.server.port` does for actuator; the switch is served on the
   application port, so a deployment that cannot keep it from callers sets no token.
+- **The Java SDK needs the JDK's own Ed25519 provider.** It takes Ed25519 from
+  SunEC by name, so on a JDK without that provider it signs and verifies nothing.
+  Another provider may check a different verification equation, and would then
+  accept signatures the other SDKs refuse
+  ([the signature rule](../poc-sdks/spec/wire.md#signatures)); the repository's
+  `Ed25519ProviderOrderTest` puts another provider first to show that the SDK's
+  answers do not change. Letting an operator choose the provider, with the SDK
+  refusing to start unless that provider answers the vectors that separate the
+  equations, would lift this.
 - **The demo includes a replay harness.** The Java demo's `payment` can retain its
   last request (`/debug/last-request`, only when `PAZTPORT_CAPTURE=true`) so the
   demo can replay and mutate a genuinely valid request. The harness lives in the
