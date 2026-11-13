@@ -86,13 +86,14 @@ offending block for its operator.
 
 ## The every-stamp rule
 
-**What a request holds.** The influence a request holds at a service is every `influence` item in every block it
-received, plus what the service adds itself: an entry for each thing it reads, the responses to its own calls
-among them ([Content labels](#content-labels)). The verifier hands the service the received items on `OK`, for
-each stamp, in chain order ([the live order](verification.md#the-live-order)). A request served without being
-verified, in audit mode after a failure or by a service that verifies no requests under a mode, is handed them too
-where its chain read and its blocks passed check 9a, but as not verified, and a [trusted record](#trusted-records)
-is never written from it. The owner-aware rule and the trusted-records rule read what the request holds.
+**What a request holds.** The influence a request holds at a service is every `influence` item the service is
+handed from the blocks it received, plus what the service adds itself: an entry for each thing it reads, the
+responses to its own calls among them ([Content labels](#content-labels)). The verifier hands the service the
+received items on `OK`, for each stamp, in chain order ([the live order](verification.md#the-live-order)). A
+request served without being verified, in audit mode after a failure or by a service that verifies no requests
+under a mode, is handed them too where its chain read and its blocks passed check 9a, but as not verified, and a
+[trusted record](#trusted-records) is never written from it. The owner-aware rule and the trusted-records rule read
+what the request holds ([What the rules read](#what-the-rules-read)).
 
 When the service calls on, its own block holds only the entries it added itself, all of them for this request so
 far ([wire.md](wire.md#blocks)). It does not copy the entries it received: those travel on unchanged in their own

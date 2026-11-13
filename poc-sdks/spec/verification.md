@@ -81,11 +81,11 @@ requires it included, or the items its block holds under it.
 audit mode after a failure or because it verifies no requests under a mode ([HTTP](#http-requests-and-responses)),
 is handed the same where the chain read and check 9a held, but as not verified, and when `allowedExtensions` is set
 only the items under names it holds. Where the chain did not read, nothing is handed on. A request whose blocks
-fail check 9a is never served over HTTP ([HTTP](#http-requests-and-responses)), and over MCP runs with nothing
-handed on ([Modes and refusals](#modes-and-refusals)). In an unsafe session, over MCP or HTTP, the server believes
-nothing from the call and nothing is handed on ([sessions.md](sessions.md#over-http)). `actsOn` and
-`allowedExtensions` are the service's configuration whether or not it has a verifier. The core reads no item; what
-an item means, and what the service does with it, verified or not, is its extension's to say.
+fail check 9a is never served over HTTP ([HTTP](#http-requests-and-responses)), and over MCP, in audit mode, runs
+with nothing handed on ([Modes and refusals](#modes-and-refusals)). In an unsafe session, over MCP or HTTP, the
+server believes nothing from the call and nothing is handed on ([sessions.md](sessions.md#over-http)). `actsOn`
+and `allowedExtensions` are the service's configuration whether or not it has a verifier. The core reads no item;
+what an item means, and what the service does with it, verified or not, is its extension's to say.
 
 Only the direct caller's `requires` binds the receiver: check 9c reads the last block alone, so the `requires` of
 an earlier block binds no hop after the one it was sent to ([wire.md](wire.md#blocks)). A response is checked by
@@ -246,9 +246,11 @@ handshake, with `allowedOrigins` = the client's origin service, `receiver = mcp:
 4. The server reports `PATH_NOT_ALLOWED` against the client's policy as `CLIENT_PATH_NOT_ALLOWED`, so its logs
    tell the client's policy from its own.
 
-Only when the call verifies is the server handed its extensions' items, as [the live order](#the-live-order) says
-on `OK`. Then the server decides on the call ([sessions.md](sessions.md#the-server-decision)). A refusal is answered
-as a result with `isError: true` and the token of its verdict in `paztport/verdict`, and is not signed.
+Only when the call verifies is the server handed its extensions' items as verified
+([the live order](#the-live-order)); an audit-mode server that runs a call that failed is handed them as not
+verified, or nothing, as the same section says. Then the server decides on the call
+([sessions.md](sessions.md#the-server-decision)). A refusal is answered as a result with `isError: true` and the
+token of its verdict in `paztport/verdict`, and is not signed.
 
 **A response, on the client.** The client checks a response only in an attested session, against the server's
 root and keyring from the signed handshake reply as read
@@ -315,8 +317,8 @@ extensions items that do not match their stamps. So, in any mode and whether or 
   in audit mode, after any failure, and a service that verifies no requests under a mode: one with no verifier,
   one that runs the live order only to decide whether to attest ([Who attests](#http-requests-and-responses)), and
   one on which Paztport is off. Check 9a needs no key: it reads the blocks and hashes each one.
-- Where the chain did not read there are no stamps to match the blocks to, so they must still read as an array of
-  blocks, or the same `400`.
+- Where the chain did not read, such a service has no stamps to match the blocks to, so they must still read as an
+  array of blocks, or the same `400`.
 
 A service that verifies no requests under a mode still extends the chain it received: it sends the blocks it
 received unchanged, then its own. An origin starts a new request tree, so it carries neither the chain nor the
@@ -465,7 +467,7 @@ A service that verifies requests does so in one of two modes. Nothing else is a 
 | Mode | On a result other than `OK` |
 |---|---|
 | `enforce` | The service refuses the request with the result's code. |
-| `audit` | The service runs every check, refuses nothing and reports the result: the request is served, but not as verified. Its chain is not taken as having passed the live order here, so its response is not attested and no boundary stamp is signed over it. What an extension does with such a request is the extension's to say ([influence.md](influence.md#trusted-records), for one). |
+| `audit` | The service runs every check, refuses nothing and reports the result: the request is served, but not as verified. Its chain is not taken as having passed the live order here, so its response is not attested and no boundary stamp is signed over it. What an extension does with such a request is the extension's to say ([influence.md](influence.md#what-the-rules-read), for one). |
 
 A service that cannot tell which mode it is in MUST enforce, so that a mistake in its configuration fails closed.
 
