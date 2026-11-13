@@ -69,16 +69,17 @@ Entries, labels and openings are read as [wire.md](wire.md#reading) reads any ob
 inside blocks, so the core reads their bytes with the blocks, and this file gives their schema. A service that acts
 on `influence` checks each item it is handed under that name. An item on a request's block MUST be rejected when it
 is not an object, has a member the table does not name, has an unknown `cls`, a `src` or `h` that is not a string,
-a `cid` that is not a string, or an `owner` that is not a non-empty string; an item on a response's block, when it
-is not a [label](#content-labels). An empty `owner` is rejected, not read as "no owner", so it can never be taken
-for a known one.
+a `cid` that is not a string, or an `owner` that is not a non-empty string. An empty `owner` is rejected, not read
+as "no owner", so it can never be taken for a known one. An item on a response's block is read as a
+[label](#content-labels), which says what a caller does with one that does not read.
 
 A request holding an item that does not read is refused `INFLUENCE_MISMATCH`. Over HTTP the refusal is
 `400 {"reason":"INFLUENCE_MISMATCH"}`, in either mode: the core reads no item, so verification never refuses such
 a request first, and serving it without the item would hide content from
-[the owner-aware rule](#the-owner-aware-rule). An MCP server in audit mode runs the call and notes the code in its verdict
-([Over MCP](#over-mcp)). The code names no one and is never attributable, since the sender may be a hop that passed
-along a block it could not have read; the service logs the signer of the offending block for its operator.
+[the owner-aware rule](#the-owner-aware-rule). An MCP server in audit mode runs the call and notes the code in its
+verdict ([Over MCP](#over-mcp)). The code names no one and is never attributable, since the sender may be a hop
+that passed along a block it could not have read; the service logs the signer of the offending block for its
+operator.
 
 ## The every-stamp rule
 
@@ -113,15 +114,20 @@ A server that acts on `influence` labels the content of each result it attests. 
   served, never from the content.
 
 The response stamp's `ext` commits to its block, so a label can't be changed in transit ([wire.md](wire.md#blocks)).
-A responder that acts on `influence` names it on every response it attests, with `[]` when it has no label. When the
-block holds a label it also puts `influence` in that block's `requires`, so a caller that does not act on
-`influence` refuses the response ([check 9c](verification.md#the-live-order)) instead of dropping the labels.
+A responder that acts on `influence` names it on every response it attests, with `[]` when it has no label. When
+any block of the response holds a label, it also puts `influence` in the `requires` of the response's last block,
+so a caller that does not act on `influence` refuses the response ([check 9c](verification.md#the-live-order))
+instead of dropping the labels. Check 9c reads only the last block: over HTTP the response has one block, and over
+MCP the last block of the attestation is the one that must name it.
 
 A caller that acts on `influence` adds to what it holds, for each response to a call it makes:
 
-- **A response that verifies and names `influence`:** one entry for each label,
+- **A response that verifies and names `influence`, every item under it a label:** one entry for each label,
   `{ cls, src, h: resultHash, cid, owner }`, with `owner` only when the label has one. A label counts only when the
   whole response verifies.
+- **A response with an `influence` item that does not read as a label:** no label from that response, and one
+  `local-untrusted` entry, as for a response that did not verify. A caller cannot refuse a response, only decline
+  to believe it.
 - **A silent response,** one that verifies but whose block does not name `influence`: one `local-untrusted` entry,
   as a response from a service that does not attest adds.
 - **Any other response:** one `local-untrusted` entry, never dropped. That is a response that fails verification,
