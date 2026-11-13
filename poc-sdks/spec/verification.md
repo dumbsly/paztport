@@ -186,7 +186,7 @@ handshake, with `allowedOrigins` = the client's origin service, `receiver = mcp:
 
 1. `params` is an object with a string `name` and an object `_meta`, the name holds no `/` or `|`, the server
    id no `/`, `|` or `.`, `paztport/callId` is a string, and `paztport/chain` is a token that reads as a chain
-   ([wire.md](wire.md#mcp-v3)) (`CHAIN_MISSING`). The proof and influence are read from their tokens by the live
+   ([wire.md](wire.md#mcp)) (`CHAIN_MISSING`). The proof and influence are read from their tokens by the live
    order; a member that is not a string is read as a token that does not read.
 2. The `tools/call` binding can be computed (`BINDING_MISMATCH`).
 3. The live order, 0 to 12, with `policyNotAfter` the earlier of the client root's `notAfter` and
@@ -206,7 +206,7 @@ service as the client's own configuration names it (`["mcp-entry"]` in the agent
 `receiverInRoute = false`, `influence = []` and `nonceKey = <rid>|<callId>|resp`. In order:
 
 1. The call's `rid` and `callId` are strings, `callId` holds no `\n`, and `_meta["paztport/attestation"]` is a token
-   whose attestation reads ([wire.md](wire.md#mcp-v3)): an object with exactly a `chain` of stamps, a `proof` that
+   whose attestation reads ([wire.md](wire.md#mcp)): an object with exactly a `chain` of stamps, a `proof` that
    reads as a [proof object](wire.md#proof-object), a string `resultHash` and an array of well-formed `labels`
    (`CHAIN_MISSING`); a proof that does not read is not taken as no proof.
 2. The first stamp's `rid` is the call's (`RID_MISMATCH`).
@@ -219,7 +219,7 @@ The labels count as influence only when the whole response verifies. A response 
 unsafe session, counts as `local-untrusted`.
 
 **A verdict, on the client.** A refusal is unsigned by design: it can only withhold a result, never add
-influence. A client reads a result's `paztport/verdict` from its token ([wire.md](wire.md#mcp-v3)). It MUST treat a
+influence. A client reads a result's `paztport/verdict` from its token ([wire.md](wire.md#mcp)). It MUST treat a
 result with a non-audit verdict as "the tool did not run" and record nothing from it, and MUST treat one whose
 verdict does not read, a value that is not a token included, as a refusal with the reason `UNKNOWN`, never as a
 result or an audit note. A verdict's `reason` is server data that can reach a model, so a client MUST keep it only
@@ -234,7 +234,7 @@ That is every [reason code](#reason-codes) except `OK` and the offline-only `TIM
 
 ## HTTP requests and responses
 
-The Java and Go SDKs implement this section ([wire.md](wire.md#http-v3) has the headers). Inside a mesh there is no
+The Java and Go SDKs implement this section ([wire.md](wire.md#http) has the headers). Inside a mesh there is no
 handshake: its services pin one policy key, root and keyring in advance, and `sess` is `""`. Between
 organisations there is one ([sessions.md](sessions.md#over-http)), and the partner
 verifies as below with these inputs.
@@ -373,7 +373,7 @@ response stamp, `receiver` = its own name, `receiverInRoute = false`, `proof` = 
 `influence = []`, `nonceKey` = the response's key from the table above, with the key value of the target it sent when
 the sent chain's last `rcv` names an operation with a `key`, and no peer. In order:
 
-1. The header is present and reads from its token ([wire.md](wire.md#http-v3)) as an object with exactly a `stamp`
+1. The header is present and reads from its token ([wire.md](wire.md#http)) as an object with exactly a `stamp`
    and an array of well-formed `labels` (`CHAIN_MISSING`).
 2. The response binding of `resultHash`, the request's `rid` and the labels can be computed
    (`BINDING_MISMATCH`).
@@ -400,7 +400,7 @@ A service that cannot tell which mode it is in MUST enforce, so that a mistake i
 **Reporting the result.** In either mode a service MAY send its responder an [event](wire.md#events) for each
 result other than `OK`, with `audit: true` in audit mode. An audit event is never
 [attributable](wire.md#the-event), so a responder learns from it but does not act on it. Over MCP, an audit-mode
-server also puts `"audit": true` in the verdict of the call's `paztport/verdict` ([wire.md](wire.md#mcp-v3)), and a
+server also puts `"audit": true` in the verdict of the call's `paztport/verdict` ([wire.md](wire.md#mcp)), and a
 client does not read that as a refusal ([the verdict rule](#the-mcp-server-and-client)).
 
 **The one exception.** In audit mode, a request whose influence does not read is still refused, with
@@ -430,7 +430,7 @@ suspect is usually the caller itself, and telling it would tip it off before the
 | Transport | A refusal |
 |---|---|
 | HTTP | Status `403`; or `400` for influence that does not read where verification has not refused the request first, which is in audit mode ([the one exception](#modes-and-refusals)) or at a service that verifies no requests ([HTTP requests](#http-requests-and-responses)). Either way with `Content-Type: application/json`, which MUST carry no parameters, and the body `{"reason":"<code>"}`, sent as UTF-8: one JSON object whose only member is `reason`, a string, written with no whitespace, so that every implementation sends the same bytes for the same code. A reader MUST ignore any media-type parameter, `charset` included, and read the body as its [wire bytes](wire.md#reading), which are UTF-8 as [RFC 8259](https://www.rfc-editor.org/rfc/rfc8259#section-8.1) §8.1 requires of JSON exchanged between systems; the `application/json` registration defines no `charset` parameter (§11). A body that does not read, or has any member but `reason`, gives no reason. The handshake endpoint's own errors, `400 {"error":"<code>"}` ([sessions.md](sessions.md#over-http)), answer a handshake, not a call, and are not refusals. |
-| MCP ([profile](README.md#the-mcp-profile)) | A result with `isError: true` and `_meta["paztport/verdict"]` the token of `{ "reason": "<code>" }` ([wire.md](wire.md#mcp-v3)). An audit verdict adds `"audit": true`, and is not a refusal: the tool ran. |
+| MCP ([profile](README.md#the-mcp-profile)) | A result with `isError: true` and `_meta["paztport/verdict"]` the token of `{ "reason": "<code>" }` ([wire.md](wire.md#mcp)). An audit verdict adds `"audit": true`, and is not a refusal: the tool ran. |
 
 ## Offline verification
 

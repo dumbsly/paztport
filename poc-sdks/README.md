@@ -45,7 +45,7 @@ request's `_meta`, beside the call id, and a result carries the token of the ser
 chain and content labels. Over HTTP (the Java and Go SDKs), the chain, the proof and the influence travel as
 tokens in the `X-Path-Chain`, `X-Path-Proof` and `X-Path-Influence` headers, a call in a session opened by the
 handshake over HTTP names it in `X-Path-Session`, and a response carries one more stamp on the request chain, back
-to the caller, in `X-Path-Response` ([wire.md](spec/wire.md#http-v3)). A verifier
+to the caller, in `X-Path-Response` ([wire.md](spec/wire.md#http)). A verifier
 accepts only stamps whose `v` is 3. Binary values are base64url without padding.
 
 The signed root (`root.json`) that verifiers pin is `{ "notAfter", "root", "rootId", "sig" }`, where `sig` is the

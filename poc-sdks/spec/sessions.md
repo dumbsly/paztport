@@ -214,7 +214,7 @@ changes: one session per connection, as [above](#the-handshake).
 So the server keeps at most N sessions for each peer its CAs vouch for.
 
 **Calls name their session** in the `X-Path-Session` request header, whose value is the session id
-([wire.md](wire.md#http-v3)).
+([wire.md](wire.md#http)).
 
 - **No header** means the caller never opened a session. The server treats the call as in an unsafe session.
 - **A header that names no live session opened by this call's peer** is refused
