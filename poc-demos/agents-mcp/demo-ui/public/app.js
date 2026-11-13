@@ -971,6 +971,12 @@ function openDrawer(step, ctx, opener) {
     source = "Recorded in the mock server's outcome log.";
   }
   labels = [...new Set(labels.filter((l) => typeof l === "string"))];
+  // what the client added to the session's influence for the result, whether or not the reply verified: for one that
+  // did not, local-untrusted, whatever labels it holds
+  const added = Array.isArray(step.added) ? step.added : undefined;
+  const recorded = added === undefined
+    ? null
+    : h("p", {}, "What the client recorded: ", added.length ? added.flatMap((c, i) => [i > 0 ? ", " : null, h("code", {}, c)]) : "nothing", ".");
   if (!step.local) sections.push(
     h(
       "section",
@@ -979,9 +985,12 @@ function openDrawer(step, ctx, opener) {
       labels.length
         ? [h("ul", {}, labels.map((l) => h("li", {}, h("code", {}, l), plain[l] ? ` (${plain[l]})` : ""))), h("p", { class: "note" }, source)]
         : h("p", { class: "muted" }, step.result === "refused" ? "None: the server's refusal carries no labels." : "No labels were recorded for this call."),
+      recorded,
     ),
   );
 
+  // the blocks the request carried (`paztport/extensions`): the session's influence and what it required of the server
+  const blocksNote = unreadable(call, "paztport/extensions") ? unreadableNote("blocks token") : null;
   if (!step.local) sections.push(
     h(
       "section",
@@ -992,6 +1001,7 @@ function openDrawer(step, ctx, opener) {
         : unreadable(call, "paztport/chain")
           ? unreadableNote("request chain")
           : h("p", { class: "muted" }, attested ? "No signed request was recorded for this call." : "Paztport was off for this run, so requests were not signed."),
+      blocksNote,
     ),
   );
 

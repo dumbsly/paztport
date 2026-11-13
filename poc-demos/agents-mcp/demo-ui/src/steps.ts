@@ -27,6 +27,12 @@ export type Step = {
   /** A local tool call (pi's built-in tools): the rule that decided it, in plain words. */
   local?: LocalDetail;
   /**
+   * The classes of the entries the client recorded for the result, in order: the response event's `added`, whether or
+   * not the reply verified. Absent when the event has none (a refusal, a local error, Paztport off) or no list of
+   * classes.
+   */
+  added?: InfluenceClass[];
+  /**
    * `evidence` holds the step's records as the evidence file holds them, and `displays[i]` the tokens of `evidence[i]`
    * decoded.
    */
@@ -122,6 +128,11 @@ function wordingFor(code: string, local: boolean, words: Record<string, string>,
  */
 export function plainReason(code: string, local = false): string {
   return wordingFor(code, local, PLAIN_REASON, LOCAL_REASON) ?? `refused: ${code}`;
+}
+
+/** A list of influence classes as an event records it, or undefined when it is not one. */
+function classListOf(v: unknown): InfluenceClass[] | undefined {
+  return Array.isArray(v) && v.every((c) => typeof c === "string" && Object.hasOwn(PLAIN_CLASS, c)) ? (v as InfluenceClass[]) : undefined;
 }
 
 /** Read order for `held`, so the same classes always come out in the same order. */
@@ -375,6 +386,7 @@ export function buildSteps(s: Scenario, logs: StepLogs, opts: BuildOptions = {})
     const rid = str(o?.rid) ?? str(response?.rid) ?? str((evs[0] as Obj | undefined)?.rid);
     const records = evidence.get(row.id) ?? [];
     const rule = code !== undefined ? wordingFor(code, row.local === true, PLAIN_RULE, LOCAL_RULE) : undefined;
+    const added = classListOf(response?.added);
     steps.push({
       index: i + 1,
       tool: row.tool,
@@ -384,6 +396,7 @@ export function buildSteps(s: Scenario, logs: StepLogs, opts: BuildOptions = {})
       ...(reason !== undefined ? { reason } : {}),
       ...(code !== undefined ? { code, ...(rule !== undefined ? { rule } : {}) } : {}),
       ...(row.local ? { local: localDetail(localEvent, localRecord, rules) } : {}),
+      ...(added !== undefined ? { added } : {}),
       evidence: { ...(row.real ? { callId: row.id } : {}), ...(rid !== undefined ? { rid } : {}), ...(o ? { outcome: o } : {}), events: evs, evidence: records, displays: records.map((r) => display(r as Obj)) },
     });
   });

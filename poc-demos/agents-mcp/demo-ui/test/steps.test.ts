@@ -559,6 +559,21 @@ describe("the two outcomes the client reports itself", () => {
     expect(step!.code).toBeUndefined();
   });
 
+  it("aStepCarriesWhatTheClientRecorded", () => {
+    // the response event's `added`, whatever the reply's verification: the page's labels panel shows it
+    const added = (response: Record<string, unknown>) => {
+      const events = [{ ts: 2, type: "response", server: "github", tool: "get_file_contents", callId: "w1", rid: "r1", isError: false, ...response }];
+      return buildSteps(scenario, { transcript: [call], events, outcome: [], evidence: [] }, { complete: true })[0]!.added;
+    };
+    expect(added({ verify: "OK", added: ["private"] })).toEqual(["private"]);
+    expect(added({ verify: "BAD_SIGNATURE", added: ["local-untrusted"] })).toEqual(["local-untrusted"]);
+    expect(added({ verify: "OK", added: [] })).toEqual([]);
+    // a refusal adds nothing and records no `added`; a list that is not of classes is not shown
+    expect(added({ verdict: "INFLUENCE_DENIED", isError: true })).toBeUndefined();
+    expect(added({ verify: "OK", added: ["Private"] })).toBeUndefined();
+    expect(added({ verify: "OK", added: "private" })).toBeUndefined();
+  });
+
   it("aCallInANoCallsSessionIsAnErrorStepThatSaysSo", () => {
     const events = [
       { ts: 1, type: "error", server: "github", tool: "get_file_contents", callId: "w1", code: "NO_CALLS", reason: "EXTENSION_REQUIRED" },
