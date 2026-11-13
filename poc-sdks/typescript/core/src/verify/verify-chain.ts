@@ -195,7 +195,8 @@ function check(input: VerifyRead, cfg: VerifierConfig): ChainVerification {
  * With a peer, every result of checks 1 to 12 names it as the suspect; without one, only OK and PATH_NOT_ALLOWED name
  * the last stamp. On OK the result holds the hand-over: for each name the service acts on, one entry per stamp in
  * chain order, the stamp's svc and the items its block holds under the name, or null when it does not name it.
- * Never throws.
+ * Never throws for anything in its input, the tokens and the peer included. Its config is the caller's own, and
+ * `cfg.extensions` comes only from `extensionSettings` or `recordExtensionSettings`.
  */
 export function verifyChain(input: VerifyInput, cfg: VerifierConfig): ChainVerification {
   if (!policyCurrent(cfg)) return { ...POLICY_EXPIRED };

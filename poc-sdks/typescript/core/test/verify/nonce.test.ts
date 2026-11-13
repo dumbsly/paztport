@@ -33,7 +33,7 @@ describe("nonceKey", () => {
   });
   it("throwsWhereTheWriterRefuses", () => {
     expect(() => nonceKey(["rid-\uD800", "c", "req"])).toThrow(MalformedJson);
-    expect(() => nonceKey(["rid-￾", "c", "req"])).toThrow(MalformedJson);
+    expect(() => nonceKey(["rid-\uFFFE", "c", "req"])).toThrow(MalformedJson);
     expect(() => nonceKey(["rid", 5 as unknown as string])).toThrow("not a string");
   });
 });

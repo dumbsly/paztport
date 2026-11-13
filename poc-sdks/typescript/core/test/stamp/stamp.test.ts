@@ -39,10 +39,10 @@ describe("stamp", () => {
   it("refusesALoneSurrogateAndANoncharacter", () => {
     expect(() => signingBytes({ v: 4, ...F, rcv: "\uD800" })).toThrow("stamp field rcv must not contain a lone surrogate or a noncharacter");
     expect(() => signingBytes({ v: 4, ...F, ext: "\uDC00x" })).toThrow("stamp field ext must not contain a lone surrogate");
-    expect(() => signStamp({ ...F, inst: "￾" }, key)).toThrow("stamp field inst must not contain a lone surrogate or a noncharacter");
-    expect(() => signStamp({ ...F, sess: "﷐" }, key)).toThrow("noncharacter");
+    expect(() => signStamp({ ...F, inst: "\uFFFE" }, key)).toThrow("stamp field inst must not contain a lone surrogate or a noncharacter");
+    expect(() => signStamp({ ...F, sess: "\uFDD0" }, key)).toThrow("noncharacter");
     expect(() => signStamp({ ...F, prev: "\u{1FFFF}" }, key)).toThrow("noncharacter");
-    expect(() => signingBytes({ v: 4, ...F, inst: "￿" })).toThrow("noncharacter");
+    expect(() => signingBytes({ v: 4, ...F, inst: "\uFFFF" })).toThrow("noncharacter");
   });
   it("signStampRefusesANegativeTs", () => {
     expect(() => signStamp({ ...F, ts: -1 }, key)).toThrow("ts");
@@ -78,7 +78,7 @@ describe("stamp", () => {
   });
   it("readChain refuses bytes that do not read: a negative or fractional ts, a noncharacter, a non-JCS order", () => {
     const tokens = [
-      token([{ ...stamp, ts: -1 }]), token([{ ...stamp, ts: 1.5 }]), token([{ ...stamp, inst: "pi-﷐" }]),
+      token([{ ...stamp, ts: -1 }]), token([{ ...stamp, ts: 1.5 }]), token([{ ...stamp, inst: "pi-\uFDD0" }]),
     ];
     for (const t of tokens) {
       expect(() => readChain(t)).toThrow(MalformedJson);

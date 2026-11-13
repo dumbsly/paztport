@@ -74,7 +74,9 @@ export type OfflineResult = ChainVerification;
  * 10. there is no peer;
  * 11. its nonce key has not been spent anywhere in the record set (REPLAY), which a live cache that forgets after its
  *     window cannot show.
- * Checks 1 to 6, 8, 9a, 9b and 12 are the live verifier's own code. Never throws.
+ * Checks 1 to 6, 8, 9a, 9b and 12 are the live verifier's own code. Never throws for anything in its input, the
+ * tokens included. Its config is the caller's own, and `cfg.extensions` comes only from `extensionSettings` or
+ * `recordExtensionSettings`.
  */
 export function verifyChainOffline(input: OfflineInput, cfg: OfflineConfig): OfflineResult {
   // 0. The keyrings and roots that count at the record's own time, once; none of either names no one.
