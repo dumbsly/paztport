@@ -193,6 +193,7 @@ function stampedParams(
   callId: string,
   influence: InfluenceEntry[] = [],
   blocks: readonly [Block, Block] = [influenceBlock([]), influenceBlock(influence)],
+  requires: readonly string[] = [],
 ) {
   const proof = toolCallProof(s.client.proofs, CLIENT_HOPS, "github", name);
   if (proof === undefined) {
@@ -201,7 +202,7 @@ function stampedParams(
   const [originBlock, block] = blocks;
   const _meta = stampToolCall(
     { name, args, callId },
-    { origin: originOf(s, originBlock), originBlock, svc: "pi", inst: "pi-1", privateKey: s.client.piKey, ts: Date.now(), block, proof, serverId: "github" },
+    { origin: originOf(s, originBlock), originBlock, svc: "pi", inst: "pi-1", privateKey: s.client.piKey, ts: Date.now(), block, requires, proof, serverId: "github" },
   );
   return { name, arguments: args, _meta };
 }
@@ -514,11 +515,22 @@ describe("stampToolCall", () => {
     const stamp = (originBlock: Block) =>
       stampToolCall(
         { name: "list_issues", args: {}, callId: "call-1" },
-        { origin, originBlock, svc: "pi", inst: "pi-1", privateKey: s.client.piKey, ts: Date.now(), block: EMPTY_BLOCK, proof, serverId: "github" },
+        { origin, originBlock, svc: "pi", inst: "pi-1", privateKey: s.client.piKey, ts: Date.now(), block: EMPTY_BLOCK, requires: [], proof, serverId: "github" },
       );
     expect(() => stamp(EMPTY_BLOCK)).toThrow("originBlock is not the block the origin stamp commits to");
     expect(() => stamp(influenceBlock([{ cls: "public", src: "x", h: "h" }]))).toThrow("originBlock is not the block");
     expect(() => stamp(influenceBlock([]))).not.toThrow();
+  });
+  it("refusesABlockThatLacksWhatTheSessionRequires", () => {
+    const s = attestedSession();
+    const call = (block: Block, requires: readonly string[]) =>
+      stampedParams(s, "list_issues", { owner: "o" }, "call-1", [], [influenceBlock([]), block], requires);
+    expect(() => call(influenceBlock([]), [INFLUENCE])).toThrow("block does not require every extension the session requires");
+    expect(() => call(makeBlock({}, ["example"]), ["example", INFLUENCE])).toThrow("block does not require every extension");
+    const params = call(influenceBlock([], [INFLUENCE]), [INFLUENCE]);
+    expect(readBlocks(params._meta[META_EXTENSIONS]!)[1]!.requires).toEqual([INFLUENCE]);
+    // a session that requires nothing takes any block, and a block may require more than the session does
+    expect(() => call(influenceBlock([], [INFLUENCE]), [])).not.toThrow();
   });
   it("theHopNamesTheToolAsItsReceiverAndTheOriginIsUnchanged", () => {
     const s = attestedSession();
@@ -528,7 +540,7 @@ describe("stampToolCall", () => {
     const before = structuredClone(origin);
     const _meta = stampToolCall(
       { name: "create_pull_request", args: { title: "t" }, callId: "call-1" },
-      { origin, originBlock, svc: "pi", inst: "pi-1", privateKey: s.client.piKey, ts: Date.now(), block: EMPTY_BLOCK, proof, serverId: "github" },
+      { origin, originBlock, svc: "pi", inst: "pi-1", privateKey: s.client.piKey, ts: Date.now(), block: EMPTY_BLOCK, requires: [], proof, serverId: "github" },
     );
     const chain = readChain(_meta[META_CHAIN]!);
     expect(origin).toEqual(before);
@@ -542,7 +554,7 @@ describe("stampToolCall", () => {
     const stamp = (svc: string, serverId: string, name = "list_issues") =>
       stampToolCall(
         { name, args: {}, callId: "call-1" },
-        { origin, originBlock: EMPTY_BLOCK, svc, inst: "pi-1", privateKey: s.client.piKey, ts: Date.now(), block: EMPTY_BLOCK, proof, serverId },
+        { origin, originBlock: EMPTY_BLOCK, svc, inst: "pi-1", privateKey: s.client.piKey, ts: Date.now(), block: EMPTY_BLOCK, requires: [], proof, serverId },
       );
     it("anEmptySvc", () => expect(() => stamp("", "github")).toThrow(/^svc must be a route node/));
     it("aSvcWithASlash", () => expect(() => stamp("a/b", "github")).toThrow(/^svc must be a route node/));

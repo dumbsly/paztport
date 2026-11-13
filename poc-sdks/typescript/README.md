@@ -229,7 +229,8 @@ sound.
 `stampToolCall` stamps a call: the chain, the route proof (`toolCallProof`), the blocks `[originBlock, block]` and
 the call id. It always writes `paztport/extensions`, also when both blocks are empty, so the SDK sends one form, and
 it throws when `originBlock` is not the block the origin stamp commits to, rather than leave the server to refuse
-the call `EXTENSION_MISMATCH`.
+the call `EXTENSION_MISMATCH`. It takes the session's `requires`, the outcome's, and throws when `block.requires`
+lacks one of them, so a call never drops, silently, what the client's requirement asks of the server.
 
 `readToolResult` reads a result in the session it arrived in (`ResultContext`, which carries the client's
 `ExtensionSettings` in an unsafe session as in an attested one): `refused` for a server's refusal, which means the tool

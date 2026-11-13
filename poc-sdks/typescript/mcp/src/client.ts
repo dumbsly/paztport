@@ -216,6 +216,8 @@ export type ToolCallStamp = {
   ts: number;
   /** The calling hop's own block: its items for this request so far, and what it requires of this server. */
   block: Block;
+  /** What the session requires of this server, `SessionOutcome.requires`: `block.requires` must hold each name. */
+  requires: readonly string[];
   proof: MerkleProof;
   /** The server the call goes to: the call's stamp names `mcp:<serverId>.<tool>` as its receiver. */
   serverId: string;
@@ -225,8 +227,8 @@ export type ToolCallStamp = {
  * The `_meta` for an attested tools/call: the tokens of the chain (the origin and a stamp by the calling hop over the
  * call's receiver, binding and block), of the route proof and of the blocks, `[originBlock, block]`, and the call id.
  * The blocks travel also when both are empty, so this SDK sends one form. Throws if a stamp cannot be signed or a
- * token written, if `svc` or the receiver (`mcp:<server>.<tool>`) is not a route node, or if `originBlock` is not the
- * block the origin's `ext` commits to.
+ * token written, if `svc` or the receiver (`mcp:<server>.<tool>`) is not a route node, if `originBlock` is not the
+ * block the origin's `ext` commits to, or if `block.requires` lacks a name the session `requires`.
  */
 export function stampToolCall(call: { name: string; args: unknown; callId: string }, s: ToolCallStamp): Record<string, string> {
   const rcv = mcpReceiver(s.serverId, call.name);
@@ -234,6 +236,10 @@ export function stampToolCall(call: { name: string; args: unknown; callId: strin
   // Fails here rather than as EXTENSION_MISMATCH at the server, with nothing said locally.
   if (commitBlock(s.originBlock) !== s.origin.ext) {
     throw new Error("originBlock is not the block the origin stamp commits to");
+  }
+  // Fails here rather than sending, silently, a call that drops what the client's requirement asks of this server.
+  if (s.requires.some((name) => !s.block.requires.includes(name))) {
+    throw new Error("block does not require every extension the session requires");
   }
   const hop = signStamp(
     {
