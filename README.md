@@ -164,7 +164,7 @@ with a clean copy, automatically, within seconds.
   [Envoy Gateway](poc-demos/envoy-gateway/README.md#measurements) processor adds
   0.35 ms at the median at 1000 requests a second.
 
-The code is Apache-2.0. Every cryptographic primitive the SDKs use comes from each
+The code is Apache-2.0. Every cryptographic primitive the SDKs use goes through each
 language's standard library (the JDK, Node's `node:crypto`, Go's `crypto`
 packages); the Java keygen tool also uses Bouncy Castle, to write X.509
 certificates. Before a library verifies an Ed25519 signature, each SDK checks the

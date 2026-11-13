@@ -456,11 +456,20 @@ function buildCases(): Built[] {
  * other reason, and the cofactored cases pass the equation the rule forbids but not the one it requires. `wraps` marks
  * a key refused by rule 1 alone: written as the Ed25519 SPKI, the key it carries passes rules 2 to 4.
  * `reachesTheLibrary` marks a refused case that rules 1 to 4 pass, and `pinsReducedK` the case whose answer turns on
- * reducing k mod L.
+ * reducing k mod L. An R or A written with y at or above p, or with the sign bit set on x = 0, is also refused by rule
+ * 5's own decoding, as rules 3 and 4 refuse it; verifyStrict never reaches that decoding for such a case, so it is
+ * checked here.
  */
 function checked(cases: Built[]): Built[] {
   for (const c of cases) {
     if (verifyStrict(c.key, c.message, c.signature) !== c.valid) throw new Error(`${c.name}: verifyStrict disagrees with valid`);
+    // x = 0 exactly where y² = 1, so whether x is 0 is read from y here, not from the decoding under test.
+    for (const point of [c.signature.subarray(0, 32), c.wraps ?? c.key.subarray(12)]) {
+      if (point.length !== 32) continue;
+      const y = yOf(point);
+      const nonCanonical = y >= p || (point[31] >> 7 === 1 && mod(y * y) === 1n);
+      if (nonCanonical && decode(point) !== null) throw new Error(`${c.name}: rule 5's decoding takes a non-canonical encoding`);
+    }
     if (c.wraps !== undefined && !encodingsHold(spki(c.wraps), c.signature)) throw new Error(`${c.name}: refused by more than rule 1`);
     if (c.reachesTheLibrary && !encodingsHold(c.key, c.signature)) throw new Error(`${c.name}: refused by rules 1 to 4`);
     if (c.pinsReducedK) {
