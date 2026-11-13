@@ -11,14 +11,20 @@ const files = readdirSync(src, { recursive: true, encoding: "utf8" }).filter((f)
 const allowed = (f: string): boolean =>
   f.startsWith("influence/") || f.startsWith("local/") || f === "offline/local-step.ts" || f === "index.ts";
 
+/** The paths of the file's imports that name the influence folder. */
+const influenceImports = (f: string): string[] => {
+  const text = readFileSync(new URL(f, src), "utf8");
+  const paths = [...text.matchAll(/\bfrom\s+"([^"]*)"|\bimport\s*\(\s*"([^"]*)"/g)].map((m) => m[1] ?? m[2]!);
+  return paths.filter((p) => p.includes("influence/"));
+};
+
 describe("the core carries influence without reading it", () => {
   it("noOtherFileImportsFromTheInfluenceFolder", () => {
-    // The walk must see the folder, or the check below proves nothing.
+    // The walk must see the folder, and the pattern must find an import it allows, or the check proves nothing.
     expect(files.filter((f) => f.startsWith("influence/")).length).toBeGreaterThan(0);
+    expect(influenceImports("offline/local-step.ts")).toContain("../influence/influence.ts");
     for (const f of files.filter((name) => !allowed(name))) {
-      const text = readFileSync(new URL(f, src), "utf8");
-      const paths = [...text.matchAll(/\bfrom\s+"([^"]*)"|\bimport\s*\(\s*"([^"]*)"/g)].map((m) => m[1] ?? m[2]!);
-      expect(paths.filter((p) => p.includes("influence/")), f).toEqual([]);
+      expect(influenceImports(f), f).toEqual([]);
     }
   });
 });

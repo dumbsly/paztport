@@ -46,13 +46,16 @@ function world() {
     ...over,
   });
   /** A response as the server signs it, its stamps naming github-tools and then the calling client. */
-  const response = (blocks: readonly Block[] = BLOCKS): { body: Record<string, unknown>; att: Att } => {
+  const response = (
+    blocks: readonly Block[] = BLOCKS,
+    callId = "call-1",
+  ): { body: Record<string, unknown>; att: Att } => {
     const body: Record<string, unknown> = { content: [{ type: "text", text: "hello" }] };
     const resultHash = bindResult(body);
     const mk = (svc: string, rcv: string, bind: string, ext: string, prev: string) =>
       signStamp({ svc, inst: svc + "-1", rid: "rid-1", ts: NOW, sess: SESS, rcv, bind, ext, prev }, keys.privateKey);
     const s0 = mk("mcp-entry", "github-tools", "b0", commitBlock(blocks[0]!), "");
-    const s1 = mk("github-tools", "pi", bindResponse(resultHash, "call-1"), commitBlock(blocks[1]!), s0.sig);
+    const s1 = mk("github-tools", "pi", bindResponse(resultHash, callId), commitBlock(blocks[1]!), s0.sig);
     const att = { blocks: [...blocks], chain: [s0, s1], proof: tree.proofFor(ROUTE), resultHash };
     return { body, att: JSON.parse(JSON.stringify(att)) as Att };
   };
@@ -164,6 +167,12 @@ describe("verifyResponse", () => {
     const { body, att } = w.response();
     expect(verifyResponse(tok(att), body, { ...CALL, toolCallId: "call-1\ud800" }, w.cfg()).reason)
       .toBe("BINDING_MISMATCH");
+  });
+  it("aCallIdHoldingANoncharacterVerifies", () => {
+    // the nonce key is the verifier's own text, written as hashed content is, so it can be formed
+    const w = world();
+    const { body, att } = w.response(BLOCKS, "call-1\ufffe");
+    expect(verifyResponse(tok(att), body, { ...CALL, toolCallId: "call-1\ufffe" }, w.cfg()).reason).toBe("OK");
   });
   it("malformedAttestationIsChainMissing", () => {
     const w = world();

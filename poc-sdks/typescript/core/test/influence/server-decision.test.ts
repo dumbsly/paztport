@@ -4,7 +4,7 @@
 import { describe, expect, it } from "vitest";
 import type { InfluenceClass } from "../../src/influence/influence.ts";
 import type { InfluenceFact } from "../../src/influence/influence-rule.ts";
-import { decideServerCall, publicWriteDecision } from "../../src/influence/server-decision.ts";
+import { decideServerCall } from "../../src/influence/server-decision.ts";
 
 const DISABLED = ["create_branch", "create_or_update_file", "push_files", "create_pull_request", "add_issue_comment"];
 const fact = (cls: InfluenceClass, owner?: string): InfluenceFact => (owner === undefined ? { cls } : { cls, owner });
@@ -23,21 +23,6 @@ const write = (over: Partial<Parameters<typeof decideServerCall>[0]> = {}) =>
   });
 /** The request's influence: these entries, every stamp naming `influence`. */
 const named = (...entries: InfluenceFact[]) => ({ entries, everyStampNames: true });
-
-describe("publicWriteDecision", () => {
-  it("decidesOnlyAWriteToAPublicDestination", () => {
-    const bad = [fact("private"), fact("third-party")];
-    expect(publicWriteDecision(true, true, bad)).toBe("INFLUENCE_DENIED");
-    expect(publicWriteDecision(false, true, bad)).toBe("OK");
-    expect(publicWriteDecision(true, false, bad)).toBe("OK");
-    expect(publicWriteDecision(true, true, [fact("third-party")])).toBe("OK");
-  });
-  it("takesTheDestinationOwner", () => {
-    const mine = [fact("third-party"), fact("private", "alice")];
-    expect(publicWriteDecision(true, true, mine, "alice")).toBe("OK");
-    expect(publicWriteDecision(true, true, mine, "bob")).toBe("INFLUENCE_DENIED");
-  });
-});
 
 describe("decideServerCall", () => {
   it("theRequestsInfluenceAloneDecides", () => {

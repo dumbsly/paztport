@@ -2,18 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type { InfluenceClass } from "./influence.ts";
-import { guardedWriteRefused, publicWriteRefused, type InfluenceFact } from "./influence-rule.ts";
-
-/** The influence rule applied to a tool call: only a write to a public destination is decided by it. */
-export function publicWriteDecision(
-  isWrite: boolean,
-  publicDestination: boolean,
-  influence: readonly InfluenceFact[],
-  destinationOwner?: string,
-): "OK" | "INFLUENCE_DENIED" {
-  if (!isWrite || !publicDestination) return "OK";
-  return publicWriteRefused(influence, destinationOwner) ? "INFLUENCE_DENIED" : "OK";
-}
+import { guardedWriteRefused, type InfluenceFact } from "./influence-rule.ts";
 
 /**
  * What the influence rule sees in an attested session: the request's influence plus every class this server served

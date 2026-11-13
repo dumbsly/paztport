@@ -22,6 +22,11 @@ describe("readResponseLabels", () => {
   it("anItemThatIsNotALabelTakesNoLabel", () => {
     const entry = { cls: "third-party", h: "x", src: "s" };
     expect(readResponseLabels([{ svc: "mcp-entry", items: [] }, { svc: "tools", items: [third, entry] }])).toBeNull();
+    // null and an array are not labels either
+    for (const item of [null, [[]]]) {
+      const stamps = [{ svc: "mcp-entry", items: [] }, { svc: "tools", items: [third, item] }];
+      expect(readResponseLabels(stamps), JSON.stringify(item)).toBeNull();
+    }
   });
 
   it("everyBlockNamingItWithNothingIsNoLabels", () => {

@@ -101,8 +101,9 @@ export function verifyRecordedLocalStep(
     return fail("BINDING_MISMATCH");
   }
   // The call id is the decision's, which was read from a token, so only a rid can hold what the key cannot be formed
-  // from (a lone surrogate, a noncharacter). No stamp read from a token carries such a rid, so the chain check refuses
-  // it by its rid check at the latest and never reaches the key; nothing is spent in `seen` for it.
+  // from: a lone surrogate, which the local tool binding does not cover. No stamp read from a token carries such a
+  // rid, so the chain check refuses it by its rid check at the latest and never reaches the key; nothing is spent in
+  // `seen` for it.
   let key: string | undefined;
   try {
     key = nonceKey([step.rid, step.callId, "local"]);

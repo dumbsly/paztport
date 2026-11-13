@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { MalformedJson } from "../../src/encoding/json-rules.ts";
 import { NonceCache, nonceKey } from "../../src/verify/nonce.ts";
 
 describe("NonceCache", () => {
@@ -31,9 +30,12 @@ describe("nonceKey", () => {
     expect(nonceKey(["a", "b|c"])).not.toBe(nonceKey(["a|b", "c"]));
     expect(nonceKey(['a","b'])).not.toBe(nonceKey(["a", "b"]));
   });
-  it("throwsWhereTheWriterRefuses", () => {
-    expect(() => nonceKey(["rid-\uD800", "c", "req"])).toThrow(MalformedJson);
-    expect(() => nonceKey(["rid-\uFFFE", "c", "req"])).toThrow(MalformedJson);
+  it("writesANoncharacterAsItself", () => {
+    expect(nonceKey(["rid-1", "call-\uFFFE", "resp"])).toBe('["rid-1","call-\uFFFE","resp"]');
+    expect(nonceKey(["rid-\uFDD0", "c", "req"])).toBe('["rid-\uFDD0","c","req"]');
+  });
+  it("throwsOnALoneSurrogateOrAPartThatIsNotAString", () => {
+    expect(() => nonceKey(["rid-\uD800", "c", "req"])).toThrow(TypeError);
     expect(() => nonceKey(["rid", 5 as unknown as string])).toThrow("not a string");
   });
 });

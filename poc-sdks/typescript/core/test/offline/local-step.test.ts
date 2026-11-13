@@ -347,7 +347,9 @@ describe("verifyRecordedLocalStep", () => {
     expect(w.check(w.step({ ...d, verdict: "INFLUENCE_DENIED" }), c).reason).toBe("VERDICT_MISMATCH");
   });
 
-  it("aRidOrCallIdNoKeyCanBeFormedFromGivesTheChainChecksResultAndDoesNotThrow", () => {
+  it("aRidOrCallIdNoStampCarriesGivesTheChainChecksResultAndDoesNotThrow", () => {
+    // a lone surrogate forms no nonce key, and a noncharacter forms one; no stamp or decision read from a token holds
+    // either, so the strict readers refuse both alike
     const w = world();
     for (const rid of ["rid-1\ud800", "rid-1\ufdd0", "rid-1\uffff"]) {
       const seen = new Set<string>();

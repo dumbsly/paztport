@@ -134,7 +134,10 @@ are `paztport.max-age-ms` (5000) unless `paztport.run-max-age-ms` sets the run's
 mesh's stamps carry `sess = ""`, since a mesh opens no session.
 
 The nonce key names the request and the direction, so a call, its response and a local step with the same ids
-can't spend each other's keys. It is the JCS text ([wire.md](wire.md#canonical-bytes)) of an array of strings:
+can't spend each other's keys. It is the JCS text of an array of strings, written as RFC 8785 writes strings, as for
+[hashed content](wire.md#hashed-content): a key is the verifier's own text, not an object that travels, so a call id
+holding a noncharacter, which MCP's own JSON may carry, still has a key. A lone surrogate has none, and a call id
+holding one has failed its binding first (`BINDING_MISMATCH`):
 
 | Chain | `nonceKey` |
 |---|---|
