@@ -1116,11 +1116,11 @@
     },
     "expected" : true
   }, {
-    "name" : "INFLUENCE_MISMATCH",
+    "name" : "EXTENSION_MISMATCH",
     "event" : {
       "audit" : false,
       "eventId" : "event-1",
-      "reason" : "INFLUENCE_MISMATCH",
+      "reason" : "EXTENSION_MISMATCH",
       "rid" : "rid-event-1",
       "suspectInst" : "search-1",
       "suspectSvc" : "search",
@@ -1169,6 +1169,42 @@
       "audit" : false,
       "eventId" : "event-1",
       "reason" : "UNSAFE_SESSION",
+      "rid" : "rid-event-1",
+      "suspectInst" : "search-1",
+      "suspectSvc" : "search",
+      "ts" : 1767225600000
+    },
+    "expected" : false
+  }, {
+    "name" : "excluded: INFLUENCE_MISMATCH",
+    "event" : {
+      "audit" : false,
+      "eventId" : "event-1",
+      "reason" : "INFLUENCE_MISMATCH",
+      "rid" : "rid-event-1",
+      "suspectInst" : "search-1",
+      "suspectSvc" : "search",
+      "ts" : 1767225600000
+    },
+    "expected" : false
+  }, {
+    "name" : "excluded: EXTENSION_NOT_ALLOWED",
+    "event" : {
+      "audit" : false,
+      "eventId" : "event-1",
+      "reason" : "EXTENSION_NOT_ALLOWED",
+      "rid" : "rid-event-1",
+      "suspectInst" : "search-1",
+      "suspectSvc" : "search",
+      "ts" : 1767225600000
+    },
+    "expected" : false
+  }, {
+    "name" : "excluded: EXTENSION_REQUIRED",
+    "event" : {
+      "audit" : false,
+      "eventId" : "event-1",
+      "reason" : "EXTENSION_REQUIRED",
       "rid" : "rid-event-1",
       "suspectInst" : "search-1",
       "suspectSvc" : "search",

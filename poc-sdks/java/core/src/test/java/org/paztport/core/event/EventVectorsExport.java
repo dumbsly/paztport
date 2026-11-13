@@ -350,10 +350,11 @@ class EventVectorsExport {
         ArrayNode attributable = out.putArray("attributable");
         for (String reason : List.of("CHAIN_MISSING", "BAD_ORIGIN", "BAD_SIGNATURE", "BROKEN_LINK", "EXPIRED",
                 "RID_MISMATCH", "BINDING_MISMATCH", "REPLAY", "PATH_NOT_ALLOWED", "SESSION_UNKNOWN",
-                "CLIENT_PATH_NOT_ALLOWED", "INFLUENCE_MISMATCH", "PEER_MISMATCH")) {
+                "CLIENT_PATH_NOT_ALLOWED", "EXTENSION_MISMATCH", "PEER_MISMATCH")) {
             attributable.add(attributableCase(reason, reason, "search", "search-1", false, true));
         }
-        for (String reason : List.of("OK", "INFLUENCE_DENIED", "UNSAFE_SESSION", "POLICY_EXPIRED", "SCOPE_DENIED",
+        for (String reason : List.of("OK", "INFLUENCE_DENIED", "UNSAFE_SESSION",
+                "INFLUENCE_MISMATCH", "EXTENSION_NOT_ALLOWED", "EXTENSION_REQUIRED", "POLICY_EXPIRED", "SCOPE_DENIED",
                 "UNCHECKABLE", "TIME_MISMATCH", "OUTSIDE_SESSION", "NOT_A_CODE", "")) {
             attributable.add(attributableCase("excluded: " + (reason.isEmpty() ? "empty reason" : reason), reason,
                     "search", "search-1", false, false));

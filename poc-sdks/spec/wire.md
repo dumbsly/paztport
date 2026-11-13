@@ -964,12 +964,15 @@ event is attributable when all of these hold:
   point at anyone.
 - `reason` is one of the codes that report what the sender did: `CHAIN_MISSING`, `BAD_ORIGIN`, `BAD_SIGNATURE`,
   `BROKEN_LINK`, `EXPIRED`, `RID_MISMATCH`, `BINDING_MISMATCH`, `REPLAY`, `PATH_NOT_ALLOWED`, `SESSION_UNKNOWN`,
-  `CLIENT_PATH_NOT_ALLOWED`, `INFLUENCE_MISMATCH` and `PEER_MISMATCH`.
+  `CLIENT_PATH_NOT_ALLOWED`, `EXTENSION_MISMATCH` and `PEER_MISMATCH`.
 
 No other reason is attributable. `POLICY_EXPIRED` is the verifier's own policy running out, which every honest
 caller meets. `INFLUENCE_DENIED` and `UNSAFE_SESSION` refuse a sound chain because of what shaped it: an honest
-component misled by poisoned input gets them. The client-local and offline-only codes are never a live verdict
-on a request, and `OK` refuses nothing.
+component misled by poisoned input gets them. `EXTENSION_NOT_ALLOWED` and `EXTENSION_REQUIRED` report
+configuration: two honest services can hold different settings. An extension's own refusal, such as
+`INFLUENCE_MISMATCH`, names no one, because its sender may be a hop that passed a block along and could not have
+read the item. The client-local and offline-only codes are never a live verdict on a request, and `OK` refuses
+nothing.
 
 ### Carrying an event
 

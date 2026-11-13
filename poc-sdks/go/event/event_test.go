@@ -436,6 +436,9 @@ func TestAttributable(t *testing.T) {
 		{"no suspect service", func(e *event.Event) { e.SuspectSvc = "" }},
 		{"no suspect instance", func(e *event.Event) { e.SuspectInst = "" }},
 		{"a reason off the list", func(e *event.Event) { e.Reason = "INFLUENCE_DENIED" }},
+		{"an influence item that does not read", func(e *event.Event) { e.Reason = "INFLUENCE_MISMATCH" }},
+		{"an extension the receiver does not allow", func(e *event.Event) { e.Reason = "EXTENSION_NOT_ALLOWED" }},
+		{"an extension the receiver requires", func(e *event.Event) { e.Reason = "EXTENSION_REQUIRED" }},
 		{"a reason with a trailing space", func(e *event.Event) { e.Reason = "PATH_NOT_ALLOWED " }},
 	}
 	for _, tt := range tests {
@@ -444,5 +447,11 @@ func TestAttributable(t *testing.T) {
 		if ev.Attributable() {
 			t.Errorf("%s is attributable", tt.name)
 		}
+	}
+	// A block that does not match its stamp names the sender, so it is on the list.
+	ev := sample
+	ev.Reason = "EXTENSION_MISMATCH"
+	if !ev.Attributable() {
+		t.Errorf("EXTENSION_MISMATCH is not attributable")
 	}
 }

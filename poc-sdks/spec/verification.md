@@ -683,6 +683,10 @@ A responder acts on rejections, for example by isolating the named instance.
   quarantine on them. It SHOULD log them. The same holds for the client-local codes, and for `POLICY_EXPIRED`,
   which is about the verifier's own configuration: every honest caller gets it once the verifier's policy
   expires, so it is never attributable, and the policy owner, not the responder, is the one to act.
+  `EXTENSION_NOT_ALLOWED` and `EXTENSION_REQUIRED` are never attributable either: they report configuration,
+  and two honest services can hold different settings. An extension's own refusal (`INFLUENCE_MISMATCH`,
+  `INFLUENCE_DENIED`) names no one, because its sender may be a hop that passed a block along and could not have
+  read the item; `EXTENSION_MISMATCH`, which reports a block that does not match its stamp, is attributable.
 - **Act only on a named suspect.** A result with empty suspect fields names no one, by design: acting on it
   would let a forged chain point at anyone.
 - **Under mTLS, `suspectInst` is the transport peer's address.** The responder resolves it to an instance on
