@@ -78,9 +78,11 @@ A request holding an item that does not read is refused `INFLUENCE_MISMATCH`. Ov
 `400 {"reason":"INFLUENCE_MISMATCH"}`, in either mode: the core reads no item, so verification never refuses such
 a request first, and serving it without the item would hide content from
 [the owner-aware rule](#the-owner-aware-rule). An MCP server in audit mode runs the call and notes the code in its
-verdict ([Over MCP](#over-mcp)). The code names no one and is never attributable, since the sender may be a hop
-that passed along a block it could not have read; the service logs the signer of the offending block for its
-operator.
+verdict ([Over MCP](#over-mcp)). Offline, a verifier that acts on `influence` gives `INFLUENCE_MISMATCH` for an
+item on a recorded request's block that does not read, as the live service does
+([offline verification](verification.md#offline-verification)). The code names no one and is never attributable,
+since the sender may be a hop that passed along a block it could not have read; the service logs the signer of the
+offending block for its operator.
 
 ## The every-stamp rule
 

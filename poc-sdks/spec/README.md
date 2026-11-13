@@ -16,9 +16,10 @@ The key words MUST, MUST NOT, SHOULD, SHOULD NOT and MAY are to be read as descr
 
 ## The protocol
 
-The protocol is version 4: a stamp carries `"v": 4`, and signs the bytes of `"paztport-stamp\n"` then its JCS bytes
-([wire.md](wire.md#fields-and-signed-bytes)). Versions 1 to 3 were earlier revisions, and a verifier takes none of
-them. It travels over MCP and over HTTP; which SDK speaks which version is under [Conformance](#conformance).
+The protocol is version 4: a stamp carries `"v": 4`, and signs the bytes of `"paztport-stamp\n"` then the JCS bytes
+of the stamp without its `sig` ([wire.md](wire.md#fields-and-signed-bytes)). Versions 1 to 3 were earlier
+revisions, and a verifier takes none of them. It travels over MCP and over HTTP; which SDK speaks which version is
+under [Conformance](#conformance).
 
 The **core** attests the path a request took: stamps and the chains they form, routes and the operations on them,
 freshness, the binding of each stamp to what its hop sent and to the hop it was handed to, and replay. A
@@ -35,8 +36,9 @@ ordinary services runs the core alone.
 Design choices:
 
 - **The receiver check.** Every stamp names the hop it was handed to (`rcv`). A live call or chain stamped for a
-  different receiver is `BINDING_MISMATCH`, found with the links, not a route failure later. So a chain forwarded
-  unchanged does not blame its last signer.
+  different receiver is `BINDING_MISMATCH`, found by [check 4](verification.md#the-live-order) once every
+  signature and link holds, not a route failure later. So a chain forwarded unchanged does not blame its last
+  signer.
 - **Operations.** Over HTTP a receiver may name its operations, the handlers a request can run, so a policy can
   allow a route through one operation of a service and not another. The caller names the operation in `rcv`
   (`payment#charge`); the receiver works out its own from its routing, never from the request, and a chain naming
@@ -64,11 +66,11 @@ Design choices:
 
 ## Conformance
 
-The spec describes version 4. The three SDKs in this repository implement version 3, whose stamps carry `"v": 3`:
-the TypeScript SDK over MCP, and the Java and Go SDKs over HTTP. `v3.json` and `http-v3.json` record version 3, and
-are what the SDKs replay. The rules below and the sections from [`v3.json`](#v3json) to the end describe the vector
-files as they are, so where they differ from the four spec files above, they describe version 3, and those files
-give version 4.
+The spec describes version 4. The three SDKs in this repository implement version 3, whose stamps carry `"v": 3`.
+The TypeScript SDK speaks it over MCP, and the Java and Go SDKs over HTTP. `v3.json` and `http-v3.json` record
+version 3, and the SDKs replay them as they replay `events.json`, `json.json` and `ed25519.json` (the table below).
+Everything below this note describes the vector files as they are, so where it differs from the four spec files
+above, it describes version 3, and those files give version 4.
 
 `vectors/` holds language-neutral vectors, so every implementation is held to one set of recorded answers.
 

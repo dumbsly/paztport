@@ -346,9 +346,10 @@ A chain is an array of stamps, **origin first**. It travels as its JCS bytes and
 - **Links.** Stamp *i* (for *i* ≥ 1) has `prev` equal to stamp *i − 1*'s `sig`. Because each signature covers
   `prev`, removing, reordering or inserting a stamp breaks a signature or a link.
 - **Shared values.** Every stamp carries the origin's `rid`. Every stamp carries the session's `sess`.
-- **Receivers.** Stamp *i*'s `rcv` MUST be stamp *i + 1*'s `svc`, or that `svc`, then `#`, then a non-empty
-  [operation](#operations) name, and the last stamp's `rcv` MUST equal the chain's receiver exactly. So each stamp
-  names the hop it was handed to, and a chain forwarded unchanged to anyone else fails.
+- **Receivers.** Stamp *i*'s `rcv` MUST be stamp *i + 1*'s `svc`, or that `svc`, then `#`, then an
+  [operation](#operations) name, which is a route node that holds no `#`, as an operation table's `name` is. The
+  last stamp's `rcv` MUST equal the chain's receiver exactly. So each stamp names the hop it was handed to, and a
+  chain forwarded unchanged to anyone else fails.
 - **The last stamp** is the one whose `bind` the receiver checks: it describes what was actually sent.
 - **Blocks.** Each stamp's `ext` commits to its own signer's block, and the blocks travel beside the chain
   ([Blocks](#blocks)).
@@ -383,7 +384,10 @@ such claim. Each stamp's signer attaches its items in a **block**, to which its 
 guarantees who made a claim and that it arrived intact, and never reads an item: what an item means is its
 extension's to say. [influence.md](influence.md) defines one extension.
 
-**Names.** An extension name is 1 to 32 characters, each one of `a` to `z`, `0` to `9` and `-`.
+**Names.** An extension name is 1 to 32 characters, each one of `a` to `z`, `0` to `9` and `-`. A lookup of an
+extension name in a block's `items`, or in a verifier's `actsOn` or `allowedExtensions`
+([verification.md](verification.md#inputs)), MUST find only the object's or the set's own members, so that a name
+such as `constructor` finds nothing where it is not listed.
 
 **A block** is a JSON object with exactly the members `items` and `requires`:
 
@@ -440,12 +444,14 @@ nothing from the request it was sent.
 **Requiring.** `requires` is the one way a block demands an extension. Only the direct caller's binds: a
 receiver refuses, before its handler runs, a request whose last block requires an extension it does not act on
 ([check 9c](verification.md#the-live-order)), unless it runs in audit mode, where 9c follows the mode as any
-other check does ([Modes and refusals](verification.md#modes-and-refusals)). The `requires` of an earlier block
-binds no hop after the one it was sent to. On a response the last block is the responder's, so a responder
-requires an extension of its caller the same way, and a caller that does not act on it refuses the response,
-though the handler has run ([verification.md](verification.md#the-live-order)). `requires` may hold an extension
-its signer does not act on, since it is the caller's setting for a destination: a hop that acts on nothing can
-still require an extension of the hop it calls. `requires` has no default: a caller sets it for each destination.
+other check does ([Modes and refusals](verification.md#modes-and-refusals)). A receiver that verifies no requests
+under a mode does not enforce a caller's `requires` either, and the caller learns of it only from an unattested
+response. The `requires` of an earlier block binds no hop after the one it was sent to. On a response the last
+block is the responder's, so a responder requires an extension of its caller the same way, and a caller that does
+not act on it refuses the response, though the handler has run ([verification.md](verification.md#the-live-order)).
+`requires` may hold an extension its signer does not act on, since it is the caller's setting for a destination: a
+hop that acts on nothing can still require an extension of the hop it calls. `requires` has no default: a caller
+sets it for each destination.
 
 ## Bindings
 
@@ -483,7 +489,7 @@ Rules:
 `v3.json` pins the prompt, `tools/call` and result bindings in `bindPrompt`, `bindMcpCall` and `bindResult`, and a
 local-tool binding through the `local step ok` case. `http-v3.json` pins the HTTP
 binding with and without a query in `requestBinding`, and the HTTP result hash in `resultHash`. `json.json` pins the
-refusals in `bindings`: each binding, given a lone surrogate in one string it hashes.
+refusals in `bindings`: each binding but the response binding, given a lone surrogate in one string it hashes.
 
 ## Carrying a chain
 

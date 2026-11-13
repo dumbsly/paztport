@@ -45,7 +45,8 @@ check 7 to refuse.
 `allowedExtensions` is the verifier's own setting, not part of the signed policy, and the signed root does not change
 with it. Unset, the verifier carries any name. It limits names, not what a hop puts inside an item, so it is hygiene
 for an owner who wants it, not a control on what a hop claims. It is kept out of the policy so that a new extension
-can be tried without first updating every verifier, as a list that every verifier enforced would require.
+can be tried without first updating every verifier, as a list that every verifier enforced would require. When it is
+set, every name in `actsOn` MUST be in it, since a service cannot act on an extension its own list refuses.
 
 ## The live order
 
@@ -216,8 +217,9 @@ goes to the verifier's own logs and to its [events](wire.md#events), never to th
   **`EXTENSION_NOT_ALLOWED` and `EXTENSION_REQUIRED` never are** ([attributable](wire.md#the-event)): like
   `POLICY_EXPIRED`, they report configuration, and two honest services can hold different settings. With a peer
   they name the peer, as every result of checks 1 to 12 does.
-- **An extension's own refusal names no one**, peer or not, and is never attributable: the sender may be a hop
-  that passed along an item it could not have read. These are the codes an extension gives
+- **An extension's own refusal names no one**, peer or not, and is never attributable: a refusal of a sound chain
+  for what shaped it is about content, not compromise, and an item that does not read may come from a sender that
+  passed it along and could not have read it. These are the codes an extension gives
   ([Reason codes](#reason-codes)). The service logs the signer of the offending block for its operator.
 
 ## The MCP server and client
@@ -515,7 +517,7 @@ The offline verifier runs the live checks in the live order, with these differen
 | 2, 3 | With `signers`, for a chain that never leaves one process (a local step, [MCP profile](README.md#the-mcp-profile)): the origin MUST report the expected instance (`BAD_ORIGIN`), and each stamp MUST be by the expected service and instance (`BAD_SIGNATURE`). |
 | 5 | Every stamp carries the `rid` the record files it under, which defaults to the origin's (`RID_MISMATCH`). |
 | 7 | In place of freshness: the last stamp's `ts` equals the time recorded with it (a record with no recorded time fails), and when the run's records give start times, the origin's `ts` is one of them (`TIME_MISMATCH`). The last stamp is at most `RUN_MAX_AGE_MS` after the origin and the origin at most `CALL_MAX_AGE_MS` after the last stamp (`EXPIRED`), with the limits the live verifier used, each its default unless the deployment set it. Then the origin binds the run's recorded prompt (`PROMPT_MISMATCH`); a run with no prompt, or a disputed one, fails. |
-| 9 | Check 9a runs, and check 9b when the offline verifier is given an `allowedExtensions` of its own. Check 9c is live only: a recorded call or response was checked against `actsOn` live, and the offline check has no `actsOn` to check against. |
+| 9 | Check 9a runs, and check 9b when the offline verifier is given an `allowedExtensions` of its own. Check 9c is live only: a recorded call or response was checked against `actsOn` live, which a record does not hold. An offline verifier that acts on an extension also applies that extension's reading of the items in the recorded blocks, as that extension says ([Reason codes](#reason-codes)); a core-only offline verifier reads no item. |
 | 10 | There is no peer offline. |
 | 11 | The nonce key has not been spent anywhere in the record set (`REPLAY`). A live cache that forgets after its window can't show that. |
 
@@ -539,7 +541,7 @@ Each kind of record is checked this way:
   in the entry-key form, its keyring under the server's policy key. A reply without them gives no `policyNotAfter`,
   and a response relying on it fails check 0 (`POLICY_EXPIRED`). Of the extension checks it runs 9a, and 9b when
   the checker is given an `allowedExtensions`, but not 9c, as for a recorded call: the response was checked against
-  `actsOn` live, and the offline check has none to check against.
+  the caller's `actsOn` live, which the record does not hold.
 - **A recorded local step** ([MCP profile](README.md#the-mcp-profile)): first, the step binds its call and
   decision: the `decision` token MUST read as a [decision](wire.md#bindings), and its `callId` MUST be the
   step's; a decision that does not read, or one for another call, is `BINDING_MISMATCH`, as is a binding that
@@ -592,7 +594,7 @@ relies on every recorded time. No edit to a record moves a `notAfter`, because t
 | `VERDICT_MISMATCH` | offline only | A recorded local step ([MCP profile](README.md#the-mcp-profile)) whose decision, re-derived from the signed rules, differs from the one it signed. |
 | `CLIENT_PATH_NOT_ALLOWED` | server decision | An MCP server's name ([MCP profile](README.md#the-mcp-profile)) for `PATH_NOT_ALLOWED` against the client's policy. |
 | `UNSAFE_SESSION` | server decision | The tool is disabled in an unsafe session. |
-| `INFLUENCE_MISMATCH` | extension | Its extension refused an item that does not read ([influence.md](influence.md#entries)). |
+| `INFLUENCE_MISMATCH` | extension, live and offline | Its extension refused an item that does not read ([influence.md](influence.md#entries)). |
 | `INFLUENCE_DENIED` | extension | Its extension refused a public write, at a service or in the client's local gate ([influence.md](influence.md#the-owner-aware-rule)). |
 | `SCOPE_DENIED` | client local ([MCP profile](README.md#the-mcp-profile)) | The local gate: a path or program outside the signed rules. |
 | `UNCHECKABLE` | client local ([MCP profile](README.md#the-mcp-profile)) | The local gate could not tell what the call would touch. |
@@ -701,9 +703,10 @@ A responder acts on rejections, for example by isolating the named instance.
   which is about the verifier's own configuration: every honest caller gets it once the verifier's policy
   expires, so it is never attributable, and the policy owner, not the responder, is the one to act.
   `EXTENSION_NOT_ALLOWED` and `EXTENSION_REQUIRED` are never attributable either: they report configuration,
-  and two honest services can hold different settings. An extension's own refusal (`INFLUENCE_MISMATCH`,
-  `INFLUENCE_DENIED`) names no one, because its sender may be a hop that passed a block along and could not have
-  read the item; `EXTENSION_MISMATCH`, which reports a block that does not match its stamp, is attributable.
+  and two honest services can hold different settings. An extension's own refusal names no one either:
+  `INFLUENCE_DENIED` because it refuses a sound chain for what shaped it, as above, and `INFLUENCE_MISMATCH`, an
+  item that does not read, because its sender may be a hop that passed a block along and could not have read the
+  item. `EXTENSION_MISMATCH`, which reports a block that does not match its stamp, is attributable.
 - **Act only on a named suspect.** A result with empty suspect fields names no one, by design: acting on it
   would let a forged chain point at anyone.
 - **Under mTLS, `suspectInst` is the transport peer's address.** The responder resolves it to an instance on

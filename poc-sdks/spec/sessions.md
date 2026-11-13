@@ -26,7 +26,7 @@ the server ignores the params' `_meta`, and the client the result's. A server MU
 member, or whose `request` is missing, not a string or does not read, with JSON-RPC error `-32602` (Invalid params),
 and open no session. A client MUST take a result with any other member, or whose `reply` is missing or not a string,
 as `MALFORMED_REPLY`, as it takes a reply that does not read ([its check](#the-clients-check-of-the-reply)).
-`v3.json` pins both readings, in `sessionParams` and `sessionResult` (MCP profile).
+`v3.json` pins the server's reading in `sessionParams` (MCP profile).
 
 ### The request
 
@@ -327,9 +327,12 @@ Once a call has verified in an attested session ([verification.md](verification.
 the server decides it:
 
 1. A call that failed verification is refused with its code.
-2. In an attested session, a write the server guards is decided by the extensions it acts on
+2. In an attested session, a call holding an item that an extension the server acts on refuses is refused with that
+   extension's code, `INFLUENCE_MISMATCH` for an influence item that does not read
+   ([influence.md](influence.md#entries)).
+3. In an attested session, a write the server guards is decided by the extensions it acts on
    ([influence.md](influence.md#over-mcp) says how influence decides one). Anything else is allowed.
-3. In an unsafe session, or with no session, the tools in `disabled` are refused (`UNSAFE_SESSION`).
+4. In an unsafe session, or with no session, the tools in `disabled` are refused (`UNSAFE_SESSION`).
 
 A refusal is a result with `isError: true` and `_meta["paztport/verdict"]` the token of `{ "reason": <code> }`, and
 the tool does not run. An audit-mode server runs the call anyway, and its verdict adds `"audit": true`. A server
