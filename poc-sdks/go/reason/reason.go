@@ -44,6 +44,19 @@ const (
 	PolicyExpired Code = "POLICY_EXPIRED"
 )
 
+// The codes of the spec's checks 9a to 9c, which test the extension blocks that travel with a chain. No verifier
+// in this SDK gives them yet.
+const (
+	// ExtensionMismatch means the blocks do not read, are not one per stamp, or one does not match its stamp's
+	// ext.
+	ExtensionMismatch Code = "EXTENSION_MISMATCH"
+	// ExtensionNotAllowed means a block names an extension the verifier's allowed extensions do not hold.
+	ExtensionNotAllowed Code = "EXTENSION_NOT_ALLOWED"
+	// ExtensionRequired, which only a live verifier gives, means the sender requires an extension the receiver
+	// does not act on.
+	ExtensionRequired Code = "EXTENSION_REQUIRED"
+)
+
 // The codes only an offline verifier gives. A client never accepts one as a server's verdict.
 const (
 	// TimeMismatch means a stamp's time is not the one recorded with it.

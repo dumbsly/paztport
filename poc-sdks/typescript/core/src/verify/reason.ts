@@ -53,6 +53,22 @@ export type ReasonCode =
    * by the sending peer. 403.
    */
   | "SESSION_UNKNOWN"
+  /**
+   * Check 9a: the blocks do not read, are not one per stamp, or one does not match its stamp's `ext`. 403; but 400
+   * wherever verification has not refused the request first: at a service that verifies nothing, when the blocks do
+   * not read as one per stamp, and in audit mode. No verifier in this SDK gives it yet.
+   */
+  | "EXTENSION_MISMATCH"
+  /**
+   * Check 9b: a block names an extension the verifier's `allowedExtensions` does not hold. 403. No verifier in this
+   * SDK gives it yet.
+   */
+  | "EXTENSION_NOT_ALLOWED"
+  /**
+   * Check 9c, live only: the sender requires an extension the receiver does not act on. 403. No verifier in this SDK
+   * gives it yet.
+   */
+  | "EXTENSION_REQUIRED"
   /** Check 11 at an MCP server, against the client's policy: its name for PATH_NOT_ALLOWED there. */
   | "CLIENT_PATH_NOT_ALLOWED"
   /**
