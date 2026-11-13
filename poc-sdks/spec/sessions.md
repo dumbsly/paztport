@@ -154,11 +154,12 @@ Paztport, and is treated as an unsafe session for this rule: no calls unless the
 sends no handshake at all, having no pin to check a reply against, is in an unsafe session with that server for this
 rule too. The requirement is the caller's guard for a server that does not act on the extension, so neither the
 server, by answering `"unsafe"`, nor anyone able to make the handshake fail can switch it off. A configuration
-switch lets the client continue instead, in both cases: it then proceeds as a client with no requirement does, in
-the session the reply gave it, and its calls carry no `requires` for the names it could not get
-([wire.md](wire.md#blocks)). Over MCP, a client that makes no call in a session with a server does not list the
-server's tools either (it sends no `tools/list`): a tool it cannot call has no use, and its description would reach
-the model unrecorded.
+switch lets the client continue instead, in each of these cases, as a client with no requirement does: after
+`EXTENSION_REQUIRED`, in the attested session the reply gave it, its calls carrying no `requires` for the names it
+could not get ([wire.md](wire.md#blocks)); in an unsafe session, however it came to be unsafe, one with no handshake
+included, unattested. Over MCP, a client that makes no call in a session with a server does not list the server's
+tools either (it sends no `tools/list`): a tool it cannot call has no use, and its description would reach the model
+unrecorded.
 
 `EXTENSION_REQUIRED` is an outcome of this check, as `PIN_MISMATCH` and `MALFORMED_REPLY` are; it shares its name
 with the verifier's code, as `BAD_SIGNATURE` already does. A mesh has no handshake, so there `requires` does this
