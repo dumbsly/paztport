@@ -398,10 +398,11 @@ extension's to say. [influence.md](influence.md) defines one extension.
 - A name need not be in both: one may be in `items` alone, in `requires` alone, or in both.
 
 Anything else does not read: another member, a name in either that is not an extension name, a value in `items`
-that is not an array, or a `requires` that is unsorted or names an extension twice.
+that is not an array, or a `requires` that is unsorted or holds a name twice.
 
-**What a name says.** A name in `items` is its signer's statement that it acts on that extension. `[]` says it
-acts on it and has nothing to add, which is not the same as leaving the name out, so a hop that adds nothing is
+**What a name says.** A block **names** an extension when the name is a member of its `items`; a name only in
+`requires` does not name it. A name in `items` is its signer's statement that it acts on that extension. `[]` says
+it acts on it and has nothing to add, which is not the same as leaving the name out, so a hop that adds nothing is
 told apart from a hop that does not act on the extension at all.
 
 **The commitment.** A stamp's `ext` is `""` when its block is the empty block `{"items":{},"requires":[]}`, and
@@ -431,9 +432,10 @@ The origin's `ext` is `""`, and the second stamp's is its block's commitment, `b
 unchanged, then its own. Each stamp's signature covers its `ext`, the commitment to its own signer's block, so
 a claim, once made, cannot be dropped or altered by a later hop without failing check 9a at every honest hop
 after it. A hop's own block holds all of its own items for this request so far, not only those since its last
-call. Its `items` names exactly the extensions its signer acts on, with `[]` where it has nothing to add, and
-MUST NOT name one its signer does not act on, since a name there is that statement. An origin starts a new
-request tree and carries nothing from the request it was sent.
+call. A signer MUST NOT name in `items` an extension it does not act on, since a name there is that statement.
+When a signer that acts on an extension must name it is that extension's to say
+([influence.md](influence.md#the-every-stamp-rule), for one). An origin starts a new request tree and carries
+nothing from the request it was sent.
 
 **Requiring.** `requires` is the one way a block demands an extension. Only the direct caller's binds: a
 receiver refuses, before its handler runs, a request whose last block requires an extension it does not act on
@@ -441,7 +443,7 @@ receiver refuses, before its handler runs, a request whose last block requires a
 other check does ([Modes and refusals](verification.md#modes-and-refusals)). The `requires` of an earlier block
 binds no hop after the one it was sent to. On a response the last block is the responder's, so a responder
 requires an extension of its caller the same way, and a caller that does not act on it refuses the response,
-though the handler has run ([verification.md](verification.md#the-live-order)). `requires` may name an extension
+though the handler has run ([verification.md](verification.md#the-live-order)). `requires` may hold an extension
 its signer does not act on, since it is the caller's setting for a destination: a hop that acts on nothing can
 still require an extension of the hop it calls. `requires` has no default: a caller sets it for each destination.
 

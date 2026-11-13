@@ -73,7 +73,8 @@ protocol: two implementations that order the checks differently disagree.
 Otherwise the result is `OK`.
 
 On `OK` the verifier hands the service, for each name in `actsOn`, one entry per stamp in chain order: the stamp's
-`svc`, and either that its block does not name the extension, or the items its block holds under it.
+`svc`, and either that its block does not name the extension ([wire.md](wire.md#blocks)), a block that only
+requires it included, or the items its block holds under it.
 
 **What a request served without verifying is handed.** A service that serves a request it did not verify, in
 audit mode after a failure or because it verifies no requests under a mode ([HTTP](#http-requests-and-responses)),
@@ -579,7 +580,7 @@ relies on every recorded time. No edit to a record moves a `notAfter`, because t
 | `PATH_NOT_ALLOWED` | live, offline, client local | The route is not proven against a current pinned root. Also the local gate's verdict for a tool its route list doesn't have. |
 | `SESSION_UNKNOWN` | live, offline | A stamp names another session. Over HTTP, also a call whose `X-Path-Session` names no live session opened by the sending peer. |
 | `EXTENSION_MISMATCH` | live, offline | The blocks do not read, are not one per stamp, or one does not match its stamp's `ext`. |
-| `EXTENSION_NOT_ALLOWED` | live, offline | A block names an extension the verifier's `allowedExtensions` does not hold. |
+| `EXTENSION_NOT_ALLOWED` | live, offline | A block holds, in `items` or `requires`, an extension name the verifier's `allowedExtensions` does not hold. |
 | `EXTENSION_REQUIRED` | live | The sender requires an extension the receiver does not act on. |
 | `PEER_MISMATCH` | live | The authenticated transport peer is not the last signer. |
 | `POLICY_EXPIRED` | live, offline, client local | Every keyring, or every root, the verifier relies on has expired. Live: `now` is past `policyNotAfter`. Offline: the record's own time is past the `notAfter` of a root or keyring it relies on, or for pinned keyrings and roots, of every keyring or every root. Names no one. Client local: the local gate's refusal of a step under an expired root or keyring. |

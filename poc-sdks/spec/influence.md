@@ -13,7 +13,8 @@ The key words MUST, MUST NOT, SHOULD, SHOULD NOT and MAY are to be read as descr
 Contents: [Where influence applies](#where-influence-applies) · [What it does not cover](#what-it-does-not-cover) ·
 [Classes](#classes) · [Entries](#entries) · [The every-stamp rule](#the-every-stamp-rule) ·
 [Content labels](#content-labels) · [The owner-aware rule](#the-owner-aware-rule) ·
-[Trusted records](#trusted-records) · [Over MCP](#over-mcp) · [Blinded influence](#blinded-influence)
+[Trusted records](#trusted-records) · [What the rules read](#what-the-rules-read) · [Over MCP](#over-mcp) ·
+[Blinded influence](#blinded-influence)
 
 ## Where influence applies
 
@@ -67,11 +68,11 @@ these members:
 
 Entries, labels and openings are read as [wire.md](wire.md#reading) reads any object. Entries and labels travel
 inside blocks, so the core reads their bytes with the blocks, and this file gives their schema. A service that acts
-on `influence` checks each item it is handed under that name. An item on a request's block MUST be rejected when it
-is not an object, has a member the table does not name, has an unknown `cls`, a `src` or `h` that is not a string,
-a `cid` that is not a string, or an `owner` that is not a non-empty string. An empty `owner` is rejected, not read
-as "no owner", so it can never be taken for a known one. An item on a response's block is read as a
-[label](#content-labels), which says what a caller does with one that does not read.
+on `influence` checks each item it is handed under that name, verified or not, before its handler runs. An item on a
+request's block MUST be rejected when it is not an object, has a member the table does not name, has an unknown
+`cls`, a `src` or `h` that is not a string, a `cid` that is not a string, or an `owner` that is not a non-empty
+string. An empty `owner` is rejected, not read as "no owner", so it can never be taken for a known one. An item on a
+response's block is read as a [label](#content-labels), which says what a caller does with one that does not read.
 
 A request holding an item that does not read is refused `INFLUENCE_MISMATCH`. Over HTTP the refusal is
 `400 {"reason":"INFLUENCE_MISMATCH"}`, in either mode: the core reads no item, so verification never refuses such
@@ -100,7 +101,10 @@ nothing to add, except in a boundary block whose internal chain has a stamp that
 ([Blinded influence](#blinded-influence)). A guarded public write is refused (`INFLUENCE_DENIED`), and a trusted
 record is not written, unless every stamp of the chain names `influence`, whatever the entries say. A stamp that
 does not name it is a hop that may have read anything, the model's host included, so the absence of an untrusted
-entry proves nothing.
+entry proves nothing. A block names `influence` only when it is a member of the block's `items`
+([wire.md](wire.md#blocks)): a pass-along block `{"items":{},"requires":["influence"]}` does not name it. Where no
+chain passed the live order at this hop, the rule reads what the service is shown
+([What the rules read](#what-the-rules-read)).
 
 This is the receiver demanding the extension from its own configuration. It holds whatever the caller's
 `requires` says, so a caller that leaves `requires` out gains nothing. `requires` ([wire.md](wire.md#blocks)) is
@@ -120,11 +124,11 @@ A server that acts on `influence` labels the content of each result it attests. 
   served, never from the content.
 
 The response stamp's `ext` commits to its block, so a label can't be changed in transit ([wire.md](wire.md#blocks)).
-A responder that acts on `influence` names it on every response it attests, with `[]` when it has no label. When
-any block of the response holds a label, it also puts `influence` in the `requires` of the response's last block,
-so a caller that does not act on `influence` refuses the response ([check 9c](verification.md#the-live-order)),
-not handing it to its application, instead of dropping the labels. Check 9c reads only the last block: over HTTP
-the response has one block, and over MCP the last block of the attestation is the one that must name it.
+A responder that acts on `influence` names it on every response it attests, with `[]` when it has no label. When any
+block of the response holds a label, it also puts `influence` in the `requires` of the response's last block, so a
+caller that does not act on `influence` refuses the response ([check 9c](verification.md#the-live-order)), not
+handing it to its application, instead of dropping the labels. Check 9c reads only the last block: over HTTP the
+response has one block, and over MCP the last block of the attestation is the one whose `requires` must hold it.
 
 A caller that acts on `influence` adds to what it holds, for each response to a call it makes:
 
@@ -185,8 +189,10 @@ its own trusted records, such as the authenticated account the write is for or t
 It MUST NOT take it from the request's arguments, from the content, or from the influence: those are what an
 attacker writes.
 
-A refused write is `INFLUENCE_DENIED`: over HTTP `403 {"reason":"INFLUENCE_DENIED"}`, and over MCP a verdict
-([Over MCP](#over-mcp)). Like `INFLUENCE_MISMATCH`, it names no one and is never attributable.
+A refused write is `INFLUENCE_DENIED`. Over HTTP it is `403 {"reason":"INFLUENCE_DENIED"}` in either mode: it is
+the service's own refusal of the write, not a result of verification, so it does not follow audit mode. Over MCP it
+is a verdict, which follows the mode: an audit-mode server runs the call and notes it ([Over MCP](#over-mcp)). Like
+`INFLUENCE_MISMATCH`, it names no one and is never attributable.
 
 `v3.json` pins the rule's truth table in `rule`: the two conditions above, not the every-stamp rule. In the agents
 demo, neither entries nor destinations have owners, so the rule reduces to "untrusted content plus any private data
@@ -220,6 +226,24 @@ steered it. A request that fails the rule MAY still be served, but the record MU
 | yes | yes | not written |
 | yes | no (no entries, or only `private` and `public` ones, with any owners) | may be written |
 
+### What the rules read
+
+The rules read what the service is shown, verified or not, plus what the service itself added. Where no chain
+passed the live order at this hop they cannot refuse for what they are not shown, and a trusted record is never
+written:
+
+| The request at this hop | What the rules read | A guarded public write | A trusted record |
+|---|---|---|---|
+| Its chain passed the live order here | every `influence` item handed on, plus what the service added | the every-stamp rule over the chain's stamps, then the owner-aware rule | may be written when every stamp names `influence` and no entry is untrusted |
+| Served but not verified, with items handed on as not verified (audit mode after a failure; a service that verifies no requests under a mode) | the items handed on, plus what the service added | the same two rules, over what is shown | never written |
+| Nothing handed on (the chain did not read; over MCP, an audit-mode call whose blocks failed check 9a) | what the service added | the owner-aware rule over what the service added; the every-stamp rule has no stamp to read and does not refuse: the rule cannot refuse for what it is not shown | never written |
+| At an origin | what the origin added | there is no earlier stamp, so the every-stamp rule holds; the owner-aware rule over what the origin added | never written |
+
+What is handed on, and when, is the core's ([the live order](verification.md#the-live-order)). The item check
+([Entries](#entries)) reads the items handed on, verified or not. An unsafe session is none of these rows: there
+the server believes nothing from the call, and a tool or endpoint that `disabled` does not list runs with no
+influence rule at all ([sessions.md](sessions.md#unsafe-sessions)).
+
 ## Over MCP
 
 This section belongs to [the MCP profile](README.md#the-mcp-profile).
@@ -229,10 +253,10 @@ the session's whole influence as its block's `influence` items, since the client
 
 **The server's decision.** A server that acts on `influence` decides a write to a public destination, once the call
 has verified in an attested session ([sessions.md](sessions.md#the-server-decision)), by the every-stamp rule and
-then the owner-aware rule, over the client's verified influence, the items its call's blocks carry, plus every
-class the server has served in this session (`INFLUENCE_DENIED`). The served classes only add facts: a client that
-fails to record a `private` or `third-party` label can't launder it past the rule. A served class carries no owner,
-so it counts as unknown.
+then the owner-aware rule, over the client's influence, the items handed on from its call's blocks
+([What the rules read](#what-the-rules-read)), plus every class the server has served in this session
+(`INFLUENCE_DENIED`). The served classes only add facts: a client that fails to record a `private` or `third-party`
+label can't launder it past the rule. A served class carries no owner, so it counts as unknown.
 
 An MCP server in audit mode runs every call and notes its verdict, `INFLUENCE_DENIED` and `INFLUENCE_MISMATCH`
 included, as for every code ([Modes and refusals](verification.md#modes-and-refusals)).
