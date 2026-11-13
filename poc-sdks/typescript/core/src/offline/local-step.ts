@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { canonicalize } from "../encoding/jcs.ts";
-import { entryOf, INFLUENCE, influenceClasses, type InfluenceClass } from "../influence/influence.ts";
+import { INFLUENCE, influenceClasses } from "../influence/influence.ts";
+import { readRequestInfluence } from "../influence/request.ts";
 import { decideLocalCall, type LocalVerdict } from "../local/local-decision.ts";
 import { localReceiver, localStepBind, readLocalDecision, type LocalDecision } from "../local/local-step.ts";
 import { isNotAfter } from "../policy/validity.ts";
@@ -145,14 +146,15 @@ export function verifyRecordedLocalStep(
     return fail("RID_MISMATCH");
   }
   // The extension's reading of the items, once check 9a has matched the blocks to the stamps the step signed, and
-  // before the step's POLICY_EXPIRED check and those after it (verification.md, Offline verification, row 9). No token is every block empty.
-  let classes: Set<InfluenceClass>;
-  try {
-    const blocks = step.blocks === null ? [] : readBlocks(step.blocks);
-    classes = influenceClasses(blocks.flatMap((b) => (itemsUnder(b, INFLUENCE) ?? []).map(entryOf)));
-  } catch {
-    return fail("INFLUENCE_MISMATCH");
+  // before the step's POLICY_EXPIRED check and those after it (verification.md, Offline verification, row 9). No
+  // token is every block empty. Check 9a has read the blocks, one per stamp, and check 3 that each stamp is by its
+  // service in `signers`, so this read does not throw and names each block's signer.
+  const blocks = step.blocks === null ? [] : readBlocks(step.blocks);
+  const read = readRequestInfluence(blocks.map((b, i) => ({ svc: signers.svcs[i]!, items: itemsUnder(b, INFLUENCE) })));
+  if (!read.reads) {
+    return fail(read.reason);
   }
+  const classes = influenceClasses(read.entries);
   // judged at the step's own signed time, now that the chain check has tied `now` to its last stamp's ts
   if (!within(client.rootNotAfter, step.now) || !within(client.keyringNotAfter, step.now)) {
     return fail("POLICY_EXPIRED");

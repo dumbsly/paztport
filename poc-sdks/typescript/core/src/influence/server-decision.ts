@@ -19,10 +19,10 @@ function contextInfluence(request: readonly InfluenceFact[], served: Iterable<In
 /**
  * The decision of a server that acts on influence on a call that verified in an attested session (spec sessions.md,
  * The server decision, steps 2 and 3), given `stamps`, the items the verifier handed on under `influence`, one entry
- * per stamp in chain order. First every item must read as an entry: one that does not is INFLUENCE_MISMATCH, with the
- * signer of the first block holding one, for the operator's log, since the code names no one. Only then is a write
- * to a public destination decided, by the every-stamp rule and then the owner-aware rule over the entries and the
- * classes `served` in the session (spec influence.md, Over MCP); anything else is allowed.
+ * per stamp in chain order. First every item must read as an entry: one that does not gives readRequestInfluence's
+ * code, with the signer of the first block holding one, for the operator's log, since the code names no one. Only
+ * then is a write to a public destination decided, by the every-stamp rule and then the owner-aware rule over the
+ * entries and the classes `served` in the session (spec influence.md, Over MCP); anything else is allowed.
  */
 export function decideVerifiedCall(
   stamps: readonly StampItems[],
@@ -36,7 +36,7 @@ export function decideVerifiedCall(
 ): { verdict: "OK" | "INFLUENCE_DENIED" } | { verdict: "INFLUENCE_MISMATCH"; signer: string } {
   const read = readRequestInfluence(stamps);
   if (!read.reads) {
-    return { verdict: "INFLUENCE_MISMATCH", signer: read.signer };
+    return { verdict: read.reason, signer: read.signer };
   }
   if (!opts.isWrite || !opts.publicDestination) {
     return { verdict: "OK" };
@@ -44,19 +44,4 @@ export function decideVerifiedCall(
   const facts = contextInfluence(read.entries, opts.served);
   const refused = guardedWriteRefused(read.everyStampNames, facts, opts.destinationOwner);
   return { verdict: refused ? "INFLUENCE_DENIED" : "OK" };
-}
-
-/**
- * The server's gate on a tools/call that no extension decides (spec sessions.md, The server decision, step 4): in an
- * unsafe session, or with no handshake yet, the tools in `disabledWhenUnsafe` are refused and every other tool runs
- * ungated; in an attested session the call is allowed here. A call that verified at a server that acts on influence
- * is decided by `decideVerifiedCall` first.
- */
-export function decideServerCall(opts: {
-  tool: string;
-  /** True only for a session opened as attested. */
-  attested: boolean;
-  disabledWhenUnsafe: readonly string[];
-}): "OK" | "UNSAFE_SESSION" {
-  return !opts.attested && opts.disabledWhenUnsafe.includes(opts.tool) ? "UNSAFE_SESSION" : "OK";
 }

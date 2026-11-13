@@ -4,10 +4,9 @@
 import { describe, expect, it } from "vitest";
 import type { JsonValue } from "../../src/encoding/json.ts";
 import type { InfluenceClass, InfluenceEntry } from "../../src/influence/influence.ts";
-import { decideServerCall, decideVerifiedCall } from "../../src/influence/server-decision.ts";
+import { decideVerifiedCall } from "../../src/influence/server-decision.ts";
 import type { StampItems } from "../../src/verify/extensions.ts";
 
-const DISABLED = ["create_branch", "create_or_update_file", "push_files", "create_pull_request", "add_issue_comment"];
 const entry = (cls: InfluenceClass, owner?: string): InfluenceEntry =>
   ({ cls, src: "web:example.com", h: "h1", ...(owner === undefined ? {} : { owner }) });
 /** A label, which a request's block must not take for an entry. */
@@ -69,23 +68,5 @@ describe("decideVerifiedCall", () => {
     const stamps: StampItems[] = [{ svc: "session", items: null }, { svc: "pi", items: [LABEL] }];
     expect(decideVerifiedCall(stamps, { isWrite: true, publicDestination: true, served: [] }))
       .toEqual({ verdict: "INFLUENCE_MISMATCH", signer: "pi" });
-  });
-});
-
-describe("decideServerCall", () => {
-  const gate = (tool: string, attested: boolean, disabledWhenUnsafe = DISABLED) =>
-    decideServerCall({ tool, attested, disabledWhenUnsafe });
-  it("anAttestedSessionIgnoresTheUnsafeGate", () => {
-    expect(DISABLED).toContain("create_branch");
-    expect(gate("create_branch", true)).toBe("OK");
-  });
-  it("theUnsafeGateRefusesListedTools", () => {
-    expect(gate("create_branch", false)).toBe("UNSAFE_SESSION");
-    expect(gate("list_issues", false)).toBe("OK");
-  });
-  it("aWriteLeftOutOfTheUnsafeListIsUngated", () => {
-    const disabledWhenUnsafe = ["create_pull_request"];
-    expect(gate("create_branch", false, disabledWhenUnsafe)).toBe("OK");
-    expect(gate("create_pull_request", false, disabledWhenUnsafe)).toBe("UNSAFE_SESSION");
   });
 });

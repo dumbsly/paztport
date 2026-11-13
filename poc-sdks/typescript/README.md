@@ -182,9 +182,10 @@ package's exports imports from it, so the core's verifier carries influence's it
 - **What a request holds.** `entryOf` reads one item as an entry: an object with exactly a known `cls`, a string `src`
   and `h`, and an optional string `cid` and non-empty string `owner`, or it throws. `readRequestInfluence(stamps)` reads
   the items handed on under `influence`, one entry of the hand-over per stamp, each by `entryOf`: it gives the entries
-  and whether every stamp names `influence`; or, when an item does not read as an entry, the signer of the first block
-  holding one, for the operator's log, since `INFLUENCE_MISMATCH` names no one. `influenceReason` gives a verified
-  request `INFLUENCE_MISMATCH` for such an item, and otherwise the verifier's reason.
+  and whether every stamp names `influence`; or, when an item does not read as an entry, `INFLUENCE_MISMATCH` and the
+  signer of the first block holding one, for the operator's log, since the code names no one. It is the one place
+  that code is given for such an item: `influenceReason`, `decideVerifiedCall` and the recorded local step take it
+  from there. `influenceReason` gives a verified request that code, and otherwise the verifier's reason.
 - **The rules.** `guardedWriteRefused(everyStampNames, influence, destinationOwner?)` is the every-stamp rule, then
   the owner-aware rule, `publicWriteRefused`; the caller takes the destination's owner from its own records.
   `shapedOnlyByTrusted` says whether influence holds no untrusted content, the condition on the content for writing

@@ -9,16 +9,17 @@ import { entryOf, INFLUENCE, type InfluenceEntry } from "./influence.ts";
 
 /**
  * What a request's received blocks hold for influence: the entries, and whether every stamp names `influence`, when
- * every item reads as an entry; otherwise the signer of the first block holding an item that does not, for the
- * operator's log, since the code names no one.
+ * every item reads as an entry; otherwise the code that gives, INFLUENCE_MISMATCH, and the signer of the first block
+ * holding an item that does not, for the operator's log, since the code names no one.
  */
 export type RequestInfluence =
   | { reads: true; entries: InfluenceEntry[]; everyStampNames: boolean }
-  | { reads: false; signer: string };
+  | { reads: false; reason: "INFLUENCE_MISMATCH"; signer: string };
 
 /**
  * Reads the items handed on under `influence`, one entry of `stamps` per stamp in chain order (spec influence.md, The
- * every-stamp rule and Entries): every item of every block, in order, each read as an entry. `everyStampNames` is
+ * every-stamp rule and Entries): every item of every block, in order, each read as an entry; an item that does not
+ * read is INFLUENCE_MISMATCH, the one place the code is given for it. `everyStampNames` is
  * false when a block does not name `influence`, and true when there is no stamp to read, since the rule cannot refuse
  * for what it is not shown (What the rules read). What the service adds itself is the caller's to add.
  */
@@ -33,7 +34,7 @@ export function readRequestInfluence(stamps: readonly StampItems[]): RequestInfl
     try {
       entries.push(...items.map(entryOf));
     } catch {
-      return { reads: false, signer: svc };
+      return { reads: false, reason: "INFLUENCE_MISMATCH", signer: svc };
     }
   }
   return { reads: true, entries, everyStampNames };
@@ -47,7 +48,8 @@ export function readRequestInfluence(stamps: readonly StampItems[]): RequestInfl
 export function influenceReason(v: ChainVerification): ReasonCode {
   const stamps = v.ok ? v.handOver?.get(INFLUENCE) : undefined;
   if (stamps === undefined) return v.reason;
-  return readRequestInfluence(stamps).reads ? v.reason : "INFLUENCE_MISMATCH";
+  const read = readRequestInfluence(stamps);
+  return read.reads ? v.reason : read.reason;
 }
 
 /**

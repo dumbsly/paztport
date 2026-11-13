@@ -34,17 +34,17 @@ describe("readRequestInfluence", () => {
 
   it("anItemThatIsNotAnEntryDoesNotRead", () => {
     expect(readRequestInfluence([{ svc: "a", items: [a] }, { svc: "b", items: [b, notAnEntry] }])).toEqual({
-      reads: false, signer: "b",
+      reads: false, reason: "INFLUENCE_MISMATCH", signer: "b",
     });
     // the first block holding one is named, also when an earlier block does not name the extension
     const stamps: StampItems[] = [
       { svc: "a", items: null }, { svc: "b", items: ["x"] }, { svc: "c", items: [notAnEntry] },
     ];
-    expect(readRequestInfluence(stamps)).toEqual({ reads: false, signer: "b" });
+    expect(readRequestInfluence(stamps)).toEqual({ reads: false, reason: "INFLUENCE_MISMATCH", signer: "b" });
     // null and an array are not entries either
     for (const item of [null, [[]]]) {
       expect(readRequestInfluence([{ svc: "a", items: [a] }, { svc: "b", items: [item] }]), JSON.stringify(item))
-        .toEqual({ reads: false, signer: "b" });
+        .toEqual({ reads: false, reason: "INFLUENCE_MISMATCH", signer: "b" });
     }
   });
 });
