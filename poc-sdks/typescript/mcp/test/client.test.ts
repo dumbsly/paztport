@@ -26,6 +26,7 @@ import {
   readSessionReply,
   readSessionRequest,
   replacementRequest,
+  requirement,
   sessionRequest,
   signKeyring,
   signSessionReply,
@@ -68,8 +69,8 @@ const CLIENT_POLICY = generateKeyPair();
 /** A client or server that acts on influence. */
 const ACTS = extensionSettings([INFLUENCE]);
 /** What a client requires of the server: influence, and with `continueWithout` it goes on without it. */
-const REQUIRES: Requirement = { extensions: [INFLUENCE], continueWithout: false };
-const CONTINUES: Requirement = { extensions: [INFLUENCE], continueWithout: true };
+const REQUIRES: Requirement = requirement([INFLUENCE]);
+const CONTINUES: Requirement = requirement([INFLUENCE], true);
 /** An unsafe session, for a client that acts on influence. */
 const UNSAFE: ResultContext = { session: "unsafe", extensions: ACTS };
 

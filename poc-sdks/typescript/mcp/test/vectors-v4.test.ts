@@ -9,7 +9,7 @@ import { describe, expect, it } from "vitest";
 import {
   INFLUENCE, NonceCache, callInSession, callsAfter, canonicalize, checkSessionReply, decode, decideVerifiedCall,
   encode, entryOf, extensionSettings, isAttestedSession, labelOf, newRecordSet, publicWriteRefused, readBlocks,
-  readRequestInfluence, recordedCallReason, recordedSession, responseEntries, sessionStatus,
+  readRequestInfluence, recordedCallReason, recordedSession, requirement, responseEntries, sessionStatus,
   readSessionRequest, readSessionReply, isCurrent, isNotAfter, pinnedNotAfter, printFile, signReplyCert,
   keyringSigningBytes, readKeyringFile, readReplyCertFile, readRootFile, replyCertSigningBytes, rootSigningBytes, sign,
   signKeyring, signRoot, signSessionReply, signingBytes, utf8, verifyChainOffline, verifyChain, verifyKeyring,
@@ -591,8 +591,7 @@ describe("known-answer vectors, version 4", () => {
   it("session requirement section", () => expect(committed.sessionRequirement.length).toBeGreaterThan(0));
   const requirements = committed.sessionRequirement.map((c: any): [string, any] => [c.name, c]);
   it.each(requirements)("session requirement %s", (_n, c: any) => {
-    const req = { extensions: c.requires, continueWithout: c.continueWithout };
-    expect(callsAfter(c.check, c.listed, req)).toEqual(c.expected);
+    expect(callsAfter(c.check, c.listed, requirement(c.requires, c.continueWithout))).toEqual(c.expected);
   });
 
   it("session status section", () => expect(committed.sessionStatus.length).toBeGreaterThan(0));

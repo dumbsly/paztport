@@ -22,7 +22,7 @@ import {
   callInSession, newRecordSet, parseLocalRules, recordedSession, rulesHash, stampLocalStep, verifyRecordedLocalStep,
   blockOf, callsAfter, commitBlock, extensionSettings, isAttestedSession, nonceKey, readBlocks, writeWire,
   INFLUENCE, decideVerifiedCall, entryOf, labelOf, publicWriteRefused, readRequestInfluence, readSessionReply,
-  recordedCallReason, responseEntries, verifyResponse,
+  recordedCallReason, requirement, responseEntries, verifyResponse,
 } from "@paztport/core";
 import type {
   ChainVerification, InfluenceFact, JsonValue, LocalRules, LocalVerdict, MerkleProof, Peer, ReasonCode, ReplyCert,
@@ -1565,7 +1565,7 @@ export function buildVectors(): Record<string, unknown> {
     name: string, outcome: ReplyCheck | null, listed: string[], requires: string[], continueWithout: boolean,
     expected: { calls: boolean; requires: string[] },
   ) => {
-    const got = callsAfter(outcome, listed, { extensions: requires, continueWithout });
+    const got = callsAfter(outcome, listed, requirement(requires, continueWithout));
     check(`session requirement ${name}`, got, expected);
     return { name, check: outcome, listed, requires, continueWithout, expected };
   };
