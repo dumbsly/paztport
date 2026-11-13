@@ -145,11 +145,19 @@ the outcome:
 5. When the session is attested and the client's configuration requires extensions of this server, each of them
    is in `extensions` (`EXTENSION_REQUIRED`).
 
-On `EXTENSION_REQUIRED` the client makes no call in that session. A configuration switch lets it continue
-instead: the session is then attested, and its calls carry no `requires` for the names the reply does not list
-([wire.md](wire.md#blocks)). `EXTENSION_REQUIRED` is an outcome of this check, as `PIN_MISMATCH` and
-`MALFORMED_REPLY` are; it shares its name with the verifier's code, as `BAD_SIGNATURE` already does. A mesh has no
-handshake, so there `requires` does this work on each call ([check 9c](verification.md#the-live-order)).
+**A client that requires extensions.** A client whose configuration requires extensions of a server makes calls
+to it only in an attested session whose reply lists each of them. On `EXTENSION_REQUIRED` it makes no call in that
+session. Nor does it make a call in an unsafe session with that server, however the session came to be unsafe:
+the reply's `status` said so (step 4), or the client took the replacement path, below, after an outcome from 1 to
+3, a JSON-RPC error or a timeout. The requirement is the caller's guard for a server that does not act on the
+extension, so neither the server, by answering `"unsafe"`, nor anyone able to make the handshake fail can switch it
+off. A configuration switch lets the client continue instead, in both cases: it then proceeds as a client with no
+requirement does, in the session the reply gave it, and its calls carry no `requires` for the names it could not
+get ([wire.md](wire.md#blocks)).
+
+`EXTENSION_REQUIRED` is an outcome of this check, as `PIN_MISMATCH` and `MALFORMED_REPLY` are; it shares its name
+with the verifier's code, as `BAD_SIGNATURE` already does. A mesh has no handshake, so there `requires` does this
+work on each call ([check 9c](verification.md#the-live-order)).
 
 The server's root, and in the entry-key form its keyring, are judged at `now` whatever the reply's `status`: an
 expired one is `BAD_SIGNATURE`, so the client takes its replacement path. A window is relied on only after the
@@ -179,9 +187,11 @@ roots `"paztport-root\n"`, keyrings `"paztport-keyring\n"`, responder events `"p
 After an outcome from 1 to 3, or a JSON-RPC error or timeout, the server may have opened an attested session
 the client can't use, so every unstamped call would be refused. The client SHOULD replace it: it sends the same
 request again with `clientRoot: null` and a fresh nonce, and trusts the reply to that either way. A reply
-`-32601` (Method not found) means the server has no Paztport, so there is nothing to replace. `EXTENSION_REQUIRED`
-does not lead to the replacement: the reply was sound, and an unsafe session with a server known not to act on the
-extension is what the requirement is there to prevent.
+`-32601` (Method not found) means the server has no Paztport, so there is nothing to replace. The replacement is an
+unsafe session, so a client that requires extensions of the server makes no call in it unless its switch lets it
+continue, as above. `EXTENSION_REQUIRED` does not lead to the replacement: the reply was sound, and the replacement
+would only give the client an unsafe session with a server known not to act on the extension, in which it makes
+no call.
 
 ### Over HTTP
 
@@ -396,7 +406,10 @@ MUST:
    HTTP error (a `404` included) or no answer within the handshake's timeout (10 s in the Java SDK) is followed by
    the replacement with no root, and the session is taken as unsafe whatever that reply says. From a server with no
    Paztport the replacement gets a `404` too, and the call fails. A reply that fails step 5 is not followed by the
-   replacement: the egress makes no call in that session, unless its configuration switch lets it continue.
+   replacement. An egress whose configuration requires extensions of the partner makes calls to it only in an
+   attested session whose reply lists each of them, as a client does ([above](#the-clients-check-of-the-reply)):
+   it makes no call after a reply that fails step 5, nor in an unsafe session with the partner, whether the reply
+   said `"unsafe"` or the session is the replacement, unless its configuration switch lets it continue.
 7. Take every partner reply as unattested. The partner does not attest what it answers, so nothing it says
    counts as more: an egress that acts on influence records each reply as one `local-untrusted` entry
    ([influence.md](influence.md#content-labels)).
