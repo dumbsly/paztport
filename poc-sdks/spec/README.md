@@ -186,7 +186,8 @@ the spec's objects and times, never from any implementation's record format:
 - `verify`: live verify cases (each kind of receiver, operations named in `rcv` (a route through them, a chain
   naming another operation, a receiver naming none, an inner `rcv` naming another service's operation, an empty
   operation, an inner operation holding a `/` or a `#`, and a proof for another operation's route), a stamp whose
-  `v` is not 3, malformed `rcv` fields, the check order, the peer and attribution, replay, an altered owner, and
+  `v` is not 3, malformed `rcv` fields, the check order, the peer and attribution, replay, an altered owner, an origin not allowed, a stamp linked to
+  another origin, a stamp with another `rid` and one from another session, and
   the pinned policy's window: at it, past it, out of range, and past it before a bad signature or a malformed
   chain, and a stamp `ts` of −2^63, written exactly, and several pinned keyrings and roots: a proof under the
   second root, a `rootId` pinned nowhere, a rotated key only in the second keyring, a chain whose keys come from

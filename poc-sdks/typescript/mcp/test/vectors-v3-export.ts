@@ -537,6 +537,11 @@ export function buildVectors(): Record<string, unknown> {
     live(callCase("no peer, path not allowed", { proofRoute: OTHER_ROUTE }), no("PATH_NOT_ALLOWED", "pi", "pi-1")),
     live(callCase("replay", { uses: 2 }), no("REPLAY")),
     live(callCase("influence owner altered", { influence: INFLUENCE.map((e) => (e.owner === undefined ? e : { ...e, owner: "bob" })) }), no("INFLUENCE_MISMATCH")),
+    // Refusals no other case reaches: checks 3, 4 (the link), 5 and 6.
+    live(callCase("an origin that is not allowed", { allowedOrigins: ["gateway"] }), no("BAD_ORIGIN")),
+    live(callCase("a stamp linked to another origin", { chain: [origin, stampBy(hopFields(strayOrigin.sig), "pi")] }), no("BROKEN_LINK")),
+    live(callCase("a stamp with another rid", { chain: [origin, stampBy({ ...hopFields(origin.sig), rid: "rid-other" }, "pi")] }), no("RID_MISMATCH")),
+    live(callCase("a stamp from another session", { sess: "sess-other" }), no("SESSION_UNKNOWN")),
     // The check order: signatures before receivers, the route before the peer.
     live(callCase("bad signature beats bad receiver", { chain: strayForgedCall }), no("BAD_SIGNATURE")),
     live(callCase("route fails before peer", { proofRoute: OTHER_ROUTE, peer: { svc: "search", inst: "10.0.0.9" } }), no("PATH_NOT_ALLOWED", "search", "10.0.0.9")),

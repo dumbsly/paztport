@@ -2037,6 +2037,298 @@
       }
     },
     {
+      "name": "an origin that is not allowed",
+      "chain": [
+        {
+          "v": 3,
+          "svc": "session",
+          "inst": "pi-1",
+          "rid": "rid-1",
+          "ts": 1767225598000,
+          "sess": "sess-1",
+          "rcv": "pi",
+          "bind": "GHG2oeO8ahTQudo8ccWAGXTPNXpDcXX_dY_l1pjy4Uk",
+          "infl": "",
+          "prev": "",
+          "sig": "b6q50Uvh7xxcJ7FRbX1OauDFVr0rwuJCdwrO0kp2Tm9k0lGMh95cARReqCKbrUuFULOkXaUBnAjC7V5niEisDA"
+        },
+        {
+          "v": 3,
+          "svc": "pi",
+          "inst": "pi-1",
+          "rid": "rid-1",
+          "ts": 1767225599000,
+          "sess": "sess-1",
+          "rcv": "mcp:github.create_pull_request",
+          "bind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
+          "infl": "OU-U8zauOZJUuP-yxVOIVr4hNe1NIU8bmkyoKVxMA6g",
+          "prev": "b6q50Uvh7xxcJ7FRbX1OauDFVr0rwuJCdwrO0kp2Tm9k0lGMh95cARReqCKbrUuFULOkXaUBnAjC7V5niEisDA",
+          "sig": "yrHGYCIfpr5aP5gtUzuwTKNLwfbhSawsjOjIFnhuJZGt3LKPffWQP-f3FkSPKfKXH-EfhECCSOEFyI_uBRAbBw"
+        }
+      ],
+      "chainToken": "W3siYmluZCI6IkdIRzJvZU84YWhUUXVkbzhjY1dBR1hUUE5YcERjWFhfZFlfbDFwank0VWsiLCJpbmZsIjoiIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiIiwicmN2IjoicGkiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiJzZXNzLTEiLCJzaWciOiJiNnE1MFV2aDd4eGNKN0ZSYlgxT2F1REZWcjByd3VKQ2R3ck8wa3AyVG05azBsR01oOTVjQVJSZXFDS2JyVXVGVUxPa1hhVUJuQWpDN1Y1bmlFaXNEQSIsInN2YyI6InNlc3Npb24iLCJ0cyI6MTc2NzIyNTU5ODAwMCwidiI6M30seyJiaW5kIjoiMU9DUHJrZjJhUTJ6TVJPZzllOXkxSjJVdC1fZVlVSlNYTkxBbHZDREJvSSIsImluZmwiOiJPVS1VOHphdU9aSlV1UC15eFZPSVZyNGhOZTFOSVU4Ym1reW9LVnhNQTZnIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiYjZxNTBVdmg3eHhjSjdGUmJYMU9hdURGVnIwcnd1SkNkd3JPMGtwMlRtOWswbEdNaDk1Y0FSUmVxQ0ticlV1RlVMT2tYYVVCbkFqQzdWNW5pRWlzREEiLCJyY3YiOiJtY3A6Z2l0aHViLmNyZWF0ZV9wdWxsX3JlcXVlc3QiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiJzZXNzLTEiLCJzaWciOiJ5ckhHWUNJZnByNWFQNWd0VXp1d1RLTkx3ZmJoU2F3c2pPaklGbmh1SlpHdDNMS1BmZldRUC1mM0ZrU1BLZktYSC1FZmhFQ0NTT0VGeUlfdUJSQWJCdyIsInN2YyI6InBpIiwidHMiOjE3NjcyMjU1OTkwMDAsInYiOjN9XQ",
+      "expectedBind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
+      "influence": [
+        {
+          "cls": "third-party",
+          "src": "web:example.com",
+          "h": "h2"
+        },
+        {
+          "cls": "private",
+          "src": "github:acme/app#42",
+          "h": "h1",
+          "cid": "cid-1",
+          "owner": "alice"
+        }
+      ],
+      "influenceToken": "W3siY2xzIjoidGhpcmQtcGFydHkiLCJoIjoiaDIiLCJzcmMiOiJ3ZWI6ZXhhbXBsZS5jb20ifSx7ImNpZCI6ImNpZC0xIiwiY2xzIjoicHJpdmF0ZSIsImgiOiJoMSIsIm93bmVyIjoiYWxpY2UiLCJzcmMiOiJnaXRodWI6YWNtZS9hcHAjNDIifV0",
+      "policy": "client",
+      "proofRoute": "session/pi/mcp:github.create_pull_request",
+      "receiver": "mcp:github.create_pull_request",
+      "receiverInRoute": true,
+      "peer": null,
+      "keyring": {
+        "session": "session",
+        "pi": "pi"
+      },
+      "allowedOrigins": [
+        "gateway"
+      ],
+      "sess": "sess-1",
+      "nonceKey": "rid-1|call-1|req",
+      "now": 1767225600000,
+      "callMaxAgeMs": 5000,
+      "runMaxAgeMs": 1800000,
+      "nonceTtlMs": 15000,
+      "policyNotAfter": 4102444800000,
+      "uses": 1,
+      "expected": {
+        "reason": "BAD_ORIGIN",
+        "suspectSvc": "",
+        "suspectInst": ""
+      }
+    },
+    {
+      "name": "a stamp linked to another origin",
+      "chain": [
+        {
+          "v": 3,
+          "svc": "session",
+          "inst": "pi-1",
+          "rid": "rid-1",
+          "ts": 1767225598000,
+          "sess": "sess-1",
+          "rcv": "pi",
+          "bind": "GHG2oeO8ahTQudo8ccWAGXTPNXpDcXX_dY_l1pjy4Uk",
+          "infl": "",
+          "prev": "",
+          "sig": "b6q50Uvh7xxcJ7FRbX1OauDFVr0rwuJCdwrO0kp2Tm9k0lGMh95cARReqCKbrUuFULOkXaUBnAjC7V5niEisDA"
+        },
+        {
+          "v": 3,
+          "svc": "pi",
+          "inst": "pi-1",
+          "rid": "rid-1",
+          "ts": 1767225599000,
+          "sess": "sess-1",
+          "rcv": "mcp:github.create_pull_request",
+          "bind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
+          "infl": "OU-U8zauOZJUuP-yxVOIVr4hNe1NIU8bmkyoKVxMA6g",
+          "prev": "-ZfTxR7GaGU6EgjsucFbS43eYabPOepitdFx5UrOTh1qcLJksN5uwQooxTOnevyqucPf0ZCK0WVO1ntkqb1nAQ",
+          "sig": "MUFwg3GTiy5ZXTor233TT3vLwCJ2MBI9Xard2aVJvZNRBQs_57_cYK-rYof6ILK9UbxTBB6kDiQgkHkEL1uWBw"
+        }
+      ],
+      "chainToken": "W3siYmluZCI6IkdIRzJvZU84YWhUUXVkbzhjY1dBR1hUUE5YcERjWFhfZFlfbDFwank0VWsiLCJpbmZsIjoiIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiIiwicmN2IjoicGkiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiJzZXNzLTEiLCJzaWciOiJiNnE1MFV2aDd4eGNKN0ZSYlgxT2F1REZWcjByd3VKQ2R3ck8wa3AyVG05azBsR01oOTVjQVJSZXFDS2JyVXVGVUxPa1hhVUJuQWpDN1Y1bmlFaXNEQSIsInN2YyI6InNlc3Npb24iLCJ0cyI6MTc2NzIyNTU5ODAwMCwidiI6M30seyJiaW5kIjoiMU9DUHJrZjJhUTJ6TVJPZzllOXkxSjJVdC1fZVlVSlNYTkxBbHZDREJvSSIsImluZmwiOiJPVS1VOHphdU9aSlV1UC15eFZPSVZyNGhOZTFOSVU4Ym1reW9LVnhNQTZnIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiLVpmVHhSN0dhR1U2RWdqc3VjRmJTNDNlWWFiUE9lcGl0ZEZ4NVVyT1RoMXFjTEprc041dXdRb294VE9uZXZ5cXVjUGYwWkNLMFdWTzFudGtxYjFuQVEiLCJyY3YiOiJtY3A6Z2l0aHViLmNyZWF0ZV9wdWxsX3JlcXVlc3QiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiJzZXNzLTEiLCJzaWciOiJNVUZ3ZzNHVGl5NVpYVG9yMjMzVFQzdkx3Q0oyTUJJOVhhcmQyYVZKdlpOUkJRc181N19jWUstcllvZjZJTEs5VWJ4VEJCNmtEaVFna0hrRUwxdVdCdyIsInN2YyI6InBpIiwidHMiOjE3NjcyMjU1OTkwMDAsInYiOjN9XQ",
+      "expectedBind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
+      "influence": [
+        {
+          "cls": "third-party",
+          "src": "web:example.com",
+          "h": "h2"
+        },
+        {
+          "cls": "private",
+          "src": "github:acme/app#42",
+          "h": "h1",
+          "cid": "cid-1",
+          "owner": "alice"
+        }
+      ],
+      "influenceToken": "W3siY2xzIjoidGhpcmQtcGFydHkiLCJoIjoiaDIiLCJzcmMiOiJ3ZWI6ZXhhbXBsZS5jb20ifSx7ImNpZCI6ImNpZC0xIiwiY2xzIjoicHJpdmF0ZSIsImgiOiJoMSIsIm93bmVyIjoiYWxpY2UiLCJzcmMiOiJnaXRodWI6YWNtZS9hcHAjNDIifV0",
+      "policy": "client",
+      "proofRoute": "session/pi/mcp:github.create_pull_request",
+      "receiver": "mcp:github.create_pull_request",
+      "receiverInRoute": true,
+      "peer": null,
+      "keyring": {
+        "session": "session",
+        "pi": "pi"
+      },
+      "allowedOrigins": [
+        "session"
+      ],
+      "sess": "sess-1",
+      "nonceKey": "rid-1|call-1|req",
+      "now": 1767225600000,
+      "callMaxAgeMs": 5000,
+      "runMaxAgeMs": 1800000,
+      "nonceTtlMs": 15000,
+      "policyNotAfter": 4102444800000,
+      "uses": 1,
+      "expected": {
+        "reason": "BROKEN_LINK",
+        "suspectSvc": "",
+        "suspectInst": ""
+      }
+    },
+    {
+      "name": "a stamp with another rid",
+      "chain": [
+        {
+          "v": 3,
+          "svc": "session",
+          "inst": "pi-1",
+          "rid": "rid-1",
+          "ts": 1767225598000,
+          "sess": "sess-1",
+          "rcv": "pi",
+          "bind": "GHG2oeO8ahTQudo8ccWAGXTPNXpDcXX_dY_l1pjy4Uk",
+          "infl": "",
+          "prev": "",
+          "sig": "b6q50Uvh7xxcJ7FRbX1OauDFVr0rwuJCdwrO0kp2Tm9k0lGMh95cARReqCKbrUuFULOkXaUBnAjC7V5niEisDA"
+        },
+        {
+          "v": 3,
+          "svc": "pi",
+          "inst": "pi-1",
+          "rid": "rid-other",
+          "ts": 1767225599000,
+          "sess": "sess-1",
+          "rcv": "mcp:github.create_pull_request",
+          "bind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
+          "infl": "OU-U8zauOZJUuP-yxVOIVr4hNe1NIU8bmkyoKVxMA6g",
+          "prev": "b6q50Uvh7xxcJ7FRbX1OauDFVr0rwuJCdwrO0kp2Tm9k0lGMh95cARReqCKbrUuFULOkXaUBnAjC7V5niEisDA",
+          "sig": "3llIrO5bgfgoMDBtbn16kn-pVTzZRbeh2wYwOj8vP4x6bi9aI8iLIKgse5s-qLy1jb1kXBwOwk_McyJDcDR5Dw"
+        }
+      ],
+      "chainToken": "W3siYmluZCI6IkdIRzJvZU84YWhUUXVkbzhjY1dBR1hUUE5YcERjWFhfZFlfbDFwank0VWsiLCJpbmZsIjoiIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiIiwicmN2IjoicGkiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiJzZXNzLTEiLCJzaWciOiJiNnE1MFV2aDd4eGNKN0ZSYlgxT2F1REZWcjByd3VKQ2R3ck8wa3AyVG05azBsR01oOTVjQVJSZXFDS2JyVXVGVUxPa1hhVUJuQWpDN1Y1bmlFaXNEQSIsInN2YyI6InNlc3Npb24iLCJ0cyI6MTc2NzIyNTU5ODAwMCwidiI6M30seyJiaW5kIjoiMU9DUHJrZjJhUTJ6TVJPZzllOXkxSjJVdC1fZVlVSlNYTkxBbHZDREJvSSIsImluZmwiOiJPVS1VOHphdU9aSlV1UC15eFZPSVZyNGhOZTFOSVU4Ym1reW9LVnhNQTZnIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiYjZxNTBVdmg3eHhjSjdGUmJYMU9hdURGVnIwcnd1SkNkd3JPMGtwMlRtOWswbEdNaDk1Y0FSUmVxQ0ticlV1RlVMT2tYYVVCbkFqQzdWNW5pRWlzREEiLCJyY3YiOiJtY3A6Z2l0aHViLmNyZWF0ZV9wdWxsX3JlcXVlc3QiLCJyaWQiOiJyaWQtb3RoZXIiLCJzZXNzIjoic2Vzcy0xIiwic2lnIjoiM2xsSXJPNWJnZmdvTURCdGJuMTZrbi1wVlR6WlJiZWgyd1l3T2o4dlA0eDZiaTlhSThpTElLZ3NlNXMtcUx5MWpiMWtYQndPd2tfTWN5SkRjRFI1RHciLCJzdmMiOiJwaSIsInRzIjoxNzY3MjI1NTk5MDAwLCJ2IjozfV0",
+      "expectedBind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
+      "influence": [
+        {
+          "cls": "third-party",
+          "src": "web:example.com",
+          "h": "h2"
+        },
+        {
+          "cls": "private",
+          "src": "github:acme/app#42",
+          "h": "h1",
+          "cid": "cid-1",
+          "owner": "alice"
+        }
+      ],
+      "influenceToken": "W3siY2xzIjoidGhpcmQtcGFydHkiLCJoIjoiaDIiLCJzcmMiOiJ3ZWI6ZXhhbXBsZS5jb20ifSx7ImNpZCI6ImNpZC0xIiwiY2xzIjoicHJpdmF0ZSIsImgiOiJoMSIsIm93bmVyIjoiYWxpY2UiLCJzcmMiOiJnaXRodWI6YWNtZS9hcHAjNDIifV0",
+      "policy": "client",
+      "proofRoute": "session/pi/mcp:github.create_pull_request",
+      "receiver": "mcp:github.create_pull_request",
+      "receiverInRoute": true,
+      "peer": null,
+      "keyring": {
+        "session": "session",
+        "pi": "pi"
+      },
+      "allowedOrigins": [
+        "session"
+      ],
+      "sess": "sess-1",
+      "nonceKey": "rid-1|call-1|req",
+      "now": 1767225600000,
+      "callMaxAgeMs": 5000,
+      "runMaxAgeMs": 1800000,
+      "nonceTtlMs": 15000,
+      "policyNotAfter": 4102444800000,
+      "uses": 1,
+      "expected": {
+        "reason": "RID_MISMATCH",
+        "suspectSvc": "",
+        "suspectInst": ""
+      }
+    },
+    {
+      "name": "a stamp from another session",
+      "chain": [
+        {
+          "v": 3,
+          "svc": "session",
+          "inst": "pi-1",
+          "rid": "rid-1",
+          "ts": 1767225598000,
+          "sess": "sess-1",
+          "rcv": "pi",
+          "bind": "GHG2oeO8ahTQudo8ccWAGXTPNXpDcXX_dY_l1pjy4Uk",
+          "infl": "",
+          "prev": "",
+          "sig": "b6q50Uvh7xxcJ7FRbX1OauDFVr0rwuJCdwrO0kp2Tm9k0lGMh95cARReqCKbrUuFULOkXaUBnAjC7V5niEisDA"
+        },
+        {
+          "v": 3,
+          "svc": "pi",
+          "inst": "pi-1",
+          "rid": "rid-1",
+          "ts": 1767225599000,
+          "sess": "sess-1",
+          "rcv": "mcp:github.create_pull_request",
+          "bind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
+          "infl": "OU-U8zauOZJUuP-yxVOIVr4hNe1NIU8bmkyoKVxMA6g",
+          "prev": "b6q50Uvh7xxcJ7FRbX1OauDFVr0rwuJCdwrO0kp2Tm9k0lGMh95cARReqCKbrUuFULOkXaUBnAjC7V5niEisDA",
+          "sig": "yrHGYCIfpr5aP5gtUzuwTKNLwfbhSawsjOjIFnhuJZGt3LKPffWQP-f3FkSPKfKXH-EfhECCSOEFyI_uBRAbBw"
+        }
+      ],
+      "chainToken": "W3siYmluZCI6IkdIRzJvZU84YWhUUXVkbzhjY1dBR1hUUE5YcERjWFhfZFlfbDFwank0VWsiLCJpbmZsIjoiIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiIiwicmN2IjoicGkiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiJzZXNzLTEiLCJzaWciOiJiNnE1MFV2aDd4eGNKN0ZSYlgxT2F1REZWcjByd3VKQ2R3ck8wa3AyVG05azBsR01oOTVjQVJSZXFDS2JyVXVGVUxPa1hhVUJuQWpDN1Y1bmlFaXNEQSIsInN2YyI6InNlc3Npb24iLCJ0cyI6MTc2NzIyNTU5ODAwMCwidiI6M30seyJiaW5kIjoiMU9DUHJrZjJhUTJ6TVJPZzllOXkxSjJVdC1fZVlVSlNYTkxBbHZDREJvSSIsImluZmwiOiJPVS1VOHphdU9aSlV1UC15eFZPSVZyNGhOZTFOSVU4Ym1reW9LVnhNQTZnIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiYjZxNTBVdmg3eHhjSjdGUmJYMU9hdURGVnIwcnd1SkNkd3JPMGtwMlRtOWswbEdNaDk1Y0FSUmVxQ0ticlV1RlVMT2tYYVVCbkFqQzdWNW5pRWlzREEiLCJyY3YiOiJtY3A6Z2l0aHViLmNyZWF0ZV9wdWxsX3JlcXVlc3QiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiJzZXNzLTEiLCJzaWciOiJ5ckhHWUNJZnByNWFQNWd0VXp1d1RLTkx3ZmJoU2F3c2pPaklGbmh1SlpHdDNMS1BmZldRUC1mM0ZrU1BLZktYSC1FZmhFQ0NTT0VGeUlfdUJSQWJCdyIsInN2YyI6InBpIiwidHMiOjE3NjcyMjU1OTkwMDAsInYiOjN9XQ",
+      "expectedBind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
+      "influence": [
+        {
+          "cls": "third-party",
+          "src": "web:example.com",
+          "h": "h2"
+        },
+        {
+          "cls": "private",
+          "src": "github:acme/app#42",
+          "h": "h1",
+          "cid": "cid-1",
+          "owner": "alice"
+        }
+      ],
+      "influenceToken": "W3siY2xzIjoidGhpcmQtcGFydHkiLCJoIjoiaDIiLCJzcmMiOiJ3ZWI6ZXhhbXBsZS5jb20ifSx7ImNpZCI6ImNpZC0xIiwiY2xzIjoicHJpdmF0ZSIsImgiOiJoMSIsIm93bmVyIjoiYWxpY2UiLCJzcmMiOiJnaXRodWI6YWNtZS9hcHAjNDIifV0",
+      "policy": "client",
+      "proofRoute": "session/pi/mcp:github.create_pull_request",
+      "receiver": "mcp:github.create_pull_request",
+      "receiverInRoute": true,
+      "peer": null,
+      "keyring": {
+        "session": "session",
+        "pi": "pi"
+      },
+      "allowedOrigins": [
+        "session"
+      ],
+      "sess": "sess-other",
+      "nonceKey": "rid-1|call-1|req",
+      "now": 1767225600000,
+      "callMaxAgeMs": 5000,
+      "runMaxAgeMs": 1800000,
+      "nonceTtlMs": 15000,
+      "policyNotAfter": 4102444800000,
+      "uses": 1,
+      "expected": {
+        "reason": "SESSION_UNKNOWN",
+        "suspectSvc": "",
+        "suspectInst": ""
+      }
+    },
+    {
       "name": "bad signature beats bad receiver",
       "chain": [
         {
