@@ -3,6 +3,7 @@
 
 import { readFileSync, realpathSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { requirement } from "@paztport/core";
 
 export type ExtensionMode = "enforce" | "no-root" | "off";
 
@@ -15,6 +16,13 @@ export type ServerSpec = {
   attested: boolean;
   /** Path to the server policy public key file; defaults to <clientDir>/server-policy.pub when attested. */
   pin?: string;
+  /**
+   * The extensions this client requires of the server, as read: it calls the server only in an attested session whose
+   * reply lists each of them (spec sessions.md, A client that requires extensions). Attested servers only.
+   */
+  requires?: string[];
+  /** The switch that lets the client call the server without what it `requires`, as one with no requirement does. */
+  continueWithoutRequired?: boolean;
 };
 
 export type PaztportConfig = {
@@ -77,6 +85,27 @@ function parseServer(v: unknown, i: number, dir: string, clientDir: string, seen
     spec.pin = resolve(dir, nonEmptyString(v.pin, `${at}.pin`));
   } else if (v.attested) {
     spec.pin = join(clientDir, DEFAULT_PIN);
+  }
+  if (v.requires !== undefined) {
+    if (!v.attested) {
+      throw new Error(`config ${at}.requires needs an attested server: an unattested one opens no session to hold it`);
+    }
+    // a string is iterable too, so the SDK would read "influence" as nine one-letter names
+    if (!Array.isArray(v.requires)) {
+      throw new Error(`config ${at}.requires must be an array of extension names`);
+    }
+    try {
+      requirement(v.requires);
+    } catch (e) {
+      throw new Error(`config ${at}.requires must be an array of extension names: ${(e as Error).message}`);
+    }
+    spec.requires = [...(v.requires as string[])];
+  }
+  if (v.continueWithoutRequired !== undefined) {
+    if (typeof v.continueWithoutRequired !== "boolean") {
+      throw new Error(`config ${at}.continueWithoutRequired must be a boolean`);
+    }
+    spec.continueWithoutRequired = v.continueWithoutRequired;
   }
   return spec;
 }

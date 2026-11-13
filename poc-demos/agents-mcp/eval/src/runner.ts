@@ -287,7 +287,17 @@ export async function runOnce(spec: RunSpec, onLine?: (file: LineFile, line: str
           ...(scenario.localTools ? { clientPolicyDir: join(demoDir, "client", scenario.clientPolicy!) } : {}),
           eventsLog: path("events.jsonl"),
           ...(enforced ? { evidenceLog: path("evidence.jsonl") } : {}),
-          servers: [{ id: scenario.serverId, command: process.execPath, args: serverArgs, attested: enforced }],
+          // Enforced, the client requires influence of the server, whose rule it relies on for public writes; an
+          // unattested server can be required of nothing.
+          servers: [
+            {
+              id: scenario.serverId,
+              command: process.execPath,
+              args: serverArgs,
+              attested: enforced,
+              ...(enforced ? { requires: ["influence"] } : {}),
+            },
+          ],
         },
         null,
         2,

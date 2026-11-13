@@ -17,7 +17,7 @@ import {
 import { assertOutsideWorkspace, loadConfig, resolveConfigPath, type PaztportConfig } from "./config.ts";
 import { ServerConnection, type CallOutcome } from "./connection.ts";
 import { EventLog } from "./events.ts";
-import { clientRecord, EvidenceLog } from "./evidence.ts";
+import { clientRecord, EVIDENCE_VERSION, EvidenceLog } from "./evidence.ts";
 import { contentHash, InfluenceStore } from "./influence.ts";
 import { loadClientMaterial, type ClientMaterial } from "./keys.ts";
 import { LocalGate } from "./local/gate.ts";
@@ -474,7 +474,7 @@ export default function paztport(pi: ExtensionAPI): void {
       }
       const run = runs.current();
       if (run !== undefined) {
-        evidence.write({ v: 1, type: "run", rid: run.rid, ts, prompt: event.prompt });
+        evidence.write({ v: EVIDENCE_VERSION, type: "run", rid: run.rid, ts, prompt: event.prompt });
       }
     }
   });

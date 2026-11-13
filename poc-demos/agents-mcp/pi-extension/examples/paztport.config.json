@@ -12,7 +12,8 @@
         "--config", "/path/to/paztport/poc-demos/agents-mcp/.demo/server",
         "--outcome-log", "/path/to/runs/outcome.jsonl"
       ],
-      "attested": true
+      "attested": true,
+      "requires": ["influence"]
     },
     {
       "id": "docs",

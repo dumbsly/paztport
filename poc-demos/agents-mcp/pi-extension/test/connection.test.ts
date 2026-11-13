@@ -4,15 +4,23 @@
 import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { generateKeyPair, readSessionReply, readSessionRequest } from "@paztport/core";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { McpClient } from "@earendil-works/pi-mcp";
+import {
+  generateKeyPair,
+  influenceBlock,
+  readBlocks,
+  readSessionReply,
+  readSessionRequest,
+  type InfluenceEntry,
+} from "@paztport/core";
 import type { ExtensionMode, ServerSpec } from "../src/config.ts";
 import { ServerConnection, type CallOutcome } from "../src/connection.ts";
 import { EventLog } from "../src/events.ts";
 import { EvidenceLog } from "../src/evidence.ts";
 import { InfluenceStore } from "../src/influence.ts";
 import { loadClientMaterial, type ClientMaterial } from "../src/keys.ts";
-import { RunState } from "../src/runs.ts";
+import { ORIGIN_BLOCK, RunState } from "../src/runs.ts";
 import { POLICY_EXPIRED_TEXT } from "../src/refusals.ts";
 import { CANARY, DOCS, githubArgs, records, resignDemo, setupDemo, STUB, UNSAFE_TEXT } from "./helpers/demo.ts";
 
@@ -31,6 +39,7 @@ beforeAll(() => {
 });
 const opened: ServerConnection[] = [];
 afterEach(async () => {
+  vi.restoreAllMocks();
   await Promise.all(opened.splice(0).map((c) => c.close()));
 });
 afterAll(() => rmSync(tmp, { recursive: true, force: true }));
@@ -50,8 +59,10 @@ function ctx(mode: ExtensionMode = "enforce", m: ClientMaterial = material, now?
   return { mode, influence: new InfluenceStore(), runs: new RunState(), events: new EventLog(eventsPath), eventsPath, material: m, now };
 }
 
-async function connect(c: Ctx, spec: ServerSpec): Promise<ServerConnection> {
-  const conn = new ServerConnection(spec, c.mode, c.material, c.influence, c.runs, c.events, c.now);
+type ConnOptions = { evidence?: EvidenceLog };
+
+async function connect(c: Ctx, spec: ServerSpec, opts: ConnOptions = {}): Promise<ServerConnection> {
+  const conn = new ServerConnection(spec, c.mode, c.material, c.influence, c.runs, c.events, c.now, opts.evidence);
   opened.push(conn);
   await conn.connect();
   return conn;
@@ -61,16 +72,21 @@ async function github(
   c: Ctx,
   serverMode: "enforce" | "audit" | "off" = "enforce",
   spec: Partial<ServerSpec> = {},
+  opts: ConnOptions = {},
 ): Promise<{ conn: ServerConnection; log: string }> {
   const log = join(tmp, `outcome-${n++}.jsonl`);
-  const conn = await connect(c, {
-    id: "github",
-    command: process.execPath,
-    args: githubArgs(demo, serverMode, log),
-    attested: true,
-    pin: join(demo, "client/server-policy.pub"),
-    ...spec,
-  });
+  const conn = await connect(
+    c,
+    {
+      id: "github",
+      command: process.execPath,
+      args: githubArgs(demo, serverMode, log),
+      attested: true,
+      pin: join(demo, "client/server-policy.pub"),
+      ...spec,
+    },
+    opts,
+  );
   return { conn, log };
 }
 
@@ -79,13 +95,14 @@ function docs(c: Ctx, attested = false): Promise<ServerConnection> {
 }
 
 /** The instrumented stub server; attested specs pin the real demo server key. */
-function stub(c: Ctx, attested: boolean, extraArgs: string[] = []): Promise<ServerConnection> {
+function stub(c: Ctx, attested: boolean, extraArgs: string[] = [], spec: Partial<ServerSpec> = {}): Promise<ServerConnection> {
   return connect(c, {
     id: "stub",
     command: process.execPath,
     args: [STUB, ...extraArgs],
     attested,
     ...(attested ? { pin: join(demo, "client/server-policy.pub") } : {}),
+    ...spec,
   });
 }
 
@@ -98,6 +115,24 @@ const events = (c: Ctx): Record<string, any>[] => records(c.eventsPath);
 let seq = 0;
 const call = (conn: ServerConnection, tool: string, args: Record<string, unknown>): Promise<CallOutcome> =>
   conn.call(tool, args, `toolu_${seq++}`);
+
+/** Every request an MCP client in this process sends from now on, by method, with the result it got. */
+function spyRequests(): { method: string; result?: unknown }[] {
+  const seen: { method: string; result?: unknown }[] = [];
+  const request = McpClient.prototype.request;
+  vi.spyOn(McpClient.prototype, "request").mockImplementation(async function (this: McpClient, ...args) {
+    const sent: { method: string; result?: unknown } = { method: args[0] };
+    seen.push(sent);
+    sent.result = await request.apply(this, args);
+    return sent.result;
+  });
+  return seen;
+}
+
+const LIST = { owner: "acme", repo: "website" };
+const PAYROLL = { owner: "acme", repo: "payroll-notes", path: "README.md" };
+const NO_CALLS_TEXT = (reason: string) =>
+  `no attested session gives what this client requires of the server (${reason}); nothing was sent`;
 
 /** The scenario A reads, then the first public write. */
 async function leakUntilBranch(conn: ServerConnection): Promise<CallOutcome[]> {
@@ -606,6 +641,156 @@ describe("ServerConnection", { timeout: 30_000 }, () => {
       expect(typeof e.ts).toBe("number");
       walk(e);
     });
+  });
+});
+
+describe("a client's requirement of its server", { timeout: 30_000 }, () => {
+  it("aCallCarriesTheSessionsEntriesAndRequiresWhatTheSessionDoes", async () => {
+    for (const requires of [["influence"], undefined]) {
+      const evidencePath = join(tmp, `evidence-${n++}.jsonl`);
+      const c = ctx();
+      const { conn } = await github(c, "enforce", requires !== undefined ? { requires } : {}, { evidence: new EvidenceLog(evidencePath) });
+      expect(conn.status()).toBe("attested");
+      c.runs.start("fix the typo", Date.now());
+      // the store as each call was stamped: the second carries what the first result added
+      const held: InfluenceEntry[][] = [];
+      for (const [tool, args] of [["list_issues", LIST], ["get_file_contents", PAYROLL], ["list_issues", LIST]] as const) {
+        held.push(c.influence.entries());
+        expect((await call(conn, tool, args)).details.verify).toBe("OK");
+      }
+      expect(held.map((h) => h.length)).toEqual([0, 1, 2]);
+      const sent = records(evidencePath)
+        .filter((r) => r.type === "call")
+        .map((r) => readBlocks(r.params._meta["paztport/extensions"]));
+      // no requirement: the blocks require nothing
+      expect(sent).toEqual(held.map((entries) => [ORIGIN_BLOCK, influenceBlock(entries, requires ?? [])]));
+    }
+  });
+
+  it("aServerThatDoesNotListWhatTheClientRequiresGetsNoCall", async () => {
+    // the mock server lists ["influence"]; "example" is a valid name it does not act on
+    const c = ctx();
+    const sent = spyRequests();
+    const { conn, log } = await github(c, "enforce", { requires: ["example", "influence"] });
+    expect(conn.status()).toBe("no-calls");
+    // the tools stay listed; each call fails before anything is stamped or sent
+    expect(conn.tools()).toHaveLength(9);
+    expect(events(c)).toContainEqual(
+      { ts: expect.any(Number), type: "session", server: "github", status: "no-calls", reason: "EXTENSION_REQUIRED" },
+    );
+    c.runs.start("fix the typo", Date.now());
+    const out = await conn.call("list_issues", LIST, "toolu_N1");
+    expect(out.isError).toBe(true);
+    expect(out.text).toBe(`MCP server "github" error: ${NO_CALLS_TEXT("EXTENSION_REQUIRED")}`);
+    expect(out.details).toMatchObject(
+      { server: "github", callId: "toolu_N1", session: "no-calls", sessionReason: "EXTENSION_REQUIRED", refused: true },
+    );
+    expect(out.details.rid).toBeUndefined();
+    expect(c.influence.entries()).toEqual([]);
+    expect(records(log)).toEqual([]);
+    expect(events(c)).toContainEqual({
+      ts: expect.any(Number),
+      type: "error",
+      server: "github",
+      tool: "list_issues",
+      callId: "toolu_N1",
+      code: "NO_CALLS",
+      reason: "EXTENSION_REQUIRED",
+    });
+    // the reply was sound, so no replacement was sent
+    expect(sent.map((r) => r.method).filter((m) => m === "paztport/session" || m === "tools/call")).toEqual(["paztport/session"]);
+  });
+
+  it("aFailedHandshakeWithARequirementSendsNoCall", async () => {
+    // a wrong pin, a server root expired at the client's clock, and a JSON-RPC error: each leaves the client in an
+    // unsafe session (the replacement), in which it makes no call
+    const wrongPin = join(tmp, `wrong-${n++}.pub`);
+    writeFileSync(wrongPin, generateKeyPair().publicKey + "\n");
+    const notAfter = Date.now() + 3_600_000;
+    const expired = resignDemo(demo, join(tmp, `resigned-${n++}`), { serverRoot: notAfter });
+    const cases: [string, () => Promise<{ c: Ctx; conn: ServerConnection; log?: string }>][] = [
+      ["PIN_MISMATCH", async () => {
+        const c = ctx();
+        return { c, ...(await github(c, "enforce", { pin: wrongPin, requires: ["influence"] })) };
+      }],
+      ["BAD_SIGNATURE", async () => {
+        const c = ctx("enforce", loadClientMaterial(join(expired, "client")), () => notAfter + 1);
+        const log = join(tmp, `outcome-${n++}.jsonl`);
+        const conn = await connect(c, {
+          id: "github",
+          command: process.execPath,
+          args: githubArgs(expired, "enforce", log),
+          attested: true,
+          pin: join(expired, "client/server-policy.pub"),
+          requires: ["influence"],
+        });
+        return { c, conn, log };
+      }],
+      ["HANDSHAKE_ERROR", async () => {
+        const c = ctx();
+        return { c, conn: await stub(c, true, ["--session-reply", "error"], { requires: ["influence"] }) };
+      }],
+    ];
+    for (const [reason, open] of cases) {
+      const sent = spyRequests();
+      const { c, conn, log } = await open();
+      expect(conn.status(), reason).toBe("no-calls");
+      expect(events(c), reason).toContainEqual(expect.objectContaining({ type: "session", status: "no-calls", reason }));
+      c.runs.start("fix the typo", Date.now());
+      const out = await call(conn, conn.tools()[0]!.name, LIST);
+      expect(out.isError, reason).toBe(true);
+      expect(out.text, reason).toBe(`MCP server "${out.details.server}" error: ${NO_CALLS_TEXT(reason)}`);
+      expect(out.details, reason).toMatchObject({ session: "no-calls", sessionReason: reason, refused: true });
+      expect(events(c), reason).toContainEqual(expect.objectContaining({ type: "error", code: "NO_CALLS", reason }));
+      // the replacement went out; no tools/call did
+      const methods = sent.map((r) => r.method);
+      expect(methods.filter((m) => m === "paztport/session"), reason).toHaveLength(2);
+      expect(methods, reason).not.toContain("tools/call");
+      if (log !== undefined) expect(records(log), reason).toEqual([]);
+      vi.restoreAllMocks();
+    }
+
+    // no pin: no handshake is sent at all, and the session it leaves is unsafe, so no call either
+    const sent = spyRequests();
+    const c = ctx();
+    const { conn, log } = await github(c, "enforce", { pin: join(tmp, "no-such.pub"), requires: ["influence"] });
+    expect(conn.status()).toBe("no-calls");
+    c.runs.start("fix the typo", Date.now());
+    expect((await call(conn, "list_issues", LIST)).text).toBe(`MCP server "github" error: ${NO_CALLS_TEXT("PIN_MISSING")}`);
+    expect(sent.map((r) => r.method).filter((m) => m === "paztport/session" || m === "tools/call")).toEqual([]);
+    expect(records(log)).toEqual([]);
+  });
+
+  it("withTheSwitchItCallsUnattested", async () => {
+    const c = ctx();
+    const conn = await stub(c, true, ["--session-reply", "error"], { requires: ["influence"], continueWithoutRequired: true });
+    expect(conn.status()).toBe("unsafe");
+    expect(events(c)).toContainEqual(expect.objectContaining({ type: "session", server: "stub", status: "unsafe", reason: "HANDSHAKE_ERROR" }));
+    c.runs.start("fix the typo", Date.now());
+    const out = await call(conn, "echo", {});
+    expect(out.isError).toBe(false);
+    // it went out with no _meta, as a client with no requirement sends it in an unsafe session
+    expect(JSON.parse(out.text).meta).toBe(false);
+    expect(out.details).toMatchObject({ session: "unsafe", sessionReason: "HANDSHAKE_ERROR" });
+  });
+
+  it("noRootWithARequirementMakesNoCall", async () => {
+    // no-root sends no client root, so the server opens an unsafe session, and under the requirement no call is made
+    const c = ctx("no-root");
+    const { conn, log } = await github(c, "enforce", { requires: ["influence"] });
+    expect(conn.status()).toBe("no-calls");
+    expect(events(c)).toContainEqual(expect.objectContaining({ type: "session", server: "github", status: "no-calls", reason: "UNSAFE" }));
+    const out = await call(conn, "list_issues", LIST);
+    expect(out.isError).toBe(true);
+    expect(out.text).toBe(`MCP server "github" error: ${NO_CALLS_TEXT("UNSAFE")}`);
+    expect(records(log)).toEqual([]);
+
+    // off is the one mode the requirement does not apply in
+    const off = ctx("off");
+    const plain = await github(off, "off", { requires: ["influence"] });
+    expect(plain.conn.status()).toBe("off");
+    expect((await call(plain.conn, "list_issues", LIST)).isError).toBe(false);
+    expect(records(plain.log).map((r) => r.verdict)).toEqual(["ALLOWED"]);
   });
 });
 
