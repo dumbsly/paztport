@@ -106,11 +106,15 @@ func Sign(key ed25519.PrivateKey, msg []byte) ([]byte, error) {
 	return ed25519.Sign(key, msg), nil
 }
 
-// Verify reports whether sig is pub's Ed25519 signature over msg, by RFC 8032 §5.1.7 with S below the group
-// order. It never panics: a key that is not ed25519.PublicKeySize bytes or a signature that is not
-// ed25519.SignatureSize bytes is false.
+// Verify reports whether sig is pub's Ed25519 signature over msg under the signature rule (spec wire.md,
+// Signatures): RFC 8032 §5.1.7 verification, so [S]B = R + [k]A with no multiplication by the cofactor,
+// and in front of it S below the group order, and R and A canonical and not of small order. Libraries
+// choose differently on those encodings; checking them here makes every SDK refuse the same bytes. The
+// rule's first part, that the key is an Ed25519 SubjectPublicKeyInfo, is ParsePublic's. Verify never
+// panics: a key that is not ed25519.PublicKeySize bytes or a signature that is not ed25519.SignatureSize
+// bytes is false.
 func Verify(pub ed25519.PublicKey, msg, sig []byte) bool {
-	if len(pub) != ed25519.PublicKeySize || len(sig) != ed25519.SignatureSize {
+	if len(pub) != ed25519.PublicKeySize || len(sig) != ed25519.SignatureSize || !strictEncodings(pub, sig) {
 		return false
 	}
 	return ed25519.Verify(pub, msg, sig)

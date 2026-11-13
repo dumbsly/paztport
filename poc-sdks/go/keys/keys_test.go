@@ -217,6 +217,19 @@ func TestSignVerify(t *testing.T) {
 	}
 }
 
+// TestVerifyEmptySignature checks that a nil, empty or short signature, and a nil key, are false and no panic.
+func TestVerifyEmptySignature(t *testing.T) {
+	_, pub := vectors.V3Key(t, "pi")
+	for _, sig := range [][]byte{nil, {}, make([]byte, 63)} {
+		if keys.Verify(pub, []byte("paztport"), sig) {
+			t.Errorf("Verify accepted a %d-byte signature", len(sig))
+		}
+	}
+	if keys.Verify(nil, nil, nil) {
+		t.Error("Verify accepted a nil key and signature")
+	}
+}
+
 func decode(t *testing.T, s string) []byte {
 	t.Helper()
 	b, err := b64.Decode(s)
