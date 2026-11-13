@@ -6,11 +6,15 @@ package org.paztport.core.crypto;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
+import java.security.Provider;
 import java.security.PublicKey;
+import java.security.Security;
+import java.util.Arrays;
 import org.junit.jupiter.api.Test;
 
 class CryptoTest {
@@ -50,6 +54,39 @@ class CryptoTest {
     @Test
     void verifyIsFalseForANullKey() {
         assertFalse(Crypto.verify(null, bytes("m"), new byte[64]));
+    }
+
+    @Test
+    void verifyIsFalseForANullMessage() {
+        KeyPair kp = Crypto.generateEd25519KeyPair();
+        byte[] sig = Crypto.sign(kp.getPrivate(), bytes("m"));
+        assertFalse(Crypto.verify(kp.getPublic(), null, sig));
+    }
+
+    /**
+     * The SDK names the JDK's SunEC for Ed25519, so a JDK without it fails closed: verify answers false and the
+     * other methods throw the exceptions they already throw, rather than falling back to whatever provider is left.
+     */
+    @Test
+    void withoutSunEcVerifyIsFalseAndTheRestThrow() {
+        KeyPair kp = Crypto.generateEd25519KeyPair();
+        byte[] msg = bytes("m");
+        byte[] sig = Crypto.sign(kp.getPrivate(), msg);
+        byte[] spki = Crypto.encodePublicKey(kp.getPublic());
+        byte[] pkcs8 = Crypto.encodePrivateKey(kp.getPrivate());
+        Provider sunEc = Security.getProvider("SunEC");
+        int position = Arrays.asList(Security.getProviders()).indexOf(sunEc) + 1;
+        Security.removeProvider("SunEC");
+        try {
+            assertFalse(Crypto.verify(kp.getPublic(), msg, sig));
+            assertThrows(IllegalStateException.class, Crypto::generateEd25519KeyPair);
+            assertThrows(IllegalStateException.class, () -> Crypto.sign(kp.getPrivate(), msg));
+            assertThrows(IllegalArgumentException.class, () -> Crypto.decodePublicKey(spki));
+            assertThrows(IllegalArgumentException.class, () -> Crypto.decodePrivateKey(pkcs8));
+        } finally {
+            Security.insertProviderAt(sunEc, position);
+        }
+        assertTrue(Crypto.verify(kp.getPublic(), msg, sig));
     }
 
     @Test
