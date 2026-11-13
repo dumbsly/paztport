@@ -164,12 +164,12 @@ would then pass under whichever key signed it. A lookup of `serverEntry` in `ser
 object's own members, so that a name such as `constructor` finds nothing in a keyring that does not list it.
 
 **What the entry key can do.** A compromised entry-service key, while a certificate for it is unexpired, can forge
-a reply's nonce, session id, status, disabled list and extensions, and can present any root or keyring the policy key signed
-that has not yet expired, but can make none, and can't revive an expired one: roots and keyrings, windows
-included, are verified under the pinned key, and a client refuses an expired one live. That key already signs
-every response stamp the server attests, so a server that attests its responses already relies on it. Once its
-certificates have expired it signs nothing a client accepts, so the revocation delay is the certificate's lifetime
-([wire.md](wire.md#the-reply-certificate)).
+a reply's nonce, session id, status, disabled list and extensions, and can present any root or keyring the policy
+key signed that has not yet expired, but can make none, and can't revive an expired one: roots and keyrings,
+windows included, are verified under the pinned key, and a client refuses an expired one live. That key already
+signs every response stamp the server attests, so a server that attests its responses already relies on it. Once
+its certificates have expired it signs nothing a client accepts, so the revocation delay is the certificate's
+lifetime ([wire.md](wire.md#the-reply-certificate)).
 
 **Domain separation.** Each kind of signed message starts with its own prefix, so that no signature can be read
 as another kind: session replies `"paztport-session-reply\n"`, reply certificates `"paztport-reply-cert\n"`,
@@ -185,8 +185,9 @@ extension is what the requirement is there to prevent.
 
 ### Over HTTP
 
-The Java and Go SDKs carry the handshake over HTTP. The request and the reply are the same JSON objects, and the
-session is the same.
+The Java and Go SDKs carry the handshake over HTTP, in the version each SDK speaks
+([conformance](README.md#conformance)). The request and the reply are the same JSON objects, and the session is
+the same.
 
 | Part | Rule |
 |---|---|
@@ -358,8 +359,9 @@ without a window, which a reader refuses, so the handshake opened no attested se
 When a request crosses from one organisation to another, the receiving organisation (the partner) MUST NOT see
 the sender's internal chain, which is the map the protocol keeps private. A boundary attestation crosses
 instead. The Java SDK implements this section over HTTP, in `BoundaryClient` for the sender and in partner mode
-for the partner, and the Go SDK in `boundary.Egress` for the sender and `paztporthttp.Sessions` for the partner;
-the TypeScript SDK does not. Implementations that bridge two organisations MUST follow it.
+for the partner, and the Go SDK in `boundary.Egress` for the sender and `paztporthttp.Sessions` for the partner,
+each in the version it speaks ([conformance](README.md#conformance)); the TypeScript SDK does not. Implementations
+that bridge two organisations MUST follow it.
 
 **The sender's egress service.** The sender's last internal hop before the boundary is its egress service. It
 MUST:

@@ -85,16 +85,22 @@ operator.
 
 **What a request holds.** The influence a request holds at a service is every `influence` item in every block it
 received, plus what the service adds itself: an entry for each thing it reads, the responses to its own calls
-among them ([Content labels](#content-labels)). The verifier hands the service the received items on `OK`, one
-entry per stamp in chain order ([the live order](verification.md#the-live-order)). In audit mode a request served
+among them ([Content labels](#content-labels)). The verifier hands the service the received items on `OK`, for
+each stamp, in chain order ([the live order](verification.md#the-live-order)). In audit mode a request served
 though its chain failed is handed them too when its blocks passed check 9a, but as not verified
 ([Modes and refusals](verification.md#modes-and-refusals)), and a [trusted record](#trusted-records) is never
 written from it. The owner-aware rule and the trusted-records rule read what the request holds.
 
+When the service calls on, its own block holds only the entries it added itself, all of them for this request so
+far ([wire.md](wire.md#blocks)). It does not copy the entries it received: those travel on unchanged in their own
+blocks, each pinned to the hop that made it.
+
 **The rule.** A service that acts on `influence` MUST name it in every block it signs, with `[]` when it has
-nothing to add. A guarded public write is refused (`INFLUENCE_DENIED`), and a trusted record is not written, unless
-every stamp of the chain names `influence`, whatever the entries say. A stamp that does not name it is a hop that
-may have read anything, the model's host included, so the absence of an untrusted entry proves nothing.
+nothing to add, except in a boundary block whose internal chain has a stamp that does not name it
+([Blinded influence](#blinded-influence)). A guarded public write is refused (`INFLUENCE_DENIED`), and a trusted
+record is not written, unless every stamp of the chain names `influence`, whatever the entries say. A stamp that
+does not name it is a hop that may have read anything, the model's host included, so the absence of an untrusted
+entry proves nothing.
 
 This is the receiver demanding the extension from its own configuration. It holds whatever the caller's
 `requires` says, so a caller that leaves `requires` out gains nothing. `requires` ([wire.md](wire.md#blocks)) is
@@ -130,10 +136,11 @@ A caller that acts on `influence` adds to what it holds, for each response to a 
   to believe it.
 - **A silent response,** one that verifies but whose block does not name `influence`: one `local-untrusted` entry,
   as a response from a service that does not attest adds.
-- **Any other response:** one `local-untrusted` entry, never dropped. That is a response that fails verification,
-  one that is not attested, over HTTP a refusal, and over MCP any response in an unsafe session. Over MCP a refusal
-  is a result whose verdict is not an audit note, and adds nothing: the tool did not run
+- **Over MCP, a refusal:** a result whose verdict is not an audit note adds nothing, since the tool did not run
   ([the verdict rule](verification.md#the-mcp-server-and-client)).
+- **Any other response:** one `local-untrusted` entry, never dropped. That is a response that fails verification,
+  one that is not attested, over HTTP a refusal, and over MCP any result in an unsafe session that is not a
+  refusal.
 
 Over HTTP every entry a response adds, the `local-untrusted` one included, has `src = "http:<target>"` and
 `h = resultHash`. `<target>` is the caller's name for the service it sent the request to: the receiver's policy
@@ -142,8 +149,9 @@ name, without any operation, which the response stamp must be by
 `src = "server:<serverId>"` and `h = resultHash`. The responder cannot know the `src` a caller uses, so the caller
 chooses it.
 
-Over MCP the response chain's stamps are all the server's, so a response is silent unless every block of its
-attestation names `influence`, and every `influence` item in any of them is a label.
+Over MCP the response chain's stamps are all the server's, so a response that verifies is silent unless every block
+of its attestation names `influence`, and holds an item that is not a label unless every `influence` item in any of
+them is a label. Either way it adds one `local-untrusted` entry.
 
 Some responses are never attested, so their callers always count them `local-untrusted`:
 
@@ -256,10 +264,11 @@ group as an `influence` item of the boundary block, `[]` when there are none:
 | `h` | The group's commitment, below. |
 | `owner` | The group's owner, left out when the group has none. |
 
-A sent entry has no `cid`, and the sent list is normalised. An entry with an owner and the same entry without one
-fall in two groups, so two entries are sent. No influence gives no entries: the boundary block names `influence`
-with `[]`. Every (class, owner) pair of the originals is in the sent list and no other is, so the partner's verdict
-under the owner-aware rule is the one it would reach on the originals.
+A sent entry has no `cid`, and the sent list is normalised, so the same influence gives the same block whatever
+order the egress met it in. An entry with an owner and the same entry without one fall in two groups, so two
+entries are sent. When the egress names `influence` and the request holds no influence, there are no entries: the
+boundary block names `influence` with `[]`. Every (class, owner) pair of the originals is in the sent list and no
+other is, so the partner's verdict under the owner-aware rule is the one it would reach on the originals.
 
 `normalise(entries)`:
 
@@ -268,8 +277,9 @@ under the owner-aware rule is the one it would reach on the originals.
 2. Remove exact duplicates: entries whose JCS forms are equal. An entry with an owner and the same entry without
    one are different, and both stay.
 
-A group's commitment must not depend on the order of the blocks its entries came in, or on the order a hop
-recorded them in, and an entry can repeat across blocks, so the egress normalises a group before it commits to it.
+Neither a group's commitment nor the sent list may depend on the order of the blocks the entries came in, or on
+the order a hop recorded them in, and an entry can repeat across blocks. So the egress normalises each group
+before it commits to it, and the sent list before it sends it.
 
 The egress holds a **boundary key** of exactly 32 bytes, kept as base64url in `boundary.key`
 ([wire.md](wire.md#keys-and-files)), which MUST NOT leave the sender; a key of any other length MUST be refused.
