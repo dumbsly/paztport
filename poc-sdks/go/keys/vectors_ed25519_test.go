@@ -51,11 +51,11 @@ func TestEd25519Vectors(t *testing.T) {
 	})
 }
 
-// TestBareLibraryDisagreesOnlyWhereTheCheckIsNeeded calls crypto/ed25519 with nothing in front of it. A case
+// TestEd25519BareLibraryDisagreesOnlyWhereTheCheckIsNeeded calls crypto/ed25519 with nothing in front of it. A case
 // where it answers otherwise than the file, yet rules 1 to 4 pass, is one the checks cannot correct: the rule
 // would then depend on the Go build, and the SDK must not ship on it. The names it logs are the cases the
 // checks exist for.
-func TestBareLibraryDisagreesOnlyWhereTheCheckIsNeeded(t *testing.T) {
+func TestEd25519BareLibraryDisagreesOnlyWhereTheCheckIsNeeded(t *testing.T) {
 	var differs []string
 	vectors.Load(t, "ed25519.json").Get("cases").Each(func(_ string, c vectors.Node) {
 		c = c.With(t)
