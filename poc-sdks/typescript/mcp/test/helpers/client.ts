@@ -5,6 +5,7 @@
 
 import {
   bindPrompt,
+  bindResult,
   buildPolicy,
   canonicalize,
   checkSessionReply,
@@ -18,7 +19,7 @@ import {
   newNonce,
   NonceCache,
   NONCE_TTL_MS,
-  readResponseLabels,
+  responseEntries,
   readToken,
   signKeyring,
   signRoot,
@@ -26,7 +27,6 @@ import {
   utf8,
   writeToken,
   type Block,
-  type ContentLabel,
   type ExtensionSettings,
   type InfluenceEntry,
   type JsonValue,
@@ -98,8 +98,9 @@ export type TestClient = {
     opts?: { now?: number; callId?: string; rid?: string; blocks?: CallBlocks; sent?: unknown },
   ): Record<string, unknown>;
   /**
-   * Verifies a response as this client, acting on `extensions` (influence by default): the result's code, and on OK
-   * the labels its blocks hold under influence, or null when it gives none.
+   * Verifies a response as this client, acting on `extensions` (influence by default): the result's code, and the
+   * entries the response adds, as `readToolResult` builds them for a client that acts on influence, with the server
+   * `github` as `src`.
    */
   verify(
     result: CallToolResult,
@@ -108,7 +109,7 @@ export type TestClient = {
     serverRoot: SignedRoot,
     now?: number,
     extensions?: ExtensionSettings,
-  ): { reason: ReasonCode; labels: ContentLabel[] | null };
+  ): { reason: ReasonCode; entries: InfluenceEntry[] };
 };
 
 /** The policy key every test client signs with, so a test server can pin it. */
@@ -249,7 +250,7 @@ export function makeClient(
         extensions,
       });
       const stamps = r.ok ? r.handOver!.get(INFLUENCE) : undefined;
-      return { reason: r.reason, labels: stamps === undefined ? null : readResponseLabels(stamps) };
+      return { reason: r.reason, entries: responseEntries(r.reason, stamps, "server:github", bindResult(result)) };
     },
   };
 }

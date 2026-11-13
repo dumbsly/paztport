@@ -198,11 +198,12 @@ package's exports imports from it, so the core's verifier carries influence's it
   (`INFLUENCE_MISMATCH`), then a write to a public destination is decided by `guardedWriteRefused` over the entries
   and the classes the server served in the session (`INFLUENCE_DENIED`); anything else is allowed.
 - **What a response adds.** `labelOf` reads one item as a label: an object with exactly a known `cls` and a string
-  `cid`, and an optional non-empty string `owner`, or it throws. `readResponseLabels(stamps)` reads the labels a
-  response's blocks hold, each by `labelOf`, or gives null when a block does not name `influence` or an item is not a
-  label. `responseLabels(reason, stamps)` takes them only when the response check gave `OK`, and `responseEntries` turns
-  a response into the entries a client that acts on `influence` adds: one per label (`labelToEntry`), or else exactly
-  one `local-untrusted` entry, each with the `src` the caller names the server by and `h` the result hash.
+  `cid`, and an optional non-empty string `owner`, or it throws. `responseEntries(reason, stamps, src, resultHash)`
+  turns a response over MCP into the entries a client that acts on `influence` adds: when the response check gave
+  `OK` and every block of the response chain names `influence` with only labels under it, one entry per label, each
+  read by `labelOf`; else exactly one `local-untrusted` entry, also for a result no check ran on (`reason` null, as in
+  an unsafe session). Each entry has `src` `server:<serverId>` and `h` the result hash. The MCP client's
+  `readToolResult` builds what a result adds with it, so an application never turns labels into entries itself.
 - **Blocks.** `influenceBlock(items, requires?)` builds a block that names `influence` with the entries a hop adds
   or the labels a responder attaches, as written; `[]` names it with nothing to add.
 
@@ -237,10 +238,13 @@ lacks one of them, so a call never drops, silently, what the client's requiremen
 did not run; `malformed` for a result JCS cannot hash; `withheld` for a response whose last block requires an extension
 the client does not act on (check 9c, `EXTENSION_REQUIRED`); and otherwise `read`, with the verification and what the
 result adds to influence. The application MUST NOT hand a `withheld` result on: it fails the call and does not retry it,
-since the tool ran. For a client that acts on `influence`, a `read` result in an attested or unsafe session adds
-`labels` when it is a response that verified and names `influence` in every block with only labels under it, and
-otherwise `untrusted`, the result hash for one `local-untrusted` entry, as a `withheld` result does; a `refused` result
-adds nothing, a `malformed` one carries no influence at all, and in a session that is `off` (Paztport switched off) no
+since the tool ran. The context also carries `serverId`, the server's id from the client's configuration. For a client
+that acts on `influence`, a `read` or `withheld` result in an attested or unsafe session carries `{ kind: "entries",
+entries, hash }`: the entries it adds to the client's influence, built by core's `responseEntries` with `src`
+`server:<serverId>` and `h` the result hash, which is there too for the client's record. That is an entry for each
+label of a response that verified and names `influence` in every block with only labels under it, and otherwise one
+`local-untrusted` entry, as for a `withheld` result and every result in an unsafe session. A `refused` result adds
+nothing, a `malformed` one carries no influence at all, and in a session that is `off` (Paztport switched off) no
 result adds anything. A client that does not act on `influence` reads `{ kind: "none" }` in every session.
 `verifyMcpResponse` is the response check `readToolResult` runs; a client re-checking a recorded response passes the
 time it recorded verifying it as `now`, and settings from `recordExtensionSettings`.

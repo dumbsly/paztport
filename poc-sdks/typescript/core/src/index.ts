@@ -26,7 +26,7 @@ export {
 } from "./influence/influence.ts";
 export * from "./influence/label.ts";
 export * from "./influence/request.ts";
-export * from "./influence/response.ts";
+export { responseEntries } from "./influence/response.ts";
 export {
   CALL_MAX_AGE_MS, NONCE_TTL_MS, RUN_MAX_AGE_MS, verifyChain, type ChainVerification, type Peer, type PinnedKeyring,
   type PinnedRoot, type VerifierConfig, type VerifyInput,
@@ -56,7 +56,6 @@ export * from "./session/attestation.ts";
 export * from "./policy/local-rules.ts";
 export * from "./influence/influence-rule.ts";
 export * from "./influence/server-decision.ts";
-export * from "./influence/label-entry.ts";
 export * from "./verify/verdict-codes.ts";
 export * from "./local/local-decision.ts";
 export * from "./local/local-step.ts";

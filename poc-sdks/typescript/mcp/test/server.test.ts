@@ -3,6 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 import {
+  bindResult,
   buildPolicy,
   canonicalize,
   decideServerCall,
@@ -518,7 +519,7 @@ describe("response attestation", () => {
     const out = srv.attest(srv.session()!, RESULT, CALL, "third-party");
     const v = client.verify(out, { rid: CALL.rid, toolCallId: CALL.callId }, reply.serverKeyring, reply.serverRoot!);
     expect(v.reason).toBe("OK");
-    expect(v.labels).toEqual([{ cls: "third-party", cid: expect.any(String) }]);
+    expect(v.entries).toEqual([{ cls: "third-party", src: "server:github", h: bindResult(RESULT), cid: expect.any(String) }]);
     expect(RESULT._meta).toBeUndefined();
   });
   it("aResponsesTwoBlocksNameInfluenceAndTheLastHoldsTheLabelAndRequiresIt", () => {
@@ -588,7 +589,7 @@ describe("response attestation", () => {
     const v = clientB.verify(outA, { rid: CALL.rid, toolCallId: CALL.callId }, replyB.serverKeyring, replyB.serverRoot!);
     expect(v.reason).not.toBe("OK");
     expect(v.reason).toBe("SESSION_UNKNOWN");
-    expect(v.labels).toBeNull();
+    expect(v.entries).toEqual([{ cls: "local-untrusted", src: "server:github", h: bindResult(RESULT) }]);
     // the response still verifies in the session it was made for
     expect(clientA.verify(outA, { rid: CALL.rid, toolCallId: CALL.callId }, replyA.serverKeyring, replyA.serverRoot!).reason).toBe("OK");
   });

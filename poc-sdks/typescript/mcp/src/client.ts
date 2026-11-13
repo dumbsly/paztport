@@ -9,26 +9,28 @@ import {
   decode,
   INFLUENCE,
   NO_REQUIREMENT,
-  responseLabels,
   readSessionReply,
   replacementRequest,
   requireStampableNames,
+  responseEntries,
   routeOf,
   sanitiseVerdictReason,
   serverPolicyNotAfter,
   signStamp,
   writeToken,
   type Block,
-  type ContentLabel,
   type ExtensionSettings,
+  type InfluenceEntry,
   type JsonValue,
   type MerkleProof,
   type NonceCache,
+  type ReasonCode,
   type ReplyCheck,
   type Requirement,
   type SessionReply,
   type SessionRequest,
   type Stamp,
+  type StampItems,
 } from "@paztport/core";
 import { bindMcpCall } from "./binding.ts";
 import { META_CALL_ID, META_CHAIN, META_EXTENSIONS, META_PROOF, META_VERDICT } from "./meta.ts";
@@ -285,16 +287,16 @@ function verdictOf(raw: Record<string, unknown>): { reason: string; audit: boole
 }
 
 /**
- * What a result adds to the client's influence: its verified labels, or untrusted content; nothing for a refusal or
- * when Paztport is off, and nothing in any session for a client that does not act on `influence`.
+ * What a result adds to the influence of a client that acts on `influence`: `entries`, built by core's
+ * responseEntries (spec influence.md, Content labels), each with `src` `server:<serverId>` and `h` the result hash, and
+ * that `hash`, for the client's record. `none` for a refusal, when Paztport is off, and in every session for a client
+ * that does not act on `influence`.
  */
-export type ResultInfluence =
-  | { kind: "labels"; labels: ContentLabel[]; hash: string }
-  | { kind: "untrusted"; hash: string }
-  | { kind: "none" };
+export type ResultInfluence = { kind: "none" } | { kind: "entries"; entries: InfluenceEntry[]; hash: string };
 
 /**
- * The session a result arrived in, with the client's own extension settings. Off records nothing, so it hashes
+ * The session a result arrived in, with the client's own extension settings and `serverId`, the server's id from the
+ * client's own configuration, which names it in the `src` of what the result adds. Off records nothing, so it hashes
  * nothing. In an unsafe session a client that acts on `influence` counts every result untrusted (spec sessions.md,
  * Unsafe sessions), and one that does not reads no influence. An attested call's response is verified against the
  * server's root and keyring, with the client's settings, and must end at `svc`, the client's own service that made
@@ -304,11 +306,13 @@ export type ResultContext =
   | { session: "off" }
   | {
       session: "unsafe";
+      serverId: string;
       /** The extensions the client acts on: whether it counts the result untrusted. */
       extensions: ExtensionSettings;
     }
   | {
       session: "attested";
+      serverId: string;
       reply: SessionReply;
       svc: string;
       rid: string;
@@ -326,8 +330,8 @@ export type ResultContext =
  * that parsed to Infinity); nothing of it is recorded either. A withheld result is a response whose last block
  * requires an extension the client does not act on (check 9c): the application MUST NOT hand it on, and fails the
  * call without retrying it, since the tool ran (spec verification.md, The live order); the reading holds nothing of
- * the result but, for a client that acts on `influence`, its hash for one untrusted entry. `verifiedAt` is the time
- * verification used.
+ * the result but, for a client that acts on `influence`, its one `local-untrusted` entry and the hash. `verifiedAt` is
+ * the time verification used.
  */
 export type ToolResultReading =
   | { kind: "refused"; verdict: string; influence: { kind: "none" } }
@@ -336,11 +340,11 @@ export type ToolResultReading =
   | { kind: "read"; verdict?: string; verification?: string; verifiedAt?: number; influence: ResultInfluence };
 
 /**
- * Reads a tools/call result: its verdict, its verification and what it adds to influence. In an attested session a
- * client that acts on `influence` takes the labels of a response that verified, every block of which names
- * `influence` with only labels under it (responseLabels), and counts any other result untrusted (spec influence.md,
- * Content labels); one that does not act on it reads no influence. In an unsafe session a client that acts on
- * `influence` counts every result that is not a refusal untrusted. Never throws.
+ * Reads a tools/call result: its verdict, its verification and what it adds to influence. For a client that acts on
+ * `influence`, what a result adds is responseEntries' (spec influence.md, Content labels): in an attested session an
+ * entry for each label of a response that verified, every block of which names `influence` with only labels under it,
+ * and one `local-untrusted` entry for any other result, a withheld one included; in an unsafe session that one entry
+ * for every result that is not a refusal. A client that does not act on it reads no influence. Never throws.
  */
 export function readToolResult(raw: Record<string, unknown>, ctx: ResultContext): ToolResultReading {
   const verdict = verdictOf(raw);
@@ -354,10 +358,14 @@ export function readToolResult(raw: Record<string, unknown>, ctx: ResultContext)
   let verifiedAt: number | undefined;
   try {
     const hash = bindResult(raw);
-    const readsInfluence = ctx.extensions.actsOn.has(INFLUENCE);
-    const untrusted: ResultInfluence = readsInfluence ? { kind: "untrusted", hash } : { kind: "none" };
+    const src = `server:${ctx.serverId}`;
+    // A hand-over without `influence` takes no label, so a client never believes more than it was handed.
+    const adds = (reason: ReasonCode | null, stamps?: readonly StampItems[]): ResultInfluence =>
+      ctx.extensions.actsOn.has(INFLUENCE)
+        ? { kind: "entries", entries: responseEntries(reason, stamps, src, hash), hash }
+        : { kind: "none" };
     if (ctx.session === "unsafe" || ctx.reply.serverRoot === null) {
-      return { kind: "read", ...withVerdict, influence: untrusted };
+      return { kind: "read", ...withVerdict, influence: adds(null) };
     }
     verifiedAt = ctx.now();
     // the session's one server keyring and root, each held to the reply's response limit
@@ -375,11 +383,9 @@ export function readToolResult(raw: Record<string, unknown>, ctx: ResultContext)
       extensions: ctx.extensions,
     });
     if (v.reason === "EXTENSION_REQUIRED") {
-      return { kind: "withheld", reason: "EXTENSION_REQUIRED", verifiedAt, influence: untrusted };
+      return { kind: "withheld", reason: "EXTENSION_REQUIRED", verifiedAt, influence: adds(v.reason) };
     }
-    // A hand-over without `influence` takes no label, so a client never believes more than it was handed.
-    const labels = readsInfluence ? responseLabels(v.reason, v.handOver?.get(INFLUENCE)) : null;
-    const influence: ResultInfluence = labels === null ? untrusted : { kind: "labels", labels, hash };
+    const influence = adds(v.reason, v.handOver?.get(INFLUENCE));
     return { kind: "read", ...withVerdict, verification: v.reason, verifiedAt, influence };
   } catch {
     return { kind: "malformed", ...(verifiedAt !== undefined ? { verifiedAt } : {}) };

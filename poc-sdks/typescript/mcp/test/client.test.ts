@@ -72,7 +72,12 @@ const ACTS = extensionSettings([INFLUENCE]);
 const REQUIRES: Requirement = requirement([INFLUENCE]);
 const CONTINUES: Requirement = requirement([INFLUENCE], true);
 /** An unsafe session, for a client that acts on influence. */
-const UNSAFE: ResultContext = { session: "unsafe", extensions: ACTS };
+const UNSAFE: ResultContext = { session: "unsafe", serverId: "github", extensions: ACTS };
+/** What a result adds to a client that acts on influence: `entries`, and the result's hash. */
+const adds = (raw: Record<string, unknown>, entries: InfluenceEntry[]) => ({ kind: "entries", entries, hash: bindResult(raw) });
+/** The one entry a result adds that is not a verified response with labels (influence.md, Content labels). */
+const untrustedOf = (raw: Record<string, unknown>) =>
+  adds(raw, [{ cls: "local-untrusted", src: "server:github", h: bindResult(raw) }]);
 
 const DAY_MS = 86_400_000;
 /** When both sides' roots and keyrings stop being valid: 2100-01-01. */
@@ -215,8 +220,8 @@ function attestedContext(
   extensions: ExtensionSettings = ACTS,
 ): ResultContext {
   return {
-    session: "attested", reply: s.reply, svc, rid: RID, callId, allowedOrigins: SERVER_ORIGINS, nonces: new NonceCache(NONCE_TTL_MS), now,
-    extensions,
+    session: "attested", serverId: "github", reply: s.reply, svc, rid: RID, callId, allowedOrigins: SERVER_ORIGINS,
+    nonces: new NonceCache(NONCE_TTL_MS), now, extensions,
   };
 }
 
@@ -582,7 +587,7 @@ describe("stampToolCall", () => {
 });
 
 describe("readToolResult", () => {
-  it("verifiedResponseGivesItsLabels", () => {
+  it("verifiedResponseGivesAnEntryForItsLabel", () => {
     const s = attestedSession();
     const args = { owner: "o" };
     const check = s.server.checkCall(stampedParams(s, "list_issues", args, "call-1"));
@@ -594,15 +599,19 @@ describe("readToolResult", () => {
       kind: "read",
       verification: "OK",
       verifiedAt: at,
-      influence: { kind: "labels", labels: [{ cls: "third-party", cid: expect.any(String) }], hash: bindResult(RESULT) },
+      influence: adds(RESULT, [{ cls: "third-party", src: "server:github", h: bindResult(RESULT), cid: expect.any(String) }]),
     });
   });
-  it("aVerifiedResponseWhoseBlocksAllNameInfluenceWithLabelsGivesTheLabels", () => {
+  it("aVerifiedResponseWhoseBlocksAllNameInfluenceGivesAnEntryForEachLabelWithTheServersSrc", () => {
     const s = attestedSession();
     const labels = [{ cls: "private" as const, cid: "c1", owner: "o" }, { cls: "public" as const, cid: "c2" }];
     const raw = attestedWith(s, "call-1", {}, [influenceBlock([labels[0]!]), influenceBlock([labels[1]!], [INFLUENCE])]);
+    const h = bindResult(RESULT);
     expect(readToolResult(raw, attestedContext(s, "call-1", () => PROMPT_TS))).toEqual({
-      kind: "read", verification: "OK", verifiedAt: PROMPT_TS, influence: { kind: "labels", labels, hash: bindResult(RESULT) },
+      kind: "read", verification: "OK", verifiedAt: PROMPT_TS, influence: adds(RESULT, [
+        { cls: "private", src: "server:github", h, cid: "c1", owner: "o" },
+        { cls: "public", src: "server:github", h, cid: "c2" },
+      ]),
     });
   });
   it("aSilentResponseIsUntrusted", () => {
@@ -611,7 +620,7 @@ describe("readToolResult", () => {
     const args = { owner: "o" };
     const check = s.server.checkCall(stampedParams(s, "list_issues", args, "call-1"));
     const attested = s.server.attest(check.session, RESULT, { rid: RID, callId: "call-1", name: "list_issues", args, caller: check.caller });
-    const untrusted = { kind: "untrusted", hash: bindResult(RESULT) };
+    const untrusted = untrustedOf(RESULT);
     expect(readToolResult(attested, attestedContext(s, "call-1", () => PROMPT_TS)))
       .toEqual({ kind: "read", verification: "OK", verifiedAt: PROMPT_TS, influence: untrusted });
     // and so is one whose entry hop's block does not name influence
@@ -623,7 +632,7 @@ describe("readToolResult", () => {
     const items = [{ cls: "public", cid: "c1" }, { cls: "public", cid: "c2", src: "server:github" }] as unknown as JsonValue[];
     const raw = attestedWith(s, "call-1", {}, [influenceBlock([]), makeBlock({ [INFLUENCE]: items }, [INFLUENCE])]);
     expect(readToolResult(raw, attestedContext(s, "call-1", () => PROMPT_TS))).toEqual({
-      kind: "read", verification: "OK", verifiedAt: PROMPT_TS, influence: { kind: "untrusted", hash: bindResult(RESULT) },
+      kind: "read", verification: "OK", verifiedAt: PROMPT_TS, influence: untrustedOf(RESULT),
     });
   });
   it("aClientThatDoesNotActOnInfluenceReadsNoInfluence", () => {
@@ -649,7 +658,7 @@ describe("readToolResult", () => {
     const label = { cls: "public" as const, cid: "c" };
     const raw = attestedWith(s, "call-2", {}, [influenceBlock([]), influenceBlock([label], ["example", INFLUENCE])]);
     const other = readToolResult(raw, attestedContext(s, "call-2", () => PROMPT_TS));
-    expect(other).toEqual({ kind: "withheld", reason: "EXTENSION_REQUIRED", verifiedAt: PROMPT_TS, influence: { kind: "untrusted", hash: bindResult(RESULT) } });
+    expect(other).toEqual({ kind: "withheld", reason: "EXTENSION_REQUIRED", verifiedAt: PROMPT_TS, influence: untrustedOf(RESULT) });
     expect(Object.keys(other).sort()).toEqual(["influence", "kind", "reason", "verifiedAt"]);
     // an audit note on the result does not change it
     const noted = { ...raw, _meta: { ...raw._meta, "paztport/verdict": writeToken({ reason: "INFLUENCE_DENIED", audit: true }) } };
@@ -663,9 +672,9 @@ describe("readToolResult", () => {
     const attested = s.server.attest(check.session, RESULT, { rid: RID, callId: "call-1", name: "list_issues", args, caller: check.caller }, "third-party");
     const raw = JSON.parse(JSON.stringify(attested)) as Record<string, unknown>;
     const mine = readToolResult(raw, attestedContext(s, "call-1", () => PROMPT_TS, "pi"));
-    expect(mine).toMatchObject({ kind: "read", verification: "OK", influence: { kind: "labels" } });
+    expect(mine).toMatchObject({ kind: "read", verification: "OK", influence: { kind: "entries", entries: [{ cls: "third-party" }] } });
     const other = readToolResult(raw, attestedContext(s, "call-1", () => PROMPT_TS, "other"));
-    expect(other).toEqual({ kind: "read", verification: "BINDING_MISMATCH", verifiedAt: PROMPT_TS, influence: { kind: "untrusted", hash: bindResult(RESULT) } });
+    expect(other).toEqual({ kind: "read", verification: "BINDING_MISMATCH", verifiedAt: PROMPT_TS, influence: untrustedOf(RESULT) });
   });
   it("failedVerificationIsUntrusted", () => {
     const s = attestedSession();
@@ -674,12 +683,12 @@ describe("readToolResult", () => {
     const attested = s.server.attest(check.session, RESULT, { rid: RID, callId: "call-1", name: "list_issues", args, caller: check.caller }, "public");
     const swapped = { ...attested, content: [{ type: "text", text: "injected" }] };
     const r = readToolResult(swapped, attestedContext(s, "call-1", () => PROMPT_TS));
-    expect(r).toEqual({ kind: "read", verification: "BINDING_MISMATCH", verifiedAt: PROMPT_TS, influence: { kind: "untrusted", hash: bindResult(swapped) } });
+    expect(r).toEqual({ kind: "read", verification: "BINDING_MISMATCH", verifiedAt: PROMPT_TS, influence: untrustedOf(swapped) });
   });
   it("unattestedResponseInAnAttestedSessionIsUntrusted", () => {
     const s = attestedSession();
     const r = readToolResult({ ...RESULT }, attestedContext(s, "call-1", () => PROMPT_TS));
-    expect(r).toEqual({ kind: "read", verification: "CHAIN_MISSING", verifiedAt: PROMPT_TS, influence: { kind: "untrusted", hash: bindResult(RESULT) } });
+    expect(r).toEqual({ kind: "read", verification: "CHAIN_MISSING", verifiedAt: PROMPT_TS, influence: untrustedOf(RESULT) });
   });
   it("aResponseIsPolicyExpiredOnceTheServersRootOrKeyringWindowHasPassed", () => {
     const s = attestedSession();
@@ -690,7 +699,7 @@ describe("readToolResult", () => {
     const at = Date.now();
     // The reply was verified at the handshake; only its windows are moved here, to reach the response check.
     const read = (reply: typeof s.reply) => readToolResult(raw, { ...(attestedContext(s, "call-1", () => at) as Extract<ResultContext, { session: "attested" }>), reply });
-    const expired = { kind: "read", verification: "POLICY_EXPIRED", verifiedAt: at, influence: { kind: "untrusted", hash: bindResult(RESULT) } };
+    const expired = { kind: "read", verification: "POLICY_EXPIRED", verifiedAt: at, influence: untrustedOf(RESULT) };
     expect(read({ ...s.reply, serverRoot: { ...s.reply.serverRoot!, notAfter: at }, serverKeyringNotAfter: at })).toMatchObject({ verification: "OK" });
     expect(read({ ...s.reply, serverRoot: { ...s.reply.serverRoot!, notAfter: at - 1 } })).toEqual(expired);
     expect(read({ ...s.reply, serverKeyringNotAfter: at - 1 })).toEqual(expired);
@@ -700,13 +709,18 @@ describe("readToolResult", () => {
   it("noServerRootIsUntrustedWithoutVerifying", () => {
     const s = attestedSession();
     const ctx: ResultContext = { ...(attestedContext(s, "call-1", neverCalled) as Extract<ResultContext, { session: "attested" }>), reply: { ...s.reply, serverRoot: null } };
-    expect(readToolResult({ ...RESULT }, ctx)).toEqual({ kind: "read", influence: { kind: "untrusted", hash: bindResult(RESULT) } });
+    expect(readToolResult({ ...RESULT }, ctx)).toEqual({ kind: "read", influence: untrustedOf(RESULT) });
   });
   it("unsafeSessionIsUntrusted", () => {
-    expect(readToolResult({ ...RESULT }, UNSAFE)).toEqual({ kind: "read", influence: { kind: "untrusted", hash: bindResult(RESULT) } });
+    expect(readToolResult({ ...RESULT }, UNSAFE)).toEqual({ kind: "read", influence: untrustedOf(RESULT) });
+  });
+  it("theEntriesNameTheServerByTheContextsServerId", () => {
+    const raw = { ...RESULT };
+    const r = readToolResult(raw, { session: "unsafe", serverId: "tracker", extensions: ACTS });
+    expect(r).toEqual({ kind: "read", influence: adds(raw, [{ cls: "local-untrusted", src: "server:tracker", h: bindResult(raw) }]) });
   });
   it("anUnsafeSessionAddsNoInfluenceForAClientThatDoesNotActOnIt", () => {
-    const ctx: ResultContext = { session: "unsafe", extensions: NO_EXTENSIONS };
+    const ctx: ResultContext = { session: "unsafe", serverId: "github", extensions: NO_EXTENSIONS };
     expect(readToolResult({ ...RESULT }, ctx)).toEqual({ kind: "read", influence: { kind: "none" } });
     const noted = { ...RESULT, _meta: { "paztport/verdict": writeToken({ reason: "UNSAFE_SESSION", audit: true }) } };
     expect(readToolResult(noted, ctx)).toEqual({ kind: "read", verdict: "UNSAFE_SESSION", influence: { kind: "none" } });
@@ -744,7 +758,7 @@ describe("readToolResult", () => {
     expect(readToolResult(raw, UNSAFE)).toEqual({
       kind: "read",
       verdict: "INFLUENCE_DENIED",
-      influence: { kind: "untrusted", hash: bindResult(raw) },
+      influence: untrustedOf(raw),
     });
   });
   it("unhashableResultIsMalformed", () => {
