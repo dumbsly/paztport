@@ -370,7 +370,7 @@ export function readToolResult(raw: Record<string, unknown>, ctx: ResultContext)
     verifiedAt = ctx.now();
     // the session's one server keyring and root, each held to the reply's response limit
     const policyNotAfter = serverPolicyNotAfter(ctx.reply);
-    const v = verifyMcpResponse(raw, { rid: ctx.rid, toolCallId: ctx.callId, receiver: ctx.svc }, {
+    const v = verifyMcpResponse(raw, { rid: ctx.rid, callId: ctx.callId, receiver: ctx.svc }, {
       keyrings: [{ keys: ctx.reply.serverKeyring, notAfter: policyNotAfter }],
       roots: [
         { root: decode(ctx.reply.serverRoot.root), rootId: ctx.reply.serverRoot.rootId, notAfter: policyNotAfter },

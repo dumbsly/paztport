@@ -72,7 +72,7 @@ function world() {
     const block = o.block ?? influenceBlock(INFLUENCE);
     const stamp = stampLocalStep(
       {
-        svc: "pi", inst: "pi-1", rid: "rid-1", ts, prev: first.sig, toolName: decision.tool, toolCallId: decision.callId, input: decision.input,
+        svc: "pi", inst: "pi-1", rid: "rid-1", ts, prev: first.sig, toolName: decision.tool, callId: decision.callId, input: decision.input,
         resolved: decision.resolved, verdict: decision.verdict, listed: decision.routeAllowed,
         rulesHash: decision.rulesHash, block,
       },

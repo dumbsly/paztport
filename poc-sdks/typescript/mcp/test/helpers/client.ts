@@ -104,7 +104,7 @@ export type TestClient = {
    */
   verify(
     result: CallToolResult,
-    call: { rid: string; toolCallId: string },
+    call: { rid: string; callId: string },
     serverKeyring: Record<string, string>,
     serverRoot: SignedRoot,
     now?: number,

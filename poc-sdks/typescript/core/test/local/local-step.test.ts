@@ -35,7 +35,7 @@ describe("stampLocalStep", () => {
       {
         ...step,
         toolName: "read",
-        toolCallId: "call-1",
+        callId: "call-1",
         input: { path: "<workspace>/website/README.md" },
         resolved: { paths: [{ need: "read", at: "website/README.md" }], programs: [], parse: "ok", readOnly: true },
         verdict: "OK",
@@ -64,7 +64,7 @@ describe("stampLocalStep", () => {
       {
         ...step,
         toolName: "write",
-        toolCallId: "call-2",
+        callId: "call-2",
         input: { path: "website/x.md", content: "hi" },
         resolved: { paths: [{ need: "write", at: "website/x.md" }], programs: [], parse: "ok", readOnly: false },
         verdict: "INFLUENCE_DENIED",
@@ -83,7 +83,7 @@ describe("stampLocalStep", () => {
       {
         ...step,
         toolName: "ls",
-        toolCallId: "call-3",
+        callId: "call-3",
         input: { path: "." },
         resolved: { paths: [], programs: [], parse: "ok", readOnly: false },
         verdict: "SCOPE_DENIED",
@@ -102,7 +102,7 @@ describe("stampLocalStep's block", () => {
   const fields = {
     ...step,
     toolName: "read",
-    toolCallId: "call-1",
+    callId: "call-1",
     input: { path: "<workspace>/website/README.md" },
     resolved: { paths: [], programs: [], parse: "ok" as const, readOnly: true },
     verdict: "OK" as const,
@@ -128,7 +128,7 @@ describe("localStepBind", () => {
     const fields = {
       ...step,
       toolName: "read",
-      toolCallId: "call-1",
+      callId: "call-1",
       input: { path: "<workspace>/website/README.md" },
       resolved: { paths: [{ need: "read" as const, at: "website/README.md" }], programs: [], parse: "ok" as const, readOnly: true },
       verdict: "OK" as const,
@@ -138,7 +138,7 @@ describe("localStepBind", () => {
     expect(localStepBind(fields)).toBe("jwh996pnIOX6duRgrsapCa2qnpdwrMiYVmW5VFxeEl4");
     expect(localStepBind(fields)).toBe(stampLocalStep(fields, PI_KEY).bind);
     // the call id and the decision are bound with the call
-    expect(localStepBind({ ...fields, toolCallId: "call-2" })).not.toBe(localStepBind(fields));
+    expect(localStepBind({ ...fields, callId: "call-2" })).not.toBe(localStepBind(fields));
     expect(localStepBind({ ...fields, listed: false })).not.toBe(localStepBind(fields));
     expect(localStepBind({ ...fields, rulesHash: null })).not.toBe(localStepBind(fields));
   });

@@ -100,7 +100,7 @@ const ABOUT =
   "is the set of nonce keys already spent in the record set. A policy's proof is looked up by `proofRoute` (null: no proof). " +
   "A nonce key, in `nonceKey` and `seen`, is the JCS text of its array of strings, each string written as RFC 8785 writes strings. " +
   `The verify case "${NONCHARACTER_CASE}"'s nonceKey, and the responseAttestation case of that name's ` +
-  "call.toolCallId, hold the noncharacter U+FFFF written as itself, as json.json already does, which a strict " +
+  "call.callId, hold the noncharacter U+FFFF written as itself, as json.json already does, which a strict " +
   "reader refuses, so a replay reads this file's own structure with any JSON reader, and only the tokens with the " +
   "reader under test. " +
   "A sessionReply case is the client's check of `reply` at `now`, against `pin` and `serverEntry`, with the extensions it `requires` ([] when absent); " +
@@ -121,7 +121,7 @@ const ABOUT =
   "(prompt and start times) and `seen`; expected is the reason, and the verdict the step signed when it verifies, " +
   "else null. A responseAttestation case is a response as the client receives it: `attestationToken` (its readable " +
   "value `attestation`, one block per stamp of the response chain unless the case's name says otherwise), the " +
-  "`result` it answers, the `call` (`rid`, `toolCallId`, `receiver`), the client's `actsOn` and " +
+  "`result` it answers, the `call` (`rid`, `callId`, `receiver`), the client's `actsOn` and " +
   "`allowedExtensions`, and the `server` its stamps are checked against; the client checks it once at `now`, check " +
   "9c included, and expected is the reason. " +
   `The attestationToken of "${UNSORTED_ATTESTATION_CASE}" writes the members chain, proof, ` +
@@ -1952,7 +1952,7 @@ export function buildVectors(): Record<string, unknown> {
       first,
       stampLocalStep(
         {
-          svc: "pi", inst: "pi-1", rid: RID, ts: stepTs, prev: first.sig, toolName: decision.tool, toolCallId: decision.callId, input: decision.input,
+          svc: "pi", inst: "pi-1", rid: RID, ts: stepTs, prev: first.sig, toolName: decision.tool, callId: decision.callId, input: decision.input,
           resolved: decision.resolved, verdict: decision.verdict, listed: decision.routeAllowed, rulesHash: decision.rulesHash,
           block: blockOf(signed[1] as unknown as JsonValue),
         },
@@ -2100,7 +2100,7 @@ export function buildVectors(): Record<string, unknown> {
     const attestationToken = name === UNSORTED_ATTESTATION_CASE
       ? unsortedAttestationToken(attestation as Attestation)
       : tokenOf(attestation);
-    const call = { rid: RID, toolCallId: o.callId ?? CALL_ID, receiver: "pi" };
+    const call = { rid: RID, callId: o.callId ?? CALL_ID, receiver: "pi" };
     const actsOn = o.actsOn ?? EXAMPLE;
     const allowedExtensions = o.allowedExtensions ?? null;
     const got = verifyResponse(attestationToken, result, call, {

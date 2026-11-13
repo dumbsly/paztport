@@ -26,7 +26,7 @@ function metaOf(result: Record<string, unknown>, name: string): unknown {
  */
 export function verifyMcpResponse(
   result: Record<string, unknown>,
-  call: { rid: string; toolCallId: string; receiver: string },
+  call: { rid: string; callId: string; receiver: string },
   cfg: Omit<VerifierConfig, "nonceKey">,
 ): ChainVerification {
   const attestation = metaOf(result, META_ATTESTATION);

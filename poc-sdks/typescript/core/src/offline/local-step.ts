@@ -95,7 +95,7 @@ export function verifyRecordedLocalStep(
       return fail("BINDING_MISMATCH");
     }
     bind = localStepBind({
-      toolName: step.tool, toolCallId: step.callId, input: step.input, resolved: decision.resolved,
+      toolName: step.tool, callId: step.callId, input: step.input, resolved: decision.resolved,
       verdict: decision.verdict, listed: decision.routeAllowed, rulesHash: decision.rulesHash,
     });
   } catch {

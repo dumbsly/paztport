@@ -12,7 +12,7 @@ import { retoken, tokenOf } from "./helpers/client.ts";
 
 const NOW = 10_000_000;
 const SESS = "sess-1";
-const CALL = { rid: "rid-1", toolCallId: "call-1", receiver: "pi" };
+const CALL = { rid: "rid-1", callId: "call-1", receiver: "pi" };
 const ROUTE = "mcp-entry/github-tools";
 
 function world() {
@@ -119,7 +119,7 @@ describe("verifyMcpResponse", () => {
     const w = world();
     const wrongRid = verifyMcpResponse(w.response(), { ...CALL, rid: "rid-2" }, w.cfg());
     expect(wrongRid).toMatchObject({ reason: "RID_MISMATCH", handOver: null });
-    const wrongCall = verifyMcpResponse(w.response(), { ...CALL, toolCallId: "call-2" }, w.cfg());
+    const wrongCall = verifyMcpResponse(w.response(), { ...CALL, callId: "call-2" }, w.cfg());
     expect(wrongCall).toMatchObject({ reason: "BINDING_MISMATCH", handOver: null });
   });
   it("responseReplayRejected", () => {
@@ -139,8 +139,8 @@ describe("verifyMcpResponse", () => {
   });
   it("invalidCallFieldsChainMissing", () => {
     const w = world();
-    expect(verifyMcpResponse(w.response(), { ...CALL, toolCallId: "a\nb" }, w.cfg()).reason).toBe("CHAIN_MISSING");
-    expect(verifyMcpResponse(w.response(), { ...CALL, rid: 1 as unknown as string, toolCallId: "c" }, w.cfg()).reason).toBe("CHAIN_MISSING");
+    expect(verifyMcpResponse(w.response(), { ...CALL, callId: "a\nb" }, w.cfg()).reason).toBe("CHAIN_MISSING");
+    expect(verifyMcpResponse(w.response(), { ...CALL, rid: 1 as unknown as string, callId: "c" }, w.cfg()).reason).toBe("CHAIN_MISSING");
   });
   it("aStampWhoseVersionIsNotFourIsChainMissing", () => {
     const w = world();

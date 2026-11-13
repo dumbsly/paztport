@@ -477,12 +477,12 @@ is `b64url(H(bytes))`, over these bytes:
 | Prompt | A run's origin stamp | `utf8("prompt\n" ‖ text)` |
 | `tools/call` ([MCP profile](README.md#the-mcp-profile)) | An MCP call's stamp | `utf8("tools/call\n" ‖ tool ‖ "\n" ‖ callId ‖ "\n" ‖ JCS(arguments))`. Absent or `null` arguments hash as `{}`. |
 | Result ([MCP profile](README.md#the-mcp-profile)) | An MCP result's `resultHash` | `utf8("result\n" ‖ JCS(result))`, with the result's top-level `_meta` key removed first. |
-| Response | The last stamp of a response chain | `utf8(resultHash ‖ "\n" ‖ toolCallId)`. There is no prefix: it starts with the result hash. |
+| Response | The last stamp of a response chain | `utf8(resultHash ‖ "\n" ‖ callId)`. There is no prefix: it starts with the result hash. |
 | Local tool ([MCP profile](README.md#the-mcp-profile)) | A local step's stamp | `utf8("tool\n" ‖ toolName ‖ "\n" ‖ JCS({ "input": input, "resolved": decision }))`. An absent or `null` input, or decision, hashes as `{}`. |
 
 Rules:
 
-- `tool`, `callId`, `toolCallId` and `toolName` MUST NOT contain `\n`, so the parts can't run into each other.
+- `tool`, `callId` and `toolName` MUST NOT contain `\n`, so the parts can't run into each other.
   A verifier that cannot compute the binding for a call MUST reject it (`BINDING_MISMATCH`).
 - A string with a lone surrogate has no UTF-8 form. A part hashed as JCS fails on one ([Encodings](#encodings)).
   Every binding MUST refuse one in every string it hashes, such as the prompt text, `resultHash`, the HTTP method

@@ -10,7 +10,7 @@ export const META_CHAIN = "paztport/chain";
 export const META_PROOF = "paztport/proof";
 /** A tools/call's blocks, one per stamp of its chain, each committed to by its stamp's `ext` (spec wire.md, MCP). */
 export const META_EXTENSIONS = "paztport/extensions";
-/** Carries the toolCallId that bindMcpCall covers, as a plain string. */
+/** Carries the callId that bindMcpCall covers, as a plain string. */
 export const META_CALL_ID = "paztport/callId";
 /** A result's attestation: the response chain's blocks, the chain, the server's route proof and the result hash. */
 export const META_ATTESTATION = "paztport/attestation";

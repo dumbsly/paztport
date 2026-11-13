@@ -370,7 +370,7 @@ describe("newRecordSet: replay across a record set", () => {
   });
 });
 
-const RESPONSE_CALL = { rid: "rid-1", toolCallId: "call-1", receiver: "pi" };
+const RESPONSE_CALL = { rid: "rid-1", callId: "call-1", receiver: "pi" };
 
 /** The server's signed response to call-1 in `h`'s session, stamped at NOW. */
 function response(h: ReturnType<typeof handshake>) {

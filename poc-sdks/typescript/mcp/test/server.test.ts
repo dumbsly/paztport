@@ -517,7 +517,7 @@ describe("response attestation", () => {
   it("attestedResponseVerifiesForClient", () => {
     const { srv, client, reply } = setup();
     const out = srv.attest(srv.session()!, RESULT, CALL, "third-party");
-    const v = client.verify(out, { rid: CALL.rid, toolCallId: CALL.callId }, reply.serverKeyring, reply.serverRoot!);
+    const v = client.verify(out, { rid: CALL.rid, callId: CALL.callId }, reply.serverKeyring, reply.serverRoot!);
     expect(v.reason).toBe("OK");
     expect(v.entries).toEqual([{ cls: "third-party", src: "server:github", h: bindResult(RESULT), cid: expect.any(String) }]);
     expect(RESULT._meta).toBeUndefined();
@@ -532,7 +532,7 @@ describe("response attestation", () => {
       { items: { [INFLUENCE]: [{ cls: "private", cid: expect.any(String) }] }, requires: [INFLUENCE] },
     ]);
     expect(att.chain.map((s) => s.ext)).toEqual(att.blocks.map((b) => commitBlock(b)));
-    const v = client.verify(out, { rid: CALL.rid, toolCallId: CALL.callId }, reply.serverKeyring, reply.serverRoot!, Date.now(), CLIENT_EXTENSIONS);
+    const v = client.verify(out, { rid: CALL.rid, callId: CALL.callId }, reply.serverKeyring, reply.serverRoot!, Date.now(), CLIENT_EXTENSIONS);
     expect(v.reason).toBe("OK");
   });
   it("attestationLabelMatchesClass", () => {
@@ -559,7 +559,7 @@ describe("response attestation", () => {
   it("aResponseForAnotherCallerDoesNotVerifyForThisClient", () => {
     const { srv, client, reply } = setup();
     const out = srv.attest(srv.session()!, RESULT, { ...CALL, caller: "other" }, "public");
-    expect(client.verify(out, { rid: CALL.rid, toolCallId: CALL.callId }, reply.serverKeyring, reply.serverRoot!).reason).toBe("BINDING_MISMATCH");
+    expect(client.verify(out, { rid: CALL.rid, callId: CALL.callId }, reply.serverKeyring, reply.serverRoot!).reason).toBe("BINDING_MISMATCH");
   });
   it("attestLabelsButLeavesTheServedClassesToHandleToolCall", () => {
     const { srv } = setup();
@@ -569,7 +569,7 @@ describe("response attestation", () => {
   it("replayedResponseIsRejected", () => {
     const { srv, client, reply } = setup();
     const out = srv.attest(srv.session()!, RESULT, CALL, "public");
-    const args = [{ rid: CALL.rid, toolCallId: CALL.callId }, reply.serverKeyring, reply.serverRoot!] as const;
+    const args = [{ rid: CALL.rid, callId: CALL.callId }, reply.serverKeyring, reply.serverRoot!] as const;
     expect(client.verify(out, ...args).reason).toBe("OK");
     expect(client.verify(out, ...args).reason).toBe("REPLAY");
   });
@@ -577,7 +577,7 @@ describe("response attestation", () => {
     const { srv, client, reply } = setup();
     const out = srv.attest(srv.session()!, RESULT, CALL, "private");
     const tampered: CallToolResult = { ...out, content: [{ type: "text", text: "hello, edited" }] };
-    expect(client.verify(tampered, { rid: CALL.rid, toolCallId: CALL.callId }, reply.serverKeyring, reply.serverRoot!).reason).toBe("BINDING_MISMATCH");
+    expect(client.verify(tampered, { rid: CALL.rid, callId: CALL.callId }, reply.serverKeyring, reply.serverRoot!).reason).toBe("BINDING_MISMATCH");
   });
   it("responseIntoOtherSessionRejected", () => {
     const { srv, client: clientA, reply: replyA } = setup();
@@ -586,17 +586,17 @@ describe("response attestation", () => {
     const replyB = handshake(srv, clientB.request());
     expect(clientB.acceptReply(replyB, replyA.serverPolicyKey)).toBe(true);
     expect(replyB.sess).not.toBe(replyA.sess);
-    const v = clientB.verify(outA, { rid: CALL.rid, toolCallId: CALL.callId }, replyB.serverKeyring, replyB.serverRoot!);
+    const v = clientB.verify(outA, { rid: CALL.rid, callId: CALL.callId }, replyB.serverKeyring, replyB.serverRoot!);
     expect(v.reason).not.toBe("OK");
     expect(v.reason).toBe("SESSION_UNKNOWN");
     expect(v.entries).toEqual([{ cls: "local-untrusted", src: "server:github", h: bindResult(RESULT) }]);
     // the response still verifies in the session it was made for
-    expect(clientA.verify(outA, { rid: CALL.rid, toolCallId: CALL.callId }, replyA.serverKeyring, replyA.serverRoot!).reason).toBe("OK");
+    expect(clientA.verify(outA, { rid: CALL.rid, callId: CALL.callId }, replyA.serverKeyring, replyA.serverRoot!).reason).toBe("OK");
   });
   it("staleResponseIsExpired", () => {
     const { srv, client, reply } = setup();
     const out = srv.attest(srv.session()!, RESULT, CALL, "public");
-    const v = client.verify(out, { rid: CALL.rid, toolCallId: CALL.callId }, reply.serverKeyring, reply.serverRoot!, Date.now() + 60_000);
+    const v = client.verify(out, { rid: CALL.rid, callId: CALL.callId }, reply.serverKeyring, reply.serverRoot!, Date.now() + 60_000);
     expect(v.reason).toBe("EXPIRED");
   });
   it("clientCallParamsVerifyOnServer", () => {

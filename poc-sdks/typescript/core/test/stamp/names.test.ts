@@ -16,7 +16,7 @@ const origin = (svc: string, rcv: string) => () =>
 const localStep = (svc: string, toolName = "read") => () =>
   stampLocalStep(
     {
-      svc, inst: "i", rid: "r", ts: 1, prev: "", block: EMPTY_BLOCK, toolName, toolCallId: "c", input: {},
+      svc, inst: "i", rid: "r", ts: 1, prev: "", block: EMPTY_BLOCK, toolName, callId: "c", input: {},
       resolved: { paths: [], programs: [], parse: "ok", readOnly: true }, verdict: "OK", listed: true, rulesHash: null,
     },
     privateKey,

@@ -19,7 +19,7 @@ const tok = (value: unknown): string => writeToken(value as JsonValue);
 
 const NOW = 10_000_000;
 const SESS = "sess-1";
-const CALL = { rid: "rid-1", toolCallId: "call-1", receiver: "pi" };
+const CALL = { rid: "rid-1", callId: "call-1", receiver: "pi" };
 const ROUTE = "mcp-entry/github-tools";
 /** The blocks a response carries by default: the entry hop adds nothing, the tool hop one `example` item. */
 const NOTE = { note: "n" };
@@ -165,14 +165,14 @@ describe("verifyResponse", () => {
   it("aCallIdWithALoneSurrogateIsBindingMismatchAndDoesNotThrow", () => {
     const w = world();
     const { body, att } = w.response();
-    expect(verifyResponse(tok(att), body, { ...CALL, toolCallId: "call-1\ud800" }, w.cfg()).reason)
+    expect(verifyResponse(tok(att), body, { ...CALL, callId: "call-1\ud800" }, w.cfg()).reason)
       .toBe("BINDING_MISMATCH");
   });
   it("aCallIdHoldingANoncharacterVerifies", () => {
     // the nonce key is the verifier's own text, written as hashed content is, so it can be formed
     const w = world();
     const { body, att } = w.response(BLOCKS, "call-1\ufffe");
-    expect(verifyResponse(tok(att), body, { ...CALL, toolCallId: "call-1\ufffe" }, w.cfg()).reason).toBe("OK");
+    expect(verifyResponse(tok(att), body, { ...CALL, callId: "call-1\ufffe" }, w.cfg()).reason).toBe("OK");
   });
   it("malformedAttestationIsChainMissing", () => {
     const w = world();

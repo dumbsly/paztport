@@ -26,7 +26,7 @@ export type LocalStepFields = {
   /** The signature of the run's origin stamp. */
   prev: string;
   toolName: string;
-  toolCallId: string;
+  callId: string;
   /** The input as recorded in the evidence. */
   input: unknown;
   resolved: Resolved;
@@ -60,9 +60,9 @@ export function stampLocalStep(f: LocalStepFields, privateKey: string): Stamp {
 }
 
 /** The binding a local step's stamp carries: the call and the decision on it. Throws if the input can't be bound. */
-export function localStepBind(f: Pick<LocalStepFields, "toolName" | "toolCallId" | "input" | "resolved" | "verdict" | "listed" | "rulesHash">): string {
+export function localStepBind(f: Pick<LocalStepFields, "toolName" | "callId" | "input" | "resolved" | "verdict" | "listed" | "rulesHash">): string {
   return bindLocalTool(f.toolName, f.input, {
-    callId: f.toolCallId,
+    callId: f.callId,
     resolved: f.resolved,
     verdict: f.verdict,
     routeAllowed: f.listed,

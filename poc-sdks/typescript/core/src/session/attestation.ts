@@ -19,17 +19,17 @@ import { verifyChainRead, type ChainVerification, type VerifierConfig } from "..
  */
 export type ResponseAttestation = { blocks: Block[]; chain: Stamp[]; proof: MerkleProof; resultHash: string };
 /** The call a response answers, and the client it was sent to: the service that made the call. */
-type ResponseCall = { rid: string; toolCallId: string; receiver: string };
+type ResponseCall = { rid: string; callId: string; receiver: string };
 
 /**
  * The value the last response stamp binds (spec wire.md, Bindings, Response): `b64url(H(utf8(resultHash ‖ "\n" ‖
- * toolCallId)))`. Throws on a call id holding a newline, and on a lone surrogate in either, which has no UTF-8 form.
+ * callId)))`. Throws on a call id holding a newline, and on a lone surrogate in either, which has no UTF-8 form.
  */
-export function bindResponse(resultHash: string, toolCallId: string): string {
-  if (toolCallId.includes("\n")) {
-    throw new Error("toolCallId must not contain newlines");
+export function bindResponse(resultHash: string, callId: string): string {
+  if (callId.includes("\n")) {
+    throw new Error("callId must not contain newlines");
   }
-  return encode(sha256(utf8(resultHash + "\n" + toolCallId)));
+  return encode(sha256(utf8(resultHash + "\n" + callId)));
 }
 
 /**
@@ -71,7 +71,7 @@ export function verifyResponse(
     ok: false, reason, suspectSvc: "", suspectInst: "", handOver: null,
   });
   try {
-    if (typeof call?.rid !== "string" || typeof call.toolCallId !== "string" || call.toolCallId.includes("\n") || typeof call.receiver !== "string") {
+    if (typeof call?.rid !== "string" || typeof call.callId !== "string" || call.callId.includes("\n") || typeof call.receiver !== "string") {
       return fail("CHAIN_MISSING");
     }
     const read = object(readToken(attestation));
@@ -84,7 +84,7 @@ export function verifyResponse(
       if (att.resultHash !== bindResult(result)) {
         return fail("BINDING_MISMATCH");
       }
-      expectedBind = bindResponse(att.resultHash, call.toolCallId);
+      expectedBind = bindResponse(att.resultHash, call.callId);
     } catch {
       return fail("BINDING_MISMATCH");
     }
@@ -99,7 +99,7 @@ export function verifyResponse(
         receiver: call.receiver,
         receiverInRoute: false,
       },
-      { ...cfg, nonceKey: nonceKey([call.rid, call.toolCallId, "resp"]) },
+      { ...cfg, nonceKey: nonceKey([call.rid, call.callId, "resp"]) },
     );
   } catch {
     return fail("CHAIN_MISSING");

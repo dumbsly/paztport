@@ -189,7 +189,7 @@ the spec's objects and times, never from any implementation's record format:
   `verdict` the step signed when the record verifies (null when it does not).
 - A **`responseAttestation`** case ([MCP profile](#the-mcp-profile)) is a response as a client receives it: the
   `attestationToken` of the `paztport/attestation` value (its readable value is `attestation`), the `result` it
-  answers, the `call` (`rid`, `toolCallId`, `receiver`), and the `server` the stamps are checked against (`keyring`
+  answers, the `call` (`rid`, `callId`, `receiver`), and the `server` the stamps are checked against (`keyring`
   by name, the root of `policy`, `allowedOrigins`, `sess`, `policyNotAfter` and `nonceTtlMs`). The client checks it
   once at `now`, as [a response on the client](verification.md#the-mcp-server-and-client) does, and `expected` is
   the `reason`.
@@ -281,7 +281,7 @@ one member per name in `actsOn`, each an array of `{svc, items}`, one per stamp 
 the stamp's block does not name the extension. A `verify` case may have `peers` in place of `peer`: use `i` is sent by
 `peers[i]`, null for no peer. A nonce key, in `nonceKey` and `seen`, is the JCS text of its array of strings
 ([verification.md](verification.md#freshness-and-replay)); the `verify` case "a call id holding a noncharacter"'s
-`nonceKey`, and the `responseAttestation` case of that name's `call.toolCallId`, hold U+FFFF written as itself, as
+`nonceKey`, and the `responseAttestation` case of that name's `call.callId`, hold U+FFFF written as itself, as
 `json.json` does, so a replay reads the file's own structure with any JSON reader, and only the tokens with the reader
 under test. A `sessionReply` case's `requires`, `[]` when absent, is what the client requires of the server. A
 `recordedLocalStep` step's blocks are, unless the case's name says otherwise, the origin's, naming `influence` with
