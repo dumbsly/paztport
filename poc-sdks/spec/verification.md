@@ -73,9 +73,17 @@ protocol: two implementations that order the checks differently disagree.
 Otherwise the result is `OK`.
 
 On `OK` the verifier hands the service, for each name in `actsOn`, one entry per stamp in chain order: the stamp's
-`svc`, and either that its block does not name the extension, or the items its block holds under it. What audit mode
-hands on is in [Modes and refusals](#modes-and-refusals). The core reads no item; what an item means, and what the
-service does with it, is its extension's to say.
+`svc`, and either that its block does not name the extension, or the items its block holds under it.
+
+**What a request served without verifying is handed.** A service that serves a request it did not verify, in
+audit mode after a failure or because it verifies no requests under a mode ([HTTP](#http-requests-and-responses)),
+is handed the same where the chain read and check 9a held, but as not verified, and when `allowedExtensions` is set
+only the items under names it holds. Where the chain did not read, nothing is handed on. A request whose blocks
+fail check 9a is never served over HTTP ([HTTP](#http-requests-and-responses)), and over MCP runs with nothing
+handed on ([Modes and refusals](#modes-and-refusals)). In an unsafe session, over MCP or HTTP, the server believes
+nothing from the call and nothing is handed on ([sessions.md](sessions.md#over-http)). `actsOn` and
+`allowedExtensions` are the service's configuration whether or not it has a verifier. The core reads no item; what
+an item means, and what the service does with it, verified or not, is its extension's to say.
 
 Only the direct caller's `requires` binds the receiver: check 9c reads the last block alone, so the `requires` of
 an earlier block binds no hop after the one it was sent to ([wire.md](wire.md#blocks)). A response is checked by
@@ -201,7 +209,9 @@ goes to the verifier's own logs and to its [events](wire.md#events), never to th
 - Without a peer, `suspectInst` is the signing service's own claim. Its key proves the service, not the
   instance.
 - **`EXTENSION_MISMATCH` is attributable**, though without a peer it names no one, as above: an honest sender
-  forwards the blocks unchanged, so a block that does not match its stamp was altered or dropped.
+  forwards the blocks unchanged, and every hop that serves a request over HTTP, where hops forward the blocks
+  they receive, has matched each block to its stamp first ([HTTP requests](#http-requests-and-responses)), so a
+  block that does not match its stamp was altered or dropped by the sender.
   **`EXTENSION_NOT_ALLOWED` and `EXTENSION_REQUIRED` never are** ([attributable](wire.md#the-event)): like
   `POLICY_EXPIRED`, they report configuration, and two honest services can hold different settings. With a peer
   they name the peer, as every result of checks 1 to 12 does.
@@ -288,21 +298,26 @@ then, when the last stamp's `rcv` names an operation, `#` and the operation the 
 `nonceKey` = the request's key from the table above, with the key value it read when the operation it supplies has
 a `key`. A header that is present but does not decode is left to the check that reads it: an unreadable chain is
 `CHAIN_MISSING`, unreadable blocks are `EXTENSION_MISMATCH`, and an unreadable proof is no proof, so
-`PATH_NOT_ALLOWED`. A hop that extends the chain MUST send the blocks it received unchanged, then its own
-([wire.md](wire.md#blocks)), whether or not it verifies: a receiver that served a request while dropping or altering
-a block would hide a claim from every later hop. So a receiver that verifies requests under a mode does not serve a
-request whose blocks fail check 9a: in enforce mode verification refuses it, and in audit mode it is answered
-`400 {"reason":"EXTENSION_MISMATCH"}` ([Modes and refusals](#modes-and-refusals)), as a hop that verifies nothing
-answers blocks it cannot read (below). An origin starts a new request tree, so it carries neither the chain
-nor the blocks a request brings, and has nothing to drop.
+`PATH_NOT_ALLOWED`. Whatever it verifies, it never serves a request whose blocks fail check 9a (below).
 
-**A hop that verifies nothing.** A service that verifies no requests under a mode (one with no verifier, one that
-runs the live order only to decide whether to attest, as [Who attests](#http-requests-and-responses) says, or one on
-which Paztport is off) still extends the chain it received: it MUST send the blocks it received unchanged, then its
-own. It reads `X-Path-Extensions` only as far as an array of blocks, one per stamp of the chain, and answers a
-request whose header does not read as that with `400 {"reason":"EXTENSION_MISMATCH"}`. When the chain does not
-read there is no count to hold the blocks to, so they must still read as an array of blocks, and the hop answers the
-same `400` when they do not, as an audit-mode receiver does ([the one exception](#modes-and-refusals)).
+**A service never serves a request whose blocks fail check 9a.** A hop that extends the chain MUST send the
+blocks it received unchanged, then its own ([wire.md](wire.md#blocks)), whether or not it verifies: a service that
+served a request while dropping or altering a block would hide a claim from every later hop, and would hand its
+extensions items that do not match their stamps. So, in any mode and whether or not the service verifies:
+
+- In enforce mode verification refuses such a request: `403` with the first failing check's code,
+  `EXTENSION_MISMATCH` when that is check 9a.
+- Every other service about to serve a request applies check 9a itself whenever the chain read, whatever else
+  failed or was never checked, and answers `400 {"reason":"EXTENSION_MISMATCH"}` when it fails. That is a service
+  in audit mode, after any failure, and a service that verifies no requests under a mode: one with no verifier,
+  one that runs the live order only to decide whether to attest ([Who attests](#http-requests-and-responses)), and
+  one on which Paztport is off. Check 9a needs no key: it reads the blocks and hashes each one.
+- Where the chain did not read there are no stamps to match the blocks to, so they must still read as an array of
+  blocks, or the same `400`.
+
+A service that verifies no requests under a mode still extends the chain it received: it sends the blocks it
+received unchanged, then its own. An origin starts a new request tree, so it carries neither the chain nor the
+blocks a request brings, and has nothing to drop.
 
 **The receiver's operation.** The receiver's operation is the handler its framework will run. It works it out from its
 own routing before it verifies, and, where its framework lets later code route a request on after the receiver has
@@ -411,18 +426,15 @@ connects to (TLS hostname verification, RFC 9110 §4.3.4). That is why a respons
 passed the live order, 0 to 12, at that service, as for a request at the receiver above: its own pinned material,
 `receiver` as a request at the receiver supplies it, the request's proof and blocks, and the peer when there is one.
 This holds whether or not the service refuses requests that fail: one that does not enforce MUST still run the live
-order before it attests, and a failure there withholds the attestation. In audit mode a request that fails check 9a
-is answered `400 {"reason":"EXTENSION_MISMATCH"}` ([the one exception](#modes-and-refusals)). At a service that
-runs the live order only to attest, a failure of the order, a mismatch at check 9a included, only withholds the
-attestation; but blocks that do not read as an array of
-blocks, one per stamp, are answered the same `400`, as at any [hop that verifies nothing](#http-requests-and-responses),
-not merely left unattested. A response stamp is shaped like a request stamp, so attesting a chain nobody checked would
-let anyone mint stamps under the service's key: on a forged one-stamp chain with an empty `sig`, the response is a
-valid origin stamp from the answering service. So a service with nothing to verify with never attests, and an origin,
-which starts each request tree afresh, never attests. Nor is a refusal attested, or a request that failed in audit
-mode. Where a service confirms its operation a second time, it attests only an answer whose handler it confirmed
-([The receiver's operation](#http-requests-and-responses)). A service runs the live order at most once per request,
-since it spends the request's nonce key.
+order before it attests, and a failure there withholds the attestation. A request whose blocks fail check 9a is not
+served at all, at a service that runs the live order only to attest as at any other: it is answered
+`400 {"reason":"EXTENSION_MISMATCH"}` ([above](#http-requests-and-responses)). A response stamp is shaped like a
+request stamp, so attesting a chain nobody checked would let anyone mint stamps under the service's key: on a forged
+one-stamp chain with an empty `sig`, the response is a valid origin stamp from the answering service. So a service
+with nothing to verify with never attests, and an origin, which starts each request tree afresh, never attests. Nor
+is a refusal attested, or a request that failed in audit mode. Where a service confirms its operation a second time,
+it attests only an answer whose handler it confirmed ([The receiver's operation](#http-requests-and-responses)). A
+service runs the live order at most once per request, since it spends the request's nonce key.
 
 **A response, at the caller.** The caller checks `X-Path-Response` with `stamps` = the chain it sent then the
 response stamp, `blocks` = the blocks it sent then the response's `block`, its own `allowedExtensions` and
@@ -460,30 +472,25 @@ result other than `OK`, with `audit: true` in audit mode. An audit event is neve
 server also puts `"audit": true` in the verdict of the call's `paztport/verdict` ([wire.md](wire.md#mcp)), and a
 client does not read that as a refusal ([the verdict rule](#the-mcp-server-and-client)).
 
-**The one exception.** Over HTTP, in audit mode, the receiver applies check 9a to every request it is about to
-serve whose chain read, whichever earlier check failed, and refuses one that fails it with
-`400 {"reason":"EXTENSION_MISMATCH"}`; the request is not served. Where the chain did not read, the blocks must still
-read as an array of blocks, or the request is refused the same way. A hop MUST send the blocks it received unchanged
-([HTTP requests](#http-requests-and-responses)), in any mode, and a service cannot hand its extensions items it could
-not verify. In enforce mode verification has refused such a request already: check 9a fails, if nothing before it
-does. Checks 9b and 9c follow the mode like any other check. In audit mode a served request whose blocks passed
-check 9a is handed on as on `OK` ([the live order](#the-live-order)), one entry per stamp for each name in `actsOn`,
-but as not verified, and only items under names `allowedExtensions` allows are handed on; where the chain did not
-read, or the blocks did not pass check 9a, nothing is handed on. Over MCP there is no exception: an audit-mode server
-runs every call and notes its verdict, whatever the code, and a call whose blocks did not pass check 9a runs with
-nothing handed on to its extensions.
+**The one exception.** Over HTTP a service never serves a request whose blocks fail check 9a, so in audit mode
+such a request is answered `400 {"reason":"EXTENSION_MISMATCH"}`, whichever check failed first
+([HTTP requests](#http-requests-and-responses) has the rule). Checks 9b and 9c follow the mode like any other check.
+What a request served in audit mode after a failure is handed is in [the live order](#the-live-order). Over MCP
+there is no exception: an audit-mode server runs every call and notes its verdict, whatever the code, and a call
+whose blocks did not pass check 9a runs with nothing handed on to its extensions.
 
 **Attestation.** Neither mode changes who attests ([Who attests](#http-requests-and-responses); over MCP,
 [the server decision](sessions.md#the-server-decision)). A response is attested only when the
 request passed the live order at that service. So in audit mode a request that failed is served, but its response
 is not attested. A service that attests but does not verify requests under a mode still runs the live order, once
-per request, before it attests; a failure there only withholds the attestation, but blocks that do not read as one
-per stamp are answered `400`, as at any [hop that verifies nothing](#http-requests-and-responses).
+per request, before it attests; a failure there only withholds the attestation, except that a request whose blocks
+fail check 9a is answered `400` ([HTTP requests](#http-requests-and-responses)).
 
 **Outside the modes.** How a deployment turns Paztport off on a hop is not part of the protocol. A hop that is off
-verifies, attests and reports nothing. It is a [hop that verifies nothing](#http-requests-and-responses), so it
-still extends the chains it receives. Its responses are unattested, so turning a hop off never vouches for anything.
-It cannot be an egress ([sessions.md](sessions.md#between-organisations)).
+verifies no chain, and attests and reports nothing. It is a service that verifies no requests under a mode, so it
+still extends the chains it receives, and never serves a request whose blocks fail check 9a
+([HTTP requests](#http-requests-and-responses)). Its responses are unattested, so turning a hop off never vouches
+for anything. It cannot be an egress ([sessions.md](sessions.md#between-organisations)).
 
 **What a refusal carries.** A refusal is for the caller, so it can decide what to do next. Attribution is for the
 operator and the responder, and travels only in the service's own logs and in signed events. So a refusal MUST
@@ -493,7 +500,7 @@ suspect is usually the caller itself, and telling it would tip it off before the
 
 | Transport | A refusal |
 |---|---|
-| HTTP | Status `403` for a refusal by verification, the codes of checks 9a to 9c included; or `400` with `EXTENSION_MISMATCH` where verification has not refused the request first, which is in audit mode ([the one exception](#modes-and-refusals)) or at a service that verifies no requests under a mode ([a hop that verifies nothing](#http-requests-and-responses)); or, for a code an extension gives, the status its extension gives it. In each case with `Content-Type: application/json`, which MUST carry no parameters, and the body `{"reason":"<code>"}`, sent as UTF-8: one JSON object whose only member is `reason`, a string, written with no whitespace, so that every implementation sends the same bytes for the same code. A reader MUST ignore any media-type parameter, `charset` included, and read the body as its [wire bytes](wire.md#reading), which are UTF-8 as [RFC 8259](https://www.rfc-editor.org/rfc/rfc8259#section-8.1) §8.1 requires of JSON exchanged between systems; the `application/json` registration defines no `charset` parameter (§11). A body that does not read, or has any member but `reason`, gives no reason. The handshake endpoint's own errors, `400 {"error":"<code>"}` ([sessions.md](sessions.md#over-http)), answer a handshake, not a call, and are not refusals. |
+| HTTP | Status `403` for a refusal by verification, the codes of checks 9a to 9c included; or `400` with `EXTENSION_MISMATCH` for a request whose blocks fail check 9a where verification has not refused it first ([HTTP requests](#http-requests-and-responses)); or, for a code an extension gives, the status its extension gives it. In each case with `Content-Type: application/json`, which MUST carry no parameters, and the body `{"reason":"<code>"}`, sent as UTF-8: one JSON object whose only member is `reason`, a string, written with no whitespace, so that every implementation sends the same bytes for the same code. A reader MUST ignore any media-type parameter, `charset` included, and read the body as its [wire bytes](wire.md#reading), which are UTF-8 as [RFC 8259](https://www.rfc-editor.org/rfc/rfc8259#section-8.1) §8.1 requires of JSON exchanged between systems; the `application/json` registration defines no `charset` parameter (§11). A body that does not read, or has any member but `reason`, gives no reason. The handshake endpoint's own errors, `400 {"error":"<code>"}` ([sessions.md](sessions.md#over-http)), answer a handshake, not a call, and are not refusals. |
 | MCP ([profile](README.md#the-mcp-profile)) | A result with `isError: true` and `_meta["paztport/verdict"]` the token of `{ "reason": "<code>" }` ([wire.md](wire.md#mcp)). An audit verdict adds `"audit": true`, and is not a refusal: the tool ran. |
 
 ## Offline verification

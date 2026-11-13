@@ -134,7 +134,7 @@ the parent's answer.
 | An event | The responder, from the envelope's `payload` ([Receiving an event](verification.md#receiving-an-event)) | `MALFORMED_EVENT`; an event whose only fault is an absent or `null` `eventId` is `NO_EVENT_ID` |
 | A chain | A verifier, live or offline ([check 1](verification.md#the-live-order)), from an HTTP header or MCP `_meta` | `CHAIN_MISSING` |
 | A proof | A verifier, live or offline ([check 12](verification.md#the-live-order)) | None: no proof, so the route is not proven (`PATH_NOT_ALLOWED`) |
-| The blocks | A verifier, live or offline ([check 9a](verification.md#the-live-order)), from an HTTP header or MCP `_meta`; and a service that forwards them without verifying, only as far as an array of blocks, one per stamp of the chain ([Blocks](#blocks)) | `EXTENSION_MISMATCH` |
+| The blocks | A verifier, live or offline ([check 9a](verification.md#the-live-order)), from an HTTP header or MCP `_meta`; and over HTTP every service about to serve a request it did not verify, which applies check 9a itself ([A service never serves a request whose blocks fail check 9a](verification.md#http-requests-and-responses)) | `EXTENSION_MISMATCH` |
 | A response attestation | A client, from an HTTP header or MCP `_meta` ([HTTP](verification.md#http-requests-and-responses), [MCP](verification.md#the-mcp-server-and-client)) | `CHAIN_MISSING` |
 | A verdict (MCP profile) | A client, from MCP `_meta` ([the verdict rule](verification.md#the-mcp-server-and-client)) | `UNKNOWN`, a refusal |
 | A recorded verdict (MCP profile) | A verifier of a recorded response | No refusal: the result is judged as a response |
