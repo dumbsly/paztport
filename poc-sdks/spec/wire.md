@@ -267,7 +267,7 @@ other character, a no-break space or a byte order mark included, is not that key
 | `proofs-<svc>.json` | [A proof bundle](#proof-bundles-and-who-holds-what) | no, but it reveals its own routes |
 | `ops-<svc>.json` | [An operation table](#operations), copied by the policy tool from beside `paths.yaml` | no |
 | `policy.pub` | The policy public key that a mesh's own services pin, written by the Java keygen | no |
-| `boundary.key` | An egress's [boundary key](influence.md#blinded-influence): 32 bytes as base64url. The Java keygen writes it only when it does not exist, since a new key makes the entries sent under the old one unopenable, and refuses an existing one that is not 32 bytes. It belongs to one egress service and its replicas, and MUST NOT be shared with another service | yes |
+| `boundary.key` | An egress's boundary key, as base64url: an extension's file, whose rules are in [influence.md](influence.md#blinded-influence) | yes |
 | `<side>-policy.pub` | A pinned policy public key (`server-policy.pub`, `client-policy.pub`) | no |
 
 **Expiry.** The policy key stays offline, so a root or keyring it once signed can't be withdrawn, only left to

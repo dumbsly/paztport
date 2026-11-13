@@ -1,9 +1,10 @@
 # Sessions
 
 How two sides open a session and decide how far to trust each other, what a session's status lets through, and how a
-chain crosses from one organisation to another. The bytes of stamps, roots and keyrings are in [wire.md](wire.md),
-the checks in [verification.md](verification.md), and influence, which a session carries and a boundary blinds, in
-[influence.md](influence.md).
+chain crosses from one organisation to another. A session is a **profile**: a way of using the core that adds no
+check to it and does not use the [block](wire.md#blocks) slot. The bytes of stamps, roots and keyrings are in
+[wire.md](wire.md), the checks in [verification.md](verification.md), and the extension influence, which a session's
+calls may carry and a boundary blinds, in [influence.md](influence.md).
 
 The key words MUST, MUST NOT, SHOULD, SHOULD NOT and MAY are to be read as described in RFC 2119.
 
@@ -15,8 +16,8 @@ Contents: [The handshake](#the-handshake) · [Over HTTP](#over-http) · [The ses
 
 Before it stamps any call, a client opens a session with the JSON-RPC method `paztport/session`. Each side
 sends its signed root, its policy key, its keyring and a fresh nonce, and the server signs the reply. There is
-one session per connection: a new handshake replaces the current one, with its keyring, nonce cache and served
-classes, so calls signed for the old session are refused.
+one session per connection: a new handshake replaces the current one, with its keyring, nonce cache and
+[served classes](influence.md#over-mcp), so calls signed for the old session are refused.
 
 The params are `{"request": "<token>"}`, the [request](#the-request)'s token, and the result is
 `{"reply": "<token>"}`, the [reply](#the-reply)'s token, each the base64url of the object's JCS bytes
@@ -76,12 +77,15 @@ is missing, `null`, empty or a number, one with no `clientKeyringNotAfter`, one 
 | `sess` | string | [The session id](#the-session-id). |
 | `status` | `"attested"` or `"unsafe"` | See [Status](#status). |
 | `disabled` | array of strings | The tools refused in this session: the server's unsafe-session list when `status` is `"unsafe"`, and `[]` when it is `"attested"`. |
+| `extensions` | array of strings | The extensions the server acts on: [extension names](wire.md#blocks), sorted by their UTF-16 code units, with no name twice, and `[]` for none. Present whatever the `status`. |
 | `sig` | string | The signature over the reply's other fields: by the entry service's key in the entry-key form, by the server policy key in the policy-key form. |
 
 A reply is read from its bytes as [wire bytes](wire.md#reading), and has exactly the members above, the three of
 the entry-key form each only when present; a non-null `serverRoot` has exactly a
 [signed root's](wire.md#the-signed-root) members, and a `serverReplyCert` exactly a
 [reply certificate's](wire.md#the-reply-certificate). Over MCP it is read from the token in the result's `reply`.
+A reply without `extensions`, or whose `extensions` is not an array of extension names, sorted, with no name twice,
+does not read (`MALFORMED_REPLY`).
 
 A reply is in one of two forms, told apart only by which fields are present:
 
@@ -104,9 +108,9 @@ That is the reply as read, every member but `sig`: `serverKeyringSig`, `serverKe
 `serverReplyCert` included when present. A reply reads only from its canonical bytes, so these are the JCS bytes of
 the object received, less its `sig`.
 
-That one signature covers the server's root, keyring, nonce, session id, status and disabled list. In the
-policy-key form the keyring is therefore signed by the policy key through the reply. In the entry-key form the
-signer is only the entry service, so the keyring carries the policy key's own signature, and the certificate says
+That one signature covers the server's root, keyring, nonce, session id, status, disabled list and extensions.
+In the policy-key form the keyring is therefore signed by the policy key through the reply. In the entry-key form
+the signer is only the entry service, so the keyring carries the policy key's own signature, and the certificate says
 that the signing key is the entry service's and is still current. Without the keyring's signature the keyring
 would be only the reply's own claim, and could name any key as the entry service's.
 
@@ -119,9 +123,10 @@ the outcome:
 
 1. The reply reads, with exactly the members above; `serverKeyringSig`, when present, is a string beside a
    `serverKeyringNotAfter`; `serverKeyringNotAfter`, when present, and the `notAfter` of a non-null `serverRoot` are
-   integers in [0, 2^53 − 1]; every name in `serverKeyring` is a [route node](wire.md#routes); and
+   integers in [0, 2^53 − 1]; every name in `serverKeyring` is a [route node](wire.md#routes);
    `serverReplyCert`, when present, is a [reply certificate](wire.md#the-reply-certificate) with exactly its
-   members. A field whose value is `null` is present (`MALFORMED_REPLY`).
+   members; and `extensions` is an array of extension names, sorted, with no name twice. A field whose value is
+   `null` is present (`MALFORMED_REPLY`).
 2. `serverPolicyKey` equals the pinned key (`PIN_MISMATCH`).
 3. The signature, then the roots and the session id (`BAD_SIGNATURE`):
    - When `serverKeyringSig` or `serverReplyCert` is present: both are; the keyring
@@ -137,6 +142,14 @@ the outcome:
    derives from its own request and the reply; and `serverRoot`, when present, verifies under the pinned key and
    `now <= serverRoot.notAfter`.
 4. `status` is `"attested"`: the session is attested. Otherwise it is unsafe (`UNSAFE`).
+5. When the session is attested and the client's configuration requires extensions of this server, each of them
+   is in `extensions` (`EXTENSION_REQUIRED`).
+
+On `EXTENSION_REQUIRED` the client makes no call in that session. A configuration switch lets it continue
+instead: the session is then attested, and its calls carry no `requires` for the names the reply does not list
+([wire.md](wire.md#blocks)). `EXTENSION_REQUIRED` is an outcome of this check, as `PIN_MISMATCH` and
+`MALFORMED_REPLY` are; it shares its name with the verifier's code, as `BAD_SIGNATURE` already does. A mesh has no
+handshake, so there `requires` does this work on each call ([check 9c](verification.md#the-live-order)).
 
 The server's root, and in the entry-key form its keyring, are judged at `now` whatever the reply's `status`: an
 expired one is `BAD_SIGNATURE`, so the client takes its replacement path. A window is relied on only after the
@@ -151,7 +164,7 @@ would then pass under whichever key signed it. A lookup of `serverEntry` in `ser
 object's own members, so that a name such as `constructor` finds nothing in a keyring that does not list it.
 
 **What the entry key can do.** A compromised entry-service key, while a certificate for it is unexpired, can forge
-a reply's nonce, session id, status and disabled list, and can present any root or keyring the policy key signed
+a reply's nonce, session id, status, disabled list and extensions, and can present any root or keyring the policy key signed
 that has not yet expired, but can make none, and can't revive an expired one: roots and keyrings, windows
 included, are verified under the pinned key, and a client refuses an expired one live. That key already signs
 every response stamp the server attests, so a server that attests its responses already relies on it. Once its
@@ -161,28 +174,14 @@ certificates have expired it signs nothing a client accepts, so the revocation d
 **Domain separation.** Each kind of signed message starts with its own prefix, so that no signature can be read
 as another kind: session replies `"paztport-session-reply\n"`, reply certificates `"paztport-reply-cert\n"`,
 roots `"paztport-root\n"`, keyrings `"paztport-keyring\n"`, responder events `"paztport-event\n"`, and stamps
-`3|`.
-
-`v3.json` pins the check in `sessionReply`: the entry-key form attested and unsafe, the policy-key form attested, a
-check at `notAfter` and one 1 ms after it, and forms that fail: a certificate for another service, for a key other
-than the keyring's entry key, or signed by another policy key; a reply signed by another service; a keyring altered
-after signing or signed by another policy key; an entry absent from the keyring; either of `serverKeyringSig` and
-`serverReplyCert` without the other, whichever key signed the reply; neither field, signed by a key the reply's own
-keyring names for the entry; a server root signed by the entry key; an empty and a `null` `serverKeyringSig`; a
-`null` `serverReplyCert`; a `notAfter` that is not an integer; a member the reply does not have and a signed keyring
-that names a service that is not a route node, each malformed; a pin mismatch; a `serverKeyringNotAfter` moved after
-signing, which fails the signature, and one dropped, one that is not an integer and one that is `null`, which are
-malformed; and a server root `notAfter` moved after signing, which fails the signature, and one dropped and one that
-is not an integer, which are malformed. It pins the judging of the server's material too: a server root at its
-`notAfter`, and expired (in the entry-key form, in the policy-key form and in an unsafe reply), and expired with its
-`notAfter` moved past `now` in a reply signed again by the entry key; a server keyring at its `notAfter` and
-expired; and a `serverKeyringNotAfter` in a policy-key reply. Every other root and keyring in these cases is valid
-until long after every case's `now`.
+`"paztport-stamp\n"`.
 
 After an outcome from 1 to 3, or a JSON-RPC error or timeout, the server may have opened an attested session
 the client can't use, so every unstamped call would be refused. The client SHOULD replace it: it sends the same
 request again with `clientRoot: null` and a fresh nonce, and trusts the reply to that either way. A reply
-`-32601` (Method not found) means the server has no Paztport, so there is nothing to replace.
+`-32601` (Method not found) means the server has no Paztport, so there is nothing to replace. `EXTENSION_REQUIRED`
+does not lead to the replacement: the reply was sound, and an unsafe session with a server known not to act on the
+extension is what the requirement is there to prevent.
 
 ### Over HTTP
 
@@ -235,8 +234,8 @@ root as the handshake presented them, with `sess` = the session id, so a stamp m
 verifies in another ([verification.md](verification.md#http-requests-and-responses)). Inside one organisation's
 mesh there is no handshake, and `sess` stays `""`.
 
-In an unsafe session the server verifies nothing and believes nothing from the call: it starts with no
-influence and no verified chain, whatever headers came. The reply's `disabled` lists endpoints as
+In an unsafe session the server verifies nothing and believes nothing from the call: it hands its extensions no
+items and holds no verified chain, whatever headers came. The reply's `disabled` lists endpoints as
 `<METHOD> <path pattern>`, such as `POST /refund`, where the pattern is that of the handler the server
 dispatches the request to, not the path the caller wrote. So `/refund;x=1` and `//refund` are refused as
 `POST /refund`. A `HEAD` is refused wherever the matching `GET` is. These are not
@@ -266,7 +265,7 @@ present, so input without a root can't be read as input with one. `v3.json` pins
 It does not cover `clientKeyringSig` or `clientKeyringNotAfter`: it binds the keyring itself, and the server
 checks the signature, over that window, before it attests.
 
-Every v3 stamp in the session carries `sess`, so a chain made for one session fails in any other.
+Every stamp in the session carries `sess`, so a chain made for one session fails in any other.
 
 ## Status
 
@@ -306,7 +305,8 @@ An unsafe session is graded trust, not a refusal. In it:
 - The server does not verify calls, and does not attest results.
 - Every tool in `disabled` is refused with `UNSAFE_SESSION`; every other tool runs, ungated. A server's default
   list SHOULD hold every write tool: a tool left off it runs with no influence rule at all.
-- The client counts every result as `local-untrusted`.
+- A client that acts on influence counts every result as `local-untrusted`
+  ([influence.md](influence.md#content-labels)).
 
 A call made before any handshake is treated as in an unsafe session.
 
@@ -316,13 +316,9 @@ Once a call has verified in an attested session ([verification.md](verification.
 the server decides it:
 
 1. A call that failed verification is refused with its code.
-2. In an attested session, a write to a public destination is decided by [the owner-aware rule](influence.md#the-owner-aware-rule),
-   over the client's verified influence plus every class the server has served in this session
-   (`INFLUENCE_DENIED`). Anything else is allowed.
+2. In an attested session, a write the server guards is decided by the extensions it acts on
+   ([influence.md](influence.md#over-mcp) says how influence decides one). Anything else is allowed.
 3. In an unsafe session, or with no session, the tools in `disabled` are refused (`UNSAFE_SESSION`).
-
-The served classes only add facts: a client that fails to record a `private` or `third-party` label can't
-launder it past the rule. A served class carries no owner, so it counts as unknown.
 
 A refusal is a result with `isError: true` and `_meta["paztport/verdict"]` the token of `{ "reason": <code> }`, and
 the tool does not run. An audit-mode server runs the call anyway, and its verdict adds `"audit": true`. A server
@@ -334,10 +330,11 @@ A record keeps the request's token as sent and the reply's as received, and a ve
 [wire bytes](wire.md#reading), as [above](#the-handshake).
 
 Offline, a recorded handshake opened an attested session only when the reply's `status` is `"attested"`, the
-reply passes the client's check against the recorded pin and the server's entry service from the verifier's own
-configuration, both roots verify against their sides' policy keys, and the keyring signature verifies. A recorded
-request that is not a well-formed request, a missing `clientKeyringSig` or a member a request does not have
-included, opened no attested session.
+reply passes steps 1 to 4 of the client's check against the recorded pin and the server's entry service from the
+verifier's own configuration, both roots verify against their sides' policy keys, and the keyring signature
+verifies. Step 5 reads the client's live configuration, which a record does not hold. A recorded request that is
+not a well-formed request, a missing `clientKeyringSig` or a member a request does not have included, opened no
+attested session.
 
 The handshake record carries no signed time, so it is judged at each call's recorded time, the call's last stamp's
 `ts`, which the client signed: `now` in the check is the time of the record being judged. One session can therefore
@@ -380,25 +377,27 @@ MUST:
    - `sess`: the id of the session the sender opened with the partner;
    - `rcv`: the partner's entry service;
    - `bind`: the binding of the request it sends;
-   - `infl`: the commitment to the influence entries it sends (step 3), which carry the owners;
+   - `ext`: the commitment to the boundary stamp's [block](wire.md#blocks), the one it sends (step 3);
    - `prev`: `""`.
 
    A boundary stamp MUST have a non-empty `sess`, so it is never valid inside a mesh, where `sess` is `""`.
-3. Send the influence as [blinded entries](influence.md#blinded-influence), one per class and owner, and the proof for the
-   route `<egress>/<partner entry>`, which the sender's root MUST hold. It MUST NOT send the original entries:
-   their `src` names internal services and items, and their `h` values could be confirmed by guessing.
-4. Never forward an internal stamp. So the partner learns one service name and the classes and owners of the
-   influence, not the route or the sources behind them, and check 6 (every stamp carries the session) holds
-   unchanged.
-5. In an unsafe session, sign no stamp and send no influence. The partner would not verify the stamp, and the
-   owners in the influence are private. The call carries only the session id.
+3. Send the boundary stamp's block and the proof for the route `<egress>/<partner entry>`, which the sender's root
+   MUST hold. The boundary chain is one stamp, so it carries one block, the egress's own. What that block holds
+   across a boundary is each extension's to say: influence crosses as
+   [blinded entries](influence.md#blinded-influence), one per class and owner.
+4. Never forward an internal stamp. So the partner learns one service name and what the boundary block holds, not
+   the route or the sources behind it, and check 6 (every stamp carries the session) holds unchanged.
+5. In an unsafe session, sign no stamp and send no block. The partner would not verify the stamp, and a block can
+   hold what is private, as influence's owners are. The call carries only the session id.
 6. Pin the partner's policy key and check the handshake reply against it, with `serverEntry` the partner's entry
-   service ([above](#the-clients-check-of-the-reply)). Over HTTP, a reply the client cannot use, an HTTP error (a `404`
-   included) or no answer within the handshake's timeout (10 s in the Java SDK) is followed by the replacement
-   with no root, and the session is taken as unsafe whatever that reply says. From a server with no Paztport the
-   replacement gets a `404` too, and the call fails.
-7. Record every partner reply as one `local-untrusted` entry (`src` `http:<partner entry>`, `h` the result
-   hash). The partner does not attest what it answers, so nothing it says counts as more.
+   service, step 5 included ([above](#the-clients-check-of-the-reply)). Over HTTP, a reply the client cannot use, an
+   HTTP error (a `404` included) or no answer within the handshake's timeout (10 s in the Java SDK) is followed by
+   the replacement with no root, and the session is taken as unsafe whatever that reply says. From a server with no
+   Paztport the replacement gets a `404` too, and the call fails. A reply that fails step 5 is not followed by the
+   replacement: the egress makes no call in that session, unless its configuration switch lets it continue.
+7. Take every partner reply as unattested. The partner does not attest what it answers, so nothing it says
+   counts as more: an egress that acts on influence records each reply as one `local-untrusted` entry
+   ([influence.md](influence.md#content-labels)).
 
 The Java SDK's `BoundaryClient` also checks, when it is built, that its own root and keyring verify under its own
 policy key, since a partner could not attest either; that the partner's URL is a scheme and an authority with no
@@ -419,8 +418,9 @@ session**, not a refusal: the partner serves what it allows to unattested caller
 
 The partner verifies the boundary chain in the live order against the sender's root and keyring from the
 session, with the egress service as an allowed origin, `receiver` = its own entry service and
-`receiverInRoute = true`, and the authenticated peer. It then applies [the owner-aware rule](influence.md#the-owner-aware-rule)
-to the carried influence, taking the destination owner from its own records.
+`receiverInRoute = true`, and the authenticated peer. What it does with the boundary block's items is their
+extensions' to say: [influence.md](influence.md#blinded-influence) says how a partner that acts on influence
+applies the owner-aware rule to the blinded entries.
 
 The partner signs its handshake replies in either form ([above](#the-reply)). The Java SDK's partner sends the
 entry-key form: it holds its entry service's key and a current reply certificate for it, and its policy key stays
@@ -430,6 +430,6 @@ certificate names it and has not expired. It does not attest what it answers. In
 events; its properties are in the [Java SDK README](../java/README.md#partner-mode).
 
 What the partner can still learn: the boundary proof is the same on every request over that route, so it can
-count and cluster requests by route. It also sees each request's classes and owners, which the rule needs. It does
-not see the sources behind them: those cross only as blinded commitments that the sender can open. The
-[known limits](../../docs/limits.md#limits-of-the-concept) cover these.
+count and cluster requests by route. It also sees what the boundary block holds: with influence, each request's
+classes and owners, which the rule needs, and not the sources behind them, which cross only as blinded commitments
+that the sender can open. The [known limits](../../docs/limits.md#limits-of-the-concept) cover these.
