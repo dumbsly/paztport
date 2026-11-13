@@ -1,8 +1,14 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-import { bindPrompt, encode, mintOrigin, randomBytes, type Stamp } from "@paztport/core";
+import { bindPrompt, encode, influenceBlock, mintOrigin, randomBytes, type Block, type Stamp } from "@paztport/core";
 import { ORIGIN_SVC, PI_SVC } from "./keys.ts";
+
+/**
+ * The block every origin stamp commits to: it names `influence` with nothing to add, since a run's origin has read no
+ * content (influence.md, Over MCP, Agent sessions). The call path and the local gate send this same constant.
+ */
+export const ORIGIN_BLOCK: Block = influenceBlock([]);
 
 type Run = { rid: string; ts: number; bind: string };
 
@@ -38,7 +44,7 @@ export class RunState {
     if (cached !== undefined) {
       return cached;
     }
-    const stamp = mintOrigin({ svc: ORIGIN_SVC, rid: run.rid, ts: run.ts, bind: run.bind, sess: serverSess, inst, rcv: PI_SVC }, sessionKey);
+    const stamp = mintOrigin({ svc: ORIGIN_SVC, rid: run.rid, ts: run.ts, bind: run.bind, sess: serverSess, inst, rcv: PI_SVC, block: ORIGIN_BLOCK }, sessionKey);
     this.origins.set(key, stamp);
     return stamp;
   }

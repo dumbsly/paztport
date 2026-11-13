@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { bindPrompt, decode, generateKeyPair, signingBytes, verify } from "@paztport/core";
-import { RunState } from "../src/runs.ts";
+import { bindPrompt, commitBlock, decode, generateKeyPair, signingBytes, verify } from "@paztport/core";
+import { ORIGIN_BLOCK, RunState } from "../src/runs.ts";
 
 const key = generateKeyPair();
 
@@ -70,7 +70,7 @@ describe("RunState", () => {
     const o = r.origin("S9", key.privateKey, "my-inst");
     const { sig, ...rest } = o;
     expect(rest).toEqual({
-      v: 3,
+      v: 4,
       svc: "session",
       inst: "my-inst",
       rid: r.current()!.rid,
@@ -78,9 +78,17 @@ describe("RunState", () => {
       sess: "S9",
       rcv: "pi",
       bind: bindPrompt("the prompt"),
-      infl: "",
+      ext: commitBlock(ORIGIN_BLOCK),
       prev: "",
     });
     expect(verify(key.publicKey, signingBytes(rest), decode(sig))).toBe(true);
+  });
+
+  it("theOriginCommitsToTheBlockThatNamesInfluenceWithNothing", () => {
+    const r = new RunState();
+    r.start("p", 5);
+    const o = r.origin("S1", key.privateKey, "inst");
+    expect(o.ext).toBe(commitBlock(ORIGIN_BLOCK));
+    expect(o.ext).not.toBe("");
   });
 });

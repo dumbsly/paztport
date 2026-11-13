@@ -18,29 +18,33 @@ import {
 import {
   bindLocalTool,
   CALL_MAX_AGE_MS,
-  commitInfluence,
+  commitBlock,
   decode,
   earliestNotAfter,
+  extensionSettings,
+  influenceBlock,
   NonceCache,
   NONCE_TTL_MS,
   parseLocalRules,
+  readBlocks,
   rulesHash,
   RUN_MAX_AGE_MS,
   stampLocalStep,
   verifyChain,
   verifyRecordedLocalStep,
   writeToken,
-  type InfluenceEntry,
+  type Block,
+  type JsonValue,
   type Stamp,
 } from "@paztport/core";
 import type { ExtensionMode } from "../src/config.ts";
 import { EventLog } from "../src/events.ts";
-import { EvidenceLog } from "../src/evidence.ts";
+import { EvidenceLog, EVIDENCE_VERSION } from "../src/evidence.ts";
 import { InfluenceStore } from "../src/influence.ts";
 import { loadClientMaterial, PI_SVC, type ClientMaterial } from "../src/keys.ts";
 import { BUILTIN_LOCAL_TOOLS, LocalGate } from "../src/local/gate.ts";
 import { EXPIRED_TEXT, isRefusalText, localRefusalText, POLICY_EXPIRED_TEXT, refusalText, SCOPE_TEXT, UNCHECKABLE_TEXT } from "../src/refusals.ts";
-import { RunState } from "../src/runs.ts";
+import { ORIGIN_BLOCK, RunState } from "../src/runs.ts";
 import { readLocalRecord, setupDemo, UNSAFE_TEXT } from "./helpers/demo.ts";
 
 let tmp: string;
@@ -359,8 +363,8 @@ describe("LocalGate modes", () => {
     const decision = readLocalRecord(rec);
     const stamp = stampLocalStep(
       {
-        svc: PI_SVC, inst: "pi-1", rid: rec.rid, ts: late, prev: origin.sig, toolName: "write", toolCallId: "c1", input: rec.input,
-        resolved: decision.resolved, verdict: decision.verdict, listed: decision.routeAllowed, rulesHash: decision.rulesHash, influence: [],
+        svc: PI_SVC, inst: "pi-1", rid: rec.rid, ts: late, prev: origin.sig, toolName: "write", callId: "c1", input: rec.input,
+        resolved: decision.resolved, verdict: decision.verdict, listed: decision.routeAllowed, rulesHash: decision.rulesHash, block: influenceBlock([]),
       },
       material.piKey,
     );
@@ -370,7 +374,7 @@ describe("LocalGate modes", () => {
     };
     const offline = (r: Record<string, any>) =>
       verifyRecordedLocalStep(
-        { tool: r.tool, callId: r.callId, rid: r.rid, now: r.now, input: r.input, decision: r.decision, chain: r.chain, proof: r.proof, influence: r.influence },
+        { tool: r.tool, callId: r.callId, rid: r.rid, now: r.now, input: r.input, decision: r.decision, chain: r.chain, proof: r.proof, blocks: r.blocks },
         { client, signers: { svcs: ["session", "pi"], inst: "pi-1" }, run: { prompt: "Fix the README typo.", ts: new Set([1_000]) }, seen: new Set<string>() },
       ).reason;
     expect(offline(rec)).toBe("OK");
@@ -427,8 +431,8 @@ describe("LocalGate evidence", () => {
     // each Paztport object is a token; the input, the content the binding hashes, stays a value
     const raw = lines(evidencePath);
     for (const rec of raw) {
-      expect(Object.keys(rec)).toEqual(["v", "type", "tool", "callId", "rid", "now", "input", "decision", "chain", "proof", "influence"]);
-      for (const k of ["decision", "chain", "influence"]) expect(typeof rec[k], k).toBe("string");
+      expect(Object.keys(rec)).toEqual(["v", "type", "tool", "callId", "rid", "now", "input", "decision", "chain", "proof", "blocks"]);
+      for (const k of ["decision", "chain", "blocks"]) expect(typeof rec[k], k).toBe("string");
     }
     const read = { paths: [{ need: "read", at: "website/README.md" }], programs: [], parse: "ok", readOnly: true };
     const decided = { callId: "c1", resolved: read, verdict: "OK", routeAllowed: true, rulesHash: rulesHash(material.rules!) };
@@ -441,9 +445,9 @@ describe("LocalGate evidence", () => {
     ]);
     const rid = runs.current()!.rid;
     for (const rec of recs) {
-      expect(rec).toMatchObject({ v: 1, type: "local", rid, now: 2_000 });
+      expect(rec).toMatchObject({ v: EVIDENCE_VERSION, type: "local", rid, now: 2_000 });
       const [origin, pi] = rec.chain as [Stamp, Stamp];
-      expect([origin.v, pi.v]).toEqual([3, 3]);
+      expect([origin.v, pi.v]).toEqual([4, 4]);
       expect(origin.rcv).toBe("pi");
       expect(pi.rcv).toBe(`local:${rec.tool}`);
       expect(origin.sess).toBe("");
@@ -453,18 +457,18 @@ describe("LocalGate evidence", () => {
       expect(rec.routeAllowed).toBe(rec.proof !== null);
       expect(rec.rulesHash).toBe(rulesHash(material.rules!));
       expect(pi.bind).toBe(bindLocalTool(rec.tool, rec.input, { callId: rec.callId, resolved: rec.resolved, verdict: rec.verdict, routeAllowed: rec.routeAllowed, rulesHash: rec.rulesHash }));
-      expect(pi.infl).toBe(commitInfluence(rec.influence as InfluenceEntry[]));
+      expect([origin.ext, pi.ext]).toEqual(rec.blocks.map(commitBlock));
       expect(pi.ts).toBe(2_000);
       expect([origin.svc, pi.svc, pi.inst]).toEqual(["session", "pi", "pi-1"]);
       const route = `session/pi/local:${rec.tool}`;
       expect(rec.proof).toEqual(Object.hasOwn(material.proofs, route) ? material.proofs[route] : null);
     }
-    expect(recs[0]!.influence).toEqual([]);
-    expect(recs[1]!.influence).toEqual(influence.entries());
+    expect(recs[0]!.blocks).toEqual([ORIGIN_BLOCK, influenceBlock([])]);
+    expect(recs[1]!.blocks).toEqual([ORIGIN_BLOCK, influenceBlock(influence.entries())]);
     expect(recs[0]!.resolved).toEqual({ paths: [{ need: "read", at: "website/README.md" }], programs: [], parse: "ok", readOnly: true });
     expect(recs[0]!.input).toEqual({ path: "website/README.md" });
 
-    // the full v3 chain check of the recorded tokens, with the route as receiver
+    // the full chain check of the recorded tokens, with the route as receiver
     const policyNotAfter = earliestNotAfter(material.signedRoot.notAfter, material.keyringNotAfter);
     for (const [i, rec] of recs.slice(0, 2).entries()) {
       const v = verifyChain(
@@ -474,7 +478,7 @@ describe("LocalGate evidence", () => {
             callId: rec.callId, resolved: rec.resolved, verdict: rec.verdict, routeAllowed: rec.routeAllowed,
             rulesHash: rec.rulesHash,
           }),
-          influence: raw[i]!.influence,
+          blocks: raw[i]!.blocks,
           proof: raw[i]!.proof,
           receiver: `local:${rec.tool}`,
           receiverInRoute: true,
@@ -488,12 +492,44 @@ describe("LocalGate evidence", () => {
           nonceKey: rec.callId,
           now: rec.now,
           policyNotAfter,
+          extensions: extensionSettings(["influence"]),
         },
       );
       expect(v).toMatchObject({ ok: true, reason: "OK" });
     }
     // one origin per run: every record chains from the same origin stamp
     expect(new Set(recs.map((x) => x.chain[0].sig)).size).toBe(1);
+  });
+
+  it("theRecordsBlocksAreTheOriginsAndTheSessionsEntries", () => {
+    const { gate, influence, evidencePath } = rig("enforce");
+    taint(influence);
+    expect(gate.check("read", { path: "website/README.md" }, "c1")).toEqual({ block: false });
+    const rec = lines(evidencePath)[0]!;
+    expect(readBlocks(rec.blocks)).toEqual([ORIGIN_BLOCK, influenceBlock(influence.entries())]);
+    expect(influence.entries()).toHaveLength(2);
+  });
+
+  it("aRecordWithAnEntryRemovedFromItsBlockDoesNotVerify", () => {
+    const { gate, influence, evidencePath } = rig("enforce");
+    taint(influence);
+    expect(gate.check("read", { path: "website/README.md" }, "c1")).toEqual({ block: false });
+    const rec = lines(evidencePath)[0]!;
+    const client = {
+      keyring: material.keyring, root: decode(material.signedRoot.root), rootId: material.signedRoot.rootId,
+      rootNotAfter: material.signedRoot.notAfter, keyringNotAfter: material.keyringNotAfter, rules: material.rules ?? null,
+    };
+    const offline = (blocks: string) =>
+      verifyRecordedLocalStep(
+        { tool: rec.tool, callId: rec.callId, rid: rec.rid, now: rec.now, input: rec.input, decision: rec.decision, chain: rec.chain, proof: rec.proof, blocks },
+        { client, signers: { svcs: ["session", "pi"], inst: "pi-1" }, run: { prompt: "Fix the README typo.", ts: new Set([1_000]) }, seen: new Set<string>() },
+      ).reason;
+    expect(offline(rec.blocks)).toBe("OK");
+    const [origin, hop] = readBlocks(rec.blocks) as [Block, Block];
+    const entries = influence.entries();
+    // an entry removed from the hop's block, and the two blocks swapped: neither is what the stamps committed to
+    expect(offline(writeToken([origin, influenceBlock(entries.slice(1))] as unknown as JsonValue))).toBe("EXTENSION_MISMATCH");
+    expect(offline(writeToken([hop, origin] as unknown as JsonValue))).toBe("EXTENSION_MISMATCH");
   });
 
   it("signedInputNamesTheWorkspaceAndHomeByPlaceholder", () => {

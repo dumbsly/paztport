@@ -4,9 +4,6 @@
 import {
   bindResult,
   influenceClasses,
-  labelToEntry,
-  normalizeInfluence,
-  type ContentLabel,
   type InfluenceClass,
   type InfluenceEntry,
 } from "@paztport/core";
@@ -24,13 +21,17 @@ export function contentHash(result: Record<string, unknown>): string {
 export class InfluenceStore {
   private all: InfluenceEntry[] = [];
 
-  /** Normalised and de-duplicated; a fresh array on every call. */
+  /**
+   * Every entry, in the order recorded, repeats kept: a request commits to its block as written, so the store does
+   * not reorder or merge. A fresh array on every call.
+   */
   entries(): InfluenceEntry[] {
-    return normalizeInfluence(this.all);
+    return [...this.all];
   }
 
-  recordLabels(serverId: string, labels: ContentLabel[], contentHash: string): void {
-    for (const l of labels) this.all.push(labelToEntry(l, `server:${serverId}`, contentHash));
+  /** What a tool result's reading adds (the SDK's `responseEntries`), appended as given. */
+  add(entries: readonly InfluenceEntry[]): void {
+    this.all.push(...entries);
   }
 
   /**
@@ -56,10 +57,10 @@ export class InfluenceStore {
     return influenceClasses(this.all);
   }
 
-  /** Entry count per class, every class present (0 when absent). Never carries hashes, cids, srcs or content. */
+  /** Entry count per class, every entry counted, every class present (0 when absent). Never carries hashes, cids, srcs or content. */
   summary(): Record<InfluenceClass, number> {
     const out: Record<InfluenceClass, number> = { "third-party": 0, private: 0, public: 0, "local-untrusted": 0 };
-    for (const e of this.entries()) {
+    for (const e of this.all) {
       out[e.cls] += 1;
     }
     return out;
