@@ -1,16 +1,17 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-// Pinned bytes for cross-implementation conformance: the session id, the prompt binding and the Merkle primitives,
-// from v3.json. Change only with a protocol change.
+// Pinned bytes for cross-implementation conformance: the session id, the prompt and response bindings, the block
+// commitment and the Merkle primitives, from v4.json. Change only with a protocol change.
 
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
-  bindPrompt, decode, deriveSessionId, encode, encodeProof, leafHash, nodeHash, readProof, verifyProof,
+  bindPrompt, bindResponse, blockOf, canonicalize, commitBlock, decode, deriveSessionId, encode, encodeProof, leafHash,
+  nodeHash, readProof, sha256, utf8, verifyProof,
 } from "../src/index.ts";
 
-const v = JSON.parse(readFileSync(new URL("../../../spec/vectors/v3.json", import.meta.url), "utf8"));
+const v = JSON.parse(readFileSync(new URL("../../../spec/vectors/v4.json", import.meta.url), "utf8"));
 
 /** n consecutive bytes starting at `start`, base64url. */
 const seq = (start: number, n: number) => encode(Uint8Array.from({ length: n }, (_, i) => start + i));
@@ -33,6 +34,17 @@ describe("known-answer vectors: the shared primitives", () => {
 
   it("bindPrompt", () => {
     expect(bindPrompt(v.bindPrompt.prompt)).toBe(v.bindPrompt.expected);
+  });
+
+  it("bindResponse", () => {
+    expect(bindResponse(v.bindResponse.resultHash, v.bindResponse.callId)).toBe(v.bindResponse.expected);
+  });
+
+  // A block's ext is "" for the empty block, else the hash of its JCS text, which keeps each list as written.
+  it.each((v.blocks.commit as any[]).map((c): [string, any] => [c.name, c]))("blocks.commit: %s", (_name, c) => {
+    expect(canonicalize(c.block)).toBe(c.jcs);
+    expect(commitBlock(blockOf(c.block))).toBe(c.ext);
+    expect(c.ext).toBe(c.jcs === '{"items":{},"requires":[]}' ? "" : encode(sha256(utf8(c.jcs))));
   });
 
   it("merkle leaves, nodes and proofs", () => {
