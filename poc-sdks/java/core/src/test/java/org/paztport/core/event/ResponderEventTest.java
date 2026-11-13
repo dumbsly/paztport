@@ -32,8 +32,8 @@ class ResponderEventTest {
     @Test
     void attributableRefusesEveryOtherReason() {
         for (String reason : List.of("OK", "INFLUENCE_DENIED", "UNSAFE_SESSION", "INFLUENCE_MISMATCH",
-                "EXTENSION_NOT_ALLOWED", "EXTENSION_REQUIRED", "POLICY_EXPIRED", "SCOPE_DENIED", "UNCHECKABLE", "TIME_MISMATCH", "OUTSIDE_SESSION", "NOT_A_CODE", "", "path_not_allowed",
-                "PATH_NOT_ALLOWED ")) {
+                "EXTENSION_NOT_ALLOWED", "EXTENSION_REQUIRED", "POLICY_EXPIRED", "SCOPE_DENIED", "UNCHECKABLE",
+                "TIME_MISMATCH", "OUTSIDE_SESSION", "NOT_A_CODE", "", "path_not_allowed", "PATH_NOT_ALLOWED ")) {
             assertFalse(of(reason, "search", "search-1", false).attributable(), "[" + reason + "]");
         }
     }
