@@ -45,8 +45,6 @@ import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder;
 public final class TlsIssuer {
 
     private static final SecureRandom RANDOM = new SecureRandom();
-    /** The JDK's provider of the P-256 keys and their ECDSA signatures: Bouncy Castle only builds the certificates. */
-    private static final String JDK_EC = "SunEC";
     /** Back-dated so a certificate is valid on a host whose clock runs slightly behind. */
     private static final Duration SKEW = Duration.ofMinutes(5);
 
@@ -139,7 +137,7 @@ public final class TlsIssuer {
     }
 
     private static KeyPair newKeyPair() throws GeneralSecurityException {
-        KeyPairGenerator g = KeyPairGenerator.getInstance("EC", JDK_EC);
+        KeyPairGenerator g = KeyPairGenerator.getInstance("EC");
         g.initialize(new ECGenParameterSpec("secp256r1"), RANDOM);
         return g.generateKeyPair();
     }
@@ -153,7 +151,7 @@ public final class TlsIssuer {
 
     private static X509Certificate sign(X509v3CertificateBuilder b, PrivateKey signer)
             throws OperatorCreationException, GeneralSecurityException {
-        ContentSigner cs = new JcaContentSignerBuilder("SHA256withECDSA").setProvider(JDK_EC).build(signer);
+        ContentSigner cs = new JcaContentSignerBuilder("SHA256withECDSA").build(signer);
         return new JcaX509CertificateConverter().getCertificate(b.build(cs));
     }
 

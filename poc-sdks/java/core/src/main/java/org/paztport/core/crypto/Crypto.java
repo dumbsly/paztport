@@ -18,19 +18,19 @@ import java.util.Arrays;
 import java.util.HexFormat;
 
 /**
- * SHA-256 and Ed25519, both straight from the JDK. No shared secrets; verifiers
- * need only public keys. Both name the JDK provider that implements them, so a
- * provider an application installs ahead of the JDK's (Bouncy Castle, say, which
- * checks Ed25519's cofactored equation) does not change what the SDK accepts. A
- * JDK without that provider fails closed.
+ * SHA-256 and Ed25519 through the JDK's standard cryptography API, with no
+ * library of the SDK's own. No shared secrets; verifiers need only public keys.
+ * Ed25519 alone names the JDK's own provider, SunEC: providers differ on which
+ * signatures verify (Bouncy Castle, say, checks the cofactored equation), and
+ * every SDK must answer the same. A JDK without SunEC fails closed. SHA-256 comes
+ * from whichever provider the application prefers, since its result does not
+ * depend on the provider.
  */
 public final class Crypto {
 
     private static final String ED25519 = "Ed25519";
     /** The JDK's provider of Ed25519, which checks the cofactorless equation the signature rule requires. */
     private static final String ED25519_PROVIDER = "SunEC";
-    /** The JDK's provider of SHA-256. */
-    private static final String SHA256_PROVIDER = "SUN";
     /** The X.509 SPKI prefix of an Ed25519 key: the 32 key bytes follow it. */
     private static final byte[] ED25519_SPKI_PREFIX = HexFormat.of().parseHex("302a300506032b6570032100");
     private static final SecureRandom RANDOM = new SecureRandom();
@@ -47,7 +47,7 @@ public final class Crypto {
 
     public static byte[] sha256(byte[] data) {
         try {
-            return MessageDigest.getInstance("SHA-256", SHA256_PROVIDER).digest(data);
+            return MessageDigest.getInstance("SHA-256").digest(data);
         } catch (GeneralSecurityException e) {
             throw new IllegalStateException("SHA-256 unavailable", e);
         }

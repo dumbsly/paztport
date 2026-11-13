@@ -129,8 +129,7 @@ public final class BoundaryInfluence {
         o.put("rcv", new JsonValue.Str(partnerEntry));
         o.put("rid", new JsonValue.Str(rid));
         try {
-            // the JDK's own HMAC, as every primitive in the SDK is, whatever provider an application puts first
-            Mac mac = Mac.getInstance("HmacSHA256", "SunJCE");
+            Mac mac = Mac.getInstance("HmacSHA256");
             mac.init(new SecretKeySpec(key, "HmacSHA256"));
             mac.update(SALT_DOMAIN);
             mac.update(JsonWriter.wire(new JsonValue.Obj(o)));
