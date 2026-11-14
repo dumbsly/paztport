@@ -52,8 +52,6 @@ public final class PartnerReceiver {
 
     private static final Logger TRACE = LoggerFactory.getLogger("PAZTPORT_TRACE");
 
-    private static final HttpAnswer INFLUENCE_UNREAD = HttpAnswer.refusal(400, ReasonCode.INFLUENCE_MISMATCH);
-
     private final PartnerSessions sessions;
     private final String receiver;
 
@@ -107,8 +105,9 @@ public final class PartnerReceiver {
         if (!result.ok()) {
             return PartnerAccepted.refused(HttpAnswer.refusal(403, result.reason()), result);
         }
-        if (HttpReceiver.unreadInfluence(sessions.extensions(), result.handOver(), rid)) {
-            return PartnerAccepted.refused(INFLUENCE_UNREAD, result);
+        HttpAnswer unread = HttpReceiver.unreadInfluence(sessions.extensions(), result.handOver(), rid);
+        if (unread != null) {
+            return PartnerAccepted.refused(unread, result);
         }
         // Check 9a held, so the blocks read as one per stamp.
         List<Block> blocks = HttpReceiver.carriedBlocks(received, HttpWire.decodeBlocks(blocksHeader));

@@ -10,8 +10,8 @@ import java.util.TreeSet;
 import java.util.function.BiConsumer;
 import org.paztport.core.event.AttestationEvent;
 import org.paztport.core.influence.Influence;
-import org.paztport.core.influence.RequestInfluence;
 import org.paztport.core.influence.InfluenceEntry;
+import org.paztport.core.influence.RequestInfluence;
 import org.paztport.core.policy.OperationTable;
 import org.paztport.core.stamp.Block;
 import org.paztport.core.stamp.Chains;
@@ -66,7 +66,7 @@ import org.slf4j.LoggerFactory;
  * {@code 400 {"reason":"EXTENSION_MISMATCH"}} where verification has not refused them first. Where the chain passed
  * the live order here, the verifier's hand-over ({@link Accepted#handOver}) holds what the blocks hold for the names
  * the service acts on, read from its verifier ({@link Builder#extensions}); a request served without verifying is
- * handed nothing.
+ * handed its items as not verified, where its chain read and its blocks passed check 9a.
  *
  * <p>A chain may name this service's operation ({@code rcv} {@code <service>#<operation>}). The adapter passes the
  * operation its framework will dispatch the request to ({@link InboundRequest#operation}), and the request is
@@ -125,7 +125,6 @@ public final class HttpReceiver {
     static final Logger LOG = LoggerFactory.getLogger(HttpReceiver.class);
 
     /** The answer to blocks that fail check 9a at a request this service would serve without verifying. */
-    private static final HttpAnswer INFLUENCE_UNREAD = HttpAnswer.refusal(400, ReasonCode.INFLUENCE_MISMATCH);
     private static final HttpAnswer BLOCKS_NOT_CARRIED = HttpAnswer.refusal(400, ReasonCode.EXTENSION_MISMATCH);
 
     private final Verifier verifier;
@@ -294,8 +293,10 @@ public final class HttpReceiver {
         ParsedChain parsed = Chains.parse(chain);
         List<Stamp> received = stamps(parsed);
         List<Stamp> inbound = origin ? null : received;
-        // Null beside a carried chain: blocks that cannot be carried, refused below unless verification refuses first.
-        List<Block> blocks = carriedBlocks(inbound, HttpWire.decodeBlocks(blocksHeader));
+        // Null beside a carried chain: blocks that cannot be carried. Where the request is served, check 9a refuses
+        // them (ServedUnverified, below), and where it is verified, the verifier does.
+        String blocksJson = HttpWire.decodeBlocks(blocksHeader);
+        List<Block> blocks = carriedBlocks(inbound, blocksJson);
         String operation = request.operation();
         String keyValue = keyValue(operation, request.target());
         if (keyValue == null && keyed(operation)) {
@@ -368,14 +369,15 @@ public final class HttpReceiver {
         if (verified) {
             handOver = checked.handOver();
         } else if (!origin) {
-            ServedUnverified unverified = ServedUnverified.of(chain, HttpWire.decodeBlocks(blocksHeader), extensions);
+            ServedUnverified unverified = ServedUnverified.of(chain, blocksJson, extensions);
             if (!unverified.blocksMatch()) {
                 return Accepted.refused(BLOCKS_NOT_CARRIED, checked);
             }
             handOver = unverified.handOver();
         }
-        if (unreadInfluence(extensions, handOver, rid)) {
-            return Accepted.refused(INFLUENCE_UNREAD, checked);
+        HttpAnswer unread = unreadInfluence(extensions, handOver, rid);
+        if (unread != null) {
+            return Accepted.refused(unread, checked);
         }
         return Accepted.served(inbound, blocks, verified, handOver,
                 attesting && checked != null && checked.ok() ? stamper : null, checked, cacheFailure,
@@ -383,24 +385,25 @@ public final class HttpReceiver {
     }
 
     /**
-     * Whether a service that acts on {@code influence} is handed an item that does not read as an entry, which it
-     * refuses {@code 400 INFLUENCE_MISMATCH}, verified or not, in every mode (spec influence.md, Entries). The one
-     * reading of a request's items at a receiver; a service that does not act on influence reads nothing and refuses
-     * nothing for it. The log names the signer of the first block holding such an item, never the item.
+     * The refusal of a service that acts on {@code influence} and is handed an item that does not read as an entry,
+     * {@code 400} with the code {@link RequestInfluence#reason} gives, verified or not, in every mode (spec
+     * influence.md, Entries); null otherwise. The one reading of a request's items at a receiver, so the one place
+     * this answer is made; a service that does not act on influence reads nothing and refuses nothing for it. The log
+     * names the signer of the first block holding such an item, never the item.
      *
      * @param handOver what the service is handed, or null for nothing
      */
-    static boolean unreadInfluence(ExtensionSettings settings, HandOver handOver, String rid) {
+    static HttpAnswer unreadInfluence(ExtensionSettings settings, HandOver handOver, String rid) {
         if (handOver == null || !settings.actsOn().contains(Influence.NAME)) {
-            return false;
+            return null;
         }
         RequestInfluence read = Influence.readRequest(handOver.under(Influence.NAME));
         if (read.reads()) {
-            return false;
+            return null;
         }
         LOG.warn("request refused, an influence item does not read: rid={} unreadSigner={}", LogSafe.of(rid),
                 LogSafe.of(read.unreadSigner()));
-        return true;
+        return HttpAnswer.refusal(400, read.reason());
     }
 
     /**

@@ -139,7 +139,8 @@ public final class Accepted {
 
     /**
      * {@link #inbound} when it passed the live order at this hop, otherwise null: a chain that failed in audit, was
-     * not checked (the hop is off, or verifies nothing), or came to an origin gives null.
+     * not checked (the hop is off, or verifies nothing), or came to an origin gives null, and so does a refusal,
+     * which records nothing verified.
      */
     public List<Stamp> verifiedChain() {
         return verified ? inbound : null;
@@ -155,8 +156,10 @@ public final class Accepted {
 
     /**
      * What the service is handed for the extensions it acts on (spec verification.md, The live order): verified
-     * where the chain passed the live order at this hop, under the mode or for attestation alone; null where nothing
-     * is handed on, which is every request served without verifying, a request to an origin, and a refusal.
+     * where the chain passed the live order at this hop, under the mode or for attestation alone; not verified for a
+     * request served without verifying, where its chain read and its blocks passed check 9a (spec verification.md,
+     * A service never serves a request whose blocks fail check 9a); null where nothing is handed on, which is a
+     * request to an origin, a refusal, and a request whose chain did not read.
      */
     public HandOver handOver() {
         return handOver;

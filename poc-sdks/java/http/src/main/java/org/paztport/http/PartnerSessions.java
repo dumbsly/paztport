@@ -89,15 +89,15 @@ public final class PartnerSessions {
     /** Set once this side has said that its own material lapsed, so that a handshake never says it again. */
     private final AtomicBoolean ownLapseLogged = new AtomicBoolean();
 
-    /**
-     * A session a peer opened; {@code verifier} is null when it is unsafe. Only the partner's receiver
-     * ({@link PartnerReceiver}) reads it.
-     */
     /** The extension settings of this side, which every session's verifier carries. */
     ExtensionSettings extensions() {
         return extensions;
     }
 
+    /**
+     * A session a peer opened; {@code verifier} is null when it is unsafe. Only the partner's receiver
+     * ({@link PartnerReceiver}) reads it.
+     */
     record Session(String sess, boolean attested, Verifier verifier) {
     }
 

@@ -57,11 +57,12 @@ import org.slf4j.LoggerFactory;
  * <p>What a response says becomes part of the request that made the call. Its attestation is checked by the live
  * order on the chain and the blocks that were sent, then the response stamp and its own block (nonce key
  * {@code [rid, lastRcv, "resp"]}, {@code lastRcv} the receiver the sent chain's last stamp names, with the operation
- * when it names one, or {@code [rid, lastRcv, keyValue, "resp"]} where that operation declares a key). For now every
- * response, attested or not, contributes exactly one {@code local-untrusted} entry with {@code src}
- * {@code http:<target>} and {@code h} the result hash, so content still counts against later calls; it is never
- * dropped. The target is the receiver's service name, without any operation. Every response checked logs one
- * {@code PAZTPORT_TRACE response} line.
+ * when it names one, or {@code [rid, lastRcv, keyValue, "resp"]} where that operation declares a key). A response
+ * contributes the entries {@link Influence#responseEntries} gives, with {@code src} {@code http:<target>} and
+ * {@code h} the result hash: one per label of a response that verified and names influence, otherwise exactly one
+ * {@code local-untrusted} entry, so content still counts against later calls; it is never dropped. A response that
+ * fails check 9c is also {@link Received#refused}. The target is the receiver's service name, without any
+ * operation. Every response checked logs one {@code PAZTPORT_TRACE response} line.
  *
  * <p>Where the caller holds a receiver's operation table ({@link Builder#operations}), the stamp names the operation
  * the call invokes, {@code <receiver>#<operation>}, found by matching the call's method and raw path (without its
