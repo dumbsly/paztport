@@ -3,6 +3,7 @@
 
 package org.paztport.spring;
 
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -11,10 +12,17 @@ import java.util.Set;
 import org.paztport.http.PartnerSessions;
 import org.springframework.beans.factory.InitializingBean;
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.context.properties.bind.BindContext;
 import org.springframework.boot.context.properties.bind.BindHandler;
 import org.springframework.boot.context.properties.bind.Bindable;
 import org.springframework.boot.context.properties.bind.Binder;
-import org.springframework.boot.context.properties.bind.handler.NoUnboundElementsBindHandler;
+import org.springframework.boot.context.properties.bind.PropertySourcesPlaceholdersResolver;
+import org.springframework.boot.context.properties.source.ConfigurationProperty;
+import org.springframework.boot.context.properties.source.ConfigurationPropertyName;
+import org.springframework.boot.convert.ApplicationConversionService;
+import org.springframework.boot.origin.Origin;
+import org.springframework.boot.origin.PropertySourceOrigin;
+import org.springframework.boot.origin.SystemEnvironmentOrigin;
 import org.springframework.boot.context.properties.source.ConfigurationPropertySources;
 import org.springframework.context.EnvironmentAware;
 import org.springframework.core.env.ConfigurableEnvironment;
@@ -32,6 +40,9 @@ public class PaztportProperties implements InitializingBean, EnvironmentAware {
 
     /** This service's name, used as the stamp svc and the verifier's receiving service. */
     private String serviceName;
+
+    /** The environment this bean is in, which the check for unknown variables reads. */
+    private Environment environment;
 
     /** This instance's id for stamps; defaults to the container hostname. */
     private String instance;
@@ -625,6 +636,11 @@ public class PaztportProperties implements InitializingBean, EnvironmentAware {
         }
     }
 
+    @Override
+    public void setEnvironment(Environment environment) {
+        this.environment = environment;
+    }
+
     public Overlap getOverlap() {
         return overlap;
     }
@@ -733,18 +749,12 @@ public class PaztportProperties implements InitializingBean, EnvironmentAware {
         return extensions;
     }
 
-    private Environment environment;
-
-    @Override
-    public void setEnvironment(Environment environment) {
-        this.environment = environment;
-    }
-
     /**
      * Boot's strict binding skips the process environment, which holds many variables that are not the application's,
      * so {@code PAZTPORT_VERFY=true} would leave {@code verify} at its default and the service would start unguarded.
-     * The environment is bound again here, on its own and under the same rule, so that a {@code PAZTPORT_} variable
-     * the starter does not define fails the start as the same key in a property file does.
+     * The environment is bound again here, on its own, and a {@code PAZTPORT_} variable that the binding did not
+     * consume is refused by name. Boot's own mapping decides what a variable binds to, in each spelling it accepts
+     * ({@code PAZTPORT_RUN_MAX_AGE_MS} and {@code PAZTPORT_RUNMAXAGEMS} alike), so this check restates none of it.
      */
     private void refuseUnknownEnvironmentVariables() {
         if (!(environment instanceof ConfigurableEnvironment configurable)) {
@@ -754,8 +764,36 @@ public class PaztportProperties implements InitializingBean, EnvironmentAware {
         if (!(named instanceof SystemEnvironmentPropertySource env)) {
             return;
         }
-        new Binder(ConfigurationPropertySources.from(env))
-                .bind("paztport", Bindable.of(PaztportProperties.class),
-                        new NoUnboundElementsBindHandler(BindHandler.DEFAULT, candidate -> true));
+        Set<String> consumed = new HashSet<>();
+        BindHandler recorder = new BindHandler() {
+            @Override
+            public Object onSuccess(ConfigurationPropertyName name, Bindable<?> target, BindContext context,
+                    Object result) {
+                ConfigurationProperty property = context.getConfigurationProperty();
+                if (property != null && property.getOrigin() != null) {
+                    consumed.add(variableOf(property.getOrigin()));
+                }
+                return result;
+            }
+        };
+        new Binder(ConfigurationPropertySources.from(env), new PropertySourcesPlaceholdersResolver(environment),
+                ApplicationConversionService.getSharedInstance())
+                .bind("paztport", Bindable.of(PaztportProperties.class), recorder);
+        for (String variable : env.getPropertyNames()) {
+            if (variable.regionMatches(true, 0, "PAZTPORT_", 0, "PAZTPORT_".length()) && !consumed.contains(variable)) {
+                throw new IllegalStateException("the environment variable " + variable + " is not a property the "
+                        + "Paztport starter defines (the properties are paztport.*, as in the Java README)");
+            }
+        }
+    }
+
+    private static String variableOf(Origin origin) {
+        if (origin instanceof SystemEnvironmentOrigin system) {
+            return system.getProperty();
+        }
+        if (origin instanceof PropertySourceOrigin source) {
+            return source.getPropertyName();
+        }
+        return origin.toString();
     }
 }
