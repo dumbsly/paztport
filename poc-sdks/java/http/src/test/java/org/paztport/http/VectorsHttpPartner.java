@@ -84,6 +84,7 @@ import org.paztport.http.VectorsHttpRules.Sent;
 import org.paztport.http.VectorsHttpRules.Service;
 import org.paztport.http.boundary.BoundaryClient;
 import org.paztport.http.boundary.BoundaryHooks;
+import org.paztport.http.boundary.RequirementUnmetException;
 import org.paztport.http.wire.HttpWire;
 import org.paztport.http.wire.PaztportHeaders;
 import org.paztport.http.wire.RequestBinding;
@@ -253,14 +254,19 @@ final class VectorsHttpPartner {
         }
     }
 
-    /** A handshake that opened a session: its status, and the extensions the reply lists, the partner's actsOn. */
+    /** A handshake that opened a session at a partner that acts on influence, as every partner here but one does. */
     static ObjectNode opened(String status) {
+        return opened(status, List.of(Influence.NAME));
+    }
+
+    /** A handshake that opened a session: its status, and the extensions the reply lists, the partner's actsOn. */
+    static ObjectNode opened(String status, List<String> extensions) {
         ObjectNode e = obj();
         e.put("status", 200);
         e.putNull("error");
         e.put("sessionStatus", status);
         e.set("disabled", status.equals("unsafe") ? texts(DISABLED.toArray(String[]::new)) : arr());
-        e.set("extensions", texts(Influence.NAME));
+        e.set("extensions", texts(extensions.toArray(String[]::new)));
         return e;
     }
 
@@ -339,6 +345,12 @@ final class VectorsHttpPartner {
         a.add(new Script("an unsafe session believes nothing the call carries", partner(), shop)
                 .handshake(NOW, "shop", "no-root", "u1", opened("unsafe"))
                 .charge(NOW + 1_000, "shop", of("u1"), unsafe()).c);
+        // The case above with blocks other than the stamp commits to: nothing is verified, check 9a included.
+        Script unchecked = new Script("an unsafe session applies no check to the blocks the call carries", partner(),
+                shop).handshake(NOW, "shop", "no-root", "u1", opened("unsafe"));
+        ObjectNode steered = unchecked.charge(NOW + 1_000, "shop", of("u1"));
+        steered.put("extensionsHeader", HttpWire.encodeBlocks(List.of(Influence.block(STEERED, List.of()))));
+        a.add(unchecked.call(NOW + 1_000, steered, unsafe()).c);
         Script other = new Script("a stamp made in another session", partner(), shop)
                 .handshake(NOW, "shop", "shop", "s1", opened("attested"))
                 .handshake(NOW, "shop", "shop", "s2", opened("attested"));
@@ -431,6 +443,11 @@ final class VectorsHttpPartner {
                 .handshake(NOW, "unnamed", "shop", null, handshakeError(HttpSessions.NO_SESSION)).c);
         a.add(new Script("a request that opens an attested session", partner(), shop)
                 .handshake(NOW, "shop", "shop", "s1", opened("attested")).c);
+        // The case above at a partner that acts on no extension: its reply lists what it acts on, none.
+        ObjectNode actsOnNothing = partner();
+        putSettings(actsOnNothing, ExtensionSettings.NONE);
+        a.add(new Script("a partner that acts on no extension lists none", actsOnNothing, shop)
+                .handshake(NOW, "shop", "shop", "s1", opened("attested", List.of())).c);
         a.add(new Script("a request with no client root opens an unsafe session", partner(), shop)
                 .handshake(NOW, "shop", "no-root", "u1", opened("unsafe")).c);
         return a;
@@ -1030,18 +1047,13 @@ final class VectorsHttpPartner {
             try {
                 BoundaryClient.Response r = egress.post(p.get("path").asText(), unhex(p.get("body")));
                 out.add(posted("answered", r.status(), r.attested()));
+            } catch (RequirementUnmetException e) {
+                out.add(posted("withheld", null, null));
             } catch (IllegalStateException e) {
-                out.add(posted(outcome(e.getMessage()), null, null));
+                out.add(posted(BoundaryHooks.NO_VERIFIED_CHAIN.equals(e.getMessage()) ? "refused" : "failed", null,
+                        null));
             }
         }
-    }
-
-    /** What a post that threw ended as: refused by the guard, withheld for the requirement, or failed. */
-    private static String outcome(String message) {
-        if (BoundaryHooks.NO_VERIFIED_CHAIN.equals(message)) {
-            return "refused";
-        }
-        return BoundaryHooks.REQUIREMENT_UNMET.equals(message) ? "withheld" : "failed";
     }
 
     /**

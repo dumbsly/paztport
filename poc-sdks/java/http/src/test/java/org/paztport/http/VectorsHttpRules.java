@@ -77,10 +77,11 @@ import org.paztport.http.wire.RequestBinding;
  * a partner's material, handshake requests and client certificates.
  *
  * <p>Every expected answer here is written by hand from the spec, not taken from a run: {@link #assertAll} replays
- * each case and compares, so an export fails rather than record what the code happens to do. The one exception is
- * what an egress sends, whose blinded entries and block commitment are computed with {@code BoundaryInfluence.reduce}
- * and {@code Block.commit}: those primitives are pinned on their own, by {@code boundaryInfluence} here and by
- * {@code blocks} and {@code influence} in {@code v4.json}.
+ * each case and compares, so an export fails rather than record what the code happens to do. The exceptions are
+ * primitives pinned on their own: what an egress sends holds blinded entries and a block commitment computed with
+ * {@code BoundaryInfluence.reduce} and {@code Block.commit}, pinned by {@code boundaryInfluence} here and by
+ * {@code blocks} and {@code influence} in {@code v4.json}, and the result hashes and request bindings it records are
+ * computed as {@code resultHash} and {@code requestBinding} pin them.
  */
 final class VectorsHttpRules {
 
@@ -170,46 +171,47 @@ final class VectorsHttpRules {
             + " accepted. It expects the `refusal` (an unsafe session's switched-off endpoint, by `routePattern`,"
             + " included), whether it is served `attested`, `handedOn` as a receiver case records it, and"
             + " `trustedRecord`, null for a refusal. An egress case enters `inbound`, a receiver case's inputs (null"
-            + " for work outside any request), at the egress `egress`, which acts on `actsOn`, requires `requires` of"
-            + " the partner and goes on without them when `continueWithout` is true, and posts each of `posts` to"
-            + " `partnerScript`: a partner that answers each full handshake with the next of `handshakes` (`attested`"
-            + " or `unsafe`, a genuine reply on the `psp` material; `notFound`, a 404; `wrongKey`, a reply signed by"
-            + " and naming `stranger-policy`), the replacement as `replacement` says, every reply listing"
-            + " `extensions`, and each call with the next of `calls`. It expects each post's `outcome` (`answered`,"
-            + " with the `status` and whether the session was `attested`; `refused` by the egress's guard, nothing"
-            + " sent; `withheld`, no call made in a session that does not meet the requirement; `failed`, no session),"
-            + " all the partner `received` in order (a handshake, whether it had a client root; a call, its session"
-            + " and the session its stamp was made in, each the position of the handshake whose reply issued it, its"
-            + " stamps without `sess` and `sig`, its proof and its `blocks`), and the entries the request `added` at"
-            + " the egress. A boundary block's entries are blinded under the boundary key as `boundaryInfluence` pins"
-            + " it. Against http-v3.json's rules: stamps are version 4 and blocks travel in `X-Path-Extensions`; nonce"
-            + " keys are JCS text. A receiver case gains the inputs `actsOn`, `allowedExtensions` and"
-            + " `destinationOwner`; its answer holds `handedOn` in place of `influence` (null where v3 recorded `[]`"
-            + " for nothing), and gains `publicWrite`; a refusal's `trustedRecord` is null, not false."
-            + " `unreadableInfluence` is `influenceItems`, an item on a request's block that does not read as an"
-            + " entry; `servedUnverified` is new, check 9a at a service about to serve a request it did not verify."
-            + " `callerInfluence` follows the HTTP rule for what a response adds: its response header is {block,"
-            + " stamp}, the caller's input `influence` is `added`, the entries its own block holds, it gains the"
-            + " inputs `actsOn`, `allowedExtensions` and `inboundBlocks`, and its answer gains `refused`. Six cases of"
-            + " http-v3.json are dropped, each for repeating another case's input and answer, and found under the case"
-            + " that stays: requests' \"verified, with the influence the stamp commits to\" and attestation's"
-            + " \"enforce, verified\" under trustedRecord's \"verified, private and public with owners\";"
-            + " trustedRecord's \"verified, no influence\" under requests' \"verified\"; trustedRecord's \"refused\""
-            + " under attestation's \"enforce, refused\"; attestation's \"off: verifies and attests nothing\" under"
-            + " trustedRecord's \"a hop that is off\"; and refusals' \"unreadable influence in audit mode\" under"
-            + " influenceItems' \"audit, on a chain that verifies otherwise\". A partner gains `actsOn` and"
-            + " `allowedExtensions`, a session it opens `extensions`; a call's stamp commits to a `block` in place of"
-            + " `influence` and the call carries `extensionsHeader` in place of `influenceHeader`; its answer holds"
-            + " `handedOn` in place of `influence`, and a refused call's `trustedRecord` is null, not false."
-            + " boundaryRefusals' \"influence other than the stamp commits to\" is \"a block other than the stamp"
-            + " commits to\" and its \"influence that cannot be read\" is \"blocks that cannot be read\", both"
-            + " EXTENSION_MISMATCH, and \"an item that is not an entry\" is new; partnerTrustedRecord gains a stamp"
-            + " whose block names influence with nothing and one whose block does not name it. An egress gains"
-            + " `actsOn`, `allowedExtensions`, `requires` and `continueWithout`, its partner script `extensions`, a"
-            + " post the outcome `withheld`; a call received holds `blocks` in place of `influence`, and the answer"
-            + " `added`, what the egress added, in place of `influence`; the cases on the requirement and on what the"
-            + " boundary block names are new. No partner or egress case of http-v3.json is dropped: none repeats"
-            + " another's input.";
+            + " for work outside any request), at the egress `egress`, which acts on `actsOn` and carries"
+            + " `allowedExtensions` as a receiver does, requires `requires` of the partner and goes on without them"
+            + " when `continueWithout` is true, and posts each of `posts` to `partnerScript`: a partner that answers"
+            + " each full handshake with the next of `handshakes` (`attested` or `unsafe`, a genuine reply on the"
+            + " `psp` material; `notFound`, a 404; `wrongKey`, a reply signed by and naming `stranger-policy`), the"
+            + " replacement as `replacement` says, every reply listing `extensions`, and each call with the next of"
+            + " `calls`. It expects each post's `outcome` (`answered`, with the `status` and whether the session was"
+            + " `attested`; `refused` by the egress's guard, nothing sent; `withheld`, no call made in a session that"
+            + " does not meet the requirement; `failed`, no session), all the partner `received` in order (a"
+            + " handshake, whether it had a client root; a call, its session and the session its stamp was made in,"
+            + " each the position of the handshake whose reply issued it, its stamps without `sess` and `sig`, its"
+            + " proof and its `blocks`), and the entries the request `added` at the egress. A boundary block's entries"
+            + " are blinded under the boundary key as `boundaryInfluence` pins it. Against http-v3.json's rules:"
+            + " stamps are version 4 and blocks travel in `X-Path-Extensions`; nonce keys are JCS text. A receiver"
+            + " case gains the inputs `actsOn`, `allowedExtensions` and `destinationOwner`; its answer holds"
+            + " `handedOn` in place of `influence` (null where v3 recorded `[]` for nothing), and gains `publicWrite`;"
+            + " a refusal's `trustedRecord` is null, not false. `unreadableInfluence` is `influenceItems`, an item on"
+            + " a request's block that does not read as an entry; `servedUnverified` is new, check 9a at a service"
+            + " about to serve a request it did not verify. `callerInfluence` follows the HTTP rule for what a"
+            + " response adds: its response header is {block, stamp}, the caller's input `influence` is `added`, the"
+            + " entries its own block holds, it gains the inputs `actsOn`, `allowedExtensions` and `inboundBlocks`,"
+            + " and its answer gains `refused`. Six cases of http-v3.json are dropped, each for repeating another"
+            + " case's input and answer, and found under the case that stays: requests' \"verified, with the influence"
+            + " the stamp commits to\" and attestation's \"enforce, verified\" under trustedRecord's \"verified,"
+            + " private and public with owners\"; trustedRecord's \"verified, no influence\" under requests'"
+            + " \"verified\"; trustedRecord's \"refused\" under attestation's \"enforce, refused\"; attestation's"
+            + " \"off: verifies and attests nothing\" under trustedRecord's \"a hop that is off\"; and refusals'"
+            + " \"unreadable influence in audit mode\" under influenceItems' \"audit, on a chain that verifies"
+            + " otherwise\". A partner gains `actsOn` and `allowedExtensions`, a session it opens `extensions`; a"
+            + " call's stamp commits to a `block` in place of `influence` and the call carries `extensionsHeader` in"
+            + " place of `influenceHeader`; its answer holds `handedOn` in place of `influence`, and a refused call's"
+            + " `trustedRecord` is null, not false. boundaryRefusals' \"influence other than the stamp commits to\" is"
+            + " \"a block other than the stamp commits to\" and its \"influence that cannot be read\" is \"blocks that"
+            + " cannot be read\", both EXTENSION_MISMATCH, and \"an item that is not an entry\" is new; sessionHeader"
+            + " gains an unsafe call whose blocks differ from what its stamp commits to, and handshakeErrors a partner"
+            + " that acts on no extension; partnerTrustedRecord gains a stamp whose block names influence with nothing"
+            + " and one whose block does not name it. An egress gains `actsOn`, `allowedExtensions`, `requires` and"
+            + " `continueWithout`, its partner script `extensions`, a post the outcome `withheld`; a call received"
+            + " holds `blocks` in place of `influence`, and the answer `added`, what the egress added, in place of"
+            + " `influence`; the cases on the requirement and on what the boundary block names are new. No partner or"
+            + " egress case of http-v3.json is dropped: none repeats another's input.";
 
     private VectorsHttpRules() {
     }
