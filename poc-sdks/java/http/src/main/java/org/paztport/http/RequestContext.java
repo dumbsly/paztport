@@ -65,12 +65,28 @@ public final class RequestContext {
      * scope reads it, and the next scope opened on this thread starts without it. It is for code that starts work from
      * a chain it holds: a test, or a harness that sends a captured chain on to show how receivers refuse it.
      *
-     * <p>Whatever blocks were held are dropped, since they came with another chain: a call made after this sends one
-     * empty block per stamp of {@code chain} before its own, which check 9a refuses at the next hop unless every
-     * stamp's {@code ext} is empty.
+     * <p>Whatever blocks were held are dropped, since they came with another chain: a call made after this forwards
+     * one empty block per stamp of {@code chain} before its own, so a chain whose stamps commit to blocks fails check
+     * 9a at the next hop. Such a chain is forwarded with its blocks by {@link #setInboundChain(List, List)}.
      */
     public static void setInboundChain(List<Stamp> chain) {
         setInbound(chain, null);
+    }
+
+    /**
+     * As {@link #setInboundChain(List)}, with the blocks the chain came with, which a call made after this forwards
+     * unchanged before its own. The chain is still carried, never verified.
+     *
+     * @param chain the chain to stamp after
+     * @param blocks one block per stamp of {@code chain}, in order
+     * @throws IllegalArgumentException when the blocks are not one per stamp; nothing is set
+     */
+    public static void setInboundChain(List<Stamp> chain, List<Block> blocks) {
+        if (blocks.size() != chain.size()) {
+            throw new IllegalArgumentException("a chain of " + chain.size() + " stamps is forwarded with one block"
+                    + " per stamp, not " + blocks.size());
+        }
+        setInbound(chain, List.copyOf(blocks));
     }
 
     /**

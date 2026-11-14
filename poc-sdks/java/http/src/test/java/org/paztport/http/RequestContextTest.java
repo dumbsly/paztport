@@ -121,6 +121,36 @@ class RequestContextTest {
         assertNull(RequestContext.inboundBlocks());
     }
 
+    /** A chain set with its blocks is forwarded with them, then the caller's own block. */
+    @Test
+    void aChainSetWithItsBlocksIsForwardedWithThem() {
+        Block held = Influence.block(List.of(WEB), List.of());
+        List<Stamp> inbound = List.of(Stamp.sign("gateway", "gw-1", "rid-1", 1L, "", "orders", "b", held.commit(),
+                "", Crypto.generateEd25519KeyPair().getPrivate()));
+        KeyPair orders = Crypto.generateEd25519KeyPair();
+        HttpCaller caller = HttpCaller.builder("orders",
+                new Stamper("orders", "ord-1", orders.getPrivate(), false, () -> "x", () -> 2000L)).build();
+
+        HttpCaller.Outbound sent;
+        try (RequestContext.Scope scope = RequestContext.open()) {
+            RequestContext.setInboundChain(inbound, List.of(held));
+            assertEquals(List.of(held), RequestContext.inboundBlocks());
+            sent = caller.stampFromContext("POST", java.net.URI.create("http://payment:8080/pay"), new byte[0]);
+        }
+
+        assertEquals(List.of(held, Block.EMPTY), Block.parseAll(HttpWire.decodeBlocks(
+                sent.headers().get(PaztportHeaders.EXTENSIONS))), "those blocks, then the caller's own");
+    }
+
+    @Test
+    void blocksOfTheWrongLengthAreRefused() {
+        assertThrows(IllegalArgumentException.class, () -> RequestContext.setInboundChain(chain, List.of()));
+        assertThrows(IllegalArgumentException.class,
+                () -> RequestContext.setInboundChain(chain, List.of(Block.EMPTY, Block.EMPTY)));
+        assertNull(RequestContext.inboundChain(), "nothing was set");
+        assertNull(RequestContext.inboundBlocks());
+    }
+
     @Test
     void isIsolatedPerThread() throws Exception {
         RequestContext.setInboundChain(chain);

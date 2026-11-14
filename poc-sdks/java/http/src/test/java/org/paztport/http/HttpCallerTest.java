@@ -796,7 +796,8 @@ class HttpCallerTest {
         HttpWire.ResponseCheck check;
         try (RequestContext.Scope scope = RequestContext.open()) {
             HttpCaller.Outbound sent = caller.stampFromContext("GET", ORDERS, NO_BODY);
-            check = caller.recordToContext(sent, 200, attestation(sent, "hello", List.of(mine, web)), utf8("hello"));
+            check = caller.recordToContext(sent, 200, attestation(sent, "hello", List.of(mine, web)),
+                    utf8("hello")).check();
             recorded = RequestContext.added();
         }
 
@@ -852,6 +853,38 @@ class HttpCallerTest {
         assertEquals(List.of(new InfluenceEntry(InfluenceClass.LOCAL_UNTRUSTED, "http:orders",
                 HttpWire.resultHash(200, utf8("hello")), null, null)), received.influence());
         assertFalse(received.refused());
+    }
+
+    // L1: the interceptor reads what the caller refuses from the record's own answer, not from a reason it restates.
+    @Test
+    void recordToContextGivesWhatCheckGives() {
+        HttpCaller blind = HttpCaller.builder("gateway", gatewayStamper()).bundle(policy.bundles().get("gateway"))
+                .verifier(gatewayVerifier(ExtensionSettings.NONE)).build();
+        ContentLabel label = ContentLabel.fresh(InfluenceClass.PRIVATE, "alice");
+        HttpCaller.Received refused;
+        List<InfluenceEntry> refusedEntries;
+        try (RequestContext.Scope scope = RequestContext.open()) {
+            HttpCaller.Outbound sent = blind.stampFromContext("GET", ORDERS, NO_BODY);
+            refused = blind.recordToContext(sent, 200, attestation(sent, "hello", List.of(label)), utf8("hello"));
+            refusedEntries = RequestContext.added();
+        }
+        String hash = HttpWire.resultHash(200, utf8("hello"));
+        InfluenceEntry untrusted = new InfluenceEntry(InfluenceClass.LOCAL_UNTRUSTED, "http:orders", hash, null, null);
+        assertTrue(refused.refused());
+        assertEquals(ReasonCode.EXTENSION_REQUIRED, refused.check().result().reason());
+        assertEquals(List.of(untrusted), refusedEntries, "the one local-untrusted entry is recorded");
+
+        HttpCaller acting = verifyingCaller();
+        HttpCaller.Received accepted;
+        List<InfluenceEntry> acceptedEntries;
+        try (RequestContext.Scope scope = RequestContext.open()) {
+            HttpCaller.Outbound sent = acting.stampFromContext("GET", ORDERS, NO_BODY);
+            accepted = acting.recordToContext(sent, 200, attestation(sent, "hello", List.of(label)), utf8("hello"));
+            acceptedEntries = RequestContext.added();
+        }
+        assertFalse(accepted.refused());
+        assertEquals(List.of(new InfluenceEntry(InfluenceClass.PRIVATE, "http:orders", hash, label.cid(), "alice")),
+                acceptedEntries, "the label's entry is recorded");
     }
 
     // K9: a caller that does not act on influence cannot read the labels, and the response says it requires them.
@@ -1020,7 +1053,7 @@ class HttpCallerTest {
             HttpCaller.Outbound sent = caller.stampFromContext("GET", ORDERS, NO_BODY);
             check = caller.recordToContext(sent, 200,
                     attestation(sent, "hello", List.of(ContentLabel.fresh(InfluenceClass.PUBLIC, null))),
-                    utf8("hello"));
+                    utf8("hello")).check();
             recorded = RequestContext.added();
         }
 
@@ -1163,7 +1196,7 @@ class HttpCallerTest {
         HttpCaller.Outbound sent = caller.stamp("GET", ORDERS, NO_BODY, null, null, List.of());
 
         HttpWire.ResponseCheck check = assertDoesNotThrow(
-                () -> caller.recordToContext(sent, 502, null, utf8("bad gateway")));
+                () -> caller.recordToContext(sent, 502, null, utf8("bad gateway"))).check();
 
         assertEquals(ReasonCode.CHAIN_MISSING, check.result().reason());
         assertEquals(List.of(), RequestContext.added());

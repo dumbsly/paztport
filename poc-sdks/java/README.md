@@ -308,8 +308,8 @@ names the receiver by its policy name: the URI's host with its ASCII letters in 
 empty path binds as `/` (`http://host?q=1` binds `/?q=1`), as a client sends it. The stamper behind it refuses a
 signing name or receiver that is not a route node, on every path (`next`, `boundary`, `respond`).
 `stampFromContext(method, uri, body)` and `recordToContext(...)` are the same two in the blocking binding below,
-which read and add to the request's context, and record nothing outside a scope; `recordToContext` answers the check,
-whose reason is `EXTENSION_REQUIRED` for a response the caller refuses. The layers do not mix: inside a scope,
+which read and add to the request's context, and record nothing outside a scope; `recordToContext` answers what
+`check` does (a `Received`), whose `refused()` is true for a response the caller refuses (`EXTENSION_REQUIRED`). The layers do not mix: inside a scope,
 `recordToContext` refuses a call that was not stamped from the context (`IllegalStateException`, before anything is
 checked or logged) rather than silently drop what its response adds, so a call the function stamped is checked with
 `check`. It refuses a call stamped in a scope that has since closed in the same way, inside a later scope or outside

@@ -517,11 +517,13 @@ public final class HttpCaller {
      * take it. Outside a scope, a call stamped outside one has no request to credit, so it is checked and traced,
      * and nothing is recorded.
      *
-     * @return the check of the response's attestation, or null where this caller has no verifier
+     * @return what {@link #check} answers, whose entries are those recorded; its {@code refused()} is for the caller
+     *     to act on, since the response's handler has already run, and its check is null where this caller has no
+     *     verifier
      * @throws IllegalStateException when {@code sent} was not stamped in the scope open now, and either a scope is
      *     open or it was stamped in one
      */
-    public HttpWire.ResponseCheck recordToContext(Outbound sent, int status, String xPathResponse, byte[] body) {
+    public Received recordToContext(Outbound sent, int status, String xPathResponse, byte[] body) {
         RequestContext.Scope current = RequestContext.current();
         if (sent.scope == null && current != null) {
             throw new IllegalStateException("this call was not stamped from the request's context, so its response"
@@ -538,7 +540,7 @@ public final class HttpCaller {
         if (current != null) {
             RequestContext.addInfluence(received.influence().toArray(InfluenceEntry[]::new));
         }
-        return received.check();
+        return received;
     }
 
     /**
