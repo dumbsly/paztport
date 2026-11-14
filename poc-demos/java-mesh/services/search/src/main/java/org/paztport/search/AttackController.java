@@ -170,7 +170,11 @@ public class AttackController {
                 .body("{\"reason\":\"NO_STOLEN_CHAIN\",\"hint\":\"call gateway /find first\"}");
     }
 
-    /** Scenario 5 / 7: replay a captured valid request verbatim (fresh -> REPLAY, aged -> EXPIRED). */
+    /**
+     * Scenario 5 / 7: replay a captured valid request verbatim. Fresh, it is PEER_MISMATCH: search is not the last
+     * signer, and payment checks the peer before the nonce, so the nonce is not spent. Aged, it is EXPIRED, which
+     * is checked first.
+     */
     @PostMapping("/attack/replay")
     public ResponseEntity<String> replay() {
         CapturedView c = fetchCaptured();

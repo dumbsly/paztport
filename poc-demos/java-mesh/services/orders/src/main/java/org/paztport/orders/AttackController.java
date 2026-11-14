@@ -6,6 +6,7 @@ package org.paztport.orders;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import org.paztport.core.influence.Influence;
 import org.paztport.core.policy.MerkleProof;
 import org.paztport.core.policy.ProofBundle;
 import org.paztport.core.policy.Routes;
@@ -126,7 +127,8 @@ public class AttackController {
      * {@code path}, and sends it there with the proof of {@code route}, and with the stolen blocks then its own.
      * Without that proof it sends nothing, so a refusal is never for a proof the bundle lacked. The stolen blocks go
      * unchanged, so each still matches the stamp that committed to it (check 9a) and payment refuses the call at the
-     * check its scenario shows. The code adds no influence of its own, so its block is the empty one.
+     * check its scenario shows. Orders acts on influence and the code adds no entry, so its block names influence
+     * with nothing added, as orders' own calls do.
      */
     private ResponseEntity<String> steer(StolenChainStore.Stolen stolen, String operation, String path, byte[] body,
             String route) {
@@ -135,7 +137,7 @@ public class AttackController {
             return ResponseEntity.status(409).body("{\"reason\":\"NO_PROOF\",\"route\":\"" + route + "\"}");
         }
         String bind = RequestBinding.compute("POST", path, body);
-        Block own = Block.EMPTY;
+        Block own = Influence.block(List.of(), List.of());
         List<Stamp> chain = stamper.next(stolen.chain(), operation, bind, own, null).chain();
         List<Block> blocks = new ArrayList<>(stolen.blocks());
         blocks.add(own);

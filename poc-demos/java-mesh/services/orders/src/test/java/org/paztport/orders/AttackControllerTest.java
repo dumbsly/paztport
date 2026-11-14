@@ -112,7 +112,8 @@ class AttackControllerTest {
         assertEquals(stolen.get(0), chain.get(0), "the stolen chain is sent unchanged");
         assertEquals(2, blocks.size(), "one block per stamp");
         assertEquals(gatewayBlock.toJson(), blocks.get(0).toJson(), "the stolen block, byte for byte");
-        assertEquals(Block.EMPTY, blocks.get(1), "the block orders signs");
+        assertEquals(Influence.block(List.of(), List.of()), blocks.get(1),
+                "orders acts on influence, so its block names it with nothing added");
         for (int i = 0; i < chain.size(); i++) {
             assertEquals(chain.get(i).ext(), blocks.get(i).commit(), "block " + i + " is the one its stamp commits to");
         }
