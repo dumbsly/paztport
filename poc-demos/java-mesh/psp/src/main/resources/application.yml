@@ -8,8 +8,8 @@ server:
   # not bounded by that timeout; keep it well under the pods' termination grace.
   shutdown: graceful
   # Paztport's headers outgrow Tomcat's 8 KB default long before the wire's limits: the chain, proof and blocks
-  # tokens may each be 256 KiB decoded, about 342 KiB encoded, and each fits here at its largest.
-  max-http-request-header-size: 1MB
+  # tokens may each be 256 KiB decoded, about 342 KiB encoded, and all three fit here together at their largest.
+  max-http-request-header-size: 2MB
   # Mutual TLS with the shop: its callers present certificates from the shop's
   # CA, which is all this bundle trusts, and the filter takes the service the
   # certificate names as the peer whose session a call is in.
