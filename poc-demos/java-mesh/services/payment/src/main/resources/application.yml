@@ -4,6 +4,9 @@ server:
   # default 5), then this graceful shutdown lets requests in progress finish, up to the timeout below. The drain is
   # not bounded by that timeout; keep it well under the pods' termination grace.
   shutdown: graceful
+  # Paztport's headers outgrow Tomcat's 8 KB default long before the wire's limits: the chain, proof and blocks
+  # tokens may each be 256 KiB decoded, about 342 KiB encoded, and each fits here at its largest.
+  max-http-request-header-size: 1MB
   # Mutual TLS: every caller presents a certificate from the mesh CA, and the
   # filter takes the service it names as the sender.
   ssl:
@@ -33,17 +36,22 @@ spring:
 
 paztport:
   service-name: payment
+  # The egress names influence in the boundary block only where it acts on it.
+  extensions:
+    acts-on: [influence]
+  # Required of the PSP, so the PSP judges a refund by what the shop's chain read: a session whose reply does
+  # not list it gets no call (502 EXTENSION_REQUIRED).
+  boundary:
+    requires: [influence]
   verify: true
   mode: ${PAZTPORT_MODE:enforce}
   admin-token: ${PAZTPORT_ADMIN_TOKEN:}
   event-key-path: ${PAZTPORT_EVENT_KEY_PATH:}
-  capture: ${PAZTPORT_CAPTURE:false}
-  openings: ${PAZTPORT_OPENINGS:false}
   # key-path (which attests payment's responses) and policy-key-path are
   # supplied by the environment in docker-compose (PAZTPORT_KEY_PATH /
   # PAZTPORT_POLICY_KEY_PATH) so the boot tests can run without mounted files.
-  # So are proofs-path and boundary.*, which make payment the egress to the
-  # PSP (PAZTPORT_PROOFS_PATH, PAZTPORT_BOUNDARY_*).
+  # So are proofs-path and the boundary's partner, URL and keys, which make
+  # payment the egress to the PSP (PAZTPORT_PROOFS_PATH, PAZTPORT_BOUNDARY_*).
   keyring-path: ${PAZTPORT_KEYRING_PATH:/config/keys/keyring.json}
   root-path: ${PAZTPORT_ROOT_PATH:/config/policy/root.json}
   max-age-ms: ${PAZTPORT_MAX_AGE_MS:5000}
@@ -52,3 +60,8 @@ paztport:
   unverified-paths: ${PAZTPORT_UNVERIFIED_PATHS:/admin,/debug,/actuator}
   responder-url: ${RESPONDER_URL:}
   tls-bundle: mesh
+
+# The demo's harness, not Paztport's: the replay capture and the boundary openings (MESH_CAPTURE, MESH_OPENINGS).
+mesh:
+  capture: ${MESH_CAPTURE:false}
+  openings: ${MESH_OPENINGS:false}

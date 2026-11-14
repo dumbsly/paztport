@@ -7,6 +7,9 @@ server:
   # default 5), then this graceful shutdown lets requests in progress finish, up to the timeout below. The drain is
   # not bounded by that timeout; keep it well under the pods' termination grace.
   shutdown: graceful
+  # Paztport's headers outgrow Tomcat's 8 KB default long before the wire's limits: the chain, proof and blocks
+  # tokens may each be 256 KiB decoded, about 342 KiB encoded, and each fits here at its largest.
+  max-http-request-header-size: 1MB
   # Mutual TLS: every caller presents a certificate from the mesh CA, and the
   # filter takes the service it names as the sender.
   ssl:
@@ -28,6 +31,9 @@ spring:
 
 paztport:
   service-name: mailer
+  # An email is a public write, which the influence rule decides; a service acting on nothing is denied it.
+  extensions:
+    acts-on: [influence]
   # Every request is verified, and refused unless it verifies: the rule judges
   # an email by the influence the request carries, so that influence must be
   # the one its chain committed to.

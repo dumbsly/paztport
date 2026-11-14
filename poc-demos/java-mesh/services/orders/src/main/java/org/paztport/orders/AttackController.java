@@ -8,6 +8,7 @@ import java.util.List;
 import org.paztport.core.policy.MerkleProof;
 import org.paztport.core.policy.ProofBundle;
 import org.paztport.core.policy.Routes;
+import org.paztport.core.stamp.Block;
 import org.paztport.core.stamp.Stamp;
 import org.paztport.core.stamp.Stamper;
 import org.paztport.http.wire.HttpWire;
@@ -122,7 +123,7 @@ public class AttackController {
             return ResponseEntity.status(409).body("{\"reason\":\"NO_PROOF\",\"route\":\"" + route + "\"}");
         }
         String bind = RequestBinding.compute("POST", path, body);
-        List<Stamp> chain = stamper.next(stolen, operation, bind, List.of(), null).chain();
+        List<Stamp> chain = stamper.next(stolen, operation, bind, Block.EMPTY, null).chain();
         return rawClient.post()
                 .uri(paymentUrl + path)
                 .headers(h -> {

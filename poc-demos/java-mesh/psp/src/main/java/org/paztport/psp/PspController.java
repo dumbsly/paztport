@@ -6,6 +6,7 @@ package org.paztport.psp;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import org.paztport.core.influence.Influence;
 import org.paztport.core.stamp.Stamp;
 import org.paztport.core.verify.ReasonCode;
 import org.paztport.http.PublicWrites;
@@ -57,13 +58,15 @@ public class PspController {
     }
 
     /**
-     * Records what this call carried, when the record is enabled and the partner filter verified the call: only
-     * then is the influence the one the shop's boundary stamp committed to, and the rid the chain's.
+     * Records what this call carried, the entries of the boundary block it was handed, when the record is enabled
+     * and the partner filter verified the call: only then are they the ones the shop's boundary stamp committed to,
+     * and the rid the chain's.
      */
     private void recordReceived() {
         List<Stamp> verified = RequestContext.verifiedChain();
         if (received != null && verified != null && !verified.isEmpty()) {
-            received.record(verified.get(0).rid(), RequestContext.influence());
+            received.record(verified.get(0).rid(),
+                    Influence.readRequest(RequestContext.handedOn().under(Influence.NAME)).entries());
         }
     }
 

@@ -105,7 +105,7 @@ public class AttackController {
         if (c == null) {
             return ResponseEntity.status(428).body("{\"reason\":\"NO_CAPTURE\",\"hint\":\"run a checkout first\"}");
         }
-        return callPayment(rawClient, c.chain(), c.proof(), c.influence(), Base64.getDecoder().decode(c.bodyBase64()));
+        return callPayment(rawClient, c.chain(), c.proof(), c.blocks(), Base64.getDecoder().decode(c.bodyBase64()));
     }
 
     /** Scenario 6: replay a captured valid request with the body altered. */
@@ -115,7 +115,7 @@ public class AttackController {
         if (c == null) {
             return ResponseEntity.status(428).body("{\"reason\":\"NO_CAPTURE\",\"hint\":\"run a checkout first\"}");
         }
-        return callPayment(rawClient, c.chain(), c.proof(), c.influence(),
+        return callPayment(rawClient, c.chain(), c.proof(), c.blocks(),
                 "{\"amount\":999999}".getBytes(StandardCharsets.UTF_8));
     }
 
@@ -129,11 +129,11 @@ public class AttackController {
     }
 
     private record CapturedView(
-            String chain, String proof, String influence, String method, String path, String bodyBase64) {
+            String chain, String proof, String blocks, String method, String path, String bodyBase64) {
     }
 
     private ResponseEntity<String> callPayment(
-            RestClient client, String chain, String proof, String influence, byte[] body) {
+            RestClient client, String chain, String proof, String blocks, byte[] body) {
         return client.post()
                 .uri(paymentUrl + "/pay")
                 .headers(h -> {
@@ -144,8 +144,8 @@ public class AttackController {
                     if (proof != null) {
                         h.set(PaztportHeaders.PROOF, proof);
                     }
-                    if (influence != null) {
-                        h.set(PaztportHeaders.INFLUENCE, influence);
+                    if (blocks != null) {
+                        h.set(PaztportHeaders.EXTENSIONS, blocks);
                     }
                 })
                 .body(body)

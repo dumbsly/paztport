@@ -270,7 +270,7 @@ each call's originals, which its `BoundaryListener` is given before the call goe
 and the PSP records the influence each call carried once the partner filter has
 verified it, before its rule decides, so a refused call is recorded too. Both are
 in-memory stand-ins for evidence stores, and they and their `/debug` endpoints
-exist only when `PAZTPORT_OPENINGS=true`, as Compose sets for `payment` and `psp`.
+exist only when `MESH_OPENINGS=true`, as Compose sets for `payment` and `psp`.
 
 ### The trace
 
@@ -1022,8 +1022,8 @@ the gateway port is exposed to the host.
 | `PAZTPORT_OPERATIONS_RECEIVERTABLES` | unset; Compose sets the tables of the receivers each calls | `gateway` (orders'), `assistant` (orders', payment's), `orders` (payment's), `search` (payment's, used only once the policy is widened) |
 | `PAZTPORT_ADMIN_TOKEN` | empty, so `/admin/mode` is not registered | `payment`, `tickets`, `assistant`, `mailer` (the demo generates one per run) |
 | `DEMO_DRAIN_SECONDS` | `5`; `0` for no drain (Compose sets `0`) | Every service: how long it serves with `Connection: close` after SIGTERM before graceful shutdown starts |
-| `PAZTPORT_CAPTURE` | `false`; `true` for `payment` in Compose | `payment` (the replay harness) |
-| `PAZTPORT_OPENINGS` | `false`; `true` for `payment` and `psp` in Compose | `payment` (keeps the originals of what it sends the PSP, `/debug/boundary-opening`) and `psp` (records what each call carried, `/debug/check-opening`), for row 13c |
+| `MESH_CAPTURE` | `false`; `true` for `payment` in Compose | `payment` (the replay harness) |
+| `MESH_OPENINGS` | `false`; `true` for `payment` and `psp` in Compose | `payment` (keeps the originals of what it sends the PSP, `/debug/boundary-opening`) and `psp` (records what each call carried, `/debug/check-opening`), for row 13c |
 | `RESPONDER_URL` | empty, so events are only logged | `payment` (the demo sets `https://responder:8080` for scenario 9) |
 | `PAZTPORT_EVENT_KEY_PATH` | `/config/keys/payment.key` in Compose; required when `RESPONDER_URL` is set | `payment` |
 | `PAZTPORT_RUN_MAX_AGE_MS` | unset, so the origin's window is `PAZTPORT_MAX_AGE_MS`; Compose sets `30000` | `gateway`, `tickets`, `assistant`, `orders`, `payment`, `mailer`: the window for the origin's stamp, which five hops started cold can outlast |

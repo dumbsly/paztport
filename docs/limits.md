@@ -219,14 +219,14 @@ Engineering shortcuts of this repository, not of the design.
   refusing to start unless that provider answers the vectors that separate the
   equations, would lift this.
 - **The demo includes a replay harness.** The Java demo's `payment` can retain its
-  last request (`/debug/last-request`, only when `PAZTPORT_CAPTURE=true`) so the
+  last request (`/debug/last-request`, only when `MESH_CAPTURE=true`) so the
   demo can replay and mutate a genuinely valid request. The harness lives in the
   demo and reaches requests through the Spring SDK's `ReceivedRequestListener`
   hook. It simulates an on-the-wire capture and isn't part of the attestation
   model.
 - **The demo's evidence stores are stand-ins.** The shop's store of what each
   blinded entry sent to the PSP stood for, and the PSP's record of what each call
-  carried, are in memory and exist only when `PAZTPORT_OPENINGS=true`.
+  carried, are in memory and exist only when `MESH_OPENINGS=true`.
 - **The demo's support desk is a stand-in.** The bearer tokens, the seeded orders
   and the mailer's directory are fixtures, and `assistant` is scripted, with no
   model.

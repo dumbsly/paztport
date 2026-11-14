@@ -11,11 +11,11 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * Exposes the last request a verifier received, for the demo's replay/mutate
- * harness. Present only when {@code paztport.capture=true}; not part of the
+ * harness. Present only when {@code mesh.capture=true}; not part of the
  * attestation model.
  */
 @RestController
-@ConditionalOnProperty(name = "paztport.capture", havingValue = "true")
+@ConditionalOnProperty(name = "mesh.capture", havingValue = "true")
 public class DebugCaptureController {
 
     private final CaptureStore store;
@@ -26,14 +26,14 @@ public class DebugCaptureController {
 
     /** The captured request, with the body base64-encoded so it survives JSON. */
     public record CapturedView(
-            String chain, String proof, String influence, String method, String path, String bodyBase64) {
+            String chain, String proof, String blocks, String method, String path, String bodyBase64) {
     }
 
     @GetMapping("/debug/last-request")
     public ResponseEntity<CapturedView> lastRequest() {
         return store.last()
                 .map(r -> ResponseEntity.ok(new CapturedView(
-                        r.chainHeader(), r.proofHeader(), r.influenceHeader(), r.method(), r.path(),
+                        r.chainHeader(), r.proofHeader(), r.blocksHeader(), r.method(), r.path(),
                         Base64.getEncoder().encodeToString(r.body()))))
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }

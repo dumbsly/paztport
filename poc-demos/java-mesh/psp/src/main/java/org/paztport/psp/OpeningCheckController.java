@@ -25,12 +25,12 @@ import org.springframework.web.bind.annotation.RestController;
  * ({@link BoundaryInfluence#opens}); this only finds the entry of the opening's class and owner among what
  * {@link ReceivedInfluence} recorded for the rid.
  *
- * <p>Present only when {@code paztport.openings=true}, under {@code /debug}, which the demo lists in
+ * <p>Present only when {@code mesh.openings=true}, under {@code /debug}, which the demo lists in
  * {@code paztport.unverified-paths} so the partner filter skips it: a demo stand-in for a dispute the PSP would
  * settle by its own process, not part of the attestation model.
  */
 @RestController
-@ConditionalOnProperty(name = "paztport.openings", havingValue = "true")
+@ConditionalOnProperty(name = "mesh.openings", havingValue = "true")
 public class OpeningCheckController {
 
     private final ReceivedInfluence received;
