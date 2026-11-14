@@ -871,6 +871,36 @@ class HttpCallerTest {
                 + " labels=private,third-party"), traceLines());
     }
 
+    // The fallback entry of a response that was not believed has no label behind it, so it names no class.
+    @Test
+    void aSilentOrFailedResponsesTraceLineNamesNoLabels() {
+        HttpCaller caller = verifyingCaller();
+        HttpCaller.Outbound silent = caller.stamp("GET", ORDERS, NO_BODY, null, null, List.of());
+        caller.check(silent, 200, respondWith(silent, "hello", Block.EMPTY), utf8("hello"));
+        HttpCaller.Outbound failed = caller.stamp("GET", ORDERS, NO_BODY, null, null, List.of());
+        caller.check(failed, 502, null, utf8("bad gateway"));
+
+        assertEquals(List.of(
+                "PAZTPORT_TRACE response rid=rid-1 from=orders reason=OK receiver=gateway ✓ labels=-",
+                "PAZTPORT_TRACE response rid=rid-1 from=orders reason=CHAIN_MISSING receiver=gateway ✗"
+                        + " labels=-"), traceLines());
+    }
+
+    // A responder's own local-untrusted label is a label, so its class is named, unlike the fallback entry.
+    @Test
+    void aLabelledLocalUntrustedResponsesTraceLineNamesIt() {
+        HttpCaller caller = verifyingCaller();
+        HttpCaller.Outbound sent = caller.stamp("GET", ORDERS, NO_BODY, null, null, List.of());
+
+        HttpCaller.Received received = caller.check(sent, 200,
+                attestation(sent, "hello", List.of(ContentLabel.fresh(InfluenceClass.LOCAL_UNTRUSTED, null))),
+                utf8("hello"));
+
+        assertEquals(InfluenceClass.LOCAL_UNTRUSTED, received.influence().get(0).cls());
+        assertEquals(List.of("PAZTPORT_TRACE response rid=rid-1 from=orders reason=OK receiver=gateway ✓"
+                + " labels=local-untrusted"), traceLines());
+    }
+
     /**
      * R4: what the interim dropped. The scope has read third-party content; a response labels its answer private to
      * alice; a guarded public write to bob must then be denied, which the owner-aware rule needs the label for. Run

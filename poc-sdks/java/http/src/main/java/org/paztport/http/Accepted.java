@@ -205,9 +205,9 @@ public final class Accepted {
      * The {@code X-Path-Response} header for the handler's complete answer, or null when it is not attested: one
      * stamp on {@link #inbound} back to the caller, binding {@code status} and {@code body}, and its own block beside
      * it: where the service acts on influence, a block naming it with {@code labels}, and otherwise the empty
-     * block. The chain is the
-     * one the request carried, not anything the handler holds, so a handler cannot steer what is vouched for. A rid
-     * the binding cannot carry leaves the answer unattested, with a warning, rather than failing it.
+     * block. The chain is the one the request carried, not anything the handler holds, so a handler cannot steer
+     * what is vouched for. A rid the binding cannot carry leaves the answer unattested, with a warning, rather than
+     * failing it.
      *
      * <p>It takes the answer whole, and knows nothing of when that is: the framework calls it only once the handler
      * has finished with a body nothing else will change. An answer the framework cannot hold whole (one written after

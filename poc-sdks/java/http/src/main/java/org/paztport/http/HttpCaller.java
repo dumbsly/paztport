@@ -346,8 +346,8 @@ public final class HttpCaller {
      * was checked, the influence entries it adds ({@link Influence#responseEntries}: one per label of a response that
      * verified and names influence, otherwise one {@code local-untrusted} entry), and whether the caller refuses it.
      *
-     * @param refused whether the response failed check 9c ({@code EXTENSION_REQUIRED}), so the application must not use it,
-     *     and, since the responder's handler has already run, must not retry the call on that ground
+     * @param refused whether the response failed check 9c ({@code EXTENSION_REQUIRED}), so the application must
+     *     not use it, and, since the responder's handler has already run, must not retry the call on that ground
      */
     public record Received(HttpWire.ResponseCheck check, List<InfluenceEntry> influence, boolean refused) {
 
