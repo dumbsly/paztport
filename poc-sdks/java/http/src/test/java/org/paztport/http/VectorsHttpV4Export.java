@@ -79,44 +79,51 @@ class VectorsHttpV4Export {
             + " `ops` policies and their proofs are the ones in v4.json, by name; only the `payment` key is new,"
             + " derived by v4.json's rule (seed = SHA-256(utf8(\"paztport-v3-vector-key:payment\")), the same PKCS#8"
             + " and SPKI encodings, both base64url), and the boundary key below is"
-            + " SHA-256(utf8(\"paztport-http-v3-vector-boundary-key\")), base64url. The v3 in these seed strings is"
-            + " historical: they are http-v3.json's, kept so that the keys, resultHash, requestBinding,"
-            + " boundaryInfluence, and operations but for `receive`, are http-v3.json's value for value, and"
-            + " headerNames holds each of http-v3.json's cases. resultHash maps a status and body (hex) to the result"
-            + " hash. requestBinding maps a method, a target (the raw path plus `?` and the raw query when there is"
-            + " one) and a body (hex) to the request binding. headerNames maps a header name to whether it is"
-            + " Paztport's: it begins with `X-Path-`, compared case-insensitively over ASCII. A responses case is a"
-            + " request chain `sent` from gateway to orders to payment, with the blocks `sentBlocks` sent beside it,"
-            + " one per stamp, and the `responseHeader` payment returned; the caller `orders` checks it against"
-            + " `status` and `body` (hex) with the proof the policy named holds for `proofRoute`, as a verifier that"
-            + " acts on the extensions in `actsOn` and carries the names in `allowedExtensions` (null for unset,"
-            + " which carries any name), whose policy window ends at `policyNotAfter` and whose clock reads `now`,"
-            + " running the check `uses` times against one nonce cache of nonceTtlMs that already holds `spent`"
-            + " (none when absent), each nonce key the JCS text of its array of strings. It expects the last result,"
-            + " {reason, suspectSvc, suspectInst, handOver, resultHash}: handOver is null unless the reason is OK,"
-            + " and then has one member per name in actsOn, each an array of {svc, items}, one per stamp of the sent"
-            + " chain and then the response stamp, items null where the stamp's block does not name the extension,"
-            + " as v4.json's verify cases record it. The responses cases on the `ops` policy run on a chain that"
-            + " names the operation each hop invokes (`orders#createOrder`, then `payment#charge`), with the proof"
-            + " for that route. boundaryInfluence is the influence an egress sends to another organisation: under"
-            + " the boundary `key`, for `rid`, the partner entry `rcv` and the `egress`, the `input` entries reduce"
-            + " to `reduced`, with one salt (base64url) per (cls, owner) group in `salts`; each `openings` case is a"
-            + " `sent` entry and an `opening`, with its JCS bytes in `body` (hex), which the replay reads, and"
-            + " `opens` says whether it opens. `operations` holds `table`, an operation table as a `file` (its"
-            + " text) and `value`, with its `opsHash` and the `route` a root covers it as; `shared`, payment's"
-            + " table, an entrance with two operations told apart by a query condition, in the same form; `keyed`,"
-            + " a table whose operations declare keys, in the same form; `refused`, table files a reader refuses;"
-            + " `match`, a method, a raw path and a raw query (null for none) against a table `file` and the"
-            + " operation name it gives, null for none; `keys`, cases giving a call's operation in `keyed` and its"
-            + " key value, null for none; and `receive`, a request entered at `orders` through the HTTP receiver"
-            + " under enforce, on the `ops` policy, against a nonce cache that already holds `spent` (none when"
-            + " absent), whose chain's first stamp names `orders` or an operation of it, its `X-Path-Extensions`"
-            + " one empty block per stamp, with the `operation` the framework dispatches to (null for none), the"
-            + " receiver's `actsOn` and `allowedExtensions` as above, and the `refusal` it expects (null when the"
-            + " request is served). Every `receive` case carries the proof of `gateway/orders#createOrder`,"
-            + " whatever its chain names. Ed25519 is deterministic, so the file is reproduced byte for byte. Java"
-            + " writes and replays this file; Go replays http-v3.json until it moves; the TypeScript SDK has no"
-            + " HTTP binding, so it does not replay it.";
+            + " SHA-256(utf8(\"paztport-http-v3-vector-boundary-key\")), base64url. The v3 in these seed strings,"
+            + " and in those `rules.about` gives, is historical: they are http-v3.json's, kept so that the keys,"
+            + " boundaryInfluence, and the keys, material, handshakes and peers of `rules`, are http-v3.json's value"
+            + " for value. resultHash, requestBinding, and operations but for `receive`, are too, since their rules"
+            + " did not change, and headerNames holds each of http-v3.json's cases. resultHash maps a status and body"
+            + " (hex) to the result hash. requestBinding maps a method, a target (the raw path plus `?` and the raw"
+            + " query when there is one) and a body (hex) to the request binding. headerNames maps a header name to"
+            + " whether it is Paztport's: it begins with `X-Path-`, compared case-insensitively over ASCII. A"
+            + " responses case is a request chain `sent` from gateway to orders to payment, with the blocks"
+            + " `sentBlocks` sent beside it, one per stamp, and the `responseHeader` payment returned; the caller"
+            + " `orders` checks it against `status` and `body` (hex) with the proof that the v4.json `policy` it"
+            + " names holds for `proofRoute`, as a verifier that acts on the extensions in `actsOn` and carries the"
+            + " names in `allowedExtensions` (null for unset, which carries any name), whose policy window ends at"
+            + " `policyNotAfter` and whose clock reads `now`, running the check `uses` times against one nonce cache"
+            + " of nonceTtlMs that already holds `spent` (none when absent), each nonce key the JCS text of its array"
+            + " of strings. It expects the last result, {reason, suspectSvc, suspectInst, handOver, resultHash}:"
+            + " handOver is null unless the reason is OK, and then has one member per name in actsOn, each an array"
+            + " of {svc, items}, one per stamp of the sent chain and then the response stamp, items null where the"
+            + " stamp's block does not name the extension, as v4.json's verify cases record it. The responses cases"
+            + " on the `ops` policy run on a chain that names the operation each hop invokes (`orders#createOrder`,"
+            + " then `payment#charge`), with the proof for that route. The last three name `material` in place of"
+            + " `policy` and run on `rules.material.shop-keys`: each is a chain `sent` from gateway to orders naming"
+            + " `orders#reserve` and the `responseHeader` orders returned, which the caller `gateway` checks with"
+            + " `key`, the key value of the target sent. boundaryInfluence is the influence an egress sends to"
+            + " another organisation: under the boundary `key`, for `rid`, the partner entry `rcv` and the `egress`,"
+            + " the `input` entries reduce to `reduced`, with one salt (base64url) per (cls, owner) group in"
+            + " `salts`; each `openings` case is a `sent` entry and an `opening`, with its JCS bytes in `body`"
+            + " (hex), which the replay reads, and `opens` says whether it opens. `operations` holds `table`, an"
+            + " operation table as a `file` (its text) and `value`, with its `opsHash` and the `route` a root covers"
+            + " it as; `shared`, payment's table, an entrance with two operations told apart by a query condition,"
+            + " in the same form; `keyed`, a table whose operations declare keys, in the same form; `refused`, table"
+            + " files a reader refuses; `match`, a method, a raw path and a raw query (null for none) against a"
+            + " table `file` and the operation name it gives, null for none; `keys`, cases giving a call's operation"
+            + " in `keyed` and its key value, null for none; and `receive`, a request entered at `orders` through"
+            + " the HTTP receiver under enforce, on the v4.json `policy` or the `rules.material` it names, against a"
+            + " nonce cache that already holds `spent` (none when absent), whose chain's first stamp names `orders`"
+            + " or an operation of it, its `X-Path-Extensions` one empty block per stamp, with the `operation` the"
+            + " framework dispatches to (null for none), the receiver's `actsOn` and `allowedExtensions` as above,"
+            + " and the `refusal` it expects (null when the request is served). Every `receive` case on the `ops`"
+            + " policy carries the proof of `gateway/orders#createOrder`, whatever its chain names; those naming"
+            + " `material` carry its proof of `gateway/orders#reserve`, and the receiver holds `keyed` as its own"
+            + " table. `rules` holds the HTTP rules a receiver and a caller follow, and its `about` says how its"
+            + " cases read. Ed25519 is deterministic, so the file is reproduced byte for byte. Java writes and"
+            + " replays this file; Go replays http-v3.json until it moves; the TypeScript SDK has no HTTP binding, so"
+            + " it does not replay it.";
 
     private static final long GATEWAY_TS = 1_767_225_598_500L;
     private static final long ORDERS_TS = 1_767_225_599_500L;
@@ -201,9 +208,15 @@ class VectorsHttpV4Export {
     private static final List<Layout> LAYOUTS = List.of(
             new Layout(Set.of("v", "svc", "rcv"),
                     List.of("v", "svc", "inst", "rid", "ts", "sess", "rcv", "bind", "ext", "prev", "sig")),
+            new Layout(Set.of("leafSalt"), List.of("leafSalt", "siblings", "dirs", "rootId")),
+            new Layout(Set.of("root", "rootId"), List.of("rootId", "root", "sig", "notAfter")),
+            new Layout(Set.of("services", "policy"), List.of("services", "policy", "sig", "notAfter")),
+            new Layout(Set.of("policy", "svc", "key"), List.of("policy", "svc", "key", "notAfter", "sig")),
             new Layout(Set.of("cls", "src", "h"), List.of("cls", "src", "h", "cid", "owner")),
             new Layout(Set.of("cls", "cid"), List.of("cls", "cid", "owner")),
-            new Layout(Set.of("cls", "salt", "originals"), List.of("cls", "owner", "salt", "originals")));
+            new Layout(Set.of("cls", "salt", "originals"), List.of("cls", "owner", "salt", "originals")),
+            new Layout(Set.of("clientPolicyKey"), List.of("clientRoot", "clientPolicyKey", "clientKeyring",
+                    "clientKeyringSig", "clientKeyringNotAfter", "nonce")));
 
     /** {@code n} with the members of every object in the order its kind's layout gives; other objects keep theirs. */
     private static JsonNode layout(JsonNode n) {
@@ -241,7 +254,7 @@ class VectorsHttpV4Export {
      * SDK, so a spent key pins the SDK's own. Every part the vectors use is plain ASCII with no character JCS
      * escapes.
      */
-    private static String nonceKey(String... parts) {
+    static String nonceKey(String... parts) {
         return "[\"" + String.join("\",\"", parts) + "\"]";
     }
 
@@ -255,13 +268,13 @@ class VectorsHttpV4Export {
         return (ArrayNode) tree(Block.toJson(blocks));
     }
 
-    private static ArrayNode entriesJson(List<InfluenceEntry> entries) {
+    static ArrayNode entriesJson(List<InfluenceEntry> entries) {
         ArrayNode a = JsonNodeFactory.instance.arrayNode();
         entries.forEach(e -> a.add(tree(e.toJson())));
         return a;
     }
 
-    private static List<InfluenceEntry> entries(JsonNode n) {
+    static List<InfluenceEntry> entries(JsonNode n) {
         List<InfluenceEntry> out = new ArrayList<>();
         n.forEach(e -> out.add(InfluenceEntry.parse(Vectors.text(e))));
         return out;
@@ -271,7 +284,7 @@ class VectorsHttpV4Export {
      * A hand-over as the vectors record it, as v4.json's verify cases do: null, or one member per name acted on,
      * each an array of {@code {svc, items}}, one per stamp, items null where the block does not name it.
      */
-    private static JsonNode handOverJson(HandOver h) {
+    static JsonNode handOverJson(HandOver h) {
         if (h == null) {
             return JsonNodeFactory.instance.nullNode();
         }
@@ -299,7 +312,7 @@ class VectorsHttpV4Export {
     }
 
     /** Puts {@code actsOn} and {@code allowedExtensions} (null for unset) on a case. */
-    private static void putSettings(ObjectNode c, ExtensionSettings settings) {
+    static void putSettings(ObjectNode c, ExtensionSettings settings) {
         c.set("actsOn", names(settings.actsOn()));
         if (settings.allowed() == null) {
             c.putNull("allowedExtensions");
@@ -309,7 +322,7 @@ class VectorsHttpV4Export {
     }
 
     /** A case's extension settings: its {@code actsOn}, and its {@code allowedExtensions}, null for unset. */
-    private static ExtensionSettings settings(JsonNode c) {
+    static ExtensionSettings settings(JsonNode c) {
         JsonNode allowed = c.get("allowedExtensions");
         return ExtensionSettings.of(textSet(c.get("actsOn")), allowed.isNull() ? null : textSet(allowed));
     }
@@ -362,7 +375,7 @@ class VectorsHttpV4Export {
         ArrayNode headerNames = out.putArray("headerNames");
         for (String name : new String[] {"X-Path-Chain", "x-path-chain", "X-PATH-PROOF", "X-Path-Extensions",
                 "X-Path-Influence", "X-Path-Session", "X-Path-Response", "X-Path-Future", "X-Path-", "X-Path",
-                "X-Pathology", "X-Path_Chain", "XX-Path-Chain", "", "X‐Path‐Chain", "X-Pаth-Chain"}) {
+                "X-Pathology", "X-Path_Chain", "XX-Path-Chain", "", "X\u2010Path\u2010Chain", "X-P\u0430th-Chain"}) {
             ObjectNode o = headerNames.addObject();
             o.put("header", name);
             o.put("paztport", PaztportHeaders.isPaztport(name));
@@ -371,11 +384,12 @@ class VectorsHttpV4Export {
         ArrayNode responses = out.putArray("responses");
         responses(gatewayKey, ordersKey, payment).forEach(responses::add);
         operationsResponses(gatewayKey, ordersKey, payment).forEach(responses::add);
+        keyedResponses(gatewayKey, ordersKey).forEach(responses::add);
 
-        // http-v3.json places rules here; its responses and receive cases on rules.material.shop-keys need that
-        // material.
+        // In http-v3.json's place, before the sections after it: the keyed receive cases read its material.
+        out.set("rules", VectorsHttpRules.build(out, core));
         out.set("boundaryInfluence", boundaryInfluence());
-        out.set("operations", operations(core, gatewayKey));
+        out.set("operations", operations(core, out.get("rules"), gatewayKey));
 
         // Replay what was just built, read back from the text it is written as, so an export can never record a
         // wrong answer.
@@ -451,6 +465,10 @@ class VectorsHttpV4Export {
         cases.add(refused(responseCase("a header in version 3's labels and stamp shape", sent,
                 token("{\"labels\":[" + RECEIPT.toJson() + "],\"stamp\":" + labelledStamp.toJson() + "}"),
                 ACTS_ON_INFLUENCE), ReasonCode.CHAIN_MISSING, okHash));
+        // The labelled response's own header, JCS and all, with one member past the two it may have.
+        cases.add(refused(responseCase("a header with a member beside block and stamp", sent,
+                token("{\"block\":" + labelled.toJson() + ",\"labels\":[" + RECEIPT.toJson() + "],\"stamp\":"
+                        + labelledStamp.toJson() + "}"), ACTS_ON_INFLUENCE), ReasonCode.CHAIN_MISSING, okHash));
         cases.add(refused(responseCase("a last block requiring influence at a caller that does not act on it", sent,
                 requiringHeader, ExtensionSettings.NONE), ReasonCode.EXTENSION_REQUIRED, okHash));
         cases.add(ok(responseCase("a last block requiring influence at a caller that acts on it", sent,
@@ -498,17 +516,62 @@ class VectorsHttpV4Export {
         return cases;
     }
 
+    /** The route through orders' keyed operation {@code reserve}, which {@code rules.material.shop-keys} covers. */
+    static final String KEYED_ROUTE = "gateway/orders#reserve";
+
     /**
-     * A responses case on the {@code mesh} policy, checked by {@code orders} under {@code settings}: status 200 with
-     * payment's body, one use, and the window {@link #MESH_NOT_AFTER}; a case changes what it varies in place.
+     * Responses from the item {@code A1} of orders' keyed operation {@code reserve} to the gateway, on
+     * {@code rules.material.shop-keys}. The response's nonce key holds the key value of the target sent, so another
+     * item's spent key does not refuse it and its own does. orders acts on influence and labels its answer.
      */
+    private static List<ObjectNode> keyedResponses(PrivateKey gatewayKey, PrivateKey ordersKey) {
+        List<Stamp> chain = new Stamper("gateway", "gw-1", gatewayKey, true, () -> RID, () -> GATEWAY_TS)
+                .next(List.of(), "orders#reserve", RequestBinding.compute("POST", KEYED_TARGET, REQUEST_BODY),
+                        Block.EMPTY, null).chain();
+        Sent sent = new Sent(chain, List.of(Block.EMPTY));
+        String okHash = HttpWire.resultHash(200, RESPONSE_BODY);
+        Block labelled = ContentLabel.block(List.of(RECEIPT), List.of());
+        Stamp ok = new Stamper("orders", "ord-1", ordersKey, false, () -> RID, () -> RESPONSE_TS)
+                .respond(chain, okHash, RID, labelled);
+        String header = HttpWire.encodeResponse(ok, labelled);
+        ObjectNode c = ok(keyedResponse("a response from an item of a keyed operation", sent, header), sent, ok,
+                labelled, okHash);
+        ObjectNode other = ok(keyedResponse("another item's response key spent", sent, header), sent, ok, labelled,
+                okHash);
+        other.set("spent", JsonNodeFactory.instance.arrayNode().add(nonceKey(RID, "orders#reserve", "B2", "resp")));
+        ObjectNode own = refused(keyedResponse("this item's response key spent", sent, header), ReasonCode.REPLAY,
+                okHash);
+        own.set("spent", JsonNodeFactory.instance.arrayNode().add(nonceKey(RID, "orders#reserve", "A1", "resp")));
+        List<ObjectNode> cases = List.of(c, other, own);
+        cases.forEach(o -> o.put("proofRoute", KEYED_ROUTE));
+        return cases;
+    }
+
+    private static ObjectNode keyedResponse(String name, Sent sent, String header) {
+        return responseCase(name, "material", "shop-keys", sent, "gateway", "A1", header, ACTS_ON_INFLUENCE);
+    }
+
     private static ObjectNode responseCase(String name, Sent sent, String header, ExtensionSettings settings) {
+        return responseCase(name, "policy", "mesh", sent, "orders", null, header, settings);
+    }
+
+    /**
+     * A responses case on the v4.json policy or the {@code rules.material} ({@code source}) named {@code sourceName},
+     * checked by {@code caller} under {@code settings}, with {@code key}, the key value of the target sent, left out
+     * when null: status 200 with the responder's body, one use, and the window {@link #MESH_NOT_AFTER}; a case
+     * changes what it varies in place.
+     */
+    private static ObjectNode responseCase(String name, String source, String sourceName, Sent sent, String caller,
+            String key, String header, ExtensionSettings settings) {
         ObjectNode c = JsonNodeFactory.instance.objectNode();
         c.put("name", name);
-        c.put("policy", "mesh");
+        c.put(source, sourceName);
         c.set("sent", stampsJson(sent.chain()));
         c.set("sentBlocks", blocksJson(sent.blocks()));
-        c.put("caller", "orders");
+        c.put("caller", caller);
+        if (key != null) {
+            c.put("key", key);
+        }
         c.put("responseHeader", header);
         c.put("status", 200);
         c.put("body", hex(RESPONSE_BODY));
@@ -564,14 +627,14 @@ class VectorsHttpV4Export {
         assertTrue(parsed.ok(), name + ": the sent chain reads");
         List<Block> sentBlocks = Block.parseAll(Vectors.text(c.get("sentBlocks")));
         MerkleProof proof = MerkleProof.parse(
-                Vectors.text(core.get("policies").get(c.get("policy").asText()).get("proofs")
-                        .get(c.get("proofRoute").asText())));
+                Vectors.text(Policy.of(c, http, core).proofs().get(c.get("proofRoute").asText())));
         JsonNode header = c.get("responseHeader");
+        String key = c.has("key") ? c.get("key").asText() : null;
         HttpWire.ResponseCheck check = null;
         for (int i = 0; i < c.get("uses").asInt(); i++) {
             check = HttpWire.verifyResponse(verifier, parsed.stamps(), sentBlocks, proof,
                     header.isNull() ? null : header.asText(), c.get("status").asInt(), unhex(c.get("body")),
-                    c.get("caller").asText(), null);
+                    c.get("caller").asText(), key);
         }
         JsonNode want = c.get("expected");
         assertEquals(ReasonCode.valueOf(want.get("reason").asText()), check.result().reason(), name);
@@ -737,7 +800,7 @@ class VectorsHttpV4Export {
         assertEquals(table.get("file").asText(), t.toFile(), name + " file");
     }
 
-    private static ObjectNode operations(JsonNode core, PrivateKey gatewayKey) {
+    private static ObjectNode operations(JsonNode core, JsonNode rules, PrivateKey gatewayKey) {
         ObjectNode o = JsonNodeFactory.instance.objectNode();
         OperationTable orders = ordersTable();
         o.set("table", tableJson(orders));
@@ -909,23 +972,58 @@ class VectorsHttpV4Export {
         // proof is for the route that names the operation.
         receive.add(receiveCase("a chain naming no operation, where the policy names them", gatewayKey, proof,
                 "orders", "createOrder", ReasonCode.PATH_NOT_ALLOWED));
+        // Requests for items of orders' keyed operation reserve: the request key holds the key value.
+        MerkleProof keyedProof = MerkleProof.parse(
+                Vectors.text(rules.get("material").get("shop-keys").get("proofs").get(KEYED_ROUTE)));
+        receive.add(keyedReceiveCase("an item of a keyed operation", gatewayKey, keyedProof, KEYED_TARGET, null,
+                null));
+        receive.add(keyedReceiveCase("another item's request key spent", gatewayKey, keyedProof, KEYED_TARGET,
+                nonceKey(RID, "gateway", "orders#reserve", "B2", "req"), null));
+        receive.add(keyedReceiveCase("this item's request key spent", gatewayKey, keyedProof, KEYED_TARGET,
+                nonceKey(RID, "gateway", "orders#reserve", "A1", "req"), ReasonCode.REPLAY));
+        receive.add(keyedReceiveCase("the operation's unkeyed request key spent", gatewayKey, keyedProof,
+                KEYED_TARGET, nonceKey(RID, "gateway", "orders#reserve", "req"), null));
+        receive.add(keyedReceiveCase("a keyed operation with no key value", gatewayKey, keyedProof,
+                "/items/%41/reserve", null, ReasonCode.BINDING_MISMATCH));
         return o;
     }
 
     /**
      * A {@code POST /orders} from gateway to orders on the {@code ops} policy, its first stamp naming {@code rcv},
-     * its block empty, and carrying {@code proof}, entered at orders under enforce with the operation the framework
-     * dispatches to.
+     * and carrying {@code proof}, entered at orders with the operation the framework dispatches to.
      */
     private static ObjectNode receiveCase(String name, PrivateKey gatewayKey, MerkleProof proof, String rcv,
             String operation, ReasonCode refusal) {
+        return receiveCase(name, "policy", "ops", gatewayKey, proof, "/orders", rcv, operation, refusal);
+    }
+
+    /**
+     * A request from gateway to {@code orders#reserve} at {@code target}, dispatched to {@code reserve}, on
+     * {@code rules.material.shop-keys} against a nonce cache holding {@code spent} (none when null).
+     */
+    private static ObjectNode keyedReceiveCase(String name, PrivateKey gatewayKey, MerkleProof proof, String target,
+            String spent, ReasonCode refusal) {
+        ObjectNode c = receiveCase(name, "material", "shop-keys", gatewayKey, proof, target, "orders#reserve",
+                "reserve", refusal);
+        if (spent != null) {
+            c.set("spent", JsonNodeFactory.instance.arrayNode().add(spent));
+        }
+        return c;
+    }
+
+    /**
+     * A {@code POST} of {@code target} from gateway to orders on the v4.json policy or the {@code rules.material}
+     * ({@code source}) named {@code sourceName}, its first stamp naming {@code rcv}, its block empty, and carrying
+     * {@code proof}, entered at orders under enforce with the operation the framework dispatches to.
+     */
+    private static ObjectNode receiveCase(String name, String source, String sourceName, PrivateKey gatewayKey,
+            MerkleProof proof, String target, String rcv, String operation, ReasonCode refusal) {
         byte[] body = REQUEST_BODY;
-        String target = "/orders";
         List<Stamp> chain = new Stamper("gateway", "gw-1", gatewayKey, true, () -> RID, () -> GATEWAY_TS)
                 .next(List.of(), rcv, RequestBinding.compute("POST", target, body), Block.EMPTY, null).chain();
         ObjectNode c = JsonNodeFactory.instance.objectNode();
         c.put("name", name);
-        c.put("policy", "ops");
+        c.put(source, sourceName);
         c.put("service", "orders");
         c.put("mode", "enforce");
         ObjectNode request = c.putObject("request");
@@ -990,8 +1088,12 @@ class VectorsHttpV4Export {
 
     private static void assertReceive(JsonNode c, JsonNode http, JsonNode core) {
         String name = c.get("name").asText();
-        HttpReceiver receiver = HttpReceiver.builder(c.get("service").asText()).verifyRequests(true)
-                .publisher(event -> { }).verifier(verifier(c, http, core)).build();
+        HttpReceiver.Builder b = HttpReceiver.builder(c.get("service").asText()).verifyRequests(true)
+                .publisher(event -> { }).verifier(verifier(c, http, core));
+        if (c.has("material")) {
+            b.operations(OperationTable.read(http.get("operations").get("keyed").get("file").asText()));
+        }
+        HttpReceiver receiver = b.build();
         JsonNode r = c.get("request");
         Map<String, String> headers = new LinkedHashMap<>();
         r.get("headers").properties().forEach(e -> headers.put(e.getKey(), e.getValue().asText()));
@@ -1033,6 +1135,7 @@ class VectorsHttpV4Export {
         for (JsonNode c : http.get("operations").get("receive")) {
             assertReceive(c, http, core);
         }
+        VectorsHttpRules.assertAll(http.get("rules"), http, core);
     }
 
     private static PublicKey publicKey(String name, JsonNode http, JsonNode core) {
@@ -1041,11 +1144,28 @@ class VectorsHttpV4Export {
     }
 
     /**
-     * The verifier a case describes: one keyring and the root of the v4.json policy it names, each with the case's
+     * The root, root id and proofs a case runs on: those of the v4.json policy it names, or of the
+     * {@code rules.material} it names.
+     */
+    private record Policy(String root, String rootId, JsonNode proofs) {
+
+        static Policy of(JsonNode c, JsonNode http, JsonNode core) {
+            if (c.has("material")) {
+                JsonNode m = http.get("rules").get("material").get(c.get("material").asText());
+                return new Policy(m.get("root").get("root").asText(), m.get("root").get("rootId").asText(),
+                        m.get("proofs"));
+            }
+            JsonNode p = core.get("policies").get(c.get("policy").asText());
+            return new Policy(p.get("root").asText(), p.get("rootId").asText(), p.get("proofs"));
+        }
+    }
+
+    /**
+     * The verifier a case describes: one keyring and the root it runs on ({@link Policy}), each with the case's
      * window, and the case's extension settings.
      */
     private static Verifier verifier(JsonNode c, JsonNode http, JsonNode core) {
-        JsonNode policy = core.get("policies").get(c.get("policy").asText());
+        Policy policy = Policy.of(c, http, core);
         Map<String, PublicKey> ring = new LinkedHashMap<>();
         c.get("keyring").properties().forEach(e -> ring.put(e.getKey(), publicKey(e.getValue().asText(), http, core)));
         Set<String> origins = new LinkedHashSet<>();
@@ -1058,8 +1178,7 @@ class VectorsHttpV4Export {
         }
         return new Verifier(new VerifierConfig(
                 List.of(new PinnedKeyring(Keyring.of(ring), policyNotAfter)),
-                List.of(new PinnedRoot(Base64Url.decode(policy.get("root").asText()), policy.get("rootId").asText(),
-                        policyNotAfter)),
+                List.of(new PinnedRoot(Base64Url.decode(policy.root()), policy.rootId(), policyNotAfter)),
                 policyNotAfter, origins, c.get("sess").asText(), nonces, () -> now,
                 c.get("callMaxAgeMs").asLong(), c.get("runMaxAgeMs").asLong(), settings(c)));
     }
