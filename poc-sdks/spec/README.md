@@ -66,33 +66,33 @@ Design choices:
 
 ## Conformance
 
-The spec describes version 4. The TypeScript SDK speaks it over MCP, and `v4.json` records it. The Java and Go
-SDKs speak version 3 over HTTP, whose stamps carry `"v": 3`, and `v3.json` and `http-v3.json` record that version:
-where those two files differ from the four spec files above, they describe version 3, and the spec files give
-version 4.
+The spec describes version 4. The TypeScript SDK speaks it over MCP, and `v4.json` records it. Java's `paztport-core`
+speaks it too, with no transport. The Go SDK speaks version 3 over HTTP, whose stamps carry `"v": 3`, and Java's HTTP
+modules still do while they move to version 4; `v3.json` and `http-v3.json` record that version: where those two files
+differ from the four spec files above, they describe version 3, and the spec files give version 4.
 
 `vectors/` holds language-neutral vectors, so every implementation of a version is held to one set of recorded
 answers.
 
 | File | Covers | Replayed by |
 |---|---|---|
-| [`v4.json`](#v4json) | Version 4: stamps and blocks, the live and offline verifiers and sessions, the [MCP profile](#the-mcp-profile), and the extension `influence` in its member `influence` | Written and replayed by TypeScript (`@paztport/core` for the session id, the prompt and response bindings, the block commitment and the Merkle tree, and `@paztport/mcp` for the rest). |
-| [`v3.json`](#v3json) | Version 3: stamps, the live and offline verifiers, influence and sessions | Java (`paztport-core`) and Go (`poc-sdks/go`), for every section but `recordedLocalStep`, `responseAttestation`, `sessionParams`, `sessionResult`, `bindMcpCall` and `bindResult`, which belong to the [MCP profile](#the-mcp-profile). TypeScript does not replay it; its replay of `v4.json` reads it only to compare the sections version 4 left as they were ([below](#v4json)). |
-| [`http-v3.json`](#http-v3json) | Version 3 over HTTP | Java (`paztport-http`) and Go (`poc-sdks/go`), Go every section. The TypeScript SDK does not speak HTTP and does not replay it. |
+| [`v4.json`](#v4json) | Version 4: stamps and blocks, the live and offline verifiers and sessions, the [MCP profile](#the-mcp-profile), and the extension `influence` in its member `influence` | Written and replayed by TypeScript (`@paztport/core` for the session id, the prompt and response bindings, the block commitment and the Merkle tree, and `@paztport/mcp` for the rest). Replayed by Java (`paztport-core`) for every section but the MCP profile's, `influence.response` and the `influence.request` cases whose `served` is not empty. |
+| [`v3.json`](#v3json) | Version 3: stamps, the live and offline verifiers, influence and sessions | Go (`poc-sdks/go`) alone, for every section but `recordedLocalStep`, `responseAttestation`, `sessionParams`, `sessionResult`, `bindMcpCall` and `bindResult`, which belong to the [MCP profile](#the-mcp-profile). TypeScript does not replay it; its replay of `v4.json` reads it only to compare the sections version 4 left as they were ([below](#v4json)). |
+| [`http-v3.json`](#http-v3json) | Version 3 over HTTP | Go (`poc-sdks/go`), every section, and Java's `paztport-http`, in its own tests, which do not build against the version 4 core until its move. The TypeScript SDK does not speak HTTP and does not replay it. |
 | [`events.json`](#eventsjson) | Responder events | Written and replayed by Java (`paztport-core`), and replayed by TypeScript (`@paztport/core`) and Go (`poc-sdks/go`). |
-| [`json.json`](#jsonjson) | Reading and writing JSON ([wire.md](wire.md#json)) | TypeScript (`@paztport/core`, and `@paztport/mcp` for `toolsCall`), every section but the `http` cases of `bindings`, and Java (`paztport-core`, and `paztport-http` for `http`) and Go (`poc-sdks/go`) for every section but `jcs` and the MCP profile's `bindings` (`toolsCall`, `result`, `localTool`), which belong to the [MCP profile](#the-mcp-profile). |
+| [`json.json`](#jsonjson) | Reading and writing JSON ([wire.md](wire.md#json)) | TypeScript (`@paztport/core`, and `@paztport/mcp` for `toolsCall`), every section but the `http` cases of `bindings`, and Java (`paztport-core`, and `paztport-http` for `http`, in tests that do not build against the version 4 core until its move) and Go (`poc-sdks/go`) for every section but `jcs` and the MCP profile's `bindings` (`toolsCall`, `result`, `localTool`), which belong to the [MCP profile](#the-mcp-profile). |
 | [`ed25519.json`](#ed25519json) | The [signature rule](wire.md#signatures) | Written by a generator in `@paztport/core`'s tests, and replayed in full by TypeScript (`@paztport/core`), Java (`paztport-core`) and Go (`poc-sdks/go`). |
 
 | Part | Java SDK | TypeScript SDK | Go SDK |
 |---|---|---|---|
-| v4: stamps and blocks, the live and offline verifiers and sessions | no | yes | no |
+| v4: stamps and blocks, the live and offline verifiers and sessions | core | yes | no |
 | v4 over MCP ([the MCP profile](#the-mcp-profile)) | no | yes | no |
 | Local steps ([the MCP profile](#the-mcp-profile)) | no | yes | no |
-| The extension `influence` in v4 (`v4.json`'s `influence`) | no | yes | no |
-| v3: stamps, the live and offline verifiers, influence and sessions | yes | no | yes |
-| v3 over HTTP | yes | no | yes |
-| Operations over HTTP: reading tables, naming operations and their keys | yes | no | yes |
-| Operations over HTTP: confirming them from the receiver's routing | yes | no | no |
+| The extension `influence` in v4 (`v4.json`'s `influence`) | core | yes | no |
+| v3: stamps, the live and offline verifiers, influence and sessions | no | no | yes |
+| v3 over HTTP | yes (version 3 until its move) | no | yes |
+| Operations over HTTP: reading tables, naming operations and their keys | yes (version 3 until its move) | no | yes |
+| Operations over HTTP: confirming them from the receiver's routing | yes (version 3 until its move) | no | no |
 | Responder events | yes | yes | yes |
 | Reading and writing JSON (`json.json`) | yes | yes | yes |
 | The signature rule (`ed25519.json`) | yes | yes | yes |
@@ -115,7 +115,7 @@ their classes ([verification.md](verification.md#offline-verification), [influen
 passes all of `influence`. It MUST pass `events.json` if it sends or receives responder events. No vector file records
 version 4 over HTTP.
 
-An implementation of version 3, as the Java and Go SDKs are, MUST pass `ed25519.json`, and `v3.json` and `json.json`
+An implementation of version 3, as the Go SDK is, and Java's HTTP modules while they move, MUST pass `ed25519.json`, and `v3.json` and `json.json`
 less their sections that belong to the MCP profile if it does not implement it: `recordedLocalStep`,
 `responseAttestation`, `sessionParams`, `sessionResult`, `bindMcpCall` and `bindResult` in `v3.json`, and `jcs` and
 the `toolsCall`, `result` and `localTool` cases of `bindings` in `json.json`. It MUST pass `http-v3.json`, and the
@@ -299,7 +299,7 @@ and of each section of `influence`.
 
 ### v3.json
 
-`v3.json` records version 3, which the Java and Go SDKs implement. Its exporter left the repository when the
+`v3.json` records version 3, which the Go SDK implements. Its exporter left the repository when the
 TypeScript SDK moved to version 4.
 
 - `deriveSessionId`: the session id.
