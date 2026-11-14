@@ -115,46 +115,55 @@ final class VectorsHttpRules {
 
     private static final String ABOUT = "The HTTP rules the spec requires of a receiver and a caller, each case an"
             + " input and the answer the spec gives. A key is looked up by name here, then in this file's top-level"
-            + " `keys`, then in v4.json; each new one is derived by v4.json's rule. A `material` is one"
-            + " organisation's policy key (by name), its signed root and signed keyring, each with its notAfter, the"
-            + " proofs of its routes and, for a partner, its entry service and reply certificate. Each root's tree"
-            + " has depth 1, its two routes filling both leaves with salts by v4.json's rule, so it has no padding;"
-            + " its rootId is \"v\" and the first 12 hex digits of"
-            + " SHA-256(utf8(\"paztport-http-v3-vector-root:\" + tree)), for the vectors only. `handshakes` holds"
-            + " handshake requests on the shop's material, each nonce the first 16 bytes (15 for `short-nonce`) of"
-            + " SHA-256(utf8(\"paztport-http-v3-vector-nonce:\" + name)), base64url, and `handshakeBodies` each"
-            + " request's JCS bytes; `peers` holds client certificates, each with the address it connects from."
-            + " Bodies and certificates are hex, and headers are their values as sent. A receiver case enters"
-            + " `request` at `service` `uses` times against one nonce cache that already holds `spent`, each key the"
-            + " JCS text of its array of strings, the service's verifier, when it has one, pinned to `material`, and"
-            + " `expected` is the last entry's answer. The service acts on the extensions in `actsOn` and carries the"
-            + " names in `allowedExtensions` (null for unset, which carries any name), with a verifier or without"
+            + " `keys`, then in v4.json; each new one is derived by v4.json's rule. A `material` is one organisation's"
+            + " policy key (by name), its signed root and signed keyring, each with its notAfter, the proofs of its"
+            + " routes and, for a partner, its entry service and reply certificate. Each root's tree has depth 1, its"
+            + " two routes filling both leaves with salts by v4.json's rule, so it has no padding; its rootId is \"v\""
+            + " and the first 12 hex digits of SHA-256(utf8(\"paztport-http-v3-vector-root:\" + tree)), for the vectors"
+            + " only. `handshakes` holds handshake requests on the shop's material, each nonce the first 16 bytes (15"
+            + " for `short-nonce`) of SHA-256(utf8(\"paztport-http-v3-vector-nonce:\" + name)), base64url, and"
+            + " `handshakeBodies` each request's JCS bytes; `peers` holds client certificates, each with the address it"
+            + " connects from. Bodies and certificates are hex, and headers are their values as sent. A receiver case"
+            + " enters `request` at `service` `uses` times against one nonce cache that already holds `spent`, each key"
+            + " the JCS text of its array of strings, the service's verifier, when it has one, pinned to `material`,"
+            + " and `expected` is the last entry's answer. The service acts on the extensions in `actsOn` and carries"
+            + " the names in `allowedExtensions` (null for unset, which carries any name), with a verifier or without"
             + " one. Its `mode` is `enforce` or `audit`; `off`, a hop that verifies requests but whose deployment has"
             + " switched it off; or null, a service that verifies no requests under a mode. Unless its name says"
             + " otherwise, a case's chain is gateway's stamp to orders, then orders' to payment, and each hop's block"
-            + " names `influence`, with `[]` when the hop added nothing. The answer is the `refusal` (null"
-            + " when the request is served); `verified`, whether the chain passed the live order at this service;"
-            + " `handedOn`, what the service is handed, null for nothing, else one member per name in `actsOn`, each"
-            + " an array of {svc, items}, one per stamp, items null where the stamp's block does not name the"
-            + " extension, verified exactly when `verified` is; and `attests`. Then the handler, having read the"
-            + " entries in `read`, asks two questions, at a service that acts on `influence`, as every receiver"
-            + " here does unless its `actsOn` says otherwise: `publicWrite`, the reason a guarded public write to a"
-            + " destination whose owner is `destinationOwner` gets; and `trustedRecord`, whether a trusted record"
-            + " may be written. A refused request runs no handler, and a service that does not act on `influence`"
-            + " asks neither question, so both are null then; work outside any request (a null `request`) asks only"
-            + " for the trusted record. A caller case is `caller` calling payment after `inbound`, the gateway's"
-            + " stamp, which came with the blocks `inboundBlocks`, its own block holding the entries in `added`, on"
-            + " `material`, holding the tables of the top-level `operations` that `caller.operations` names, as a"
-            + " caller that acts on `actsOn` and carries `allowedExtensions`, with a verifier exactly when"
-            + " `caller.verifier` is true; payment answers with `response`, and `expected` is the `rcv` of the"
-            + " stamp the caller signed, the check's `reason` (null where the caller has no verifier), whether the"
-            + " caller `refused` the response, and the `influence` entries the response adds. Against"
-            + " http-v3.json's rules: stamps are version 4 and blocks travel in `X-Path-Extensions`; a receiver's"
-            + " answer holds `handedOn` in place of `influence`, and gains `publicWrite`; nonce keys are JCS text;"
-            + " `unreadableInfluence` is `influenceItems`, an item on a request's block that does not read as an"
-            + " entry; `servedUnverified` is new, check 9a at a service about to serve a request it did not verify;"
-            + " and `callerInfluence` follows the HTTP rule for what a response adds, with `refused`."
-            + " http-v3.json's partner and egress kinds have no counterpart here.";
+            + " names `influence`, with `[]` when the hop added nothing. The answer is the `refusal` (null when the"
+            + " request is served); `verified`, whether the request is served as having passed the live order at this"
+            + " service (false for every refusal); `handedOn`, what the service is handed, null for nothing, else one"
+            + " member per name in `actsOn`, each an array of {svc, items}, one per stamp, items null where the stamp's"
+            + " block does not name the extension; and `attests`. Then the handler, having read the entries in `read`,"
+            + " asks two questions, at a service that acts on `influence`, as every receiver here does unless its"
+            + " `actsOn` says otherwise: `publicWrite`, the reason a guarded public write to a destination whose owner"
+            + " is `destinationOwner` gets; and `trustedRecord`, whether a trusted record may be written. A refused"
+            + " request runs no handler, and a service that does not act on `influence` asks neither question, so both"
+            + " are null then; work outside any request (a null `request`) asks only for the trusted record. A caller"
+            + " case is `caller` calling payment after `inbound`, the gateway's stamp, which came with the blocks"
+            + " `inboundBlocks`, its own block holding the entries in `added`, on `material`, holding the tables of the"
+            + " top-level `operations` that `caller.operations` names, as a caller that acts on `actsOn` and carries"
+            + " `allowedExtensions`, with a verifier exactly when `caller.verifier` is true; payment answers with"
+            + " `response`, and `expected` is the `rcv` of the stamp the caller signed, the check's `reason` (null"
+            + " where the caller has no verifier), whether the caller `refused` the response, and the `influence`"
+            + " entries the response adds. Against http-v3.json's rules: stamps are version 4 and blocks travel in"
+            + " `X-Path-Extensions`; nonce keys are JCS text. A receiver case gains the inputs `actsOn`,"
+            + " `allowedExtensions` and `destinationOwner`; its answer holds `handedOn` in place of `influence` (null"
+            + " where v3 recorded `[]` for nothing), and gains `publicWrite`; a refusal's `trustedRecord` is null, not"
+            + " false. `unreadableInfluence` is `influenceItems`, an item on a request's block that does not read as an"
+            + " entry; `servedUnverified` is new, check 9a at a service about to serve a request it did not verify."
+            + " `callerInfluence` follows the HTTP rule for what a response adds: its response header is {block,"
+            + " stamp}, the caller's input `influence` is `added`, the entries its own block holds, it gains the inputs"
+            + " `actsOn`, `allowedExtensions` and `inboundBlocks`, and its answer gains `refused`. Six cases of"
+            + " http-v3.json are dropped, each for repeating another case's input and answer, and found under the case"
+            + " that stays: requests' \"verified, with the influence the stamp commits to\" and attestation's"
+            + " \"enforce, verified\" under trustedRecord's \"verified, private and public with owners\";"
+            + " trustedRecord's \"verified, no influence\" under requests' \"verified\"; trustedRecord's \"refused\""
+            + " under attestation's \"enforce, refused\"; attestation's \"off: verifies and attests nothing\" under"
+            + " trustedRecord's \"a hop that is off\"; and refusals' \"unreadable influence in audit mode\" under"
+            + " influenceItems' \"audit, on a chain that verifies otherwise\". http-v3.json's partner and egress kinds"
+            + " have no counterpart here.";
 
     private VectorsHttpRules() {
     }
@@ -687,8 +696,6 @@ final class VectorsHttpRules {
         ArrayNode a = arr();
         a.add(expect(receiverCase("verified", Service.PAYMENT, "enforce", ch.request(ch.clean)),
                 served(true, handed(List.of()), true, ReasonCode.OK, true)));
-        a.add(expect(receiverCase("verified, with the influence the stamp commits to", Service.PAYMENT, "enforce",
-                ch.request(ch.owned)), served(true, handed(OWNED), true, ReasonCode.OK, true)));
         ObjectNode twice = receiverCase("the same request twice", Service.PAYMENT, "enforce", ch.request(ch.clean));
         twice.put("uses", 2);
         a.add(expect(twice, refused(403, ReasonCode.REPLAY)));
@@ -827,8 +834,6 @@ final class VectorsHttpRules {
     /** verification.md, who attests: only a chain that passed the live order at this service. */
     private static ArrayNode attestation(Chains ch) {
         ArrayNode a = arr();
-        a.add(expect(receiverCase("enforce, verified", Service.PAYMENT, "enforce", ch.request(ch.owned)),
-                served(true, handed(OWNED), true, ReasonCode.OK, true)));
         a.add(expect(receiverCase("enforce, refused", Service.PAYMENT, "enforce", ch.request(ch.forged)),
                 refused(403, ReasonCode.BAD_SIGNATURE)));
         a.add(expect(receiverCase("audit, verified", Service.PAYMENT, "audit", ch.request(ch.owned)),
@@ -845,8 +850,6 @@ final class VectorsHttpRules {
                         ReasonCode.INFLUENCE_DENIED, false)));
         a.add(expect(receiverCase("no verifier: nothing to verify with, so never attests", Service.NO_VERIFIER, null,
                 ch.request(ch.owned)), served(false, handed(OWNED), false, ReasonCode.OK, false)));
-        a.add(expect(receiverCase("off: verifies and attests nothing", Service.PAYMENT, "off",
-                ch.request(ch.clean)), served(false, handed(List.of()), false, ReasonCode.OK, false)));
         a.add(expect(receiverCase("an origin never attests", Service.ORIGIN, null, ch.request(ch.owned)),
                 served(false, nothing(), false, ReasonCode.OK, false)));
         return a;
@@ -871,8 +874,6 @@ final class VectorsHttpRules {
                 ch.shop.proofHeader(MESH_ROUTE), HttpWire.encodeBlocks(ch.clean.blocks())), utf8("{\"amount\":999}"));
         a.add(expect(receiverCase("a body altered in transit", Service.PAYMENT, "enforce", altered),
                 refused(403, ReasonCode.BINDING_MISMATCH)));
-        a.add(expect(receiverCase("an item that is not an entry, in audit mode", Service.PAYMENT, "audit",
-                ch.request(ch.unread)), refused(400, ReasonCode.INFLUENCE_MISMATCH)));
         return a;
     }
 
@@ -883,8 +884,6 @@ final class VectorsHttpRules {
      */
     private static ArrayNode trustedRecord(Chains ch) {
         ArrayNode a = arr();
-        a.add(expect(receiverCase("verified, no influence", Service.PAYMENT, "enforce", ch.request(ch.clean)),
-                served(true, handed(List.of()), true, ReasonCode.OK, true)));
         a.add(expect(receiverCase("verified, private and public with owners", Service.PAYMENT, "enforce",
                 ch.request(ch.owned)), served(true, handed(OWNED), true, ReasonCode.OK, true)));
         // Review Focus 3: the case above with only gateway's block changed, to one that does not name influence.
@@ -912,8 +911,6 @@ final class VectorsHttpRules {
         a.add(expect(readPrivate, served(true, handed(OWNED), true, ReasonCode.OK, true)));
         a.add(expect(receiverCase("a chain that failed in audit mode", Service.PAYMENT, "audit",
                 ch.request(ch.forged)), served(false, handed(List.of()), false, ReasonCode.OK, false)));
-        a.add(expect(receiverCase("refused", Service.PAYMENT, "enforce", ch.request(ch.forged)),
-                refused(403, ReasonCode.BAD_SIGNATURE)));
         a.add(expect(receiverCase("a hop that is off", Service.PAYMENT, "off", ch.request(ch.clean)),
                 served(false, handed(List.of()), false, ReasonCode.OK, false)));
         a.add(expect(receiverCase("a service with no verifier", Service.NO_VERIFIER, null, ch.request(ch.clean)),
