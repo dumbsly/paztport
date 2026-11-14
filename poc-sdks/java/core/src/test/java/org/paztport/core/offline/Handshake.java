@@ -81,7 +81,7 @@ final class Handshake {
         SessionReply unsigned = new SessionReply(serverRoot, pin, serverServices,
                 entryKey ? serverRing.sig() : null, entryKey ? serverRing.notAfter() : null,
                 entryKey ? ReplyCert.issue(pin, ENTRY, key(entry), o.cert, serverPolicy.getPrivate()) : null,
-                nonce, sess, o.status, List.of(), null);
+                nonce, sess, o.status, List.of(), List.of(), null);
         reply = tree(Sessions.signReply(unsigned, entryKey ? entry.getPrivate() : serverPolicy.getPrivate())
                 .toJson());
     }

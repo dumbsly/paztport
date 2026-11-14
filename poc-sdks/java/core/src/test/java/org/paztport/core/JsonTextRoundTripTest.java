@@ -28,10 +28,10 @@ import org.paztport.core.stamp.Chains;
 import org.paztport.core.stamp.ParsedChain;
 
 /**
- * Every wire object in {@code v3.json} that has an SDK value type is read by that type and written back; what comes
- * back is canonical text, and the value read from it is the value that went in, or the one the type normalises it
- * to. This pins the JSON forms while the public API changes from Jackson trees to JSON text: the cases and their
- * outcomes stay fixed, and only the adapters at the bottom follow the API.
+ * Every wire object in {@code v3.json} and {@code v4.json} that has an SDK value type is read by that type and
+ * written back; what comes back is canonical text, and the value read from it is the value that went in, or the one
+ * the type normalises it to. This pins the JSON forms while the public API changes from Jackson trees to JSON
+ * text: the cases and their outcomes stay fixed, and only the adapters at the bottom follow the API.
  *
  * <p>An object is one of three things. Most round-trip exactly. A few are refused, being the vectors' deliberately
  * malformed inputs. Any other would be normalised, which none is: writing it back again would change nothing. A
@@ -57,6 +57,12 @@ class JsonTextRoundTripTest {
             // The whole replies refused are exactly the vectors' MALFORMED_REPLY cases.
             "sessionReply/a keyring name that is not a route node/reply",
             "sessionReply/a member the reply does not have/reply",
+            "sessionReply/extensions missing/reply",
+            "sessionReply/extensions naming Example/reply",
+            "sessionReply/extensions naming one twice/reply",
+            "sessionReply/extensions not an array/reply",
+            "sessionReply/extensions null/reply",
+            "sessionReply/extensions unsorted/reply",
             "sessionReply/notAfter not an integer/reply",
             "sessionReply/server root notAfter dropped/reply",
             "sessionReply/server root notAfter not an integer/reply",
@@ -79,13 +85,13 @@ class JsonTextRoundTripTest {
 
     /** How many distinct objects of each kind are checked, so a case can't silently fall out of the walk. */
     private static final Map<Kind, Integer> CASES = Map.of(Kind.KEYRING, 13, Kind.ROOT, 22, Kind.PROOF, 9,
-            Kind.STAMP, 38, Kind.INFLUENCE, 9, Kind.REQUEST, 7, Kind.CERT, 10, Kind.REPLY, 37);
+            Kind.STAMP, 38, Kind.INFLUENCE, 9, Kind.REQUEST, 7, Kind.CERT, 10, Kind.REPLY, 47);
 
     private enum Outcome { SAME, NORMALISED, REFUSED }
 
     @Test
     void everyWireObjectRoundTrips() throws IOException {
-        Map<String, Case> cases = cases(Vectors.load("v3.json"));
+        Map<String, Case> cases = cases(Vectors.load("v3.json"), Vectors.load("v4.json"));
         Set<String> refused = new TreeSet<>();
         Set<String> normalised = new TreeSet<>();
         for (Case c : cases.values()) {
@@ -125,7 +131,7 @@ class JsonTextRoundTripTest {
      * Each object once, named by where it first appears; the same object reached from another case is the same
      * check.
      */
-    private static Map<String, Case> cases(JsonNode v) {
+    private static Map<String, Case> cases(JsonNode v, JsonNode v4) {
         Map<String, Case> out = new LinkedHashMap<>();
         Set<String> seen = new TreeSet<>();
         for (JsonNode c : v.get("keyring")) {
@@ -159,32 +165,40 @@ class JsonTextRoundTripTest {
                         c.get("influence"));
             }
         }
-        for (JsonNode c : v.get("replyCert")) {
-            add(out, seen, Kind.CERT, "replyCert/" + c.get("name").textValue(), c.get("cert"));
-        }
+        // The roots and keyrings the session sections hold are version 3's; the messages themselves, which carry
+        // version 4's reply, are read from v4.json.
         for (String section : List.of("sessionReply", "sessionStatus")) {
             for (JsonNode c : v.get(section)) {
                 String name = section + "/" + c.get("name").textValue();
                 JsonNode req = c.get("request");
-                add(out, seen, Kind.REQUEST, name + "/request", Vectors.tokenText(c.get("requestToken")));
                 if (req.path("clientRoot").isObject()) {
                     add(out, seen, Kind.ROOT, name + "/request/clientRoot", req.get("clientRoot"));
                 }
                 JsonNode reply = c.path("reply");
-                if (!reply.isMissingNode()) {
-                    add(out, seen, Kind.REPLY, name + "/reply", Vectors.tokenText(c.get("replyToken")));
-                }
                 if (reply.path("serverRoot").isObject()) {
                     add(out, seen, Kind.ROOT, name + "/reply/serverRoot", reply.get("serverRoot"));
-                }
-                if (reply.has("serverReplyCert")) {
-                    add(out, seen, Kind.CERT, name + "/reply/serverReplyCert", reply.get("serverReplyCert"));
                 }
                 if (c.path("serverRoot").isObject()) {
                     add(out, seen, Kind.ROOT, name + "/serverRoot", c.get("serverRoot"));
                 }
                 if (c.path("serverKeyring").isObject()) {
                     add(out, seen, Kind.KEYRING, name + "/serverKeyring", c.get("serverKeyring"));
+                }
+            }
+        }
+        for (JsonNode c : v4.get("replyCert")) {
+            add(out, seen, Kind.CERT, "replyCert/" + c.get("name").textValue(), c.get("cert"));
+        }
+        for (String section : List.of("sessionReply", "sessionStatus")) {
+            for (JsonNode c : v4.get(section)) {
+                String name = section + "/" + c.get("name").textValue();
+                add(out, seen, Kind.REQUEST, name + "/request", Vectors.tokenText(c.get("requestToken")));
+                JsonNode reply = c.path("reply");
+                if (!reply.isMissingNode()) {
+                    add(out, seen, Kind.REPLY, name + "/reply", Vectors.tokenText(c.get("replyToken")));
+                }
+                if (reply.has("serverReplyCert")) {
+                    add(out, seen, Kind.CERT, name + "/reply/serverReplyCert", reply.get("serverReplyCert"));
                 }
             }
         }

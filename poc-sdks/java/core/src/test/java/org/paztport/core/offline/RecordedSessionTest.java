@@ -29,6 +29,7 @@ import org.paztport.core.internal.JsonValue;
 import org.paztport.core.policy.KeyringFile;
 import org.paztport.core.policy.SignedRoot;
 import org.paztport.core.session.ReplyCheck;
+import org.paztport.core.session.Requirement;
 import org.paztport.core.session.SessionRequest;
 import org.paztport.core.session.Sessions;
 
@@ -176,7 +177,8 @@ class RecordedSessionTest {
                 Handshake.recorded(h.request, h.resigned(r -> with(r, "serverKeyringNotAfter", new JsonValue.Int(FAR))),
                         h.pin, ENTRY),
                 // a reply the client's shape check refuses, though the server signed it
-                Handshake.recorded(h.request, h.resigned(r -> without(r, "disabled")), h.pin, ENTRY));
+                Handshake.recorded(h.request, h.resigned(r -> without(r, "disabled")), h.pin, ENTRY),
+                Handshake.recorded(h.request, h.resigned(r -> without(r, "extensions")), h.pin, ENTRY));
         for (RecordedSession s : none) {
             assertEquals(OptionalLong.empty(), s.responseNotAfter());
         }
@@ -255,7 +257,8 @@ class RecordedSessionTest {
         assertFalse(Handshake.recorded(ringDropped, g.reply, g.pin, ENTRY).attested());
         JsonValue.Obj rootDropped = g.resigned(r -> inMember(r, "serverRoot", root -> without(root, "notAfter")));
         assertEquals(ReplyCheck.MALFORMED_REPLY,
-                Sessions.checkReply(text(rootDropped), SessionRequest.parse(text(g.request)), g.pin, ENTRY, NOW));
+                Sessions.checkReply(text(rootDropped), SessionRequest.parse(text(g.request)), g.pin, ENTRY, NOW,
+                        Requirement.NONE));
         assertFalse(Handshake.recorded(g.request, rootDropped, g.pin, ENTRY).attested());
     }
 

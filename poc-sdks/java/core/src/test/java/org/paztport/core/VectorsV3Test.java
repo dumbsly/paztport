@@ -20,7 +20,6 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.OptionalLong;
 import java.util.Set;
 import java.util.function.LongPredicate;
 import org.junit.jupiter.api.BeforeAll;
@@ -37,18 +36,12 @@ import org.paztport.core.offline.OfflineConfig;
 import org.paztport.core.offline.OfflineInput;
 import org.paztport.core.offline.OfflineResult;
 import org.paztport.core.offline.OfflineVerifier;
-import org.paztport.core.offline.RecordSet;
-import org.paztport.core.offline.RecordedSession;
 import org.paztport.core.offline.RecordedTimes;
 import org.paztport.core.policy.Keyring;
 import org.paztport.core.policy.KeyringFile;
 import org.paztport.core.policy.MerkleHash;
 import org.paztport.core.policy.MerkleProof;
 import org.paztport.core.policy.SignedRoot;
-import org.paztport.core.session.ReplyCert;
-import org.paztport.core.session.ReplyCheck;
-import org.paztport.core.session.SessionRequest;
-import org.paztport.core.session.Sessions;
 import org.paztport.core.stamp.Bindings;
 import org.paztport.core.stamp.Stamp;
 import org.paztport.core.verify.InMemoryNonceCache;
@@ -62,8 +55,10 @@ import org.paztport.core.verify.VerifyInput;
 import org.paztport.core.verify.VerifyResult;
 
 /**
- * Replays the committed v3 vectors in {@code spec/vectors/v3.json}, the file the TypeScript SDK also reads. One
- * test method per section, so a failure names the section. The {@code recordedLocalStep} section is not replayed:
+ * Replays the committed v3 vectors in {@code spec/vectors/v3.json}, the file the TypeScript SDK also reads, for the
+ * sections that speak a version 3 stamp or need no session reply; the session sections, whose reply lists its
+ * extensions, are replayed from {@code v4.json} by {@link VectorsV4Test}. One test method per section, so a failure
+ * names the section. The {@code recordedLocalStep} section is not replayed:
  * local steps belong to the MCP profile, which this SDK, speaking v3 over HTTP only, does not implement; nor are
  * {@code responseAttestation}, {@code sessionParams}, {@code sessionResult}, {@code bindMcpCall} and
  * {@code bindResult}, which only that profile uses.
@@ -133,36 +128,6 @@ class VectorsV3Test {
         JsonNode c = vectors.get("bindResponse");
         assertEquals(c.get("expected").asText(), Bindings.response(c.get("resultHash").asText(),
                 c.get("callId").asText(), ContentLabel.parseAll(Vectors.text(c.get("labels")))));
-    }
-
-    @Test
-    void deriveSessionId() {
-        JsonNode d = vectors.get("deriveSessionId");
-        JsonNode keys = d.get("keys");
-        Map<String, String> keyring = new LinkedHashMap<>();
-        keys.get("clientKeyring").properties().forEach(e -> keyring.put(e.getKey(), e.getValue().asText()));
-        for (JsonNode c : d.get("cases")) {
-            assertEquals(c.get("expected").asText(),
-                    Sessions.deriveSessionId(fixed(c.get("clientRootSig")), fixed(c.get("serverRootSig")),
-                            fixed("clientNonce"), fixed("serverNonce"), keys.get("clientPolicyKey").asText(), keyring),
-                    c.get("name").asText());
-        }
-    }
-
-    private static String fixed(JsonNode nameOrNull) {
-        return nameOrNull.isNull() ? null : fixed(nameOrNull.asText());
-    }
-
-    /** The named fixed input: {@code length} consecutive bytes from {@code start}, base64url. */
-    private static String fixed(String name) {
-        JsonNode f = vectors.get("fixedInputs").get(name);
-        byte[] bytes = new byte[f.get("length").asInt()];
-        for (int i = 0; i < bytes.length; i++) {
-            bytes[i] = (byte) (f.get("start").asInt() + i);
-        }
-        String encoded = Base64Url.encode(bytes);
-        assertEquals(f.get("encoded").asText(), encoded);
-        return encoded;
     }
 
     @Test
@@ -267,7 +232,7 @@ class VectorsV3Test {
      * protocol integer among the reasons: nothing signs it, it never verifies and it is current at no time, its
      * signature never consulted.
      */
-    private static void refused(JsonNode c) {
+    static void refused(JsonNode c) {
         String name = c.get("name").asText();
         assertTrue(c.get("signingBytes").isNull(), name);
         assertFalse(c.get("verifies").asBoolean(), name);
@@ -275,7 +240,7 @@ class VectorsV3Test {
     }
 
     /** Checks a case's {@code current} answers, if it has any, against {@code isCurrent}. */
-    private static void current(JsonNode c, LongPredicate isCurrent) {
+    static void current(JsonNode c, LongPredicate isCurrent) {
         JsonNode answers = c.get("current");
         if (answers == null) {
             return;
@@ -283,153 +248,6 @@ class VectorsV3Test {
         for (JsonNode a : answers) {
             assertEquals(a.get("current").asBoolean(), isCurrent.test(a.get("at").asLong()),
                     c.get("name").asText() + " at " + a.get("at").asText());
-        }
-    }
-
-    @Test
-    void replyCert() {
-        JsonNode cases = vectors.get("replyCert");
-        assertTrue(cases != null && cases.size() > 0, "replyCert section");
-        for (JsonNode c : cases) {
-            String name = c.get("name").asText();
-            ReplyCert cert;
-            try {
-                cert = ReplyCert.parse(c.get("file").textValue());
-            } catch (IllegalArgumentException e) {
-                refused(c);
-                continue;
-            }
-            assertEquals(c.get("signingBytes").asText(), Base64Url.encode(
-                    ReplyCert.signingBytes(cert.policy(), cert.svc(), cert.key(), cert.notAfter())), name);
-            String pin = vectors.get("keys").get(c.get("pin").asText()).get("pub").asText();
-            assertEquals(c.get("verifies").asBoolean(), cert.verifies(pin), name);
-            // Every certificate that verifies is reproduced byte for byte by issuing it.
-            if (c.get("verifies").asBoolean()) {
-                assertEquals(cert.sig(), ReplyCert.issue(cert.policy(), cert.svc(), cert.key(), cert.notAfter(),
-                        priv(c.get("signer").asText())).sig(), name);
-            }
-        }
-    }
-
-    @Test
-    void sessionReply() {
-        JsonNode cases = vectors.get("sessionReply");
-        assertTrue(cases != null && cases.size() > 0, "sessionReply section");
-        for (JsonNode c : cases) {
-            String name = c.get("name").asText();
-            String pin = vectors.get("keys").get(c.get("pin").asText()).get("pub").asText();
-            SessionRequest req = SessionRequest.parse(Vectors.tokenText(c.get("requestToken")));
-            String reply = Vectors.tokenText(c.get("replyToken"));
-            String entry = c.get("serverEntry").asText();
-            long now = c.get("now").asLong();
-            assertEquals(ReplyCheck.valueOf(c.get("expected").asText()), Sessions.checkReply(reply, req, pin, entry,
-                    now), name);
-            // Offline, judged at the same time, the handshake is attested exactly when the live check says so.
-            assertEquals(c.get("expected").asText().equals("ATTESTED"),
-                    Sessions.attestedOffline(reply, req, pin, entry, now), name + " offline");
-        }
-    }
-
-    /** A recorded handshake case's session: from its request, reply, pin and the verifier's configured entry. */
-    private static RecordedSession recordedSession(JsonNode h) {
-        return RecordedSession.of(Vectors.tokenText(h.get("requestToken")), Vectors.tokenText(h.get("replyToken")),
-                vectors.get("keys").get(h.get("pin").asText()).get("pub").asText(), h.get("serverEntry").asText());
-    }
-
-    @Test
-    void recordedHandshake() {
-        JsonNode cases = vectors.get("recordedHandshake");
-        assertTrue(cases != null && cases.size() > 0, "recordedHandshake section");
-        for (JsonNode c : cases) {
-            String name = c.get("name").asText();
-            RecordedSession s = recordedSession(c);
-            JsonNode want = c.get("expected");
-            assertEquals(want.get("attested").asBoolean(), s.attested(), name + ": attested");
-            for (int i = 0; i < c.get("at").size(); i++) {
-                long at = c.get("at").get(i).asLong();
-                assertEquals(want.get("attestedAt").get(i).asBoolean(), s.attestedAt(at), name + ": at " + at);
-            }
-            JsonNode limit = want.get("responseNotAfter");
-            assertEquals(limit.isNull() ? OptionalLong.empty() : OptionalLong.of(limit.asLong()), s.responseNotAfter(),
-                    name + ": responseNotAfter");
-        }
-    }
-
-    /**
-     * Each case is one record set: its calls in order against one set of spent nonce keys, each by the offline
-     * verifier in the session of the handshake it names (that request's client keyring and root, that reply's
-     * session id), then limited to that session.
-     */
-    @Test
-    void recordedCall() {
-        JsonNode cases = vectors.get("recordedCall");
-        assertTrue(cases != null && cases.size() > 0, "recordedCall section");
-        boolean outsideSession = false;
-        for (JsonNode c : cases) {
-            String name = c.get("name").asText();
-            List<RecordedSession> sessions = new ArrayList<>();
-            c.get("handshakes").forEach(h -> sessions.add(recordedSession(h)));
-            RecordSet records = new RecordSet();
-            Set<String> origins = new LinkedHashSet<>();
-            c.get("allowedOrigins").forEach(o -> origins.add(o.asText()));
-            assertEquals(c.get("calls").size(), c.get("expected").size(), name);
-            for (int i = 0; i < c.get("calls").size(); i++) {
-                JsonNode call = c.get("calls").get(i);
-                int index = call.get("handshake").asInt();
-                SessionRequest request =
-                        SessionRequest.parse(Vectors.tokenText(c.get("handshakes").get(index).get("requestToken")));
-                SignedRoot clientRoot = request.clientRoot();
-                Map<String, PublicKey> ring = new LinkedHashMap<>();
-                request.clientKeyring().forEach((svc, key) -> ring.put(svc,
-                        Crypto.decodePublicKey(Base64Url.decode(key))));
-                // The session's windows are judged by callInSession, so the members have none.
-                OfflineConfig cfg = new OfflineConfig(List.of(new PinnedKeyring(Keyring.of(ring), Long.MAX_VALUE)),
-                        List.of(new PinnedRoot(Base64Url.decode(clientRoot.root()), clientRoot.rootId(),
-                                Long.MAX_VALUE)), origins, sessions.get(index).sess(), records.spent(), null,
-                        c.get("runMaxAgeMs").asLong(), c.get("callMaxAgeMs").asLong());
-                OfflineResult result = OfflineVerifier.verify(offlineInput(call, policy(call)), cfg);
-                ReasonCode reason = RecordSet.callInSession(sessions.get(index), result.reason(),
-                        call.get("recordedTs").get("last").asLong());
-                JsonNode want = c.get("expected").get(i);
-                assertEquals(ReasonCode.valueOf(want.get("reason").asText()), reason, name + " call " + i);
-                outsideSession |= reason == ReasonCode.OUTSIDE_SESSION;
-            }
-        }
-        assertTrue(outsideSession, "a case gives OUTSIDE_SESSION");
-    }
-
-    @Test
-    void sessionStatus() {
-        JsonNode cases = vectors.get("sessionStatus");
-        assertTrue(cases != null && cases.size() > 0, "sessionStatus section");
-        for (JsonNode c : cases) {
-            String name = c.get("name").asText();
-            Set<String> pinned = new LinkedHashSet<>();
-            c.get("pinned").forEach(n -> pinned.add(vectors.get("keys").get(n.asText()).get("pub").asText()));
-            String serverKey = vectors.get("keys").get(c.get("serverPolicyKey").asText()).get("pub").asText();
-            KeyringFile serverKeyring = KeyringFile.parse(c.get("serverKeyringFile").textValue());
-            // the server's own keyring is the one it signed
-            assertTrue(serverKeyring.verifies(serverKey), name);
-            assertEquals(c.get("expected").asText(), Sessions.status(
-                    SessionRequest.parse(Vectors.tokenText(c.get("requestToken"))),
-                    SignedRoot.parse(c.get("serverRootFile").textValue()), serverKeyring,
-                    Crypto.decodePublicKey(Base64Url.decode(serverKey)), pinned, c.get("now").asLong()), name);
-        }
-    }
-
-    @Test
-    void sessionRequest() {
-        JsonNode cases = vectors.get("sessionRequest");
-        assertTrue(cases != null && cases.size() > 0, "sessionRequest section");
-        for (JsonNode c : cases) {
-            String name = c.get("name").asText();
-            String got = "OK";
-            try {
-                SessionRequest.parse(Vectors.tokenText(c.get("requestToken")));
-            } catch (IllegalArgumentException e) {
-                got = "MALFORMED";
-            }
-            assertEquals(c.get("expected").asText(), got, name);
         }
     }
 
