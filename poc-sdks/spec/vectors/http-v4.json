@@ -1,0 +1,1891 @@
+{
+  "about" : "Paztport version 4 over HTTP: conformance vectors. The keys, the `mesh` and `ops` policies and their proofs are the ones in v4.json, by name; only the `payment` key is new, derived by v4.json's rule (seed = SHA-256(utf8(\"paztport-v3-vector-key:payment\")), the same PKCS#8 and SPKI encodings, both base64url), and the boundary key below is SHA-256(utf8(\"paztport-http-v3-vector-boundary-key\")), base64url. The v3 in these seed strings is historical: they are http-v3.json's, kept so that the keys, resultHash, requestBinding, boundaryInfluence, and operations but for `receive`, are http-v3.json's value for value, and headerNames holds each of http-v3.json's cases. resultHash maps a status and body (hex) to the result hash. requestBinding maps a method, a target (the raw path plus `?` and the raw query when there is one) and a body (hex) to the request binding. headerNames maps a header name to whether it is Paztport's: it begins with `X-Path-`, compared case-insensitively over ASCII. A responses case is a request chain `sent` from gateway to orders to payment, with the blocks `sentBlocks` sent beside it, one per stamp, and the `responseHeader` payment returned; the caller `orders` checks it against `status` and `body` (hex) with the proof the policy named holds for `proofRoute`, as a verifier that acts on the extensions in `actsOn` and carries the names in `allowedExtensions` (null for unset, which carries any name), whose policy window ends at `policyNotAfter` and whose clock reads `now`, running the check `uses` times against one nonce cache of nonceTtlMs that already holds `spent` (none when absent), each nonce key the JCS text of its array of strings. It expects the last result, {reason, suspectSvc, suspectInst, handOver, resultHash}: handOver is null unless the reason is OK, and then has one member per name in actsOn, each an array of {svc, items}, one per stamp of the sent chain and then the response stamp, items null where the stamp's block does not name the extension, as v4.json's verify cases record it. The responses cases on the `ops` policy run on a chain that names the operation each hop invokes (`orders#createOrder`, then `payment#charge`), with the proof for that route. boundaryInfluence is the influence an egress sends to another organisation: under the boundary `key`, for `rid`, the partner entry `rcv` and the `egress`, the `input` entries reduce to `reduced`, with one salt (base64url) per (cls, owner) group in `salts`; each `openings` case is a `sent` entry and an `opening`, with its JCS bytes in `body` (hex), which the replay reads, and `opens` says whether it opens. `operations` holds `table`, an operation table as a `file` (its text) and `value`, with its `opsHash` and the `route` a root covers it as; `shared`, payment's table, an entrance with two operations told apart by a query condition, in the same form; `keyed`, a table whose operations declare keys, in the same form; `refused`, table files a reader refuses; `match`, a method, a raw path and a raw query (null for none) against a table `file` and the operation name it gives, null for none; `keys`, cases giving a call's operation in `keyed` and its key value, null for none; and `receive`, a request entered at `orders` through the HTTP receiver under enforce, on the `ops` policy, against a nonce cache that already holds `spent` (none when absent), whose chain's first stamp names `orders` or an operation of it, its `X-Path-Extensions` one empty block per stamp, with the `operation` the framework dispatches to (null for none), the receiver's `actsOn` and `allowedExtensions` as above, and the `refusal` it expects (null when the request is served). Every `receive` case carries the proof of `gateway/orders#createOrder`, whatever its chain names. Ed25519 is deterministic, so the file is reproduced byte for byte. Java writes and replays this file; Go replays http-v3.json until it moves; the TypeScript SDK has no HTTP binding, so it does not replay it.",
+  "keys" : {
+    "payment" : {
+      "pub" : "MCowBQYDK2VwAyEA-9XrNUMkH7TjAfIFt7KwMmnpapG3g1u6a6E0Q5swRO0",
+      "priv" : "MC4CAQAwBQYDK2VwBCIEIKQg3zP5qL5R0684jq7ayKYzYRfULNjiOnTVziGp32W7"
+    }
+  },
+  "resultHash" : [ {
+    "status" : 200,
+    "body" : "",
+    "hash" : "oE2-ym5MujhdqF7Xf2na8ur3EG2HTzUlTDKo2Wv9Sf0"
+  }, {
+    "status" : 200,
+    "body" : "7b2270616964223a747275657d",
+    "hash" : "UU4OiqfyEERcK0QPyXKb9wRTpEagtkBgmP0vzFxX770"
+  }, {
+    "status" : 404,
+    "body" : "7b2270616964223a747275657d",
+    "hash" : "ftIHKdErajwUaY_bJtGU51_lUNUpdeM4kIuS5W_FJqc"
+  }, {
+    "status" : 500,
+    "body" : "7b226572726f72223a225a6fc3ab20f09f9880227d",
+    "hash" : "rFa9kHH0iXe8CEniNw416yAqHcW0mrW7-9QoN7UIp0k"
+  } ],
+  "requestBinding" : [ {
+    "method" : "POST",
+    "target" : "/pay",
+    "body" : "7b22616d6f756e74223a3130307d",
+    "bind" : "NWeIvDv4wI6iFaSevElXkiBnUMnM0qODvzaHJCrcq6g"
+  }, {
+    "method" : "GET",
+    "target" : "/search",
+    "body" : "",
+    "bind" : "1ScR-lFftFsE6Oc1dHL4r_IQzu454pOt2aARPZLJFlo"
+  }, {
+    "method" : "GET",
+    "target" : "/search?q=a",
+    "body" : "",
+    "bind" : "Xj2CaDaweDa0FXLcZxNey49pObPWG_Io9G7C4Cs2olY"
+  }, {
+    "method" : "GET",
+    "target" : "/search?q=b",
+    "body" : "",
+    "bind" : "wChEXxpLx4BVpFhtDLasAUjZQO7R6GqItX5aOPFb8Ek"
+  }, {
+    "method" : "GET",
+    "target" : "/search?q=caf%C3%A9&n=1",
+    "body" : "",
+    "bind" : "AFYOLa_sdaCBOHx44qNBUgfp1qUwHnibGYFx-nw1N0M"
+  }, {
+    "method" : "PUT",
+    "target" : "/pé/\uD83D\uDE00?x=\uD83D\uDE00",
+    "body" : "7b226e616d65223a225a6fc3ab227d",
+    "bind" : "fCYdIk8U5onTw0kgckvRLxqcWP4gNQdkzlf4pWrZp8Y"
+  } ],
+  "headerNames" : [ {
+    "header" : "X-Path-Chain",
+    "paztport" : true
+  }, {
+    "header" : "x-path-chain",
+    "paztport" : true
+  }, {
+    "header" : "X-PATH-PROOF",
+    "paztport" : true
+  }, {
+    "header" : "X-Path-Extensions",
+    "paztport" : true
+  }, {
+    "header" : "X-Path-Influence",
+    "paztport" : true
+  }, {
+    "header" : "X-Path-Session",
+    "paztport" : true
+  }, {
+    "header" : "X-Path-Response",
+    "paztport" : true
+  }, {
+    "header" : "X-Path-Future",
+    "paztport" : true
+  }, {
+    "header" : "X-Path-",
+    "paztport" : true
+  }, {
+    "header" : "X-Path",
+    "paztport" : false
+  }, {
+    "header" : "X-Pathology",
+    "paztport" : false
+  }, {
+    "header" : "X-Path_Chain",
+    "paztport" : false
+  }, {
+    "header" : "XX-Path-Chain",
+    "paztport" : false
+  }, {
+    "header" : "",
+    "paztport" : false
+  }, {
+    "header" : "X‐Path‐Chain",
+    "paztport" : false
+  }, {
+    "header" : "X-Pаth-Chain",
+    "paztport" : false
+  } ],
+  "responses" : [ {
+    "name" : "response ok",
+    "policy" : "mesh",
+    "sent" : [ {
+      "v" : 4,
+      "svc" : "gateway",
+      "inst" : "gw-1",
+      "rid" : "rid-http-1",
+      "ts" : 1767225598500,
+      "sess" : "",
+      "rcv" : "orders",
+      "bind" : "bind-gateway-to-orders",
+      "ext" : "",
+      "prev" : "",
+      "sig" : "dvKSJtRoNCnFcNoeaYz0x_YacyE2Kf8sDEeEa6M7wcHaW6FdQOu8j95YgaotXq0hrUtGn7hHEIy8Z2cWoWVmBg"
+    }, {
+      "v" : 4,
+      "svc" : "orders",
+      "inst" : "ord-1",
+      "rid" : "rid-http-1",
+      "ts" : 1767225599500,
+      "sess" : "",
+      "rcv" : "payment",
+      "bind" : "NWeIvDv4wI6iFaSevElXkiBnUMnM0qODvzaHJCrcq6g",
+      "ext" : "",
+      "prev" : "dvKSJtRoNCnFcNoeaYz0x_YacyE2Kf8sDEeEa6M7wcHaW6FdQOu8j95YgaotXq0hrUtGn7hHEIy8Z2cWoWVmBg",
+      "sig" : "36VnqTzdddhEtz46ZHJ3O4BMvMCUmi389g9dnwCmqDAM7-9tZ-n5iwuiK7fhkQjqNT7YwpHKLwHofzPx8uajAQ"
+    } ],
+    "sentBlocks" : [ {
+      "items" : { },
+      "requires" : [ ]
+    }, {
+      "items" : { },
+      "requires" : [ ]
+    } ],
+    "caller" : "orders",
+    "responseHeader" : "eyJibG9jayI6eyJpdGVtcyI6eyJpbmZsdWVuY2UiOltdfSwicmVxdWlyZXMiOltdfSwic3RhbXAiOnsiYmluZCI6IjdFbkx2dlU2dUNrQng1dEw1di1Dc1lNbVg3Y1VhY0VaM25qZUstbHJqMFUiLCJleHQiOiJYLWpqdkYwWFJjQ0ZtSGFrNkl3UjNHNHZWWHJQamR2Tmp3QThRZzRaang4IiwiaW5zdCI6InBheS0xIiwicHJldiI6IjM2Vm5xVHpkZGRoRXR6NDZaSEozTzRCTXZNQ1VtaTM4OWc5ZG53Q21xREFNNy05dFotbjVpd3VpSzdmaGtRanFOVDdZd3BIS0x3SG9melB4OHVhakFRIiwicmN2Ijoib3JkZXJzIiwicmlkIjoicmlkLWh0dHAtMSIsInNlc3MiOiIiLCJzaWciOiJDdGxDeEdsRmQxVHFGeGZ3WUFpQ0Fqd1RabTg3R0dvVTRLV1BGLTJwSElJZWpfSFNCeGZIazNrTW81ZkFHUFNUWGFwaDJBbVhvQnZnaDNLdnYzeXNBUSIsInN2YyI6InBheW1lbnQiLCJ0cyI6MTc2NzIyNTU5OTgwMCwidiI6NH19",
+    "status" : 200,
+    "body" : "7b2270616964223a747275657d",
+    "keyring" : {
+      "gateway" : "gateway",
+      "orders" : "orders",
+      "payment" : "payment"
+    },
+    "allowedOrigins" : [ "gateway" ],
+    "sess" : "",
+    "actsOn" : [ "influence" ],
+    "allowedExtensions" : null,
+    "now" : 1767225600000,
+    "policyNotAfter" : 4102444800000,
+    "callMaxAgeMs" : 5000,
+    "runMaxAgeMs" : 1800000,
+    "nonceTtlMs" : 15000,
+    "uses" : 1,
+    "expected" : {
+      "reason" : "OK",
+      "suspectSvc" : "payment",
+      "suspectInst" : "pay-1",
+      "handOver" : {
+        "influence" : [ {
+          "svc" : "gateway",
+          "items" : null
+        }, {
+          "svc" : "orders",
+          "items" : null
+        }, {
+          "svc" : "payment",
+          "items" : [ ]
+        } ]
+      },
+      "resultHash" : "UU4OiqfyEERcK0QPyXKb9wRTpEagtkBgmP0vzFxX770"
+    },
+    "proofRoute" : "gateway/orders/payment"
+  }, {
+    "name" : "response to wrong receiver",
+    "policy" : "mesh",
+    "sent" : [ {
+      "v" : 4,
+      "svc" : "gateway",
+      "inst" : "gw-1",
+      "rid" : "rid-http-1",
+      "ts" : 1767225598500,
+      "sess" : "",
+      "rcv" : "orders",
+      "bind" : "bind-gateway-to-orders",
+      "ext" : "",
+      "prev" : "",
+      "sig" : "dvKSJtRoNCnFcNoeaYz0x_YacyE2Kf8sDEeEa6M7wcHaW6FdQOu8j95YgaotXq0hrUtGn7hHEIy8Z2cWoWVmBg"
+    }, {
+      "v" : 4,
+      "svc" : "orders",
+      "inst" : "ord-1",
+      "rid" : "rid-http-1",
+      "ts" : 1767225599500,
+      "sess" : "",
+      "rcv" : "payment",
+      "bind" : "NWeIvDv4wI6iFaSevElXkiBnUMnM0qODvzaHJCrcq6g",
+      "ext" : "",
+      "prev" : "dvKSJtRoNCnFcNoeaYz0x_YacyE2Kf8sDEeEa6M7wcHaW6FdQOu8j95YgaotXq0hrUtGn7hHEIy8Z2cWoWVmBg",
+      "sig" : "36VnqTzdddhEtz46ZHJ3O4BMvMCUmi389g9dnwCmqDAM7-9tZ-n5iwuiK7fhkQjqNT7YwpHKLwHofzPx8uajAQ"
+    } ],
+    "sentBlocks" : [ {
+      "items" : { },
+      "requires" : [ ]
+    }, {
+      "items" : { },
+      "requires" : [ ]
+    } ],
+    "caller" : "orders",
+    "responseHeader" : "eyJibG9jayI6eyJpdGVtcyI6eyJpbmZsdWVuY2UiOltdfSwicmVxdWlyZXMiOltdfSwic3RhbXAiOnsiYmluZCI6IjdFbkx2dlU2dUNrQng1dEw1di1Dc1lNbVg3Y1VhY0VaM25qZUstbHJqMFUiLCJleHQiOiJYLWpqdkYwWFJjQ0ZtSGFrNkl3UjNHNHZWWHJQamR2Tmp3QThRZzRaang4IiwiaW5zdCI6InBheS0xIiwicHJldiI6IjM2Vm5xVHpkZGRoRXR6NDZaSEozTzRCTXZNQ1VtaTM4OWc5ZG53Q21xREFNNy05dFotbjVpd3VpSzdmaGtRanFOVDdZd3BIS0x3SG9melB4OHVhakFRIiwicmN2IjoiZ2F0ZXdheSIsInJpZCI6InJpZC1odHRwLTEiLCJzZXNzIjoiIiwic2lnIjoidDhQNVgwa3dMWWN3cWRhTDZVbWdCUWo4a3Y1WHdoSzVGcXN1Mm9NYzN1a01qcXU3NlJWMDNHOGJoaENqR1ViTjVMUFN4d3FCaVdxbGU1OHBrMUpzQ2ciLCJzdmMiOiJwYXltZW50IiwidHMiOjE3NjcyMjU1OTk4MDAsInYiOjR9fQ",
+    "status" : 200,
+    "body" : "7b2270616964223a747275657d",
+    "keyring" : {
+      "gateway" : "gateway",
+      "orders" : "orders",
+      "payment" : "payment"
+    },
+    "allowedOrigins" : [ "gateway" ],
+    "sess" : "",
+    "actsOn" : [ "influence" ],
+    "allowedExtensions" : null,
+    "now" : 1767225600000,
+    "policyNotAfter" : 4102444800000,
+    "callMaxAgeMs" : 5000,
+    "runMaxAgeMs" : 1800000,
+    "nonceTtlMs" : 15000,
+    "uses" : 1,
+    "expected" : {
+      "reason" : "BINDING_MISMATCH",
+      "suspectSvc" : "",
+      "suspectInst" : "",
+      "handOver" : null,
+      "resultHash" : "UU4OiqfyEERcK0QPyXKb9wRTpEagtkBgmP0vzFxX770"
+    },
+    "proofRoute" : "gateway/orders/payment"
+  }, {
+    "name" : "labels altered",
+    "policy" : "mesh",
+    "sent" : [ {
+      "v" : 4,
+      "svc" : "gateway",
+      "inst" : "gw-1",
+      "rid" : "rid-http-1",
+      "ts" : 1767225598500,
+      "sess" : "",
+      "rcv" : "orders",
+      "bind" : "bind-gateway-to-orders",
+      "ext" : "",
+      "prev" : "",
+      "sig" : "dvKSJtRoNCnFcNoeaYz0x_YacyE2Kf8sDEeEa6M7wcHaW6FdQOu8j95YgaotXq0hrUtGn7hHEIy8Z2cWoWVmBg"
+    }, {
+      "v" : 4,
+      "svc" : "orders",
+      "inst" : "ord-1",
+      "rid" : "rid-http-1",
+      "ts" : 1767225599500,
+      "sess" : "",
+      "rcv" : "payment",
+      "bind" : "NWeIvDv4wI6iFaSevElXkiBnUMnM0qODvzaHJCrcq6g",
+      "ext" : "",
+      "prev" : "dvKSJtRoNCnFcNoeaYz0x_YacyE2Kf8sDEeEa6M7wcHaW6FdQOu8j95YgaotXq0hrUtGn7hHEIy8Z2cWoWVmBg",
+      "sig" : "36VnqTzdddhEtz46ZHJ3O4BMvMCUmi389g9dnwCmqDAM7-9tZ-n5iwuiK7fhkQjqNT7YwpHKLwHofzPx8uajAQ"
+    } ],
+    "sentBlocks" : [ {
+      "items" : { },
+      "requires" : [ ]
+    }, {
+      "items" : { },
+      "requires" : [ ]
+    } ],
+    "caller" : "orders",
+    "responseHeader" : "eyJibG9jayI6eyJpdGVtcyI6eyJpbmZsdWVuY2UiOlt7ImNpZCI6ImNpZC1yZWNlaXB0LTEiLCJjbHMiOiJwdWJsaWMifV19LCJyZXF1aXJlcyI6WyJpbmZsdWVuY2UiXX0sInN0YW1wIjp7ImJpbmQiOiI3RW5MdnZVNnVDa0J4NXRMNXYtQ3NZTW1YN2NVYWNFWjNuamVLLWxyajBVIiwiZXh0IjoiWC1qanZGMFhSY0NGbUhhazZJd1IzRzR2VlhyUGpkdk5qd0E4UWc0Wmp4OCIsImluc3QiOiJwYXktMSIsInByZXYiOiIzNlZucVR6ZGRkaEV0ejQ2WkhKM080Qk12TUNVbWkzODlnOWRud0NtcURBTTctOXRaLW41aXd1aUs3ZmhrUWpxTlQ3WXdwSEtMd0hvZnpQeDh1YWpBUSIsInJjdiI6Im9yZGVycyIsInJpZCI6InJpZC1odHRwLTEiLCJzZXNzIjoiIiwic2lnIjoiQ3RsQ3hHbEZkMVRxRnhmd1lBaUNBandUWm04N0dHb1U0S1dQRi0ycEhJSWVqX0hTQnhmSGsza01vNWZBR1BTVFhhcGgyQW1Yb0J2Z2gzS3Z2M3lzQVEiLCJzdmMiOiJwYXltZW50IiwidHMiOjE3NjcyMjU1OTk4MDAsInYiOjR9fQ",
+    "status" : 200,
+    "body" : "7b2270616964223a747275657d",
+    "keyring" : {
+      "gateway" : "gateway",
+      "orders" : "orders",
+      "payment" : "payment"
+    },
+    "allowedOrigins" : [ "gateway" ],
+    "sess" : "",
+    "actsOn" : [ "influence" ],
+    "allowedExtensions" : null,
+    "now" : 1767225600000,
+    "policyNotAfter" : 4102444800000,
+    "callMaxAgeMs" : 5000,
+    "runMaxAgeMs" : 1800000,
+    "nonceTtlMs" : 15000,
+    "uses" : 1,
+    "expected" : {
+      "reason" : "EXTENSION_MISMATCH",
+      "suspectSvc" : "",
+      "suspectInst" : "",
+      "handOver" : null,
+      "resultHash" : "UU4OiqfyEERcK0QPyXKb9wRTpEagtkBgmP0vzFxX770"
+    },
+    "proofRoute" : "gateway/orders/payment"
+  }, {
+    "name" : "status altered",
+    "policy" : "mesh",
+    "sent" : [ {
+      "v" : 4,
+      "svc" : "gateway",
+      "inst" : "gw-1",
+      "rid" : "rid-http-1",
+      "ts" : 1767225598500,
+      "sess" : "",
+      "rcv" : "orders",
+      "bind" : "bind-gateway-to-orders",
+      "ext" : "",
+      "prev" : "",
+      "sig" : "dvKSJtRoNCnFcNoeaYz0x_YacyE2Kf8sDEeEa6M7wcHaW6FdQOu8j95YgaotXq0hrUtGn7hHEIy8Z2cWoWVmBg"
+    }, {
+      "v" : 4,
+      "svc" : "orders",
+      "inst" : "ord-1",
+      "rid" : "rid-http-1",
+      "ts" : 1767225599500,
+      "sess" : "",
+      "rcv" : "payment",
+      "bind" : "NWeIvDv4wI6iFaSevElXkiBnUMnM0qODvzaHJCrcq6g",
+      "ext" : "",
+      "prev" : "dvKSJtRoNCnFcNoeaYz0x_YacyE2Kf8sDEeEa6M7wcHaW6FdQOu8j95YgaotXq0hrUtGn7hHEIy8Z2cWoWVmBg",
+      "sig" : "36VnqTzdddhEtz46ZHJ3O4BMvMCUmi389g9dnwCmqDAM7-9tZ-n5iwuiK7fhkQjqNT7YwpHKLwHofzPx8uajAQ"
+    } ],
+    "sentBlocks" : [ {
+      "items" : { },
+      "requires" : [ ]
+    }, {
+      "items" : { },
+      "requires" : [ ]
+    } ],
+    "caller" : "orders",
+    "responseHeader" : "eyJibG9jayI6eyJpdGVtcyI6eyJpbmZsdWVuY2UiOltdfSwicmVxdWlyZXMiOltdfSwic3RhbXAiOnsiYmluZCI6IjdFbkx2dlU2dUNrQng1dEw1di1Dc1lNbVg3Y1VhY0VaM25qZUstbHJqMFUiLCJleHQiOiJYLWpqdkYwWFJjQ0ZtSGFrNkl3UjNHNHZWWHJQamR2Tmp3QThRZzRaang4IiwiaW5zdCI6InBheS0xIiwicHJldiI6IjM2Vm5xVHpkZGRoRXR6NDZaSEozTzRCTXZNQ1VtaTM4OWc5ZG53Q21xREFNNy05dFotbjVpd3VpSzdmaGtRanFOVDdZd3BIS0x3SG9melB4OHVhakFRIiwicmN2Ijoib3JkZXJzIiwicmlkIjoicmlkLWh0dHAtMSIsInNlc3MiOiIiLCJzaWciOiJDdGxDeEdsRmQxVHFGeGZ3WUFpQ0Fqd1RabTg3R0dvVTRLV1BGLTJwSElJZWpfSFNCeGZIazNrTW81ZkFHUFNUWGFwaDJBbVhvQnZnaDNLdnYzeXNBUSIsInN2YyI6InBheW1lbnQiLCJ0cyI6MTc2NzIyNTU5OTgwMCwidiI6NH19",
+    "status" : 500,
+    "body" : "7b2270616964223a747275657d",
+    "keyring" : {
+      "gateway" : "gateway",
+      "orders" : "orders",
+      "payment" : "payment"
+    },
+    "allowedOrigins" : [ "gateway" ],
+    "sess" : "",
+    "actsOn" : [ "influence" ],
+    "allowedExtensions" : null,
+    "now" : 1767225600000,
+    "policyNotAfter" : 4102444800000,
+    "callMaxAgeMs" : 5000,
+    "runMaxAgeMs" : 1800000,
+    "nonceTtlMs" : 15000,
+    "uses" : 1,
+    "expected" : {
+      "reason" : "BINDING_MISMATCH",
+      "suspectSvc" : "",
+      "suspectInst" : "",
+      "handOver" : null,
+      "resultHash" : "bZnrFwKT-ZsYx_Dz_PWQ-TGPtQq0pRPM_wNp5QKD8UA"
+    },
+    "proofRoute" : "gateway/orders/payment"
+  }, {
+    "name" : "replayed response",
+    "policy" : "mesh",
+    "sent" : [ {
+      "v" : 4,
+      "svc" : "gateway",
+      "inst" : "gw-1",
+      "rid" : "rid-http-1",
+      "ts" : 1767225598500,
+      "sess" : "",
+      "rcv" : "orders",
+      "bind" : "bind-gateway-to-orders",
+      "ext" : "",
+      "prev" : "",
+      "sig" : "dvKSJtRoNCnFcNoeaYz0x_YacyE2Kf8sDEeEa6M7wcHaW6FdQOu8j95YgaotXq0hrUtGn7hHEIy8Z2cWoWVmBg"
+    }, {
+      "v" : 4,
+      "svc" : "orders",
+      "inst" : "ord-1",
+      "rid" : "rid-http-1",
+      "ts" : 1767225599500,
+      "sess" : "",
+      "rcv" : "payment",
+      "bind" : "NWeIvDv4wI6iFaSevElXkiBnUMnM0qODvzaHJCrcq6g",
+      "ext" : "",
+      "prev" : "dvKSJtRoNCnFcNoeaYz0x_YacyE2Kf8sDEeEa6M7wcHaW6FdQOu8j95YgaotXq0hrUtGn7hHEIy8Z2cWoWVmBg",
+      "sig" : "36VnqTzdddhEtz46ZHJ3O4BMvMCUmi389g9dnwCmqDAM7-9tZ-n5iwuiK7fhkQjqNT7YwpHKLwHofzPx8uajAQ"
+    } ],
+    "sentBlocks" : [ {
+      "items" : { },
+      "requires" : [ ]
+    }, {
+      "items" : { },
+      "requires" : [ ]
+    } ],
+    "caller" : "orders",
+    "responseHeader" : "eyJibG9jayI6eyJpdGVtcyI6eyJpbmZsdWVuY2UiOltdfSwicmVxdWlyZXMiOltdfSwic3RhbXAiOnsiYmluZCI6IjdFbkx2dlU2dUNrQng1dEw1di1Dc1lNbVg3Y1VhY0VaM25qZUstbHJqMFUiLCJleHQiOiJYLWpqdkYwWFJjQ0ZtSGFrNkl3UjNHNHZWWHJQamR2Tmp3QThRZzRaang4IiwiaW5zdCI6InBheS0xIiwicHJldiI6IjM2Vm5xVHpkZGRoRXR6NDZaSEozTzRCTXZNQ1VtaTM4OWc5ZG53Q21xREFNNy05dFotbjVpd3VpSzdmaGtRanFOVDdZd3BIS0x3SG9melB4OHVhakFRIiwicmN2Ijoib3JkZXJzIiwicmlkIjoicmlkLWh0dHAtMSIsInNlc3MiOiIiLCJzaWciOiJDdGxDeEdsRmQxVHFGeGZ3WUFpQ0Fqd1RabTg3R0dvVTRLV1BGLTJwSElJZWpfSFNCeGZIazNrTW81ZkFHUFNUWGFwaDJBbVhvQnZnaDNLdnYzeXNBUSIsInN2YyI6InBheW1lbnQiLCJ0cyI6MTc2NzIyNTU5OTgwMCwidiI6NH19",
+    "status" : 200,
+    "body" : "7b2270616964223a747275657d",
+    "keyring" : {
+      "gateway" : "gateway",
+      "orders" : "orders",
+      "payment" : "payment"
+    },
+    "allowedOrigins" : [ "gateway" ],
+    "sess" : "",
+    "actsOn" : [ "influence" ],
+    "allowedExtensions" : null,
+    "now" : 1767225600000,
+    "policyNotAfter" : 4102444800000,
+    "callMaxAgeMs" : 5000,
+    "runMaxAgeMs" : 1800000,
+    "nonceTtlMs" : 15000,
+    "uses" : 2,
+    "expected" : {
+      "reason" : "REPLAY",
+      "suspectSvc" : "",
+      "suspectInst" : "",
+      "handOver" : null,
+      "resultHash" : "UU4OiqfyEERcK0QPyXKb9wRTpEagtkBgmP0vzFxX770"
+    },
+    "proofRoute" : "gateway/orders/payment"
+  }, {
+    "name" : "policy expired",
+    "policy" : "mesh",
+    "sent" : [ {
+      "v" : 4,
+      "svc" : "gateway",
+      "inst" : "gw-1",
+      "rid" : "rid-http-1",
+      "ts" : 1767225598500,
+      "sess" : "",
+      "rcv" : "orders",
+      "bind" : "bind-gateway-to-orders",
+      "ext" : "",
+      "prev" : "",
+      "sig" : "dvKSJtRoNCnFcNoeaYz0x_YacyE2Kf8sDEeEa6M7wcHaW6FdQOu8j95YgaotXq0hrUtGn7hHEIy8Z2cWoWVmBg"
+    }, {
+      "v" : 4,
+      "svc" : "orders",
+      "inst" : "ord-1",
+      "rid" : "rid-http-1",
+      "ts" : 1767225599500,
+      "sess" : "",
+      "rcv" : "payment",
+      "bind" : "NWeIvDv4wI6iFaSevElXkiBnUMnM0qODvzaHJCrcq6g",
+      "ext" : "",
+      "prev" : "dvKSJtRoNCnFcNoeaYz0x_YacyE2Kf8sDEeEa6M7wcHaW6FdQOu8j95YgaotXq0hrUtGn7hHEIy8Z2cWoWVmBg",
+      "sig" : "36VnqTzdddhEtz46ZHJ3O4BMvMCUmi389g9dnwCmqDAM7-9tZ-n5iwuiK7fhkQjqNT7YwpHKLwHofzPx8uajAQ"
+    } ],
+    "sentBlocks" : [ {
+      "items" : { },
+      "requires" : [ ]
+    }, {
+      "items" : { },
+      "requires" : [ ]
+    } ],
+    "caller" : "orders",
+    "responseHeader" : "eyJibG9jayI6eyJpdGVtcyI6eyJpbmZsdWVuY2UiOltdfSwicmVxdWlyZXMiOltdfSwic3RhbXAiOnsiYmluZCI6IjdFbkx2dlU2dUNrQng1dEw1di1Dc1lNbVg3Y1VhY0VaM25qZUstbHJqMFUiLCJleHQiOiJYLWpqdkYwWFJjQ0ZtSGFrNkl3UjNHNHZWWHJQamR2Tmp3QThRZzRaang4IiwiaW5zdCI6InBheS0xIiwicHJldiI6IjM2Vm5xVHpkZGRoRXR6NDZaSEozTzRCTXZNQ1VtaTM4OWc5ZG53Q21xREFNNy05dFotbjVpd3VpSzdmaGtRanFOVDdZd3BIS0x3SG9melB4OHVhakFRIiwicmN2Ijoib3JkZXJzIiwicmlkIjoicmlkLWh0dHAtMSIsInNlc3MiOiIiLCJzaWciOiJDdGxDeEdsRmQxVHFGeGZ3WUFpQ0Fqd1RabTg3R0dvVTRLV1BGLTJwSElJZWpfSFNCeGZIazNrTW81ZkFHUFNUWGFwaDJBbVhvQnZnaDNLdnYzeXNBUSIsInN2YyI6InBheW1lbnQiLCJ0cyI6MTc2NzIyNTU5OTgwMCwidiI6NH19",
+    "status" : 200,
+    "body" : "7b2270616964223a747275657d",
+    "keyring" : {
+      "gateway" : "gateway",
+      "orders" : "orders",
+      "payment" : "payment"
+    },
+    "allowedOrigins" : [ "gateway" ],
+    "sess" : "",
+    "actsOn" : [ "influence" ],
+    "allowedExtensions" : null,
+    "now" : 1767225600000,
+    "policyNotAfter" : 1767225599999,
+    "callMaxAgeMs" : 5000,
+    "runMaxAgeMs" : 1800000,
+    "nonceTtlMs" : 15000,
+    "uses" : 1,
+    "expected" : {
+      "reason" : "POLICY_EXPIRED",
+      "suspectSvc" : "",
+      "suspectInst" : "",
+      "handOver" : null,
+      "resultHash" : "UU4OiqfyEERcK0QPyXKb9wRTpEagtkBgmP0vzFxX770"
+    },
+    "proofRoute" : "gateway/orders/payment"
+  }, {
+    "name" : "a block naming influence with a label",
+    "policy" : "mesh",
+    "sent" : [ {
+      "v" : 4,
+      "svc" : "gateway",
+      "inst" : "gw-1",
+      "rid" : "rid-http-1",
+      "ts" : 1767225598500,
+      "sess" : "",
+      "rcv" : "orders",
+      "bind" : "bind-gateway-to-orders",
+      "ext" : "",
+      "prev" : "",
+      "sig" : "dvKSJtRoNCnFcNoeaYz0x_YacyE2Kf8sDEeEa6M7wcHaW6FdQOu8j95YgaotXq0hrUtGn7hHEIy8Z2cWoWVmBg"
+    }, {
+      "v" : 4,
+      "svc" : "orders",
+      "inst" : "ord-1",
+      "rid" : "rid-http-1",
+      "ts" : 1767225599500,
+      "sess" : "",
+      "rcv" : "payment",
+      "bind" : "NWeIvDv4wI6iFaSevElXkiBnUMnM0qODvzaHJCrcq6g",
+      "ext" : "",
+      "prev" : "dvKSJtRoNCnFcNoeaYz0x_YacyE2Kf8sDEeEa6M7wcHaW6FdQOu8j95YgaotXq0hrUtGn7hHEIy8Z2cWoWVmBg",
+      "sig" : "36VnqTzdddhEtz46ZHJ3O4BMvMCUmi389g9dnwCmqDAM7-9tZ-n5iwuiK7fhkQjqNT7YwpHKLwHofzPx8uajAQ"
+    } ],
+    "sentBlocks" : [ {
+      "items" : { },
+      "requires" : [ ]
+    }, {
+      "items" : { },
+      "requires" : [ ]
+    } ],
+    "caller" : "orders",
+    "responseHeader" : "eyJibG9jayI6eyJpdGVtcyI6eyJpbmZsdWVuY2UiOlt7ImNpZCI6ImNpZC1yZWNlaXB0LTEiLCJjbHMiOiJwcml2YXRlIiwib3duZXIiOiJhbGljZSJ9XX0sInJlcXVpcmVzIjpbImluZmx1ZW5jZSJdfSwic3RhbXAiOnsiYmluZCI6IjdFbkx2dlU2dUNrQng1dEw1di1Dc1lNbVg3Y1VhY0VaM25qZUstbHJqMFUiLCJleHQiOiJvdjJsV0JQUkE0VnhyYnRRbVVVbkJEc2E3NmRoeTdCb1MtaHFaVmZFdjlNIiwiaW5zdCI6InBheS0xIiwicHJldiI6IjM2Vm5xVHpkZGRoRXR6NDZaSEozTzRCTXZNQ1VtaTM4OWc5ZG53Q21xREFNNy05dFotbjVpd3VpSzdmaGtRanFOVDdZd3BIS0x3SG9melB4OHVhakFRIiwicmN2Ijoib3JkZXJzIiwicmlkIjoicmlkLWh0dHAtMSIsInNlc3MiOiIiLCJzaWciOiJiUkFra3FJWWVtVTRqbzYzNEFRdmp2OFg0aVVnVVNhME01Tm8yMXhxNWpkNkI3ZmlNMDVFRWNuNVJqZWx3ZE9IQzlQLWQ3OWFOQWhDS1VBWXFuRGtCQSIsInN2YyI6InBheW1lbnQiLCJ0cyI6MTc2NzIyNTU5OTgwMCwidiI6NH19",
+    "status" : 200,
+    "body" : "7b2270616964223a747275657d",
+    "keyring" : {
+      "gateway" : "gateway",
+      "orders" : "orders",
+      "payment" : "payment"
+    },
+    "allowedOrigins" : [ "gateway" ],
+    "sess" : "",
+    "actsOn" : [ "influence" ],
+    "allowedExtensions" : null,
+    "now" : 1767225600000,
+    "policyNotAfter" : 4102444800000,
+    "callMaxAgeMs" : 5000,
+    "runMaxAgeMs" : 1800000,
+    "nonceTtlMs" : 15000,
+    "uses" : 1,
+    "expected" : {
+      "reason" : "OK",
+      "suspectSvc" : "payment",
+      "suspectInst" : "pay-1",
+      "handOver" : {
+        "influence" : [ {
+          "svc" : "gateway",
+          "items" : null
+        }, {
+          "svc" : "orders",
+          "items" : null
+        }, {
+          "svc" : "payment",
+          "items" : [ {
+            "cls" : "private",
+            "cid" : "cid-receipt-1",
+            "owner" : "alice"
+          } ]
+        } ]
+      },
+      "resultHash" : "UU4OiqfyEERcK0QPyXKb9wRTpEagtkBgmP0vzFxX770"
+    },
+    "proofRoute" : "gateway/orders/payment"
+  }, {
+    "name" : "a labelled block altered",
+    "policy" : "mesh",
+    "sent" : [ {
+      "v" : 4,
+      "svc" : "gateway",
+      "inst" : "gw-1",
+      "rid" : "rid-http-1",
+      "ts" : 1767225598500,
+      "sess" : "",
+      "rcv" : "orders",
+      "bind" : "bind-gateway-to-orders",
+      "ext" : "",
+      "prev" : "",
+      "sig" : "dvKSJtRoNCnFcNoeaYz0x_YacyE2Kf8sDEeEa6M7wcHaW6FdQOu8j95YgaotXq0hrUtGn7hHEIy8Z2cWoWVmBg"
+    }, {
+      "v" : 4,
+      "svc" : "orders",
+      "inst" : "ord-1",
+      "rid" : "rid-http-1",
+      "ts" : 1767225599500,
+      "sess" : "",
+      "rcv" : "payment",
+      "bind" : "NWeIvDv4wI6iFaSevElXkiBnUMnM0qODvzaHJCrcq6g",
+      "ext" : "",
+      "prev" : "dvKSJtRoNCnFcNoeaYz0x_YacyE2Kf8sDEeEa6M7wcHaW6FdQOu8j95YgaotXq0hrUtGn7hHEIy8Z2cWoWVmBg",
+      "sig" : "36VnqTzdddhEtz46ZHJ3O4BMvMCUmi389g9dnwCmqDAM7-9tZ-n5iwuiK7fhkQjqNT7YwpHKLwHofzPx8uajAQ"
+    } ],
+    "sentBlocks" : [ {
+      "items" : { },
+      "requires" : [ ]
+    }, {
+      "items" : { },
+      "requires" : [ ]
+    } ],
+    "caller" : "orders",
+    "responseHeader" : "eyJibG9jayI6eyJpdGVtcyI6eyJpbmZsdWVuY2UiOlt7ImNpZCI6ImNpZC1yZWNlaXB0LTEiLCJjbHMiOiJwdWJsaWMifV19LCJyZXF1aXJlcyI6WyJpbmZsdWVuY2UiXX0sInN0YW1wIjp7ImJpbmQiOiI3RW5MdnZVNnVDa0J4NXRMNXYtQ3NZTW1YN2NVYWNFWjNuamVLLWxyajBVIiwiZXh0Ijoib3YybFdCUFJBNFZ4cmJ0UW1VVW5CRHNhNzZkaHk3Qm9TLWhxWlZmRXY5TSIsImluc3QiOiJwYXktMSIsInByZXYiOiIzNlZucVR6ZGRkaEV0ejQ2WkhKM080Qk12TUNVbWkzODlnOWRud0NtcURBTTctOXRaLW41aXd1aUs3ZmhrUWpxTlQ3WXdwSEtMd0hvZnpQeDh1YWpBUSIsInJjdiI6Im9yZGVycyIsInJpZCI6InJpZC1odHRwLTEiLCJzZXNzIjoiIiwic2lnIjoiYlJBa2txSVllbVU0am82MzRBUXZqdjhYNGlVZ1VTYTBNNU5vMjF4cTVqZDZCN2ZpTTA1RUVjbjVSamVsd2RPSEM5UC1kNzlhTkFoQ0tVQVlxbkRrQkEiLCJzdmMiOiJwYXltZW50IiwidHMiOjE3NjcyMjU1OTk4MDAsInYiOjR9fQ",
+    "status" : 200,
+    "body" : "7b2270616964223a747275657d",
+    "keyring" : {
+      "gateway" : "gateway",
+      "orders" : "orders",
+      "payment" : "payment"
+    },
+    "allowedOrigins" : [ "gateway" ],
+    "sess" : "",
+    "actsOn" : [ "influence" ],
+    "allowedExtensions" : null,
+    "now" : 1767225600000,
+    "policyNotAfter" : 4102444800000,
+    "callMaxAgeMs" : 5000,
+    "runMaxAgeMs" : 1800000,
+    "nonceTtlMs" : 15000,
+    "uses" : 1,
+    "expected" : {
+      "reason" : "EXTENSION_MISMATCH",
+      "suspectSvc" : "",
+      "suspectInst" : "",
+      "handOver" : null,
+      "resultHash" : "UU4OiqfyEERcK0QPyXKb9wRTpEagtkBgmP0vzFxX770"
+    },
+    "proofRoute" : "gateway/orders/payment"
+  }, {
+    "name" : "a header without block",
+    "policy" : "mesh",
+    "sent" : [ {
+      "v" : 4,
+      "svc" : "gateway",
+      "inst" : "gw-1",
+      "rid" : "rid-http-1",
+      "ts" : 1767225598500,
+      "sess" : "",
+      "rcv" : "orders",
+      "bind" : "bind-gateway-to-orders",
+      "ext" : "",
+      "prev" : "",
+      "sig" : "dvKSJtRoNCnFcNoeaYz0x_YacyE2Kf8sDEeEa6M7wcHaW6FdQOu8j95YgaotXq0hrUtGn7hHEIy8Z2cWoWVmBg"
+    }, {
+      "v" : 4,
+      "svc" : "orders",
+      "inst" : "ord-1",
+      "rid" : "rid-http-1",
+      "ts" : 1767225599500,
+      "sess" : "",
+      "rcv" : "payment",
+      "bind" : "NWeIvDv4wI6iFaSevElXkiBnUMnM0qODvzaHJCrcq6g",
+      "ext" : "",
+      "prev" : "dvKSJtRoNCnFcNoeaYz0x_YacyE2Kf8sDEeEa6M7wcHaW6FdQOu8j95YgaotXq0hrUtGn7hHEIy8Z2cWoWVmBg",
+      "sig" : "36VnqTzdddhEtz46ZHJ3O4BMvMCUmi389g9dnwCmqDAM7-9tZ-n5iwuiK7fhkQjqNT7YwpHKLwHofzPx8uajAQ"
+    } ],
+    "sentBlocks" : [ {
+      "items" : { },
+      "requires" : [ ]
+    }, {
+      "items" : { },
+      "requires" : [ ]
+    } ],
+    "caller" : "orders",
+    "responseHeader" : "eyJzdGFtcCI6eyJiaW5kIjoiN0VuTHZ2VTZ1Q2tCeDV0TDV2LUNzWU1tWDdjVWFjRVozbmplSy1scmowVSIsImV4dCI6Ilgtamp2RjBYUmNDRm1IYWs2SXdSM0c0dlZYclBqZHZOandBOFFnNFpqeDgiLCJpbnN0IjoicGF5LTEiLCJwcmV2IjoiMzZWbnFUemRkZGhFdHo0NlpISjNPNEJNdk1DVW1pMzg5ZzlkbndDbXFEQU03LTl0Wi1uNWl3dWlLN2Zoa1FqcU5UN1l3cEhLTHdIb2Z6UHg4dWFqQVEiLCJyY3YiOiJvcmRlcnMiLCJyaWQiOiJyaWQtaHR0cC0xIiwic2VzcyI6IiIsInNpZyI6IkN0bEN4R2xGZDFUcUZ4ZndZQWlDQWp3VFptODdHR29VNEtXUEYtMnBISUllal9IU0J4ZkhrM2tNbzVmQUdQU1RYYXBoMkFtWG9CdmdoM0t2djN5c0FRIiwic3ZjIjoicGF5bWVudCIsInRzIjoxNzY3MjI1NTk5ODAwLCJ2Ijo0fX0",
+    "status" : 200,
+    "body" : "7b2270616964223a747275657d",
+    "keyring" : {
+      "gateway" : "gateway",
+      "orders" : "orders",
+      "payment" : "payment"
+    },
+    "allowedOrigins" : [ "gateway" ],
+    "sess" : "",
+    "actsOn" : [ "influence" ],
+    "allowedExtensions" : null,
+    "now" : 1767225600000,
+    "policyNotAfter" : 4102444800000,
+    "callMaxAgeMs" : 5000,
+    "runMaxAgeMs" : 1800000,
+    "nonceTtlMs" : 15000,
+    "uses" : 1,
+    "expected" : {
+      "reason" : "CHAIN_MISSING",
+      "suspectSvc" : "",
+      "suspectInst" : "",
+      "handOver" : null,
+      "resultHash" : "UU4OiqfyEERcK0QPyXKb9wRTpEagtkBgmP0vzFxX770"
+    },
+    "proofRoute" : "gateway/orders/payment"
+  }, {
+    "name" : "a header in version 3's labels and stamp shape",
+    "policy" : "mesh",
+    "sent" : [ {
+      "v" : 4,
+      "svc" : "gateway",
+      "inst" : "gw-1",
+      "rid" : "rid-http-1",
+      "ts" : 1767225598500,
+      "sess" : "",
+      "rcv" : "orders",
+      "bind" : "bind-gateway-to-orders",
+      "ext" : "",
+      "prev" : "",
+      "sig" : "dvKSJtRoNCnFcNoeaYz0x_YacyE2Kf8sDEeEa6M7wcHaW6FdQOu8j95YgaotXq0hrUtGn7hHEIy8Z2cWoWVmBg"
+    }, {
+      "v" : 4,
+      "svc" : "orders",
+      "inst" : "ord-1",
+      "rid" : "rid-http-1",
+      "ts" : 1767225599500,
+      "sess" : "",
+      "rcv" : "payment",
+      "bind" : "NWeIvDv4wI6iFaSevElXkiBnUMnM0qODvzaHJCrcq6g",
+      "ext" : "",
+      "prev" : "dvKSJtRoNCnFcNoeaYz0x_YacyE2Kf8sDEeEa6M7wcHaW6FdQOu8j95YgaotXq0hrUtGn7hHEIy8Z2cWoWVmBg",
+      "sig" : "36VnqTzdddhEtz46ZHJ3O4BMvMCUmi389g9dnwCmqDAM7-9tZ-n5iwuiK7fhkQjqNT7YwpHKLwHofzPx8uajAQ"
+    } ],
+    "sentBlocks" : [ {
+      "items" : { },
+      "requires" : [ ]
+    }, {
+      "items" : { },
+      "requires" : [ ]
+    } ],
+    "caller" : "orders",
+    "responseHeader" : "eyJsYWJlbHMiOlt7ImNpZCI6ImNpZC1yZWNlaXB0LTEiLCJjbHMiOiJwcml2YXRlIiwib3duZXIiOiJhbGljZSJ9XSwic3RhbXAiOnsiYmluZCI6IjdFbkx2dlU2dUNrQng1dEw1di1Dc1lNbVg3Y1VhY0VaM25qZUstbHJqMFUiLCJleHQiOiJvdjJsV0JQUkE0VnhyYnRRbVVVbkJEc2E3NmRoeTdCb1MtaHFaVmZFdjlNIiwiaW5zdCI6InBheS0xIiwicHJldiI6IjM2Vm5xVHpkZGRoRXR6NDZaSEozTzRCTXZNQ1VtaTM4OWc5ZG53Q21xREFNNy05dFotbjVpd3VpSzdmaGtRanFOVDdZd3BIS0x3SG9melB4OHVhakFRIiwicmN2Ijoib3JkZXJzIiwicmlkIjoicmlkLWh0dHAtMSIsInNlc3MiOiIiLCJzaWciOiJiUkFra3FJWWVtVTRqbzYzNEFRdmp2OFg0aVVnVVNhME01Tm8yMXhxNWpkNkI3ZmlNMDVFRWNuNVJqZWx3ZE9IQzlQLWQ3OWFOQWhDS1VBWXFuRGtCQSIsInN2YyI6InBheW1lbnQiLCJ0cyI6MTc2NzIyNTU5OTgwMCwidiI6NH19",
+    "status" : 200,
+    "body" : "7b2270616964223a747275657d",
+    "keyring" : {
+      "gateway" : "gateway",
+      "orders" : "orders",
+      "payment" : "payment"
+    },
+    "allowedOrigins" : [ "gateway" ],
+    "sess" : "",
+    "actsOn" : [ "influence" ],
+    "allowedExtensions" : null,
+    "now" : 1767225600000,
+    "policyNotAfter" : 4102444800000,
+    "callMaxAgeMs" : 5000,
+    "runMaxAgeMs" : 1800000,
+    "nonceTtlMs" : 15000,
+    "uses" : 1,
+    "expected" : {
+      "reason" : "CHAIN_MISSING",
+      "suspectSvc" : "",
+      "suspectInst" : "",
+      "handOver" : null,
+      "resultHash" : "UU4OiqfyEERcK0QPyXKb9wRTpEagtkBgmP0vzFxX770"
+    },
+    "proofRoute" : "gateway/orders/payment"
+  }, {
+    "name" : "a last block requiring influence at a caller that does not act on it",
+    "policy" : "mesh",
+    "sent" : [ {
+      "v" : 4,
+      "svc" : "gateway",
+      "inst" : "gw-1",
+      "rid" : "rid-http-1",
+      "ts" : 1767225598500,
+      "sess" : "",
+      "rcv" : "orders",
+      "bind" : "bind-gateway-to-orders",
+      "ext" : "",
+      "prev" : "",
+      "sig" : "dvKSJtRoNCnFcNoeaYz0x_YacyE2Kf8sDEeEa6M7wcHaW6FdQOu8j95YgaotXq0hrUtGn7hHEIy8Z2cWoWVmBg"
+    }, {
+      "v" : 4,
+      "svc" : "orders",
+      "inst" : "ord-1",
+      "rid" : "rid-http-1",
+      "ts" : 1767225599500,
+      "sess" : "",
+      "rcv" : "payment",
+      "bind" : "NWeIvDv4wI6iFaSevElXkiBnUMnM0qODvzaHJCrcq6g",
+      "ext" : "",
+      "prev" : "dvKSJtRoNCnFcNoeaYz0x_YacyE2Kf8sDEeEa6M7wcHaW6FdQOu8j95YgaotXq0hrUtGn7hHEIy8Z2cWoWVmBg",
+      "sig" : "36VnqTzdddhEtz46ZHJ3O4BMvMCUmi389g9dnwCmqDAM7-9tZ-n5iwuiK7fhkQjqNT7YwpHKLwHofzPx8uajAQ"
+    } ],
+    "sentBlocks" : [ {
+      "items" : { },
+      "requires" : [ ]
+    }, {
+      "items" : { },
+      "requires" : [ ]
+    } ],
+    "caller" : "orders",
+    "responseHeader" : "eyJibG9jayI6eyJpdGVtcyI6eyJpbmZsdWVuY2UiOltdfSwicmVxdWlyZXMiOlsiaW5mbHVlbmNlIl19LCJzdGFtcCI6eyJiaW5kIjoiN0VuTHZ2VTZ1Q2tCeDV0TDV2LUNzWU1tWDdjVWFjRVozbmplSy1scmowVSIsImV4dCI6InpwcnhVcUlHSkZxdm4xTTRMVk55MEV1a0VDbXlmM0hpaG5ubGtON1Vzb0UiLCJpbnN0IjoicGF5LTEiLCJwcmV2IjoiMzZWbnFUemRkZGhFdHo0NlpISjNPNEJNdk1DVW1pMzg5ZzlkbndDbXFEQU03LTl0Wi1uNWl3dWlLN2Zoa1FqcU5UN1l3cEhLTHdIb2Z6UHg4dWFqQVEiLCJyY3YiOiJvcmRlcnMiLCJyaWQiOiJyaWQtaHR0cC0xIiwic2VzcyI6IiIsInNpZyI6Im9SbEJKa05ZSDJtemRLb0dfOF93WU9Gc0FidWd0OHJfUTFuZG45cEh6Y0s2QWJTNXRZVUlWcV9rejBPTE5RWUpRU2hLVXVSb3RUVER4NUV3Mm9SYkRBIiwic3ZjIjoicGF5bWVudCIsInRzIjoxNzY3MjI1NTk5ODAwLCJ2Ijo0fX0",
+    "status" : 200,
+    "body" : "7b2270616964223a747275657d",
+    "keyring" : {
+      "gateway" : "gateway",
+      "orders" : "orders",
+      "payment" : "payment"
+    },
+    "allowedOrigins" : [ "gateway" ],
+    "sess" : "",
+    "actsOn" : [ ],
+    "allowedExtensions" : null,
+    "now" : 1767225600000,
+    "policyNotAfter" : 4102444800000,
+    "callMaxAgeMs" : 5000,
+    "runMaxAgeMs" : 1800000,
+    "nonceTtlMs" : 15000,
+    "uses" : 1,
+    "expected" : {
+      "reason" : "EXTENSION_REQUIRED",
+      "suspectSvc" : "",
+      "suspectInst" : "",
+      "handOver" : null,
+      "resultHash" : "UU4OiqfyEERcK0QPyXKb9wRTpEagtkBgmP0vzFxX770"
+    },
+    "proofRoute" : "gateway/orders/payment"
+  }, {
+    "name" : "a last block requiring influence at a caller that acts on it",
+    "policy" : "mesh",
+    "sent" : [ {
+      "v" : 4,
+      "svc" : "gateway",
+      "inst" : "gw-1",
+      "rid" : "rid-http-1",
+      "ts" : 1767225598500,
+      "sess" : "",
+      "rcv" : "orders",
+      "bind" : "bind-gateway-to-orders",
+      "ext" : "",
+      "prev" : "",
+      "sig" : "dvKSJtRoNCnFcNoeaYz0x_YacyE2Kf8sDEeEa6M7wcHaW6FdQOu8j95YgaotXq0hrUtGn7hHEIy8Z2cWoWVmBg"
+    }, {
+      "v" : 4,
+      "svc" : "orders",
+      "inst" : "ord-1",
+      "rid" : "rid-http-1",
+      "ts" : 1767225599500,
+      "sess" : "",
+      "rcv" : "payment",
+      "bind" : "NWeIvDv4wI6iFaSevElXkiBnUMnM0qODvzaHJCrcq6g",
+      "ext" : "",
+      "prev" : "dvKSJtRoNCnFcNoeaYz0x_YacyE2Kf8sDEeEa6M7wcHaW6FdQOu8j95YgaotXq0hrUtGn7hHEIy8Z2cWoWVmBg",
+      "sig" : "36VnqTzdddhEtz46ZHJ3O4BMvMCUmi389g9dnwCmqDAM7-9tZ-n5iwuiK7fhkQjqNT7YwpHKLwHofzPx8uajAQ"
+    } ],
+    "sentBlocks" : [ {
+      "items" : { },
+      "requires" : [ ]
+    }, {
+      "items" : { },
+      "requires" : [ ]
+    } ],
+    "caller" : "orders",
+    "responseHeader" : "eyJibG9jayI6eyJpdGVtcyI6eyJpbmZsdWVuY2UiOltdfSwicmVxdWlyZXMiOlsiaW5mbHVlbmNlIl19LCJzdGFtcCI6eyJiaW5kIjoiN0VuTHZ2VTZ1Q2tCeDV0TDV2LUNzWU1tWDdjVWFjRVozbmplSy1scmowVSIsImV4dCI6InpwcnhVcUlHSkZxdm4xTTRMVk55MEV1a0VDbXlmM0hpaG5ubGtON1Vzb0UiLCJpbnN0IjoicGF5LTEiLCJwcmV2IjoiMzZWbnFUemRkZGhFdHo0NlpISjNPNEJNdk1DVW1pMzg5ZzlkbndDbXFEQU03LTl0Wi1uNWl3dWlLN2Zoa1FqcU5UN1l3cEhLTHdIb2Z6UHg4dWFqQVEiLCJyY3YiOiJvcmRlcnMiLCJyaWQiOiJyaWQtaHR0cC0xIiwic2VzcyI6IiIsInNpZyI6Im9SbEJKa05ZSDJtemRLb0dfOF93WU9Gc0FidWd0OHJfUTFuZG45cEh6Y0s2QWJTNXRZVUlWcV9rejBPTE5RWUpRU2hLVXVSb3RUVER4NUV3Mm9SYkRBIiwic3ZjIjoicGF5bWVudCIsInRzIjoxNzY3MjI1NTk5ODAwLCJ2Ijo0fX0",
+    "status" : 200,
+    "body" : "7b2270616964223a747275657d",
+    "keyring" : {
+      "gateway" : "gateway",
+      "orders" : "orders",
+      "payment" : "payment"
+    },
+    "allowedOrigins" : [ "gateway" ],
+    "sess" : "",
+    "actsOn" : [ "influence" ],
+    "allowedExtensions" : null,
+    "now" : 1767225600000,
+    "policyNotAfter" : 4102444800000,
+    "callMaxAgeMs" : 5000,
+    "runMaxAgeMs" : 1800000,
+    "nonceTtlMs" : 15000,
+    "uses" : 1,
+    "expected" : {
+      "reason" : "OK",
+      "suspectSvc" : "payment",
+      "suspectInst" : "pay-1",
+      "handOver" : {
+        "influence" : [ {
+          "svc" : "gateway",
+          "items" : null
+        }, {
+          "svc" : "orders",
+          "items" : null
+        }, {
+          "svc" : "payment",
+          "items" : [ ]
+        } ]
+      },
+      "resultHash" : "UU4OiqfyEERcK0QPyXKb9wRTpEagtkBgmP0vzFxX770"
+    },
+    "proofRoute" : "gateway/orders/payment"
+  }, {
+    "name" : "a response on a route through operations",
+    "policy" : "ops",
+    "sent" : [ {
+      "v" : 4,
+      "svc" : "gateway",
+      "inst" : "gw-1",
+      "rid" : "rid-http-1",
+      "ts" : 1767225598500,
+      "sess" : "",
+      "rcv" : "orders#createOrder",
+      "bind" : "bind-gateway-to-orders",
+      "ext" : "",
+      "prev" : "",
+      "sig" : "aJcet_zZonvSZ1xe3kbm01_xEeBoDON2xgC4UQUY5KsR5ADyUwGeZ2QEgSma-VgkQ0G2f_h_hNeRqnlObJi6Cg"
+    }, {
+      "v" : 4,
+      "svc" : "orders",
+      "inst" : "ord-1",
+      "rid" : "rid-http-1",
+      "ts" : 1767225599500,
+      "sess" : "",
+      "rcv" : "payment#charge",
+      "bind" : "NWeIvDv4wI6iFaSevElXkiBnUMnM0qODvzaHJCrcq6g",
+      "ext" : "",
+      "prev" : "aJcet_zZonvSZ1xe3kbm01_xEeBoDON2xgC4UQUY5KsR5ADyUwGeZ2QEgSma-VgkQ0G2f_h_hNeRqnlObJi6Cg",
+      "sig" : "ASra256jQazn-QnaHBsN3sMi-Dh5jVFNGXYJO-XfiS3Znk9enr6dv-8PWDBY8LIyQmYEcpLnLpcQgnxNCiLGCw"
+    } ],
+    "sentBlocks" : [ {
+      "items" : { },
+      "requires" : [ ]
+    }, {
+      "items" : { },
+      "requires" : [ ]
+    } ],
+    "caller" : "orders",
+    "responseHeader" : "eyJibG9jayI6eyJpdGVtcyI6eyJpbmZsdWVuY2UiOltdfSwicmVxdWlyZXMiOltdfSwic3RhbXAiOnsiYmluZCI6IjdFbkx2dlU2dUNrQng1dEw1di1Dc1lNbVg3Y1VhY0VaM25qZUstbHJqMFUiLCJleHQiOiJYLWpqdkYwWFJjQ0ZtSGFrNkl3UjNHNHZWWHJQamR2Tmp3QThRZzRaang4IiwiaW5zdCI6InBheS0xIiwicHJldiI6IkFTcmEyNTZqUWF6bi1RbmFIQnNOM3NNaS1EaDVqVkZOR1hZSk8tWGZpUzNabms5ZW5yNmR2LThQV0RCWThMSXlRbVlFY3BMbkxwY1FnbnhOQ2lMR0N3IiwicmN2Ijoib3JkZXJzIiwicmlkIjoicmlkLWh0dHAtMSIsInNlc3MiOiIiLCJzaWciOiIzaFluSUhTdFM3WUw1OFZ1eFQzczhWWVplZHQtV1RGZXhOS2lQS0ZtOTI2aFVxNklXZTRJZXJ5YWpSSXg4ZGpQVFBnZW5sMkFwMm1JdEdkQ2lHbG1BdyIsInN2YyI6InBheW1lbnQiLCJ0cyI6MTc2NzIyNTU5OTgwMCwidiI6NH19",
+    "status" : 200,
+    "body" : "7b2270616964223a747275657d",
+    "keyring" : {
+      "gateway" : "gateway",
+      "orders" : "orders",
+      "payment" : "payment"
+    },
+    "allowedOrigins" : [ "gateway" ],
+    "sess" : "",
+    "actsOn" : [ "influence" ],
+    "allowedExtensions" : null,
+    "now" : 1767225600000,
+    "policyNotAfter" : 4102444800000,
+    "callMaxAgeMs" : 5000,
+    "runMaxAgeMs" : 1800000,
+    "nonceTtlMs" : 15000,
+    "uses" : 1,
+    "expected" : {
+      "reason" : "OK",
+      "suspectSvc" : "payment",
+      "suspectInst" : "pay-1",
+      "handOver" : {
+        "influence" : [ {
+          "svc" : "gateway",
+          "items" : null
+        }, {
+          "svc" : "orders",
+          "items" : null
+        }, {
+          "svc" : "payment",
+          "items" : [ ]
+        } ]
+      },
+      "resultHash" : "UU4OiqfyEERcK0QPyXKb9wRTpEagtkBgmP0vzFxX770"
+    },
+    "proofRoute" : "gateway/orders#createOrder/payment#charge"
+  }, {
+    "name" : "another operation's response key spent",
+    "policy" : "ops",
+    "sent" : [ {
+      "v" : 4,
+      "svc" : "gateway",
+      "inst" : "gw-1",
+      "rid" : "rid-http-1",
+      "ts" : 1767225598500,
+      "sess" : "",
+      "rcv" : "orders#createOrder",
+      "bind" : "bind-gateway-to-orders",
+      "ext" : "",
+      "prev" : "",
+      "sig" : "aJcet_zZonvSZ1xe3kbm01_xEeBoDON2xgC4UQUY5KsR5ADyUwGeZ2QEgSma-VgkQ0G2f_h_hNeRqnlObJi6Cg"
+    }, {
+      "v" : 4,
+      "svc" : "orders",
+      "inst" : "ord-1",
+      "rid" : "rid-http-1",
+      "ts" : 1767225599500,
+      "sess" : "",
+      "rcv" : "payment#charge",
+      "bind" : "NWeIvDv4wI6iFaSevElXkiBnUMnM0qODvzaHJCrcq6g",
+      "ext" : "",
+      "prev" : "aJcet_zZonvSZ1xe3kbm01_xEeBoDON2xgC4UQUY5KsR5ADyUwGeZ2QEgSma-VgkQ0G2f_h_hNeRqnlObJi6Cg",
+      "sig" : "ASra256jQazn-QnaHBsN3sMi-Dh5jVFNGXYJO-XfiS3Znk9enr6dv-8PWDBY8LIyQmYEcpLnLpcQgnxNCiLGCw"
+    } ],
+    "sentBlocks" : [ {
+      "items" : { },
+      "requires" : [ ]
+    }, {
+      "items" : { },
+      "requires" : [ ]
+    } ],
+    "caller" : "orders",
+    "responseHeader" : "eyJibG9jayI6eyJpdGVtcyI6eyJpbmZsdWVuY2UiOltdfSwicmVxdWlyZXMiOltdfSwic3RhbXAiOnsiYmluZCI6IjdFbkx2dlU2dUNrQng1dEw1di1Dc1lNbVg3Y1VhY0VaM25qZUstbHJqMFUiLCJleHQiOiJYLWpqdkYwWFJjQ0ZtSGFrNkl3UjNHNHZWWHJQamR2Tmp3QThRZzRaang4IiwiaW5zdCI6InBheS0xIiwicHJldiI6IkFTcmEyNTZqUWF6bi1RbmFIQnNOM3NNaS1EaDVqVkZOR1hZSk8tWGZpUzNabms5ZW5yNmR2LThQV0RCWThMSXlRbVlFY3BMbkxwY1FnbnhOQ2lMR0N3IiwicmN2Ijoib3JkZXJzIiwicmlkIjoicmlkLWh0dHAtMSIsInNlc3MiOiIiLCJzaWciOiIzaFluSUhTdFM3WUw1OFZ1eFQzczhWWVplZHQtV1RGZXhOS2lQS0ZtOTI2aFVxNklXZTRJZXJ5YWpSSXg4ZGpQVFBnZW5sMkFwMm1JdEdkQ2lHbG1BdyIsInN2YyI6InBheW1lbnQiLCJ0cyI6MTc2NzIyNTU5OTgwMCwidiI6NH19",
+    "status" : 200,
+    "body" : "7b2270616964223a747275657d",
+    "keyring" : {
+      "gateway" : "gateway",
+      "orders" : "orders",
+      "payment" : "payment"
+    },
+    "allowedOrigins" : [ "gateway" ],
+    "sess" : "",
+    "actsOn" : [ "influence" ],
+    "allowedExtensions" : null,
+    "now" : 1767225600000,
+    "policyNotAfter" : 4102444800000,
+    "callMaxAgeMs" : 5000,
+    "runMaxAgeMs" : 1800000,
+    "nonceTtlMs" : 15000,
+    "uses" : 1,
+    "expected" : {
+      "reason" : "OK",
+      "suspectSvc" : "payment",
+      "suspectInst" : "pay-1",
+      "handOver" : {
+        "influence" : [ {
+          "svc" : "gateway",
+          "items" : null
+        }, {
+          "svc" : "orders",
+          "items" : null
+        }, {
+          "svc" : "payment",
+          "items" : [ ]
+        } ]
+      },
+      "resultHash" : "UU4OiqfyEERcK0QPyXKb9wRTpEagtkBgmP0vzFxX770"
+    },
+    "spent" : [ "[\"rid-http-1\",\"payment#refund\",\"resp\"]" ],
+    "proofRoute" : "gateway/orders#createOrder/payment#charge"
+  }, {
+    "name" : "this operation's response key spent",
+    "policy" : "ops",
+    "sent" : [ {
+      "v" : 4,
+      "svc" : "gateway",
+      "inst" : "gw-1",
+      "rid" : "rid-http-1",
+      "ts" : 1767225598500,
+      "sess" : "",
+      "rcv" : "orders#createOrder",
+      "bind" : "bind-gateway-to-orders",
+      "ext" : "",
+      "prev" : "",
+      "sig" : "aJcet_zZonvSZ1xe3kbm01_xEeBoDON2xgC4UQUY5KsR5ADyUwGeZ2QEgSma-VgkQ0G2f_h_hNeRqnlObJi6Cg"
+    }, {
+      "v" : 4,
+      "svc" : "orders",
+      "inst" : "ord-1",
+      "rid" : "rid-http-1",
+      "ts" : 1767225599500,
+      "sess" : "",
+      "rcv" : "payment#charge",
+      "bind" : "NWeIvDv4wI6iFaSevElXkiBnUMnM0qODvzaHJCrcq6g",
+      "ext" : "",
+      "prev" : "aJcet_zZonvSZ1xe3kbm01_xEeBoDON2xgC4UQUY5KsR5ADyUwGeZ2QEgSma-VgkQ0G2f_h_hNeRqnlObJi6Cg",
+      "sig" : "ASra256jQazn-QnaHBsN3sMi-Dh5jVFNGXYJO-XfiS3Znk9enr6dv-8PWDBY8LIyQmYEcpLnLpcQgnxNCiLGCw"
+    } ],
+    "sentBlocks" : [ {
+      "items" : { },
+      "requires" : [ ]
+    }, {
+      "items" : { },
+      "requires" : [ ]
+    } ],
+    "caller" : "orders",
+    "responseHeader" : "eyJibG9jayI6eyJpdGVtcyI6eyJpbmZsdWVuY2UiOltdfSwicmVxdWlyZXMiOltdfSwic3RhbXAiOnsiYmluZCI6IjdFbkx2dlU2dUNrQng1dEw1di1Dc1lNbVg3Y1VhY0VaM25qZUstbHJqMFUiLCJleHQiOiJYLWpqdkYwWFJjQ0ZtSGFrNkl3UjNHNHZWWHJQamR2Tmp3QThRZzRaang4IiwiaW5zdCI6InBheS0xIiwicHJldiI6IkFTcmEyNTZqUWF6bi1RbmFIQnNOM3NNaS1EaDVqVkZOR1hZSk8tWGZpUzNabms5ZW5yNmR2LThQV0RCWThMSXlRbVlFY3BMbkxwY1FnbnhOQ2lMR0N3IiwicmN2Ijoib3JkZXJzIiwicmlkIjoicmlkLWh0dHAtMSIsInNlc3MiOiIiLCJzaWciOiIzaFluSUhTdFM3WUw1OFZ1eFQzczhWWVplZHQtV1RGZXhOS2lQS0ZtOTI2aFVxNklXZTRJZXJ5YWpSSXg4ZGpQVFBnZW5sMkFwMm1JdEdkQ2lHbG1BdyIsInN2YyI6InBheW1lbnQiLCJ0cyI6MTc2NzIyNTU5OTgwMCwidiI6NH19",
+    "status" : 200,
+    "body" : "7b2270616964223a747275657d",
+    "keyring" : {
+      "gateway" : "gateway",
+      "orders" : "orders",
+      "payment" : "payment"
+    },
+    "allowedOrigins" : [ "gateway" ],
+    "sess" : "",
+    "actsOn" : [ "influence" ],
+    "allowedExtensions" : null,
+    "now" : 1767225600000,
+    "policyNotAfter" : 4102444800000,
+    "callMaxAgeMs" : 5000,
+    "runMaxAgeMs" : 1800000,
+    "nonceTtlMs" : 15000,
+    "uses" : 1,
+    "expected" : {
+      "reason" : "REPLAY",
+      "suspectSvc" : "",
+      "suspectInst" : "",
+      "handOver" : null,
+      "resultHash" : "UU4OiqfyEERcK0QPyXKb9wRTpEagtkBgmP0vzFxX770"
+    },
+    "spent" : [ "[\"rid-http-1\",\"payment#charge\",\"resp\"]" ],
+    "proofRoute" : "gateway/orders#createOrder/payment#charge"
+  } ],
+  "boundaryInfluence" : {
+    "key" : "AAUfgGLdjeo1V7yVo37Q6S7_oU7vCp6ebTIGhqOP2Yw",
+    "rid" : "rid-http-1",
+    "rcv" : "psp",
+    "egress" : "payment",
+    "input" : [ {
+      "cls" : "private",
+      "src" : "http:orders",
+      "h" : "h-order-1",
+      "cid" : "cid-order-1",
+      "owner" : "alice"
+    }, {
+      "cls" : "private",
+      "src" : "http:cards",
+      "h" : "h-card-1",
+      "owner" : "alice"
+    }, {
+      "cls" : "third-party",
+      "src" : "ticket:t-1",
+      "h" : "h-ticket-1",
+      "cid" : "cid-ticket-1"
+    }, {
+      "cls" : "private",
+      "src" : "http:ledger",
+      "h" : "h-ledger-1"
+    } ],
+    "salts" : [ {
+      "cls" : "private",
+      "owner" : "alice",
+      "salt" : "-kN8YOjmxnwiGm4BTq9hXw"
+    }, {
+      "cls" : "third-party",
+      "salt" : "zQWiqgWZBnMqPTmIK7hOsw"
+    }, {
+      "cls" : "private",
+      "salt" : "s5VIRUEsqB_NUuHi_TPYWg"
+    } ],
+    "reduced" : [ {
+      "cls" : "private",
+      "src" : "boundary:payment",
+      "h" : "Kp_I-ofNJ0CLjd_Ne45_DgIwwU1rDdcb1pw-8NBOGCs",
+      "owner" : "alice"
+    }, {
+      "cls" : "third-party",
+      "src" : "boundary:payment",
+      "h" : "gRdRS5sINcb6SUdooNBZZ8qUxL9RNWsxO_L0OPY6HEo"
+    }, {
+      "cls" : "private",
+      "src" : "boundary:payment",
+      "h" : "w9UGykjY-KQy5U7LJ7xPnriI5KolffE5BTHAh6XN_IY"
+    } ],
+    "openings" : [ {
+      "name" : "genuine opening",
+      "sent" : {
+        "cls" : "private",
+        "src" : "boundary:payment",
+        "h" : "Kp_I-ofNJ0CLjd_Ne45_DgIwwU1rDdcb1pw-8NBOGCs",
+        "owner" : "alice"
+      },
+      "opening" : {
+        "cls" : "private",
+        "owner" : "alice",
+        "salt" : "-kN8YOjmxnwiGm4BTq9hXw",
+        "originals" : [ {
+          "cls" : "private",
+          "src" : "http:orders",
+          "h" : "h-order-1",
+          "cid" : "cid-order-1",
+          "owner" : "alice"
+        }, {
+          "cls" : "private",
+          "src" : "http:cards",
+          "h" : "h-card-1",
+          "owner" : "alice"
+        } ]
+      },
+      "body" : "7b22636c73223a2270726976617465222c226f726967696e616c73223a5b7b22636964223a226369642d6f726465722d31222c22636c73223a2270726976617465222c2268223a22682d6f726465722d31222c226f776e6572223a22616c696365222c22737263223a22687474703a6f7264657273227d2c7b22636c73223a2270726976617465222c2268223a22682d636172642d31222c226f776e6572223a22616c696365222c22737263223a22687474703a6361726473227d5d2c226f776e6572223a22616c696365222c2273616c74223a222d6b4e38594f6a6d786e7769476d3442547139685877227d",
+      "opens" : true
+    }, {
+      "name" : "extra original",
+      "sent" : {
+        "cls" : "private",
+        "src" : "boundary:payment",
+        "h" : "Kp_I-ofNJ0CLjd_Ne45_DgIwwU1rDdcb1pw-8NBOGCs",
+        "owner" : "alice"
+      },
+      "opening" : {
+        "cls" : "private",
+        "owner" : "alice",
+        "salt" : "-kN8YOjmxnwiGm4BTq9hXw",
+        "originals" : [ {
+          "cls" : "private",
+          "src" : "http:orders",
+          "h" : "h-order-1",
+          "cid" : "cid-order-1",
+          "owner" : "alice"
+        }, {
+          "cls" : "private",
+          "src" : "http:cards",
+          "h" : "h-card-1",
+          "owner" : "alice"
+        }, {
+          "cls" : "private",
+          "src" : "http:orders",
+          "h" : "h-order-2",
+          "owner" : "alice"
+        } ]
+      },
+      "body" : "7b22636c73223a2270726976617465222c226f726967696e616c73223a5b7b22636964223a226369642d6f726465722d31222c22636c73223a2270726976617465222c2268223a22682d6f726465722d31222c226f776e6572223a22616c696365222c22737263223a22687474703a6f7264657273227d2c7b22636c73223a2270726976617465222c2268223a22682d636172642d31222c226f776e6572223a22616c696365222c22737263223a22687474703a6361726473227d2c7b22636c73223a2270726976617465222c2268223a22682d6f726465722d32222c226f776e6572223a22616c696365222c22737263223a22687474703a6f7264657273227d5d2c226f776e6572223a22616c696365222c2273616c74223a222d6b4e38594f6a6d786e7769476d3442547139685877227d",
+      "opens" : false
+    } ]
+  },
+  "operations" : {
+    "table" : {
+      "file" : "{\n  \"operations\": [\n    {\n      \"method\": \"POST\",\n      \"name\": \"createOrder\",\n      \"template\": \"/orders\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"findOrders\",\n      \"template\": \"/orders\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"getOrder\",\n      \"template\": \"/orders/{}\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"search\",\n      \"template\": \"/orders/search\"\n    }\n  ],\n  \"service\": \"orders\",\n  \"v\": 1\n}\n",
+      "value" : {
+        "operations" : [ {
+          "method" : "POST",
+          "name" : "createOrder",
+          "template" : "/orders"
+        }, {
+          "method" : "GET",
+          "name" : "findOrders",
+          "template" : "/orders"
+        }, {
+          "method" : "GET",
+          "name" : "getOrder",
+          "template" : "/orders/{}"
+        }, {
+          "method" : "GET",
+          "name" : "search",
+          "template" : "/orders/search"
+        } ],
+        "service" : "orders",
+        "v" : 1
+      },
+      "opsHash" : "LcR_csw-F8l5ZDZG-tft6v0enkIsOopOnYDoQgE8DtM",
+      "route" : [ "orders", "ops:LcR_csw-F8l5ZDZG-tft6v0enkIsOopOnYDoQgE8DtM" ]
+    },
+    "shared" : {
+      "file" : "{\n  \"operations\": [\n    {\n      \"method\": \"POST\",\n      \"name\": \"charge\",\n      \"template\": \"/charge\"\n    },\n    {\n      \"method\": \"POST\",\n      \"name\": \"refund\",\n      \"query\": {\n        \"mode\": \"refund\"\n      },\n      \"template\": \"/charge\"\n    },\n    {\n      \"method\": \"POST\",\n      \"name\": \"pay\",\n      \"template\": \"/pay\"\n    }\n  ],\n  \"service\": \"payment\",\n  \"v\": 1\n}\n",
+      "value" : {
+        "operations" : [ {
+          "method" : "POST",
+          "name" : "charge",
+          "template" : "/charge"
+        }, {
+          "method" : "POST",
+          "name" : "refund",
+          "query" : {
+            "mode" : "refund"
+          },
+          "template" : "/charge"
+        }, {
+          "method" : "POST",
+          "name" : "pay",
+          "template" : "/pay"
+        } ],
+        "service" : "payment",
+        "v" : 1
+      },
+      "opsHash" : "ng68_V-yE_QyE2y-_RwTHxvSUGbo81WsJhOKo3Itovs",
+      "route" : [ "payment", "ops:ng68_V-yE_QyE2y-_RwTHxvSUGbo81WsJhOKo3Itovs" ]
+    },
+    "keyed" : {
+      "file" : "{\n  \"operations\": [\n    {\n      \"key\": {\n        \"segment\": 1\n      },\n      \"method\": \"POST\",\n      \"name\": \"reserve\",\n      \"template\": \"/items/{}/reserve\"\n    },\n    {\n      \"key\": {\n        \"query\": \"line\"\n      },\n      \"method\": \"GET\",\n      \"name\": \"getLine\",\n      \"template\": \"/lines\"\n    },\n    {\n      \"key\": {\n        \"maxLength\": 256,\n        \"segment\": 1\n      },\n      \"method\": \"GET\",\n      \"name\": \"getRecord\",\n      \"template\": \"/records/{}\"\n    },\n    {\n      \"method\": \"POST\",\n      \"name\": \"createOrder\",\n      \"template\": \"/orders\"\n    }\n  ],\n  \"service\": \"orders\",\n  \"v\": 1\n}\n",
+      "value" : {
+        "operations" : [ {
+          "key" : {
+            "segment" : 1
+          },
+          "method" : "POST",
+          "name" : "reserve",
+          "template" : "/items/{}/reserve"
+        }, {
+          "key" : {
+            "query" : "line"
+          },
+          "method" : "GET",
+          "name" : "getLine",
+          "template" : "/lines"
+        }, {
+          "key" : {
+            "maxLength" : 256,
+            "segment" : 1
+          },
+          "method" : "GET",
+          "name" : "getRecord",
+          "template" : "/records/{}"
+        }, {
+          "method" : "POST",
+          "name" : "createOrder",
+          "template" : "/orders"
+        } ],
+        "service" : "orders",
+        "v" : 1
+      },
+      "opsHash" : "SPjj73tHUvaxGKOk-iggaSUiRNFMrdykuZGr48YNxAc",
+      "route" : [ "orders", "ops:SPjj73tHUvaxGKOk-iggaSUiRNFMrdykuZGr48YNxAc" ]
+    },
+    "refused" : [ {
+      "name" : "an operation name holding #",
+      "file" : "{\"operations\":[{\"method\":\"POST\",\"name\":\"create#Order\",\"template\":\"/orders\"}],\"service\":\"orders\",\"v\":1}",
+      "expected" : "refused"
+    }, {
+      "name" : "two operations with one name",
+      "file" : "{\"operations\":[{\"method\":\"POST\",\"name\":\"createOrder\",\"template\":\"/orders\"},{\"method\":\"GET\",\"name\":\"createOrder\",\"template\":\"/orders/{}\"}],\"service\":\"orders\",\"v\":1}",
+      "expected" : "refused"
+    }, {
+      "name" : "two operations with one method and template",
+      "file" : "{\"operations\":[{\"method\":\"POST\",\"name\":\"createOrder\",\"template\":\"/orders\"},{\"method\":\"POST\",\"name\":\"other\",\"template\":\"/orders\"}],\"service\":\"orders\",\"v\":1}",
+      "expected" : "refused"
+    }, {
+      "name" : "a template without a leading slash",
+      "file" : "{\"operations\":[{\"method\":\"POST\",\"name\":\"x\",\"template\":\"orders\"}],\"service\":\"orders\",\"v\":1}",
+      "expected" : "refused"
+    }, {
+      "name" : "a template with an empty segment",
+      "file" : "{\"operations\":[{\"method\":\"POST\",\"name\":\"x\",\"template\":\"/orders//x\"}],\"service\":\"orders\",\"v\":1}",
+      "expected" : "refused"
+    }, {
+      "name" : "a named path parameter",
+      "file" : "{\"operations\":[{\"method\":\"POST\",\"name\":\"x\",\"template\":\"/orders/{id}\"}],\"service\":\"orders\",\"v\":1}",
+      "expected" : "refused"
+    }, {
+      "name" : "a parameter inside a segment",
+      "file" : "{\"operations\":[{\"method\":\"POST\",\"name\":\"x\",\"template\":\"/a{}\"}],\"service\":\"orders\",\"v\":1}",
+      "expected" : "refused"
+    }, {
+      "name" : "a literal holding ?",
+      "file" : "{\"operations\":[{\"method\":\"POST\",\"name\":\"x\",\"template\":\"/a?b\"}],\"service\":\"orders\",\"v\":1}",
+      "expected" : "refused"
+    }, {
+      "name" : "a lowercase method",
+      "file" : "{\"operations\":[{\"method\":\"get\",\"name\":\"x\",\"template\":\"/orders\"}],\"service\":\"orders\",\"v\":1}",
+      "expected" : "refused"
+    }, {
+      "name" : "no operations",
+      "file" : "{\"operations\":[],\"service\":\"orders\",\"v\":1}",
+      "expected" : "refused"
+    }, {
+      "name" : "version 2",
+      "file" : "{\"operations\":[{\"method\":\"POST\",\"name\":\"createOrder\",\"template\":\"/orders\"}],\"service\":\"orders\",\"v\":2}",
+      "expected" : "refused"
+    }, {
+      "name" : "a service name holding #",
+      "file" : "{\"operations\":[{\"method\":\"POST\",\"name\":\"createOrder\",\"template\":\"/orders\"}],\"service\":\"a#b\",\"v\":1}",
+      "expected" : "refused"
+    }, {
+      "name" : "an extra member on the table",
+      "file" : "{\"extra\":1,\"operations\":[{\"method\":\"POST\",\"name\":\"createOrder\",\"template\":\"/orders\"}],\"service\":\"orders\",\"v\":1}",
+      "expected" : "refused"
+    }, {
+      "name" : "an extra member on an operation",
+      "file" : "{\"operations\":[{\"extra\":1,\"method\":\"POST\",\"name\":\"x\",\"template\":\"/\"}],\"service\":\"orders\",\"v\":1}",
+      "expected" : "refused"
+    }, {
+      "name" : "a query with two members",
+      "file" : "{\"operations\":[{\"method\":\"POST\",\"name\":\"charge\",\"template\":\"/charge\"},{\"method\":\"POST\",\"name\":\"refund\",\"query\":{\"mode\":\"refund\",\"kind\":\"x\"},\"template\":\"/charge\"}],\"service\":\"payment\",\"v\":1}",
+      "expected" : "refused"
+    }, {
+      "name" : "a query value with a reserved character",
+      "file" : "{\"operations\":[{\"method\":\"POST\",\"name\":\"charge\",\"template\":\"/charge\"},{\"method\":\"POST\",\"name\":\"refund\",\"query\":{\"mode\":\"re/fund\"},\"template\":\"/charge\"}],\"service\":\"payment\",\"v\":1}",
+      "expected" : "refused"
+    }, {
+      "name" : "an empty query value",
+      "file" : "{\"operations\":[{\"method\":\"POST\",\"name\":\"charge\",\"template\":\"/charge\"},{\"method\":\"POST\",\"name\":\"refund\",\"query\":{\"mode\":\"\"},\"template\":\"/charge\"}],\"service\":\"payment\",\"v\":1}",
+      "expected" : "refused"
+    }, {
+      "name" : "a query that is not an object",
+      "file" : "{\"operations\":[{\"method\":\"POST\",\"name\":\"charge\",\"template\":\"/charge\"},{\"method\":\"POST\",\"name\":\"refund\",\"query\":\"mode=refund\",\"template\":\"/charge\"}],\"service\":\"payment\",\"v\":1}",
+      "expected" : "refused"
+    }, {
+      "name" : "conditions on one entrance naming different parameters",
+      "file" : "{\"operations\":[{\"method\":\"POST\",\"name\":\"refund\",\"query\":{\"mode\":\"refund\"},\"template\":\"/charge\"},{\"method\":\"POST\",\"name\":\"cancel\",\"query\":{\"kind\":\"x\"},\"template\":\"/charge\"}],\"service\":\"payment\",\"v\":1}",
+      "expected" : "refused"
+    }, {
+      "name" : "two operations of one entrance with one condition",
+      "file" : "{\"operations\":[{\"method\":\"POST\",\"name\":\"refund\",\"query\":{\"mode\":\"refund\"},\"template\":\"/charge\"},{\"method\":\"POST\",\"name\":\"cancel\",\"query\":{\"mode\":\"refund\"},\"template\":\"/charge\"}],\"service\":\"payment\",\"v\":1}",
+      "expected" : "refused"
+    }, {
+      "name" : "a key with a segment and a query",
+      "file" : "{\"operations\":[{\"key\":{\"query\":\"line\",\"segment\":1},\"method\":\"POST\",\"name\":\"reserve\",\"template\":\"/items/{}/reserve\"}],\"service\":\"orders\",\"v\":1}",
+      "expected" : "refused"
+    }, {
+      "name" : "a key with neither a segment nor a query",
+      "file" : "{\"operations\":[{\"key\":{\"maxLength\":64},\"method\":\"POST\",\"name\":\"reserve\",\"template\":\"/items/{}/reserve\"}],\"service\":\"orders\",\"v\":1}",
+      "expected" : "refused"
+    }, {
+      "name" : "an extra member on a key",
+      "file" : "{\"operations\":[{\"key\":{\"extra\":1,\"segment\":1},\"method\":\"POST\",\"name\":\"reserve\",\"template\":\"/items/{}/reserve\"}],\"service\":\"orders\",\"v\":1}",
+      "expected" : "refused"
+    }, {
+      "name" : "a key segment of 0",
+      "file" : "{\"operations\":[{\"key\":{\"segment\":0},\"method\":\"POST\",\"name\":\"reserve\",\"template\":\"/items/{}/reserve\"}],\"service\":\"orders\",\"v\":1}",
+      "expected" : "refused"
+    }, {
+      "name" : "a key segment past the template's parameters",
+      "file" : "{\"operations\":[{\"key\":{\"segment\":2},\"method\":\"POST\",\"name\":\"reserve\",\"template\":\"/items/{}/reserve\"}],\"service\":\"orders\",\"v\":1}",
+      "expected" : "refused"
+    }, {
+      "name" : "a key segment on a template with no parameter",
+      "file" : "{\"operations\":[{\"key\":{\"segment\":1},\"method\":\"POST\",\"name\":\"createOrder\",\"template\":\"/orders\"}],\"service\":\"orders\",\"v\":1}",
+      "expected" : "refused"
+    }, {
+      "name" : "a key segment that is not an integer",
+      "file" : "{\"operations\":[{\"key\":{\"segment\":\"1\"},\"method\":\"POST\",\"name\":\"reserve\",\"template\":\"/items/{}/reserve\"}],\"service\":\"orders\",\"v\":1}",
+      "expected" : "refused"
+    }, {
+      "name" : "a key query name with a reserved character",
+      "file" : "{\"operations\":[{\"key\":{\"query\":\"li/ne\"},\"method\":\"GET\",\"name\":\"getLine\",\"template\":\"/lines\"}],\"service\":\"orders\",\"v\":1}",
+      "expected" : "refused"
+    }, {
+      "name" : "an empty key query name",
+      "file" : "{\"operations\":[{\"key\":{\"query\":\"\"},\"method\":\"GET\",\"name\":\"getLine\",\"template\":\"/lines\"}],\"service\":\"orders\",\"v\":1}",
+      "expected" : "refused"
+    }, {
+      "name" : "a key query naming its entrance's condition parameter",
+      "file" : "{\"operations\":[{\"key\":{\"query\":\"mode\"},\"method\":\"POST\",\"name\":\"charge\",\"template\":\"/charge\"},{\"method\":\"POST\",\"name\":\"refund\",\"query\":{\"mode\":\"refund\"},\"template\":\"/charge\"}],\"service\":\"payment\",\"v\":1}",
+      "expected" : "refused"
+    }, {
+      "name" : "a key maxLength of 0",
+      "file" : "{\"operations\":[{\"key\":{\"maxLength\":0,\"segment\":1},\"method\":\"POST\",\"name\":\"reserve\",\"template\":\"/items/{}/reserve\"}],\"service\":\"orders\",\"v\":1}",
+      "expected" : "refused"
+    }, {
+      "name" : "a key maxLength of 1025",
+      "file" : "{\"operations\":[{\"key\":{\"maxLength\":1025,\"segment\":1},\"method\":\"POST\",\"name\":\"reserve\",\"template\":\"/items/{}/reserve\"}],\"service\":\"orders\",\"v\":1}",
+      "expected" : "refused"
+    }, {
+      "name" : "a key maxLength that is not an integer",
+      "file" : "{\"operations\":[{\"key\":{\"maxLength\":\"128\",\"segment\":1},\"method\":\"POST\",\"name\":\"reserve\",\"template\":\"/items/{}/reserve\"}],\"service\":\"orders\",\"v\":1}",
+      "expected" : "refused"
+    }, {
+      "name" : "a key that is not an object",
+      "file" : "{\"operations\":[{\"key\":1,\"method\":\"POST\",\"name\":\"reserve\",\"template\":\"/items/{}/reserve\"}],\"service\":\"orders\",\"v\":1}",
+      "expected" : "refused"
+    } ],
+    "match" : [ {
+      "table" : "{\n  \"operations\": [\n    {\n      \"method\": \"POST\",\n      \"name\": \"createOrder\",\n      \"template\": \"/orders\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"findOrders\",\n      \"template\": \"/orders\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"getOrder\",\n      \"template\": \"/orders/{}\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"search\",\n      \"template\": \"/orders/search\"\n    }\n  ],\n  \"service\": \"orders\",\n  \"v\": 1\n}\n",
+      "method" : "GET",
+      "path" : "/orders/search",
+      "query" : null,
+      "expected" : "search"
+    }, {
+      "table" : "{\n  \"operations\": [\n    {\n      \"method\": \"POST\",\n      \"name\": \"createOrder\",\n      \"template\": \"/orders\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"findOrders\",\n      \"template\": \"/orders\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"getOrder\",\n      \"template\": \"/orders/{}\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"search\",\n      \"template\": \"/orders/search\"\n    }\n  ],\n  \"service\": \"orders\",\n  \"v\": 1\n}\n",
+      "method" : "GET",
+      "path" : "/orders/123",
+      "query" : null,
+      "expected" : "getOrder"
+    }, {
+      "table" : "{\n  \"operations\": [\n    {\n      \"method\": \"POST\",\n      \"name\": \"createOrder\",\n      \"template\": \"/orders\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"findOrders\",\n      \"template\": \"/orders\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"getOrder\",\n      \"template\": \"/orders/{}\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"search\",\n      \"template\": \"/orders/search\"\n    }\n  ],\n  \"service\": \"orders\",\n  \"v\": 1\n}\n",
+      "method" : "GET",
+      "path" : "/orders",
+      "query" : null,
+      "expected" : "findOrders"
+    }, {
+      "table" : "{\n  \"operations\": [\n    {\n      \"method\": \"POST\",\n      \"name\": \"createOrder\",\n      \"template\": \"/orders\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"findOrders\",\n      \"template\": \"/orders\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"getOrder\",\n      \"template\": \"/orders/{}\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"search\",\n      \"template\": \"/orders/search\"\n    }\n  ],\n  \"service\": \"orders\",\n  \"v\": 1\n}\n",
+      "method" : "POST",
+      "path" : "/orders",
+      "query" : null,
+      "expected" : "createOrder"
+    }, {
+      "table" : "{\n  \"operations\": [\n    {\n      \"method\": \"POST\",\n      \"name\": \"createOrder\",\n      \"template\": \"/orders\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"findOrders\",\n      \"template\": \"/orders\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"getOrder\",\n      \"template\": \"/orders/{}\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"search\",\n      \"template\": \"/orders/search\"\n    }\n  ],\n  \"service\": \"orders\",\n  \"v\": 1\n}\n",
+      "method" : "GET",
+      "path" : "/orders/a%2Fb",
+      "query" : null,
+      "expected" : "getOrder"
+    }, {
+      "table" : "{\n  \"operations\": [\n    {\n      \"method\": \"POST\",\n      \"name\": \"createOrder\",\n      \"template\": \"/orders\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"findOrders\",\n      \"template\": \"/orders\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"getOrder\",\n      \"template\": \"/orders/{}\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"search\",\n      \"template\": \"/orders/search\"\n    }\n  ],\n  \"service\": \"orders\",\n  \"v\": 1\n}\n",
+      "method" : "GET",
+      "path" : "/orders/",
+      "query" : null,
+      "expected" : null
+    }, {
+      "table" : "{\n  \"operations\": [\n    {\n      \"method\": \"POST\",\n      \"name\": \"createOrder\",\n      \"template\": \"/orders\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"findOrders\",\n      \"template\": \"/orders\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"getOrder\",\n      \"template\": \"/orders/{}\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"search\",\n      \"template\": \"/orders/search\"\n    }\n  ],\n  \"service\": \"orders\",\n  \"v\": 1\n}\n",
+      "method" : "GET",
+      "path" : "/orders/123/items",
+      "query" : null,
+      "expected" : null
+    }, {
+      "table" : "{\n  \"operations\": [\n    {\n      \"method\": \"POST\",\n      \"name\": \"createOrder\",\n      \"template\": \"/orders\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"findOrders\",\n      \"template\": \"/orders\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"getOrder\",\n      \"template\": \"/orders/{}\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"search\",\n      \"template\": \"/orders/search\"\n    }\n  ],\n  \"service\": \"orders\",\n  \"v\": 1\n}\n",
+      "method" : "get",
+      "path" : "/orders",
+      "query" : null,
+      "expected" : null
+    }, {
+      "table" : "{\n  \"operations\": [\n    {\n      \"method\": \"POST\",\n      \"name\": \"createOrder\",\n      \"template\": \"/orders\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"findOrders\",\n      \"template\": \"/orders\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"getOrder\",\n      \"template\": \"/orders/{}\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"search\",\n      \"template\": \"/orders/search\"\n    }\n  ],\n  \"service\": \"orders\",\n  \"v\": 1\n}\n",
+      "method" : "DELETE",
+      "path" : "/orders",
+      "query" : null,
+      "expected" : null
+    }, {
+      "table" : "{\n  \"operations\": [\n    {\n      \"method\": \"GET\",\n      \"name\": \"x\",\n      \"template\": \"/a/{}/c\"\n    },\n    {\n      \"method\": \"GET\",\n      \"name\": \"y\",\n      \"template\": \"/a/b/{}\"\n    }\n  ],\n  \"service\": \"orders\",\n  \"v\": 1\n}\n",
+      "method" : "GET",
+      "path" : "/a/b/c",
+      "query" : null,
+      "expected" : "y"
+    }, {
+      "table" : "{\n  \"operations\": [\n    {\n      \"method\": \"POST\",\n      \"name\": \"charge\",\n      \"template\": \"/charge\"\n    },\n    {\n      \"method\": \"POST\",\n      \"name\": \"refund\",\n      \"query\": {\n        \"mode\": \"refund\"\n      },\n      \"template\": \"/charge\"\n    },\n    {\n      \"method\": \"POST\",\n      \"name\": \"pay\",\n      \"template\": \"/pay\"\n    }\n  ],\n  \"service\": \"payment\",\n  \"v\": 1\n}\n",
+      "method" : "POST",
+      "path" : "/charge",
+      "query" : "mode=refund",
+      "expected" : "refund"
+    }, {
+      "table" : "{\n  \"operations\": [\n    {\n      \"method\": \"POST\",\n      \"name\": \"charge\",\n      \"template\": \"/charge\"\n    },\n    {\n      \"method\": \"POST\",\n      \"name\": \"refund\",\n      \"query\": {\n        \"mode\": \"refund\"\n      },\n      \"template\": \"/charge\"\n    },\n    {\n      \"method\": \"POST\",\n      \"name\": \"pay\",\n      \"template\": \"/pay\"\n    }\n  ],\n  \"service\": \"payment\",\n  \"v\": 1\n}\n",
+      "method" : "POST",
+      "path" : "/charge",
+      "query" : null,
+      "expected" : "charge"
+    }, {
+      "table" : "{\n  \"operations\": [\n    {\n      \"method\": \"POST\",\n      \"name\": \"charge\",\n      \"template\": \"/charge\"\n    },\n    {\n      \"method\": \"POST\",\n      \"name\": \"refund\",\n      \"query\": {\n        \"mode\": \"refund\"\n      },\n      \"template\": \"/charge\"\n    },\n    {\n      \"method\": \"POST\",\n      \"name\": \"pay\",\n      \"template\": \"/pay\"\n    }\n  ],\n  \"service\": \"payment\",\n  \"v\": 1\n}\n",
+      "method" : "POST",
+      "path" : "/charge",
+      "query" : "mode=x",
+      "expected" : "charge"
+    }, {
+      "table" : "{\n  \"operations\": [\n    {\n      \"method\": \"POST\",\n      \"name\": \"charge\",\n      \"template\": \"/charge\"\n    },\n    {\n      \"method\": \"POST\",\n      \"name\": \"refund\",\n      \"query\": {\n        \"mode\": \"refund\"\n      },\n      \"template\": \"/charge\"\n    },\n    {\n      \"method\": \"POST\",\n      \"name\": \"pay\",\n      \"template\": \"/pay\"\n    }\n  ],\n  \"service\": \"payment\",\n  \"v\": 1\n}\n",
+      "method" : "POST",
+      "path" : "/charge",
+      "query" : "other=1",
+      "expected" : "charge"
+    }, {
+      "table" : "{\n  \"operations\": [\n    {\n      \"method\": \"POST\",\n      \"name\": \"charge\",\n      \"template\": \"/charge\"\n    },\n    {\n      \"method\": \"POST\",\n      \"name\": \"refund\",\n      \"query\": {\n        \"mode\": \"refund\"\n      },\n      \"template\": \"/charge\"\n    },\n    {\n      \"method\": \"POST\",\n      \"name\": \"pay\",\n      \"template\": \"/pay\"\n    }\n  ],\n  \"service\": \"payment\",\n  \"v\": 1\n}\n",
+      "method" : "POST",
+      "path" : "/charge",
+      "query" : "other=1&mode=refund",
+      "expected" : "refund"
+    }, {
+      "table" : "{\n  \"operations\": [\n    {\n      \"method\": \"POST\",\n      \"name\": \"charge\",\n      \"template\": \"/charge\"\n    },\n    {\n      \"method\": \"POST\",\n      \"name\": \"refund\",\n      \"query\": {\n        \"mode\": \"refund\"\n      },\n      \"template\": \"/charge\"\n    },\n    {\n      \"method\": \"POST\",\n      \"name\": \"pay\",\n      \"template\": \"/pay\"\n    }\n  ],\n  \"service\": \"payment\",\n  \"v\": 1\n}\n",
+      "method" : "POST",
+      "path" : "/charge",
+      "query" : "mode=refund&mode=refund",
+      "expected" : null
+    }, {
+      "table" : "{\n  \"operations\": [\n    {\n      \"method\": \"POST\",\n      \"name\": \"charge\",\n      \"template\": \"/charge\"\n    },\n    {\n      \"method\": \"POST\",\n      \"name\": \"refund\",\n      \"query\": {\n        \"mode\": \"refund\"\n      },\n      \"template\": \"/charge\"\n    },\n    {\n      \"method\": \"POST\",\n      \"name\": \"pay\",\n      \"template\": \"/pay\"\n    }\n  ],\n  \"service\": \"payment\",\n  \"v\": 1\n}\n",
+      "method" : "POST",
+      "path" : "/charge",
+      "query" : "mode=%72efund",
+      "expected" : "charge"
+    } ],
+    "keys" : [ {
+      "name" : "a segment key",
+      "table" : "{\n  \"operations\": [\n    {\n      \"key\": {\n        \"segment\": 1\n      },\n      \"method\": \"POST\",\n      \"name\": \"reserve\",\n      \"template\": \"/items/{}/reserve\"\n    },\n    {\n      \"key\": {\n        \"query\": \"line\"\n      },\n      \"method\": \"GET\",\n      \"name\": \"getLine\",\n      \"template\": \"/lines\"\n    },\n    {\n      \"key\": {\n        \"maxLength\": 256,\n        \"segment\": 1\n      },\n      \"method\": \"GET\",\n      \"name\": \"getRecord\",\n      \"template\": \"/records/{}\"\n    },\n    {\n      \"method\": \"POST\",\n      \"name\": \"createOrder\",\n      \"template\": \"/orders\"\n    }\n  ],\n  \"service\": \"orders\",\n  \"v\": 1\n}\n",
+      "method" : "POST",
+      "path" : "/items/A1/reserve",
+      "query" : null,
+      "expected" : {
+        "operation" : "reserve",
+        "key" : "A1"
+      }
+    }, {
+      "name" : "a query key",
+      "table" : "{\n  \"operations\": [\n    {\n      \"key\": {\n        \"segment\": 1\n      },\n      \"method\": \"POST\",\n      \"name\": \"reserve\",\n      \"template\": \"/items/{}/reserve\"\n    },\n    {\n      \"key\": {\n        \"query\": \"line\"\n      },\n      \"method\": \"GET\",\n      \"name\": \"getLine\",\n      \"template\": \"/lines\"\n    },\n    {\n      \"key\": {\n        \"maxLength\": 256,\n        \"segment\": 1\n      },\n      \"method\": \"GET\",\n      \"name\": \"getRecord\",\n      \"template\": \"/records/{}\"\n    },\n    {\n      \"method\": \"POST\",\n      \"name\": \"createOrder\",\n      \"template\": \"/orders\"\n    }\n  ],\n  \"service\": \"orders\",\n  \"v\": 1\n}\n",
+      "method" : "GET",
+      "path" : "/lines",
+      "query" : "line=L7",
+      "expected" : {
+        "operation" : "getLine",
+        "key" : "L7"
+      }
+    }, {
+      "name" : "a percent-encoded segment",
+      "table" : "{\n  \"operations\": [\n    {\n      \"key\": {\n        \"segment\": 1\n      },\n      \"method\": \"POST\",\n      \"name\": \"reserve\",\n      \"template\": \"/items/{}/reserve\"\n    },\n    {\n      \"key\": {\n        \"query\": \"line\"\n      },\n      \"method\": \"GET\",\n      \"name\": \"getLine\",\n      \"template\": \"/lines\"\n    },\n    {\n      \"key\": {\n        \"maxLength\": 256,\n        \"segment\": 1\n      },\n      \"method\": \"GET\",\n      \"name\": \"getRecord\",\n      \"template\": \"/records/{}\"\n    },\n    {\n      \"method\": \"POST\",\n      \"name\": \"createOrder\",\n      \"template\": \"/orders\"\n    }\n  ],\n  \"service\": \"orders\",\n  \"v\": 1\n}\n",
+      "method" : "POST",
+      "path" : "/items/%41/reserve",
+      "query" : null,
+      "expected" : {
+        "operation" : "reserve",
+        "key" : null
+      }
+    }, {
+      "name" : "a percent-encoded query value",
+      "table" : "{\n  \"operations\": [\n    {\n      \"key\": {\n        \"segment\": 1\n      },\n      \"method\": \"POST\",\n      \"name\": \"reserve\",\n      \"template\": \"/items/{}/reserve\"\n    },\n    {\n      \"key\": {\n        \"query\": \"line\"\n      },\n      \"method\": \"GET\",\n      \"name\": \"getLine\",\n      \"template\": \"/lines\"\n    },\n    {\n      \"key\": {\n        \"maxLength\": 256,\n        \"segment\": 1\n      },\n      \"method\": \"GET\",\n      \"name\": \"getRecord\",\n      \"template\": \"/records/{}\"\n    },\n    {\n      \"method\": \"POST\",\n      \"name\": \"createOrder\",\n      \"template\": \"/orders\"\n    }\n  ],\n  \"service\": \"orders\",\n  \"v\": 1\n}\n",
+      "method" : "GET",
+      "path" : "/lines",
+      "query" : "line=%4C7",
+      "expected" : {
+        "operation" : "getLine",
+        "key" : null
+      }
+    }, {
+      "name" : "a dot segment",
+      "table" : "{\n  \"operations\": [\n    {\n      \"key\": {\n        \"segment\": 1\n      },\n      \"method\": \"POST\",\n      \"name\": \"reserve\",\n      \"template\": \"/items/{}/reserve\"\n    },\n    {\n      \"key\": {\n        \"query\": \"line\"\n      },\n      \"method\": \"GET\",\n      \"name\": \"getLine\",\n      \"template\": \"/lines\"\n    },\n    {\n      \"key\": {\n        \"maxLength\": 256,\n        \"segment\": 1\n      },\n      \"method\": \"GET\",\n      \"name\": \"getRecord\",\n      \"template\": \"/records/{}\"\n    },\n    {\n      \"method\": \"POST\",\n      \"name\": \"createOrder\",\n      \"template\": \"/orders\"\n    }\n  ],\n  \"service\": \"orders\",\n  \"v\": 1\n}\n",
+      "method" : "POST",
+      "path" : "/items/./reserve",
+      "query" : null,
+      "expected" : {
+        "operation" : "reserve",
+        "key" : null
+      }
+    }, {
+      "name" : "a dot-dot segment",
+      "table" : "{\n  \"operations\": [\n    {\n      \"key\": {\n        \"segment\": 1\n      },\n      \"method\": \"POST\",\n      \"name\": \"reserve\",\n      \"template\": \"/items/{}/reserve\"\n    },\n    {\n      \"key\": {\n        \"query\": \"line\"\n      },\n      \"method\": \"GET\",\n      \"name\": \"getLine\",\n      \"template\": \"/lines\"\n    },\n    {\n      \"key\": {\n        \"maxLength\": 256,\n        \"segment\": 1\n      },\n      \"method\": \"GET\",\n      \"name\": \"getRecord\",\n      \"template\": \"/records/{}\"\n    },\n    {\n      \"method\": \"POST\",\n      \"name\": \"createOrder\",\n      \"template\": \"/orders\"\n    }\n  ],\n  \"service\": \"orders\",\n  \"v\": 1\n}\n",
+      "method" : "POST",
+      "path" : "/items/../reserve",
+      "query" : null,
+      "expected" : {
+        "operation" : "reserve",
+        "key" : null
+      }
+    }, {
+      "name" : "a key of 128 characters",
+      "table" : "{\n  \"operations\": [\n    {\n      \"key\": {\n        \"segment\": 1\n      },\n      \"method\": \"POST\",\n      \"name\": \"reserve\",\n      \"template\": \"/items/{}/reserve\"\n    },\n    {\n      \"key\": {\n        \"query\": \"line\"\n      },\n      \"method\": \"GET\",\n      \"name\": \"getLine\",\n      \"template\": \"/lines\"\n    },\n    {\n      \"key\": {\n        \"maxLength\": 256,\n        \"segment\": 1\n      },\n      \"method\": \"GET\",\n      \"name\": \"getRecord\",\n      \"template\": \"/records/{}\"\n    },\n    {\n      \"method\": \"POST\",\n      \"name\": \"createOrder\",\n      \"template\": \"/orders\"\n    }\n  ],\n  \"service\": \"orders\",\n  \"v\": 1\n}\n",
+      "method" : "POST",
+      "path" : "/items/kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk/reserve",
+      "query" : null,
+      "expected" : {
+        "operation" : "reserve",
+        "key" : "kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk"
+      }
+    }, {
+      "name" : "a key of 129 characters",
+      "table" : "{\n  \"operations\": [\n    {\n      \"key\": {\n        \"segment\": 1\n      },\n      \"method\": \"POST\",\n      \"name\": \"reserve\",\n      \"template\": \"/items/{}/reserve\"\n    },\n    {\n      \"key\": {\n        \"query\": \"line\"\n      },\n      \"method\": \"GET\",\n      \"name\": \"getLine\",\n      \"template\": \"/lines\"\n    },\n    {\n      \"key\": {\n        \"maxLength\": 256,\n        \"segment\": 1\n      },\n      \"method\": \"GET\",\n      \"name\": \"getRecord\",\n      \"template\": \"/records/{}\"\n    },\n    {\n      \"method\": \"POST\",\n      \"name\": \"createOrder\",\n      \"template\": \"/orders\"\n    }\n  ],\n  \"service\": \"orders\",\n  \"v\": 1\n}\n",
+      "method" : "POST",
+      "path" : "/items/kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk/reserve",
+      "query" : null,
+      "expected" : {
+        "operation" : "reserve",
+        "key" : null
+      }
+    }, {
+      "name" : "a key of 200 characters under maxLength 256",
+      "table" : "{\n  \"operations\": [\n    {\n      \"key\": {\n        \"segment\": 1\n      },\n      \"method\": \"POST\",\n      \"name\": \"reserve\",\n      \"template\": \"/items/{}/reserve\"\n    },\n    {\n      \"key\": {\n        \"query\": \"line\"\n      },\n      \"method\": \"GET\",\n      \"name\": \"getLine\",\n      \"template\": \"/lines\"\n    },\n    {\n      \"key\": {\n        \"maxLength\": 256,\n        \"segment\": 1\n      },\n      \"method\": \"GET\",\n      \"name\": \"getRecord\",\n      \"template\": \"/records/{}\"\n    },\n    {\n      \"method\": \"POST\",\n      \"name\": \"createOrder\",\n      \"template\": \"/orders\"\n    }\n  ],\n  \"service\": \"orders\",\n  \"v\": 1\n}\n",
+      "method" : "GET",
+      "path" : "/records/kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk",
+      "query" : null,
+      "expected" : {
+        "operation" : "getRecord",
+        "key" : "kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk"
+      }
+    }, {
+      "name" : "a query key absent",
+      "table" : "{\n  \"operations\": [\n    {\n      \"key\": {\n        \"segment\": 1\n      },\n      \"method\": \"POST\",\n      \"name\": \"reserve\",\n      \"template\": \"/items/{}/reserve\"\n    },\n    {\n      \"key\": {\n        \"query\": \"line\"\n      },\n      \"method\": \"GET\",\n      \"name\": \"getLine\",\n      \"template\": \"/lines\"\n    },\n    {\n      \"key\": {\n        \"maxLength\": 256,\n        \"segment\": 1\n      },\n      \"method\": \"GET\",\n      \"name\": \"getRecord\",\n      \"template\": \"/records/{}\"\n    },\n    {\n      \"method\": \"POST\",\n      \"name\": \"createOrder\",\n      \"template\": \"/orders\"\n    }\n  ],\n  \"service\": \"orders\",\n  \"v\": 1\n}\n",
+      "method" : "GET",
+      "path" : "/lines",
+      "query" : null,
+      "expected" : {
+        "operation" : "getLine",
+        "key" : null
+      }
+    }, {
+      "name" : "a query key repeated",
+      "table" : "{\n  \"operations\": [\n    {\n      \"key\": {\n        \"segment\": 1\n      },\n      \"method\": \"POST\",\n      \"name\": \"reserve\",\n      \"template\": \"/items/{}/reserve\"\n    },\n    {\n      \"key\": {\n        \"query\": \"line\"\n      },\n      \"method\": \"GET\",\n      \"name\": \"getLine\",\n      \"template\": \"/lines\"\n    },\n    {\n      \"key\": {\n        \"maxLength\": 256,\n        \"segment\": 1\n      },\n      \"method\": \"GET\",\n      \"name\": \"getRecord\",\n      \"template\": \"/records/{}\"\n    },\n    {\n      \"method\": \"POST\",\n      \"name\": \"createOrder\",\n      \"template\": \"/orders\"\n    }\n  ],\n  \"service\": \"orders\",\n  \"v\": 1\n}\n",
+      "method" : "GET",
+      "path" : "/lines",
+      "query" : "line=L7&line=L8",
+      "expected" : {
+        "operation" : "getLine",
+        "key" : null
+      }
+    }, {
+      "name" : "a query key with no value",
+      "table" : "{\n  \"operations\": [\n    {\n      \"key\": {\n        \"segment\": 1\n      },\n      \"method\": \"POST\",\n      \"name\": \"reserve\",\n      \"template\": \"/items/{}/reserve\"\n    },\n    {\n      \"key\": {\n        \"query\": \"line\"\n      },\n      \"method\": \"GET\",\n      \"name\": \"getLine\",\n      \"template\": \"/lines\"\n    },\n    {\n      \"key\": {\n        \"maxLength\": 256,\n        \"segment\": 1\n      },\n      \"method\": \"GET\",\n      \"name\": \"getRecord\",\n      \"template\": \"/records/{}\"\n    },\n    {\n      \"method\": \"POST\",\n      \"name\": \"createOrder\",\n      \"template\": \"/orders\"\n    }\n  ],\n  \"service\": \"orders\",\n  \"v\": 1\n}\n",
+      "method" : "GET",
+      "path" : "/lines",
+      "query" : "line",
+      "expected" : {
+        "operation" : "getLine",
+        "key" : null
+      }
+    }, {
+      "name" : "a query key repeated under an encoded name",
+      "table" : "{\n  \"operations\": [\n    {\n      \"key\": {\n        \"segment\": 1\n      },\n      \"method\": \"POST\",\n      \"name\": \"reserve\",\n      \"template\": \"/items/{}/reserve\"\n    },\n    {\n      \"key\": {\n        \"query\": \"line\"\n      },\n      \"method\": \"GET\",\n      \"name\": \"getLine\",\n      \"template\": \"/lines\"\n    },\n    {\n      \"key\": {\n        \"maxLength\": 256,\n        \"segment\": 1\n      },\n      \"method\": \"GET\",\n      \"name\": \"getRecord\",\n      \"template\": \"/records/{}\"\n    },\n    {\n      \"method\": \"POST\",\n      \"name\": \"createOrder\",\n      \"template\": \"/orders\"\n    }\n  ],\n  \"service\": \"orders\",\n  \"v\": 1\n}\n",
+      "method" : "GET",
+      "path" : "/lines",
+      "query" : "%6Cine=B&line=L7",
+      "expected" : {
+        "operation" : "getLine",
+        "key" : null
+      }
+    }, {
+      "name" : "a query holding a semicolon",
+      "table" : "{\n  \"operations\": [\n    {\n      \"key\": {\n        \"segment\": 1\n      },\n      \"method\": \"POST\",\n      \"name\": \"reserve\",\n      \"template\": \"/items/{}/reserve\"\n    },\n    {\n      \"key\": {\n        \"query\": \"line\"\n      },\n      \"method\": \"GET\",\n      \"name\": \"getLine\",\n      \"template\": \"/lines\"\n    },\n    {\n      \"key\": {\n        \"maxLength\": 256,\n        \"segment\": 1\n      },\n      \"method\": \"GET\",\n      \"name\": \"getRecord\",\n      \"template\": \"/records/{}\"\n    },\n    {\n      \"method\": \"POST\",\n      \"name\": \"createOrder\",\n      \"template\": \"/orders\"\n    }\n  ],\n  \"service\": \"orders\",\n  \"v\": 1\n}\n",
+      "method" : "GET",
+      "path" : "/lines",
+      "query" : "x=1;line=B&line=L7",
+      "expected" : {
+        "operation" : "getLine",
+        "key" : null
+      }
+    }, {
+      "name" : "an operation with no key",
+      "table" : "{\n  \"operations\": [\n    {\n      \"key\": {\n        \"segment\": 1\n      },\n      \"method\": \"POST\",\n      \"name\": \"reserve\",\n      \"template\": \"/items/{}/reserve\"\n    },\n    {\n      \"key\": {\n        \"query\": \"line\"\n      },\n      \"method\": \"GET\",\n      \"name\": \"getLine\",\n      \"template\": \"/lines\"\n    },\n    {\n      \"key\": {\n        \"maxLength\": 256,\n        \"segment\": 1\n      },\n      \"method\": \"GET\",\n      \"name\": \"getRecord\",\n      \"template\": \"/records/{}\"\n    },\n    {\n      \"method\": \"POST\",\n      \"name\": \"createOrder\",\n      \"template\": \"/orders\"\n    }\n  ],\n  \"service\": \"orders\",\n  \"v\": 1\n}\n",
+      "method" : "POST",
+      "path" : "/orders",
+      "query" : null,
+      "expected" : {
+        "operation" : "createOrder",
+        "key" : null
+      }
+    } ],
+    "receive" : [ {
+      "name" : "the operation the chain names",
+      "policy" : "ops",
+      "service" : "orders",
+      "mode" : "enforce",
+      "request" : {
+        "method" : "POST",
+        "target" : "/orders",
+        "headers" : {
+          "X-Path-Chain" : "W3siYmluZCI6Ik01T1NuakJab2pUem9ldEY4djJqbjh2M1A1R29NdWlyX1YzbWxnUlQ3c0kiLCJleHQiOiIiLCJpbnN0IjoiZ3ctMSIsInByZXYiOiIiLCJyY3YiOiJvcmRlcnMjY3JlYXRlT3JkZXIiLCJyaWQiOiJyaWQtaHR0cC0xIiwic2VzcyI6IiIsInNpZyI6IkJEZkdIOHIwb2NEN0dDSUpid2JtWmlYTC13VEljMXlfVHNsbkxqRjV2aXpXVERkVUhZcWVrRUY1M2lkRW5XT0dCWHZ1eGFtalpRTVMtS1lrY0o4UENRIiwic3ZjIjoiZ2F0ZXdheSIsInRzIjoxNzY3MjI1NTk4NTAwLCJ2Ijo0fV0",
+          "X-Path-Proof" : "eyJkaXJzIjoiUkxMTExMTEwiLCJsZWFmU2FsdCI6IlRzM0hXSldtMnc4alBYVlUxU3QyNEEiLCJyb290SWQiOiJ2NjAxNWNhZjI3MTYzIiwic2libGluZ3MiOlsiUW9ZbkVRbGMwWXVDYjlsZGM3ODdjemZjT0pYbjhidmVRdjZ3ZnFnSUZhQSIsIkJuY3IzLU01MGlud3EyTjN5TTVWQ1pzUUl5d0M5TVgxb3ozU0o3a2pUUWsiLCJwWVRxRGR6YWhJMDI0bkxZNkVIcVZ6MzlLbWZrYnZMNDFVRHFOTlNvUmNnIiwiYlYyWGRwX0lNYWhmbzQxVWJhVlJFYzhpVmJveTRaYWRmeGpLNWRKSzZFQSIsInNuRlNLMG9ENFd2ZGhscFZWemRPeUtzNlBmbUZfWHpDVUFnckRzNzJHa2ciLCJyYzE1RnRocjcwTmdrbHdsZkRZTU9sakd6STI5RzVzc2dlWGhacU5XaUE4IiwidGFtNEtLcUMyaGtaYTA3VThqR3lMQ29abnlud1BvNklueVJEei12M1BNRSIsImlNNFNlcnd2aXZDR1hkcEtEMkNBZmptbk9MbE9YdVdvUW9MYjU5bGVBR3MiXX0",
+          "X-Path-Extensions" : "W3siaXRlbXMiOnt9LCJyZXF1aXJlcyI6W119XQ"
+        },
+        "body" : "7b22616d6f756e74223a3130307d"
+      },
+      "operation" : "createOrder",
+      "keyring" : {
+        "gateway" : "gateway"
+      },
+      "allowedOrigins" : [ "gateway" ],
+      "sess" : "",
+      "actsOn" : [ ],
+      "allowedExtensions" : null,
+      "now" : 1767225600000,
+      "policyNotAfter" : 4102444800000,
+      "callMaxAgeMs" : 5000,
+      "runMaxAgeMs" : 1800000,
+      "nonceTtlMs" : 15000,
+      "expected" : {
+        "refusal" : null
+      }
+    }, {
+      "name" : "another operation's request key spent",
+      "policy" : "ops",
+      "service" : "orders",
+      "mode" : "enforce",
+      "request" : {
+        "method" : "POST",
+        "target" : "/orders",
+        "headers" : {
+          "X-Path-Chain" : "W3siYmluZCI6Ik01T1NuakJab2pUem9ldEY4djJqbjh2M1A1R29NdWlyX1YzbWxnUlQ3c0kiLCJleHQiOiIiLCJpbnN0IjoiZ3ctMSIsInByZXYiOiIiLCJyY3YiOiJvcmRlcnMjY3JlYXRlT3JkZXIiLCJyaWQiOiJyaWQtaHR0cC0xIiwic2VzcyI6IiIsInNpZyI6IkJEZkdIOHIwb2NEN0dDSUpid2JtWmlYTC13VEljMXlfVHNsbkxqRjV2aXpXVERkVUhZcWVrRUY1M2lkRW5XT0dCWHZ1eGFtalpRTVMtS1lrY0o4UENRIiwic3ZjIjoiZ2F0ZXdheSIsInRzIjoxNzY3MjI1NTk4NTAwLCJ2Ijo0fV0",
+          "X-Path-Proof" : "eyJkaXJzIjoiUkxMTExMTEwiLCJsZWFmU2FsdCI6IlRzM0hXSldtMnc4alBYVlUxU3QyNEEiLCJyb290SWQiOiJ2NjAxNWNhZjI3MTYzIiwic2libGluZ3MiOlsiUW9ZbkVRbGMwWXVDYjlsZGM3ODdjemZjT0pYbjhidmVRdjZ3ZnFnSUZhQSIsIkJuY3IzLU01MGlud3EyTjN5TTVWQ1pzUUl5d0M5TVgxb3ozU0o3a2pUUWsiLCJwWVRxRGR6YWhJMDI0bkxZNkVIcVZ6MzlLbWZrYnZMNDFVRHFOTlNvUmNnIiwiYlYyWGRwX0lNYWhmbzQxVWJhVlJFYzhpVmJveTRaYWRmeGpLNWRKSzZFQSIsInNuRlNLMG9ENFd2ZGhscFZWemRPeUtzNlBmbUZfWHpDVUFnckRzNzJHa2ciLCJyYzE1RnRocjcwTmdrbHdsZkRZTU9sakd6STI5RzVzc2dlWGhacU5XaUE4IiwidGFtNEtLcUMyaGtaYTA3VThqR3lMQ29abnlud1BvNklueVJEei12M1BNRSIsImlNNFNlcnd2aXZDR1hkcEtEMkNBZmptbk9MbE9YdVdvUW9MYjU5bGVBR3MiXX0",
+          "X-Path-Extensions" : "W3siaXRlbXMiOnt9LCJyZXF1aXJlcyI6W119XQ"
+        },
+        "body" : "7b22616d6f756e74223a3130307d"
+      },
+      "operation" : "createOrder",
+      "keyring" : {
+        "gateway" : "gateway"
+      },
+      "allowedOrigins" : [ "gateway" ],
+      "sess" : "",
+      "actsOn" : [ ],
+      "allowedExtensions" : null,
+      "now" : 1767225600000,
+      "policyNotAfter" : 4102444800000,
+      "callMaxAgeMs" : 5000,
+      "runMaxAgeMs" : 1800000,
+      "nonceTtlMs" : 15000,
+      "expected" : {
+        "refusal" : null
+      },
+      "spent" : [ "[\"rid-http-1\",\"gateway\",\"orders#getOrder\",\"req\"]" ]
+    }, {
+      "name" : "this operation's request key spent",
+      "policy" : "ops",
+      "service" : "orders",
+      "mode" : "enforce",
+      "request" : {
+        "method" : "POST",
+        "target" : "/orders",
+        "headers" : {
+          "X-Path-Chain" : "W3siYmluZCI6Ik01T1NuakJab2pUem9ldEY4djJqbjh2M1A1R29NdWlyX1YzbWxnUlQ3c0kiLCJleHQiOiIiLCJpbnN0IjoiZ3ctMSIsInByZXYiOiIiLCJyY3YiOiJvcmRlcnMjY3JlYXRlT3JkZXIiLCJyaWQiOiJyaWQtaHR0cC0xIiwic2VzcyI6IiIsInNpZyI6IkJEZkdIOHIwb2NEN0dDSUpid2JtWmlYTC13VEljMXlfVHNsbkxqRjV2aXpXVERkVUhZcWVrRUY1M2lkRW5XT0dCWHZ1eGFtalpRTVMtS1lrY0o4UENRIiwic3ZjIjoiZ2F0ZXdheSIsInRzIjoxNzY3MjI1NTk4NTAwLCJ2Ijo0fV0",
+          "X-Path-Proof" : "eyJkaXJzIjoiUkxMTExMTEwiLCJsZWFmU2FsdCI6IlRzM0hXSldtMnc4alBYVlUxU3QyNEEiLCJyb290SWQiOiJ2NjAxNWNhZjI3MTYzIiwic2libGluZ3MiOlsiUW9ZbkVRbGMwWXVDYjlsZGM3ODdjemZjT0pYbjhidmVRdjZ3ZnFnSUZhQSIsIkJuY3IzLU01MGlud3EyTjN5TTVWQ1pzUUl5d0M5TVgxb3ozU0o3a2pUUWsiLCJwWVRxRGR6YWhJMDI0bkxZNkVIcVZ6MzlLbWZrYnZMNDFVRHFOTlNvUmNnIiwiYlYyWGRwX0lNYWhmbzQxVWJhVlJFYzhpVmJveTRaYWRmeGpLNWRKSzZFQSIsInNuRlNLMG9ENFd2ZGhscFZWemRPeUtzNlBmbUZfWHpDVUFnckRzNzJHa2ciLCJyYzE1RnRocjcwTmdrbHdsZkRZTU9sakd6STI5RzVzc2dlWGhacU5XaUE4IiwidGFtNEtLcUMyaGtaYTA3VThqR3lMQ29abnlud1BvNklueVJEei12M1BNRSIsImlNNFNlcnd2aXZDR1hkcEtEMkNBZmptbk9MbE9YdVdvUW9MYjU5bGVBR3MiXX0",
+          "X-Path-Extensions" : "W3siaXRlbXMiOnt9LCJyZXF1aXJlcyI6W119XQ"
+        },
+        "body" : "7b22616d6f756e74223a3130307d"
+      },
+      "operation" : "createOrder",
+      "keyring" : {
+        "gateway" : "gateway"
+      },
+      "allowedOrigins" : [ "gateway" ],
+      "sess" : "",
+      "actsOn" : [ ],
+      "allowedExtensions" : null,
+      "now" : 1767225600000,
+      "policyNotAfter" : 4102444800000,
+      "callMaxAgeMs" : 5000,
+      "runMaxAgeMs" : 1800000,
+      "nonceTtlMs" : 15000,
+      "expected" : {
+        "refusal" : {
+          "status" : 403,
+          "body" : "7b22726561736f6e223a225245504c4159227d"
+        }
+      },
+      "spent" : [ "[\"rid-http-1\",\"gateway\",\"orders#createOrder\",\"req\"]" ]
+    }, {
+      "name" : "another operation",
+      "policy" : "ops",
+      "service" : "orders",
+      "mode" : "enforce",
+      "request" : {
+        "method" : "POST",
+        "target" : "/orders",
+        "headers" : {
+          "X-Path-Chain" : "W3siYmluZCI6Ik01T1NuakJab2pUem9ldEY4djJqbjh2M1A1R29NdWlyX1YzbWxnUlQ3c0kiLCJleHQiOiIiLCJpbnN0IjoiZ3ctMSIsInByZXYiOiIiLCJyY3YiOiJvcmRlcnMjY3JlYXRlT3JkZXIiLCJyaWQiOiJyaWQtaHR0cC0xIiwic2VzcyI6IiIsInNpZyI6IkJEZkdIOHIwb2NEN0dDSUpid2JtWmlYTC13VEljMXlfVHNsbkxqRjV2aXpXVERkVUhZcWVrRUY1M2lkRW5XT0dCWHZ1eGFtalpRTVMtS1lrY0o4UENRIiwic3ZjIjoiZ2F0ZXdheSIsInRzIjoxNzY3MjI1NTk4NTAwLCJ2Ijo0fV0",
+          "X-Path-Proof" : "eyJkaXJzIjoiUkxMTExMTEwiLCJsZWFmU2FsdCI6IlRzM0hXSldtMnc4alBYVlUxU3QyNEEiLCJyb290SWQiOiJ2NjAxNWNhZjI3MTYzIiwic2libGluZ3MiOlsiUW9ZbkVRbGMwWXVDYjlsZGM3ODdjemZjT0pYbjhidmVRdjZ3ZnFnSUZhQSIsIkJuY3IzLU01MGlud3EyTjN5TTVWQ1pzUUl5d0M5TVgxb3ozU0o3a2pUUWsiLCJwWVRxRGR6YWhJMDI0bkxZNkVIcVZ6MzlLbWZrYnZMNDFVRHFOTlNvUmNnIiwiYlYyWGRwX0lNYWhmbzQxVWJhVlJFYzhpVmJveTRaYWRmeGpLNWRKSzZFQSIsInNuRlNLMG9ENFd2ZGhscFZWemRPeUtzNlBmbUZfWHpDVUFnckRzNzJHa2ciLCJyYzE1RnRocjcwTmdrbHdsZkRZTU9sakd6STI5RzVzc2dlWGhacU5XaUE4IiwidGFtNEtLcUMyaGtaYTA3VThqR3lMQ29abnlud1BvNklueVJEei12M1BNRSIsImlNNFNlcnd2aXZDR1hkcEtEMkNBZmptbk9MbE9YdVdvUW9MYjU5bGVBR3MiXX0",
+          "X-Path-Extensions" : "W3siaXRlbXMiOnt9LCJyZXF1aXJlcyI6W119XQ"
+        },
+        "body" : "7b22616d6f756e74223a3130307d"
+      },
+      "operation" : "getOrder",
+      "keyring" : {
+        "gateway" : "gateway"
+      },
+      "allowedOrigins" : [ "gateway" ],
+      "sess" : "",
+      "actsOn" : [ ],
+      "allowedExtensions" : null,
+      "now" : 1767225600000,
+      "policyNotAfter" : 4102444800000,
+      "callMaxAgeMs" : 5000,
+      "runMaxAgeMs" : 1800000,
+      "nonceTtlMs" : 15000,
+      "expected" : {
+        "refusal" : {
+          "status" : 403,
+          "body" : "7b22726561736f6e223a2242494e44494e475f4d49534d41544348227d"
+        }
+      }
+    }, {
+      "name" : "no operation",
+      "policy" : "ops",
+      "service" : "orders",
+      "mode" : "enforce",
+      "request" : {
+        "method" : "POST",
+        "target" : "/orders",
+        "headers" : {
+          "X-Path-Chain" : "W3siYmluZCI6Ik01T1NuakJab2pUem9ldEY4djJqbjh2M1A1R29NdWlyX1YzbWxnUlQ3c0kiLCJleHQiOiIiLCJpbnN0IjoiZ3ctMSIsInByZXYiOiIiLCJyY3YiOiJvcmRlcnMjY3JlYXRlT3JkZXIiLCJyaWQiOiJyaWQtaHR0cC0xIiwic2VzcyI6IiIsInNpZyI6IkJEZkdIOHIwb2NEN0dDSUpid2JtWmlYTC13VEljMXlfVHNsbkxqRjV2aXpXVERkVUhZcWVrRUY1M2lkRW5XT0dCWHZ1eGFtalpRTVMtS1lrY0o4UENRIiwic3ZjIjoiZ2F0ZXdheSIsInRzIjoxNzY3MjI1NTk4NTAwLCJ2Ijo0fV0",
+          "X-Path-Proof" : "eyJkaXJzIjoiUkxMTExMTEwiLCJsZWFmU2FsdCI6IlRzM0hXSldtMnc4alBYVlUxU3QyNEEiLCJyb290SWQiOiJ2NjAxNWNhZjI3MTYzIiwic2libGluZ3MiOlsiUW9ZbkVRbGMwWXVDYjlsZGM3ODdjemZjT0pYbjhidmVRdjZ3ZnFnSUZhQSIsIkJuY3IzLU01MGlud3EyTjN5TTVWQ1pzUUl5d0M5TVgxb3ozU0o3a2pUUWsiLCJwWVRxRGR6YWhJMDI0bkxZNkVIcVZ6MzlLbWZrYnZMNDFVRHFOTlNvUmNnIiwiYlYyWGRwX0lNYWhmbzQxVWJhVlJFYzhpVmJveTRaYWRmeGpLNWRKSzZFQSIsInNuRlNLMG9ENFd2ZGhscFZWemRPeUtzNlBmbUZfWHpDVUFnckRzNzJHa2ciLCJyYzE1RnRocjcwTmdrbHdsZkRZTU9sakd6STI5RzVzc2dlWGhacU5XaUE4IiwidGFtNEtLcUMyaGtaYTA3VThqR3lMQ29abnlud1BvNklueVJEei12M1BNRSIsImlNNFNlcnd2aXZDR1hkcEtEMkNBZmptbk9MbE9YdVdvUW9MYjU5bGVBR3MiXX0",
+          "X-Path-Extensions" : "W3siaXRlbXMiOnt9LCJyZXF1aXJlcyI6W119XQ"
+        },
+        "body" : "7b22616d6f756e74223a3130307d"
+      },
+      "operation" : null,
+      "keyring" : {
+        "gateway" : "gateway"
+      },
+      "allowedOrigins" : [ "gateway" ],
+      "sess" : "",
+      "actsOn" : [ ],
+      "allowedExtensions" : null,
+      "now" : 1767225600000,
+      "policyNotAfter" : 4102444800000,
+      "callMaxAgeMs" : 5000,
+      "runMaxAgeMs" : 1800000,
+      "nonceTtlMs" : 15000,
+      "expected" : {
+        "refusal" : {
+          "status" : 403,
+          "body" : "7b22726561736f6e223a2242494e44494e475f4d49534d41544348227d"
+        }
+      }
+    }, {
+      "name" : "a chain naming no operation, where the policy names them",
+      "policy" : "ops",
+      "service" : "orders",
+      "mode" : "enforce",
+      "request" : {
+        "method" : "POST",
+        "target" : "/orders",
+        "headers" : {
+          "X-Path-Chain" : "W3siYmluZCI6Ik01T1NuakJab2pUem9ldEY4djJqbjh2M1A1R29NdWlyX1YzbWxnUlQ3c0kiLCJleHQiOiIiLCJpbnN0IjoiZ3ctMSIsInByZXYiOiIiLCJyY3YiOiJvcmRlcnMiLCJyaWQiOiJyaWQtaHR0cC0xIiwic2VzcyI6IiIsInNpZyI6Imw4UE9XT2NZZ3NyaE5XdGtGd2NDTFVRVFJxWmQxb2VrN0U1SEdWVnNjQ1l4ZU5kTGl6akZ1LWRSWVZHVXBMbG93Y0xvQ1FCTDZTYS1UM2hFS3RaN0J3Iiwic3ZjIjoiZ2F0ZXdheSIsInRzIjoxNzY3MjI1NTk4NTAwLCJ2Ijo0fV0",
+          "X-Path-Proof" : "eyJkaXJzIjoiUkxMTExMTEwiLCJsZWFmU2FsdCI6IlRzM0hXSldtMnc4alBYVlUxU3QyNEEiLCJyb290SWQiOiJ2NjAxNWNhZjI3MTYzIiwic2libGluZ3MiOlsiUW9ZbkVRbGMwWXVDYjlsZGM3ODdjemZjT0pYbjhidmVRdjZ3ZnFnSUZhQSIsIkJuY3IzLU01MGlud3EyTjN5TTVWQ1pzUUl5d0M5TVgxb3ozU0o3a2pUUWsiLCJwWVRxRGR6YWhJMDI0bkxZNkVIcVZ6MzlLbWZrYnZMNDFVRHFOTlNvUmNnIiwiYlYyWGRwX0lNYWhmbzQxVWJhVlJFYzhpVmJveTRaYWRmeGpLNWRKSzZFQSIsInNuRlNLMG9ENFd2ZGhscFZWemRPeUtzNlBmbUZfWHpDVUFnckRzNzJHa2ciLCJyYzE1RnRocjcwTmdrbHdsZkRZTU9sakd6STI5RzVzc2dlWGhacU5XaUE4IiwidGFtNEtLcUMyaGtaYTA3VThqR3lMQ29abnlud1BvNklueVJEei12M1BNRSIsImlNNFNlcnd2aXZDR1hkcEtEMkNBZmptbk9MbE9YdVdvUW9MYjU5bGVBR3MiXX0",
+          "X-Path-Extensions" : "W3siaXRlbXMiOnt9LCJyZXF1aXJlcyI6W119XQ"
+        },
+        "body" : "7b22616d6f756e74223a3130307d"
+      },
+      "operation" : "createOrder",
+      "keyring" : {
+        "gateway" : "gateway"
+      },
+      "allowedOrigins" : [ "gateway" ],
+      "sess" : "",
+      "actsOn" : [ ],
+      "allowedExtensions" : null,
+      "now" : 1767225600000,
+      "policyNotAfter" : 4102444800000,
+      "callMaxAgeMs" : 5000,
+      "runMaxAgeMs" : 1800000,
+      "nonceTtlMs" : 15000,
+      "expected" : {
+        "refusal" : {
+          "status" : 403,
+          "body" : "7b22726561736f6e223a22504154485f4e4f545f414c4c4f574544227d"
+        }
+      }
+    } ]
+  }
+}
