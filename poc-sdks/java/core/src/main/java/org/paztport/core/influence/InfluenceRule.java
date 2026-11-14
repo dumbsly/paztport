@@ -5,7 +5,10 @@ package org.paztport.core.influence;
 
 import java.util.Collection;
 
-/** The one standing influence rule, for every public destination. */
+/**
+ * The rules a guarded write is decided by: the every-stamp rule, then the owner-aware rule, the one standing rule for
+ * every public destination; and the condition on the entries for writing a trusted record.
+ */
 public final class InfluenceRule {
 
     private InfluenceRule() {
@@ -27,6 +30,17 @@ public final class InfluenceRule {
         return influence.stream().anyMatch(f -> f.cls() == InfluenceClass.PRIVATE
                 && (f.owner() == null || f.owner().isEmpty() || destinationUnknown
                         || !f.owner().equals(destinationOwner)));
+    }
+
+    /**
+     * Whether a guarded public write is refused (spec influence.md, The every-stamp rule, then The owner-aware
+     * rule): always when a stamp of the chain does not name influence, since that hop may have read anything,
+     * whatever the entries say; otherwise as {@link #publicWriteRefused} decides. {@code everyStampNames} is true
+     * where there is no stamp to read, since the rule cannot refuse for what it is not shown (What the rules read).
+     */
+    public static boolean guardedWriteRefused(boolean everyStampNames, Collection<InfluenceFact> influence,
+            String destinationOwner) {
+        return !everyStampNames || publicWriteRefused(influence, destinationOwner);
     }
 
     /**

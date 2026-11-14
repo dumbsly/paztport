@@ -4,6 +4,7 @@
 package org.paztport.core.influence;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -15,6 +16,7 @@ import org.paztport.core.internal.JsonFields;
 import org.paztport.core.internal.JsonReader;
 import org.paztport.core.internal.JsonValue;
 import org.paztport.core.internal.JsonWriter;
+import org.paztport.core.stamp.Block;
 
 /**
  * What a response says about its own content: a class, a content id the caller can later cite, and (for private
@@ -57,16 +59,49 @@ public record ContentLabel(InfluenceClass cls, String cid, String owner) {
         }
         List<ContentLabel> out = new ArrayList<>();
         for (JsonValue item : JsonFields.array(JsonReader.wireText(json))) {
-            JsonValue.Obj label = JsonFields.object(item);
-            JsonFields.exactly(label, Set.of("cls", "cid"), Set.of("owner"));
-            InfluenceClass cls = InfluenceClass.fromWire(JsonFields.string(label, "cls"));
-            if (cls == null) {
-                throw new IllegalArgumentException("malformed label");
-            }
-            out.add(new ContentLabel(cls, JsonFields.string(label, "cid"),
-                    label.get("owner") == null ? null : JsonFields.string(label, "owner")));
+            out.add(fromTree(item));
         }
         return out;
+    }
+
+    /**
+     * Reads one item, its JCS text, as a label (spec influence.md, Content labels): an object with exactly a known
+     * {@code cls} and a string {@code cid}, and an optional non-empty string {@code owner}.
+     *
+     * @throws IllegalArgumentException for text that is not the canonical text of such an object, null included
+     */
+    public static ContentLabel parse(String item) {
+        if (item == null) {
+            throw new IllegalArgumentException("no item text");
+        }
+        return fromTree(JsonReader.wireText(item));
+    }
+
+    private static ContentLabel fromTree(JsonValue item) {
+        JsonValue.Obj label = JsonFields.object(item);
+        JsonFields.exactly(label, Set.of("cls", "cid"), Set.of("owner"));
+        InfluenceClass cls = InfluenceClass.fromWire(JsonFields.string(label, "cls"));
+        if (cls == null) {
+            throw new IllegalArgumentException("malformed label");
+        }
+        return new ContentLabel(cls, JsonFields.string(label, "cid"),
+                label.get("owner") == null ? null : JsonFields.string(label, "owner"));
+    }
+
+    /**
+     * A response's block for a responder that acts on influence: it names influence with {@code labels}, as written,
+     * {@code []} when there is none (spec influence.md, Content labels). When there is a label, {@code requires}
+     * holds influence, added here if the caller left it out, so a caller that would drop the labels refuses the
+     * response at check 9c instead.
+     *
+     * @throws IllegalArgumentException a name in {@code requires} that is not an extension name, or one twice
+     */
+    public static Block block(List<ContentLabel> labels, Collection<String> requires) {
+        List<String> required = new ArrayList<>(requires);
+        if (!labels.isEmpty() && !required.contains(Influence.NAME)) {
+            required.add(Influence.NAME);
+        }
+        return Block.of(Map.of(Influence.NAME, labels.stream().map(ContentLabel::toJson).toList()), required);
     }
 
     /** The wire form of {@code labels}, in the order given, each as {@link #toJson()} writes it. */
@@ -94,7 +129,11 @@ public record ContentLabel(InfluenceClass cls, String cid, String owner) {
         return new JsonValue.Obj(o);
     }
 
-    /** The influence entry a receiver records for content carrying this label. */
+    /**
+     * The entry a caller that acts on influence adds for this label, on a response to one of its calls that
+     * verified (spec influence.md, Content labels): {@code {cls, src, h, cid, owner}}, with the caller's {@code src}
+     * and the result hash as {@code h}.
+     */
     public InfluenceEntry toEntry(String src, String h) {
         return new InfluenceEntry(cls, src, h, cid, owner);
     }

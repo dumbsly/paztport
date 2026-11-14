@@ -30,6 +30,12 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.paztport.core.crypto.Crypto;
 import org.paztport.core.encoding.Base64Url;
+import org.paztport.core.influence.ContentLabel;
+import org.paztport.core.influence.Influence;
+import org.paztport.core.influence.InfluenceClass;
+import org.paztport.core.influence.InfluenceEntry;
+import org.paztport.core.influence.InfluenceFact;
+import org.paztport.core.influence.InfluenceRule;
 import org.paztport.core.offline.OfflineConfig;
 import org.paztport.core.offline.OfflineInput;
 import org.paztport.core.offline.OfflineResult;
@@ -52,6 +58,7 @@ import org.paztport.core.stamp.Block;
 import org.paztport.core.stamp.Stamp;
 import org.paztport.core.verify.ExtensionSettings;
 import org.paztport.core.verify.HandOver;
+import org.paztport.core.verify.HandOver.StampItems;
 import org.paztport.core.verify.InMemoryNonceCache;
 import org.paztport.core.verify.Peer;
 import org.paztport.core.verify.PinnedKeyring;
@@ -66,8 +73,9 @@ import org.paztport.core.verify.VerifyResult;
  * Replays {@code spec/vectors/v4.json}, the file the TypeScript SDK also reads. One test method per section, so a
  * failure names the section. Not replayed (spec/README.md, Conformance): {@code recordedLocalStep},
  * {@code responseAttestation}, {@code sessionParams}, {@code sessionResult}, {@code bindMcpCall} and
- * {@code bindResult}, which belong to the MCP profile this SDK does not implement, and the member {@code influence},
- * whose extension's rules this module does not yet replay.
+ * {@code bindResult}, which belong to the MCP profile this SDK does not implement, and in the member
+ * {@code influence}, {@code response} and the {@code request} cases whose {@code served} is not empty, which record
+ * the MCP rule.
  */
 class VectorsV4Test {
 
@@ -685,6 +693,124 @@ class VectorsV4Test {
             }
         }
         assertTrue(outsideSession, "a case gives OUTSIDE_SESSION");
+    }
+
+    // --- The extension influence (the member influence) ---
+
+    @Test
+    void influenceEntries() {
+        JsonNode cases = v4.get("influence").get("entries");
+        assertEquals(17, cases.size(), "influence.entries");
+        for (JsonNode c : cases) {
+            assertEquals(c.get("reads").asBoolean(), reads(() -> InfluenceEntry.parse(Vectors.text(c.get("item")))),
+                    c.get("name").asText());
+        }
+    }
+
+    @Test
+    void influenceLabels() {
+        JsonNode cases = v4.get("influence").get("labels");
+        assertEquals(9, cases.size(), "influence.labels");
+        for (JsonNode c : cases) {
+            assertEquals(c.get("reads").asBoolean(), reads(() -> ContentLabel.parse(Vectors.text(c.get("item")))),
+                    c.get("name").asText());
+        }
+    }
+
+    /** Whether {@code reader} reads its item: it throws IllegalArgumentException for one that does not. */
+    private static boolean reads(Runnable reader) {
+        try {
+            reader.run();
+            return true;
+        } catch (IllegalArgumentException e) {
+            return false;
+        }
+    }
+
+    @Test
+    void influenceRule() {
+        JsonNode cases = v4.get("influence").get("rule");
+        assertEquals(13, cases.size(), "influence.rule");
+        for (JsonNode c : cases) {
+            List<InfluenceFact> facts = new ArrayList<>();
+            for (JsonNode f : c.get("influence")) {
+                facts.add(new InfluenceFact(InfluenceClass.fromWire(f.get("cls").asText()),
+                        f.has("owner") ? f.get("owner").textValue() : null));
+            }
+            JsonNode owner = c.get("destinationOwner");
+            assertEquals(c.get("refused").asBoolean(),
+                    InfluenceRule.publicWriteRefused(facts, owner.isNull() ? null : owner.textValue()),
+                    c.get("name").asText());
+        }
+    }
+
+    /**
+     * The cases whose {@code served} is empty, decided from the items handed on alone. Not replayed
+     * (spec/README.md, Conformance): the cases whose {@code served} is not empty, which add the classes an MCP
+     * server served in its session, so they belong to the MCP profile as well.
+     */
+    @Test
+    void influenceRequest() {
+        int replayed = 0;
+        for (JsonNode c : v4.get("influence").get("request")) {
+            if (!c.get("served").isEmpty()) {
+                continue;
+            }
+            replayed++;
+            List<StampItems> stamps = new ArrayList<>();
+            for (JsonNode st : c.get("stamps")) {
+                List<String> items = null;
+                if (!st.get("items").isNull()) {
+                    items = new ArrayList<>();
+                    for (JsonNode item : st.get("items")) {
+                        items.add(Vectors.text(item));
+                    }
+                }
+                stamps.add(new StampItems(st.get("svc").textValue(), items));
+            }
+            JsonNode owner = c.get("destinationOwner");
+            Influence.Decision got = Influence.decide(stamps, List.of(), c.get("write").asBoolean(),
+                    owner.isNull() ? null : owner.textValue());
+            JsonNode want = c.get("expected");
+            JsonNode every = want.get("everyStampNames");
+            String name = c.get("name").asText();
+            assertEquals(ReasonCode.valueOf(want.get("reason").asText()), got.reason(), name);
+            assertEquals(every.isNull() ? null : every.booleanValue(), got.everyStampNames(), name);
+        }
+        assertEquals(12, replayed, "influence.request cases whose served is empty");
+    }
+
+    /**
+     * As {@link #recordedCall}, at a verifier that acts on influence: the items are read once the offline order
+     * gives OK, before the call is held to its session's limits (verification.md, Offline verification, row 9).
+     */
+    @Test
+    void influenceRecordedCall() {
+        JsonNode cases = v4.get("influence").get("recordedCall");
+        assertEquals(1, cases.size(), "influence.recordedCall");
+        for (JsonNode c : cases) {
+            String name = c.get("name").asText();
+            assertTrue(settings(c).actsOn().contains(Influence.NAME), name + ": acts on influence");
+            List<RecordedSession> sessions = new ArrayList<>();
+            c.get("handshakes").forEach(h -> sessions.add(recordedSession(h)));
+            RecordSet records = new RecordSet();
+            Set<String> origins = new LinkedHashSet<>();
+            c.get("allowedOrigins").forEach(o -> origins.add(o.asText()));
+            List<ReasonCode> got = new ArrayList<>();
+            for (JsonNode call : c.get("calls")) {
+                RecordedSession session = sessions.get(call.get("handshake").asInt());
+                OfflineConfig cfg = session.callConfig(origins, records.spent(), limit(c.get("runMaxAgeMs")),
+                        limit(c.get("callMaxAgeMs")), settings(c));
+                assertNotNull(cfg, name + ": its session is attested");
+                OfflineResult result = OfflineVerifier.verify(offlineInput(call, policy(call)), cfg);
+                got.add(Influence.recordedCallReason(result, session, call.get("recordedTs").get("last").asLong()));
+            }
+            List<ReasonCode> want = new ArrayList<>();
+            c.get("expected").forEach(e -> want.add(ReasonCode.valueOf(e.get("reason").asText())));
+            assertEquals(List.of(ReasonCode.OK, ReasonCode.INFLUENCE_MISMATCH, ReasonCode.INFLUENCE_MISMATCH,
+                    ReasonCode.OUTSIDE_SESSION), want, name + ": the case this replay was written for");
+            assertEquals(want, got, name);
+        }
     }
 
     /**

@@ -4,10 +4,13 @@
 package org.paztport.core.influence;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.util.List;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
+import org.paztport.core.stamp.Block;
 
 class InfluenceTest {
 
@@ -52,9 +55,70 @@ class InfluenceTest {
                 () -> Influence.parse("[ {\"cls\":\"public\",\"h\":\"x\",\"src\":\"s\"}]"));
     }
 
+    // [] names the extension with nothing to add (influence.md, The every-stamp rule): a hop that acts on influence
+    // and read nothing still names it, and the empty block would not.
     @Test
-    void emptyCommitsToEmptyString() {
-        assertEquals("", Influence.commit(List.of()));
+    void aBlockWithNoEntriesNamesInfluence() {
+        Block block = Influence.block(List.of(), List.of());
+        assertNotEquals(Block.EMPTY, block);
+        assertEquals(List.of(), block.itemsUnder(Influence.NAME));
+        assertEquals(List.of(), block.requires());
+        assertEquals("{\"items\":{\"influence\":[]},\"requires\":[]}", block.toJson());
+    }
+
+    @Test
+    void aBlockHoldsTheEntriesAsWrittenInTheOrderGiven() {
+        InfluenceEntry web = new InfluenceEntry(InfluenceClass.THIRD_PARTY, "web:example.com", "h2", null, null);
+        InfluenceEntry own = new InfluenceEntry(InfluenceClass.PRIVATE, "github:acme/app#42", "h1", "cid-1", "alice");
+        Block block = Influence.block(List.of(web, own), List.of(Influence.NAME));
+        assertEquals(List.of(web.toJson(), own.toJson()), block.itemsUnder(Influence.NAME));
+        assertEquals(List.of(Influence.NAME), block.requires());
+        assertEquals(Set.of(Influence.NAME), block.names());
+    }
+
+    // A caller that does not act on influence would drop the labels, so a block holding one requires it of the
+    // caller (influence.md, Content labels); with no label there is nothing to drop.
+    @Test
+    void aLabelBlockRequiresInfluenceExactlyWhenItHoldsALabel() {
+        ContentLabel label = new ContentLabel(InfluenceClass.PRIVATE, "cid-1", "alice");
+        Block labelled = ContentLabel.block(List.of(label), List.of());
+        assertEquals(List.of(label.toJson()), labelled.itemsUnder(Influence.NAME));
+        assertEquals(List.of(Influence.NAME), labelled.requires());
+        assertEquals(List.of(Influence.NAME),
+                ContentLabel.block(List.of(label), List.of(Influence.NAME)).requires(), "not added twice");
+        assertEquals(List.of("example", Influence.NAME),
+                ContentLabel.block(List.of(label), List.of("example")).requires(), "added beside the caller's");
+        Block none = ContentLabel.block(List.of(), List.of());
+        assertEquals(List.of(), none.itemsUnder(Influence.NAME));
+        assertEquals(List.of(), none.requires());
+    }
+
+    @Test
+    void anItemReadsAsAnEntryOnlyFromItsCanonicalText() {
+        InfluenceEntry entry = new InfluenceEntry(InfluenceClass.PRIVATE, "s", "x", "c", "o");
+        String text = "{\"cid\":\"c\",\"cls\":\"private\",\"h\":\"x\",\"owner\":\"o\",\"src\":\"s\"}";
+        assertEquals(entry, InfluenceEntry.parse(text));
+        assertEquals(text, entry.toJson());
+        for (String bad : new String[] {"{\"cls\":\"public\",\"src\":\"s\",\"h\":\"x\"}",
+                " {\"cls\":\"public\",\"h\":\"x\",\"src\":\"s\"}", "{\"cls\": \"public\",\"h\":\"x\",\"src\":\"s\"}",
+                "[{\"cls\":\"public\",\"h\":\"x\",\"src\":\"s\"}]", "{\"cid\":\"c\",\"cls\":\"public\"}"}) {
+            assertThrows(IllegalArgumentException.class, () -> InfluenceEntry.parse(bad), bad);
+        }
+        assertThrows(IllegalArgumentException.class, () -> InfluenceEntry.parse(null));
+    }
+
+    @Test
+    void anItemReadsAsALabelOnlyFromItsCanonicalText() {
+        ContentLabel label = new ContentLabel(InfluenceClass.PRIVATE, "c", "o");
+        String text = "{\"cid\":\"c\",\"cls\":\"private\",\"owner\":\"o\"}";
+        assertEquals(label, ContentLabel.parse(text));
+        assertEquals(text, label.toJson());
+        for (String bad : new String[] {"{\"cls\":\"public\",\"cid\":\"c\"}", " {\"cid\":\"c\",\"cls\":\"public\"}",
+                "{\"cid\": \"c\",\"cls\":\"public\"}", "[{\"cid\":\"c\",\"cls\":\"public\"}]",
+                "{\"cls\":\"public\",\"h\":\"x\",\"src\":\"s\"}"}) {
+            assertThrows(IllegalArgumentException.class, () -> ContentLabel.parse(bad), bad);
+        }
+        assertThrows(IllegalArgumentException.class, () -> ContentLabel.parse(null));
     }
 
     @Test
