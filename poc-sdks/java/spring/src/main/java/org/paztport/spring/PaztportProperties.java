@@ -11,10 +11,24 @@ import java.util.Set;
 import org.paztport.http.PartnerSessions;
 import org.springframework.beans.factory.InitializingBean;
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.context.properties.bind.BindHandler;
+import org.springframework.boot.context.properties.bind.Bindable;
+import org.springframework.boot.context.properties.bind.Binder;
+import org.springframework.boot.context.properties.bind.handler.NoUnboundElementsBindHandler;
+import org.springframework.boot.context.properties.source.ConfigurationPropertySources;
+import org.springframework.context.EnvironmentAware;
+import org.springframework.core.env.ConfigurableEnvironment;
+import org.springframework.core.env.Environment;
+import org.springframework.core.env.StandardEnvironment;
+import org.springframework.core.env.SystemEnvironmentPropertySource;
 
-/** Configuration for the path-attestation glue, bound from {@code paztport.*}. */
-@ConfigurationProperties(prefix = "paztport")
-public class PaztportProperties implements InitializingBean {
+/**
+ * Configuration for the path-attestation glue, bound from {@code paztport.*}. A key under the prefix that this class
+ * does not define fails the start, naming it: several properties guard something, and a misspelt one that left its
+ * default in place would fail open.
+ */
+@ConfigurationProperties(prefix = "paztport", ignoreUnknownFields = false)
+public class PaztportProperties implements InitializingBean, EnvironmentAware {
 
     /** This service's name, used as the stamp svc and the verifier's receiving service. */
     private String serviceName;
@@ -261,8 +275,9 @@ public class PaztportProperties implements InitializingBean {
 
         /**
          * The extensions this egress requires of the partner: it makes a call only in a session whose attested reply
-         * lists each one (spec sessions.md, A client that requires extensions), and each call's boundary block
-         * requires them. Empty, the default, requires nothing.
+         * lists each one, unless {@code continue-without-required} lets it go on without (spec sessions.md, A client
+         * that requires extensions), and each call's boundary block requires them. Empty, the default, requires
+         * nothing.
          */
         private Set<String> requires = new LinkedHashSet<>();
 
@@ -361,9 +376,10 @@ public class PaztportProperties implements InitializingBean {
 
         /**
          * What this service's calls require of each receiver, by the receiver's policy name: every call to it names
-         * these in its own block, and the receiver refuses it ({@code EXTENSION_REQUIRED}) unless it acts on each.
-         * paztport.extensions.requires.payment=influence. A receiver not listed, or listed with none, is required
-         * nothing.
+         * these in its own block, and a receiver that does not act on each answers {@code EXTENSION_REQUIRED}: it
+         * refuses the call in {@code enforce} and serves it in {@code audit}, as with any refusal (spec
+         * verification.md, Modes). For example {@code paztport.extensions.requires.payment=influence}. A receiver not
+         * listed, or listed with none, is required nothing.
          */
         private Map<String, Set<String>> requires = new LinkedHashMap<>();
 
@@ -593,6 +609,7 @@ public class PaztportProperties implements InitializingBean {
      */
     @Override
     public void afterPropertiesSet() {
+        refuseUnknownEnvironmentVariables();
         InboundFilter.requireWellFormed(unverifiedPaths);
         boolean overlapping = !overlap.getKeyringPaths().isEmpty() || !overlap.getRootPaths().isEmpty();
         if (overlapping && (keyringPath == null || rootPath == null || policyKeyPath == null)) {
@@ -714,5 +731,31 @@ public class PaztportProperties implements InitializingBean {
 
     public Extensions getExtensions() {
         return extensions;
+    }
+
+    private Environment environment;
+
+    @Override
+    public void setEnvironment(Environment environment) {
+        this.environment = environment;
+    }
+
+    /**
+     * Boot's strict binding skips the process environment, which holds many variables that are not the application's,
+     * so {@code PAZTPORT_VERFY=true} would leave {@code verify} at its default and the service would start unguarded.
+     * The environment is bound again here, on its own and under the same rule, so that a {@code PAZTPORT_} variable
+     * the starter does not define fails the start as the same key in a property file does.
+     */
+    private void refuseUnknownEnvironmentVariables() {
+        if (!(environment instanceof ConfigurableEnvironment configurable)) {
+            return;
+        }
+        var named = configurable.getPropertySources().get(StandardEnvironment.SYSTEM_ENVIRONMENT_PROPERTY_SOURCE_NAME);
+        if (!(named instanceof SystemEnvironmentPropertySource env)) {
+            return;
+        }
+        new Binder(ConfigurationPropertySources.from(env))
+                .bind("paztport", Bindable.of(PaztportProperties.class),
+                        new NoUnboundElementsBindHandler(BindHandler.DEFAULT, candidate -> true));
     }
 }

@@ -521,7 +521,9 @@ Every property the starter binds, from `PaztportProperties`; the jar carries Boo
 configuration metadata, so an IDE completes and describes them too. A list is
 comma-separated, or a YAML list. "Required" says when the service does not start
 without the property, or without a valid value; the subsection linked from each row
-says the rest.
+says the rest. A key under `paztport` that the starter does not define fails the start and
+names the key, whether it is written in a property file or as an environment variable:
+a misspelt `paztport.verify` would otherwise leave the service unguarded.
 
 | Property | Default | Required | Meaning |
 |---|---|---|---|
