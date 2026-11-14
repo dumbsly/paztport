@@ -7,16 +7,26 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.security.PrivateKey;
+import java.util.ArrayList;
 import java.util.Base64;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import org.paztport.core.crypto.Crypto;
 import org.paztport.core.crypto.KeyFiles;
+import org.paztport.core.encoding.Base64Url;
+import org.paztport.core.influence.Influence;
+import org.paztport.core.influence.InfluenceClass;
+import org.paztport.core.influence.InfluenceEntry;
+import org.paztport.core.stamp.Block;
 import org.paztport.core.stamp.Stamp;
 import org.paztport.http.RequestContext;
 import org.paztport.http.wire.HttpWire;
 import org.paztport.http.wire.PaztportHeaders;
 import org.paztport.http.wire.RequestBinding;
 import org.paztport.spring.outbound.PooledTlsClient;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.MediaType;
@@ -45,22 +55,35 @@ public class AttackController {
     private final PrivateKey searchKey;
     private final String inst;
 
+    /** The endpoints over search's stamping client and key, sending raw calls on the starter's pooled client. */
+    @Autowired
     public AttackController(
             RestClient stampedClient,
             StolenChainStore stolenChains,
             @Value("${downstream.payment-url}") String paymentUrl,
             @Value("${paztport.key-path}") String keyPath,
             PooledTlsClient tls) throws Exception {
+        // The raw client is built apart from the shared builder, so it never gets the stamping interceptor, but on
+        // the starter's pooled client, so it reuses connections like every other call. Payment requires a client
+        // certificate, and the attacker can only present its own: every attack arrives as search.
+        this(stampedClient, tls.builder().build(), stolenChains, paymentUrl,
+                KeyFiles.loadPrivateKey(Path.of(keyPath)), instance());
+    }
+
+    /** As the public constructor, with the raw client, search's key and its instance given; for tests. */
+    AttackController(RestClient stampedClient, RestClient rawClient, StolenChainStore stolenChains, String paymentUrl,
+            PrivateKey searchKey, String inst) {
         this.stampedClient = stampedClient;
-        // Built apart from the shared builder, so it never gets the stamping interceptor, but on the starter's
-        // pooled client, so it reuses connections like every other call. Payment requires a client certificate,
-        // and the attacker can only present its own: every attack arrives as search.
-        this.rawClient = tls.builder().build();
+        this.rawClient = rawClient;
         this.stolenChains = stolenChains;
         this.paymentUrl = paymentUrl;
-        this.searchKey = KeyFiles.loadPrivateKey(Path.of(keyPath));
+        this.searchKey = searchKey;
+        this.inst = inst;
+    }
+
+    private static String instance() {
         String host = System.getenv("HOSTNAME");
-        this.inst = host != null && !host.isBlank() ? host : "search-attacker";
+        return host != null && !host.isBlank() ? host : "search-attacker";
     }
 
     /** Scenario 2: call payment with no path headers at all. */
@@ -79,23 +102,72 @@ public class AttackController {
         return callPayment(rawClient, chain, null, null, BODY);
     }
 
-    /** Scenario 4 / 10: forward a real gateway->search chain on to payment. */
+    /**
+     * Scenario 4 / 8c / 9 / 10: forward a real gateway->search chain on to payment, with the blocks it came with, so
+     * each still matches the stamp that committed to it (check 9a) and payment meets the chain at its route.
+     */
     @PostMapping("/attack/forward-stolen")
     public ResponseEntity<String> forwardStolen() {
-        List<Stamp> stolen = stolenChains.last();
+        StolenChainStore.Stolen stolen = stolenChains.last();
         if (stolen == null) {
-            return ResponseEntity.status(428)
-                    .body("{\"reason\":\"NO_STOLEN_CHAIN\",\"hint\":\"call gateway /find first\"}");
+            return noStolenChain();
         }
-        // Let the normal interceptor append search's own stamp to the stolen chain. The rest of the context
-        // belongs to the filter serving this request, so only the chain is swapped, and it is put back after.
+        return forward(stolen.chain(), stolen.blocks());
+    }
+
+    /**
+     * Scenario 4b: forward a real gateway->search chain on to payment with one block altered: the gateway's gains an
+     * influence entry it never signed, and every other block goes unchanged. The gateway's stamp no longer commits to
+     * its block, which is check 9a's. The gateway's block holds no entry to strip, so one is added; any change to a
+     * committed block is the same refusal.
+     */
+    @PostMapping("/attack/forward-altered")
+    public ResponseEntity<String> forwardAltered() {
+        StolenChainStore.Stolen stolen = stolenChains.last();
+        if (stolen == null) {
+            return noStolenChain();
+        }
+        List<Block> blocks = new ArrayList<>(stolen.blocks());
+        blocks.set(0, withEntryAdded(blocks.get(0)));
+        return forward(stolen.chain(), blocks);
+    }
+
+    /** {@code block} with one more influence entry, after any it holds; its other names and requires unchanged. */
+    private static Block withEntryAdded(Block block) {
+        Map<String, List<String>> items = new LinkedHashMap<>();
+        for (String name : block.names()) {
+            items.put(name, block.itemsUnder(name));
+        }
+        List<String> influence = new ArrayList<>(items.getOrDefault(Influence.NAME, List.of()));
+        influence.add(new InfluenceEntry(InfluenceClass.PUBLIC, "search:attack",
+                Base64Url.encode(Crypto.sha256(BODY)), null, null).toJson());
+        items.put(Influence.NAME, influence);
+        return Block.of(items, block.requires());
+    }
+
+    /**
+     * Lets the normal interceptor append search's own stamp and block to {@code chain} and {@code blocks}, and calls
+     * payment. The rest of the context belongs to the filter serving this request, so only the chain and its blocks
+     * are swapped, and both are put back after.
+     */
+    private ResponseEntity<String> forward(List<Stamp> chain, List<Block> blocks) {
         List<Stamp> previous = RequestContext.inboundChain();
-        RequestContext.setInboundChain(stolen);
+        List<Block> previousBlocks = RequestContext.inboundBlocks();
+        RequestContext.setInboundChain(chain, blocks);
         try {
             return callPayment(stampedClient, null, null, null, BODY);
         } finally {
-            RequestContext.setInboundChain(previous);
+            if (previousBlocks != null) {
+                RequestContext.setInboundChain(previous, previousBlocks);
+            } else {
+                RequestContext.setInboundChain(previous);
+            }
         }
+    }
+
+    private static ResponseEntity<String> noStolenChain() {
+        return ResponseEntity.status(428)
+                .body("{\"reason\":\"NO_STOLEN_CHAIN\",\"hint\":\"call gateway /find first\"}");
     }
 
     /** Scenario 5 / 7: replay a captured valid request verbatim (fresh -> REPLAY, aged -> EXPIRED). */
