@@ -68,14 +68,19 @@ import org.paztport.http.wire.RequestBinding;
 
 /**
  * Builds and replays the {@code rules} section of {@code spec/vectors/http-v4.json}: the HTTP rules the spec requires
- * of a receiver and a caller, each case an input and the answer the spec gives for it. A case is replayed through the
- * framework-neutral functions a binding adapts ({@link HttpReceiver} entered through {@link RequestContext#accept},
- * with {@link PublicWrites} asked as a handler asks it, {@link HttpCaller#stamp} and {@link HttpCaller#check},
- * {@link PeerCert#of} and {@link UnsafeEndpoints}), so the file holds nothing a framework decides. The section's
- * fixtures also hold a partner's material, handshake requests and client certificates.
+ * of a receiver, a caller, a partner and an egress, each case an input and the answer the spec gives for it. A case
+ * is replayed through the framework-neutral functions a binding adapts ({@link HttpReceiver} and
+ * {@link PartnerReceiver} entered through {@link RequestContext#accept}, with {@link PublicWrites} asked as a handler
+ * asks it, {@link HttpCaller#stamp} and {@link HttpCaller#check}, {@link HttpSessions#serve}, {@link PeerCert#of},
+ * {@link UnsafeEndpoints} and {@link org.paztport.http.boundary.BoundaryClient}), so the file holds nothing a
+ * framework decides. The partner and egress kinds are {@link VectorsHttpPartner}'s. The section's fixtures also hold
+ * a partner's material, handshake requests and client certificates.
  *
  * <p>Every expected answer here is written by hand from the spec, not taken from a run: {@link #assertAll} replays
- * each case and compares, so an export fails rather than record what the code happens to do.
+ * each case and compares, so an export fails rather than record what the code happens to do. The one exception is
+ * what an egress sends, whose blinded entries and block commitment are computed with {@code BoundaryInfluence.reduce}
+ * and {@code Block.commit}: those primitives are pinned on their own, by {@code boundaryInfluence} here and by
+ * {@code blocks} and {@code influence} in {@code v4.json}.
  */
 final class VectorsHttpRules {
 
@@ -113,57 +118,98 @@ final class VectorsHttpRules {
     /** A pass-along block: it requires influence of the next hop but does not name it (influence.md). */
     static final Block PASS_ALONG = Block.of(Map.of(), List.of(Influence.NAME));
 
-    private static final String ABOUT = "The HTTP rules the spec requires of a receiver and a caller, each case an"
-            + " input and the answer the spec gives. A key is looked up by name here, then in this file's top-level"
-            + " `keys`, then in v4.json; each new one is derived by v4.json's rule. A `material` is one organisation's"
-            + " policy key (by name), its signed root and signed keyring, each with its notAfter, the proofs of its"
-            + " routes and, for a partner, its entry service and reply certificate. Each root's tree has depth 1, its"
-            + " two routes filling both leaves with salts by v4.json's rule, so it has no padding; its rootId is \"v\""
-            + " and the first 12 hex digits of SHA-256(utf8(\"paztport-http-v3-vector-root:\" + tree)), for the vectors"
-            + " only. `handshakes` holds handshake requests on the shop's material, each nonce the first 16 bytes (15"
-            + " for `short-nonce`) of SHA-256(utf8(\"paztport-http-v3-vector-nonce:\" + name)), base64url, and"
-            + " `handshakeBodies` each request's JCS bytes; `peers` holds client certificates, each with the address it"
-            + " connects from. Bodies and certificates are hex, and headers are their values as sent. A receiver case"
-            + " enters `request` at `service` `uses` times against one nonce cache that already holds `spent`, each key"
-            + " the JCS text of its array of strings, the service's verifier, when it has one, pinned to `material`,"
-            + " and `expected` is the last entry's answer. The service acts on the extensions in `actsOn` and carries"
-            + " the names in `allowedExtensions` (null for unset, which carries any name), with a verifier or without"
-            + " one. Its `mode` is `enforce` or `audit`; `off`, a hop that verifies requests but whose deployment has"
-            + " switched it off; or null, a service that verifies no requests under a mode. Unless its name says"
-            + " otherwise, a case's chain is gateway's stamp to orders, then orders' to payment, and each hop's block"
-            + " names `influence`, with `[]` when the hop added nothing. The answer is the `refusal` (null when the"
-            + " request is served); `verified`, whether the request is served as having passed the live order at this"
-            + " service (false for every refusal); `handedOn`, what the service is handed, null for nothing, else one"
-            + " member per name in `actsOn`, each an array of {svc, items}, one per stamp, items null where the stamp's"
-            + " block does not name the extension; and `attests`. Then the handler, having read the entries in `read`,"
-            + " asks two questions, at a service that acts on `influence`, as every receiver here does unless its"
-            + " `actsOn` says otherwise: `publicWrite`, the reason a guarded public write to a destination whose owner"
-            + " is `destinationOwner` gets; and `trustedRecord`, whether a trusted record may be written. A refused"
+    private static final String ABOUT = "The HTTP rules the spec requires of a receiver, a caller, a partner and an"
+            + " egress, each case an input and the answer the spec gives. A key is looked up by name here, then in"
+            + " this file's top-level `keys`, then in v4.json; each new one is derived by v4.json's rule. A `material`"
+            + " is one organisation's policy key (by name), its signed root and signed keyring, each with its"
+            + " notAfter, the proofs of its routes and, for a partner, its entry service and reply certificate. Each"
+            + " root's tree has depth 1, its two routes filling both leaves with salts by v4.json's rule, so it has no"
+            + " padding; its rootId is \"v\" and the first 12 hex digits of"
+            + " SHA-256(utf8(\"paztport-http-v3-vector-root:\" + tree)), for the vectors only. `handshakes` holds"
+            + " handshake requests on the shop's material, each nonce the first 16 bytes (15 for `short-nonce`) of"
+            + " SHA-256(utf8(\"paztport-http-v3-vector-nonce:\" + name)), base64url, and `handshakeBodies` each"
+            + " request's JCS bytes; `peers` holds client certificates, each with the address it connects from. Bodies"
+            + " and certificates are hex, and headers are their values as sent. A receiver case enters `request` at"
+            + " `service` `uses` times against one nonce cache that already holds `spent`, each key the JCS text of"
+            + " its array of strings, the service's verifier, when it has one, pinned to `material`, and `expected` is"
+            + " the last entry's answer. The service acts on the extensions in `actsOn` and carries the names in"
+            + " `allowedExtensions` (null for unset, which carries any name), with a verifier or without one. Its"
+            + " `mode` is `enforce` or `audit`; `off`, a hop that verifies requests but whose deployment has switched"
+            + " it off; or null, a service that verifies no requests under a mode. Unless its name says otherwise, a"
+            + " case's chain is gateway's stamp to orders, then orders' to payment, and each hop's block names"
+            + " `influence`, with `[]` when the hop added nothing. The answer is the `refusal` (null when the request"
+            + " is served); `verified`, whether the request is served as having passed the live order at this service"
+            + " (false for every refusal); `handedOn`, what the service is handed, null for nothing, else one member"
+            + " per name in `actsOn`, each an array of {svc, items}, one per stamp, items null where the stamp's block"
+            + " does not name the extension; and `attests`. Then the handler, having read the entries in `read`, asks"
+            + " two questions, at a service that acts on `influence`, as every receiver here does unless its `actsOn`"
+            + " says otherwise: `publicWrite`, the reason a guarded public write to a destination whose owner is"
+            + " `destinationOwner` gets; and `trustedRecord`, whether a trusted record may be written. A refused"
             + " request runs no handler, and a service that does not act on `influence` asks neither question, so both"
             + " are null then; work outside any request (a null `request`) asks only for the trusted record. A caller"
             + " case is `caller` calling payment after `inbound`, the gateway's stamp, which came with the blocks"
-            + " `inboundBlocks`, its own block holding the entries in `added`, on `material`, holding the tables of the"
-            + " top-level `operations` that `caller.operations` names, as a caller that acts on `actsOn` and carries"
-            + " `allowedExtensions`, with a verifier exactly when `caller.verifier` is true; payment answers with"
-            + " `response`, and `expected` is the `rcv` of the stamp the caller signed, the check's `reason` (null"
-            + " where the caller has no verifier), whether the caller `refused` the response, and the `influence`"
-            + " entries the response adds. Against http-v3.json's rules: stamps are version 4 and blocks travel in"
-            + " `X-Path-Extensions`; nonce keys are JCS text. A receiver case gains the inputs `actsOn`,"
-            + " `allowedExtensions` and `destinationOwner`; its answer holds `handedOn` in place of `influence` (null"
-            + " where v3 recorded `[]` for nothing), and gains `publicWrite`; a refusal's `trustedRecord` is null, not"
-            + " false. `unreadableInfluence` is `influenceItems`, an item on a request's block that does not read as an"
+            + " `inboundBlocks`, its own block holding the entries in `added`, on `material`, holding the tables of"
+            + " the top-level `operations` that `caller.operations` names, as a caller that acts on `actsOn` and"
+            + " carries `allowedExtensions`, with a verifier exactly when `caller.verifier` is true; payment answers"
+            + " with `response`, and `expected` is the `rcv` of the stamp the caller signed, the check's `reason`"
+            + " (null where the caller has no verifier), whether the caller `refused` the response, and the"
+            + " `influence` entries the response adds. A partner case runs `steps` in order against one partner on"
+            + " `material`, which pins the policy keys `pinned`, takes the egress services `clientOrigins` as allowed"
+            + " origins, switches off `unsafeDisabled` for unsafe sessions, keeps at most `maxSessionsPerPeer`"
+            + " sessions per peer, each until no call has used it for `sessionIdleMs`, and acts on `actsOn` and"
+            + " carries `allowedExtensions` as a receiver does; its clock reads each step's `at`. A handshake step"
+            + " posts, from the client certificate `peer`, the `handshakeBodies` entry its `request` names, or `body`"
+            + " where `request` is null, and `as` names the session it opens, since the partner picks the id; it"
+            + " expects the HTTP `status`, the `error`, and for a session opened its `sessionStatus`, its `disabled`"
+            + " endpoints and the `extensions` the reply lists. A call step sends `method` `target` with `body` from"
+            + " the client certificate `peer`, naming its `session` by a handshake's `as` (`of`), as a literal (`id`),"
+            + " or not at all (null), with `proofHeader` and `extensionsHeader` as given; its `stamp`, when there is"
+            + " one, is a boundary stamp with the fields given, signed as the step runs with the key `key`, in the"
+            + " session its `sess` names, over the binding of the call's method and target with the stamp's own"
+            + " `body`, and committing to `block`. A call may carry `read`, what the handler reads once it is"
+            + " accepted. It expects the `refusal` (an unsafe session's switched-off endpoint, by `routePattern`,"
+            + " included), whether it is served `attested`, `handedOn` as a receiver case records it, and"
+            + " `trustedRecord`, null for a refusal. An egress case enters `inbound`, a receiver case's inputs (null"
+            + " for work outside any request), at the egress `egress`, which acts on `actsOn`, requires `requires` of"
+            + " the partner and goes on without them when `continueWithout` is true, and posts each of `posts` to"
+            + " `partnerScript`: a partner that answers each full handshake with the next of `handshakes` (`attested`"
+            + " or `unsafe`, a genuine reply on the `psp` material; `notFound`, a 404; `wrongKey`, a reply signed by"
+            + " and naming `stranger-policy`), the replacement as `replacement` says, every reply listing"
+            + " `extensions`, and each call with the next of `calls`. It expects each post's `outcome` (`answered`,"
+            + " with the `status` and whether the session was `attested`; `refused` by the egress's guard, nothing"
+            + " sent; `withheld`, no call made in a session that does not meet the requirement; `failed`, no session),"
+            + " all the partner `received` in order (a handshake, whether it had a client root; a call, its session"
+            + " and the session its stamp was made in, each the position of the handshake whose reply issued it, its"
+            + " stamps without `sess` and `sig`, its proof and its `blocks`), and the entries the request `added` at"
+            + " the egress. A boundary block's entries are blinded under the boundary key as `boundaryInfluence` pins"
+            + " it. Against http-v3.json's rules: stamps are version 4 and blocks travel in `X-Path-Extensions`; nonce"
+            + " keys are JCS text. A receiver case gains the inputs `actsOn`, `allowedExtensions` and"
+            + " `destinationOwner`; its answer holds `handedOn` in place of `influence` (null where v3 recorded `[]`"
+            + " for nothing), and gains `publicWrite`; a refusal's `trustedRecord` is null, not false."
+            + " `unreadableInfluence` is `influenceItems`, an item on a request's block that does not read as an"
             + " entry; `servedUnverified` is new, check 9a at a service about to serve a request it did not verify."
             + " `callerInfluence` follows the HTTP rule for what a response adds: its response header is {block,"
-            + " stamp}, the caller's input `influence` is `added`, the entries its own block holds, it gains the inputs"
-            + " `actsOn`, `allowedExtensions` and `inboundBlocks`, and its answer gains `refused`. Six cases of"
+            + " stamp}, the caller's input `influence` is `added`, the entries its own block holds, it gains the"
+            + " inputs `actsOn`, `allowedExtensions` and `inboundBlocks`, and its answer gains `refused`. Six cases of"
             + " http-v3.json are dropped, each for repeating another case's input and answer, and found under the case"
             + " that stays: requests' \"verified, with the influence the stamp commits to\" and attestation's"
             + " \"enforce, verified\" under trustedRecord's \"verified, private and public with owners\";"
             + " trustedRecord's \"verified, no influence\" under requests' \"verified\"; trustedRecord's \"refused\""
             + " under attestation's \"enforce, refused\"; attestation's \"off: verifies and attests nothing\" under"
             + " trustedRecord's \"a hop that is off\"; and refusals' \"unreadable influence in audit mode\" under"
-            + " influenceItems' \"audit, on a chain that verifies otherwise\". http-v3.json's partner and egress kinds"
-            + " have no counterpart here.";
+            + " influenceItems' \"audit, on a chain that verifies otherwise\". A partner gains `actsOn` and"
+            + " `allowedExtensions`, a session it opens `extensions`; a call's stamp commits to a `block` in place of"
+            + " `influence` and the call carries `extensionsHeader` in place of `influenceHeader`; its answer holds"
+            + " `handedOn` in place of `influence`, and a refused call's `trustedRecord` is null, not false."
+            + " boundaryRefusals' \"influence other than the stamp commits to\" is \"a block other than the stamp"
+            + " commits to\" and its \"influence that cannot be read\" is \"blocks that cannot be read\", both"
+            + " EXTENSION_MISMATCH, and \"an item that is not an entry\" is new; partnerTrustedRecord gains a stamp"
+            + " whose block names influence with nothing and one whose block does not name it. An egress gains"
+            + " `actsOn`, `allowedExtensions`, `requires` and `continueWithout`, its partner script `extensions`, a"
+            + " post the outcome `withheld`; a call received holds `blocks` in place of `influence`, and the answer"
+            + " `added`, what the egress added, in place of `influence`; the cases on the requirement and on what the"
+            + " boundary block names are new. No partner or egress case of http-v3.json is dropped: none repeats"
+            + " another's input.";
 
     private VectorsHttpRules() {
     }
@@ -389,10 +435,17 @@ final class VectorsHttpRules {
         rules.set("servedUnverified", servedUnverified(chains));
         rules.set("attestation", attestation(chains));
         rules.set("peerCertificates", peerCertificates(made.get("shop-ca")));
+        rules.set("sessionHeader", VectorsHttpPartner.sessionHeader(fx));
+        rules.set("sessionRegistry", VectorsHttpPartner.sessionRegistry(fx));
         rules.set("unsafeEndpoints", unsafeEndpoints());
+        rules.set("handshakeErrors", VectorsHttpPartner.handshakeErrors(fx));
+        rules.set("egress", VectorsHttpPartner.egress(fx, chains));
         rules.set("callerInfluence", callerInfluence(chains));
+        rules.set("sessionExpiry", VectorsHttpPartner.sessionExpiry(fx));
         rules.set("refusals", refusals(chains));
+        rules.set("boundaryRefusals", VectorsHttpPartner.boundaryRefusals(fx));
         rules.set("trustedRecord", trustedRecord(chains));
+        rules.set("partnerTrustedRecord", VectorsHttpPartner.partnerTrustedRecord(fx));
         return rules;
     }
 
@@ -1438,5 +1491,6 @@ final class VectorsHttpRules {
         for (JsonNode c : rules.get("callerInfluence")) {
             assertEquals(c.get("expected"), runCaller(c, fx), "callerInfluence: " + c.get("name").asText());
         }
+        VectorsHttpPartner.assertAll(rules, fx);
     }
 }

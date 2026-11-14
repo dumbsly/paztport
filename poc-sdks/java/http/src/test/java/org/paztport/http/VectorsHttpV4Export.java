@@ -120,10 +120,10 @@ class VectorsHttpV4Export {
             + " and the `refusal` it expects (null when the request is served). Every `receive` case on the `ops`"
             + " policy carries the proof of `gateway/orders#createOrder`, whatever its chain names; those naming"
             + " `material` carry its proof of `gateway/orders#reserve`, and the receiver holds `keyed` as its own"
-            + " table. `rules` holds the HTTP rules a receiver and a caller follow, and its `about` says how its"
-            + " cases read. Ed25519 is deterministic, so the file is reproduced byte for byte. Java writes and"
-            + " replays this file; Go replays http-v3.json until it moves; the TypeScript SDK has no HTTP binding, so"
-            + " it does not replay it.";
+            + " table. `rules` holds the HTTP rules a receiver, a caller, a partner and an egress follow, and its"
+            + " `about` says how its cases read. Ed25519 is deterministic, so the file is reproduced byte for byte."
+            + " Java writes and replays this file; Go replays http-v3.json until it moves; the TypeScript SDK has no"
+            + " HTTP binding, so it does not replay it.";
 
     private static final long GATEWAY_TS = 1_767_225_598_500L;
     private static final long ORDERS_TS = 1_767_225_599_500L;
