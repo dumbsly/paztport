@@ -43,9 +43,12 @@ import org.paztport.core.policy.Keyring;
 import org.paztport.core.policy.OperationTable;
 import org.paztport.core.policy.PolicyBuilder;
 import org.paztport.core.stamp.Bindings;
+import org.paztport.core.stamp.Block;
 import org.paztport.core.stamp.Chains;
 import org.paztport.core.stamp.Stamp;
 import org.paztport.core.stamp.Stamper;
+import org.paztport.core.verify.ExtensionSettings;
+import org.paztport.core.verify.HandOver;
 import org.paztport.core.verify.InMemoryNonceCache;
 import org.paztport.core.verify.NonceCache;
 import org.paztport.core.verify.Peer;
@@ -77,6 +80,8 @@ class HttpReceiverTest {
     private static final byte[] PAID = "paid".getBytes(StandardCharsets.UTF_8);
     private static final InfluenceEntry WEB = new InfluenceEntry(InfluenceClass.THIRD_PARTY, "web:a", "h1", null, null);
     private static final InfluenceEntry MINE = new InfluenceEntry(InfluenceClass.PRIVATE, "db:a", "h2", null, "alice");
+    /** Payment's settings where it verifies: it acts on influence, so it is handed the items under it. */
+    private static final ExtensionSettings ACTS_ON_INFLUENCE = ExtensionSettings.of(Set.of(Influence.NAME), null);
 
     private final KeyPair gateway = Crypto.generateEd25519KeyPair();
     private final KeyPair orders = Crypto.generateEd25519KeyPair();
@@ -124,7 +129,7 @@ class HttpReceiverTest {
                         orders.getPublic())), notAfter)),
                 List.of(new PinnedRoot(policy.signedRoot().rootBytes(), policy.signedRoot().rootId(), notAfter)),
                 notAfter, Set.of("gateway"), "",
-                nonces, () -> NOW, 5000, 5000));
+                nonces, () -> NOW, 5000, 5000, ACTS_ON_INFLUENCE));
     }
 
     /** A cache that cannot answer, as a shared store that is down. */
@@ -172,24 +177,31 @@ class HttpReceiverTest {
     /** A one-stamp chain claiming to come from the origin {@code gateway}, for {@code payment}, under {@code sig}. */
     private static String forgedChain(String rid, String sig) {
         return HttpWire.encodeChain(List.of(new Stamp("gateway", "gw-1", rid, NOW, "", "payment",
-                RequestBinding.compute("POST", "/pay", TO_PAYMENT), Influence.commit(List.of()), "", sig)));
+                RequestBinding.compute("POST", "/pay", TO_PAYMENT), "", "", sig)));
     }
 
     /** The two forgeries anyone can write without a key: an empty signature, and well-formed garbage. */
     private static final List<String> FORGED_SIGS = List.of("", Base64Url.encode(new byte[64]));
 
-    private record Headers(String chain, String proof, String influence) {
+    private record Headers(String chain, String proof, String blocks) {
     }
 
+    /** Orders' block for a request carrying {@code influence}: it names influence with those entries, if any. */
+    private static Block ordersBlock(List<InfluenceEntry> influence) {
+        return influence.isEmpty() ? Block.EMPTY : Influence.block(influence, List.of());
+    }
+
+    /** gateway to orders to payment, orders' block holding {@code influence}; the blocks travel, as a caller sends. */
     private Headers headers(String rid, String target, List<InfluenceEntry> influence) {
         Stamper.Stamped gw = new Stamper("gateway", "gw-1", gateway.getPrivate(), true, () -> rid, () -> NOW)
-                .next(null, "orders", RequestBinding.compute("POST", "/orders", "{}".getBytes()), List.of(),
+                .next(null, "orders", RequestBinding.compute("POST", "/orders", "{}".getBytes()), Block.EMPTY,
                         policy.bundles().get("gateway"));
+        Block own = ordersBlock(influence);
         Stamper.Stamped ord = new Stamper("orders", "ord-1", orders.getPrivate(), false, () -> "x", () -> NOW)
-                .next(gw.chain(), "payment", RequestBinding.compute("POST", target, TO_PAYMENT), influence,
+                .next(gw.chain(), "payment", RequestBinding.compute("POST", target, TO_PAYMENT), own,
                         policy.bundles().get("orders"));
         return new Headers(HttpWire.encodeChain(ord.chain()), HttpWire.encodeProof(ord.proof()),
-                HttpWire.encodeInfluence(influence));
+                HttpWire.encodeBlocks(List.of(Block.EMPTY, own)));
     }
 
     private Headers validHeaders() {
@@ -204,8 +216,8 @@ class HttpReceiverTest {
         if (h.proof() != null) {
             sent.put(PaztportHeaders.PROOF, h.proof());
         }
-        if (h.influence() != null) {
-            sent.put(PaztportHeaders.INFLUENCE, h.influence());
+        if (h.blocks() != null) {
+            sent.put(PaztportHeaders.EXTENSIONS, h.blocks());
         }
         return new InboundRequest(method, target, sent, body);
     }
@@ -228,9 +240,10 @@ class HttpReceiverTest {
         return new ObjectMapper().readTree(HttpWire.decodeChain(header));
     }
 
-    /** The attestation's labels as the SDK reads them from the header token: their JCS text. */
-    private static String labelsText(String header) {
-        return JsonWriter.text(JsonFields.object(JsonReader.token(header)).get("labels"));
+    /** The attestation's block as the SDK reads it from the header token. */
+    private static Block responseBlock(String header) {
+        return Block.parseAll("[" + JsonWriter.text(JsonFields.object(JsonReader.token(header)).get("block")) + "]")
+                .get(0);
     }
 
     private static Stamp responseStamp(String header) throws Exception {
@@ -263,7 +276,8 @@ class HttpReceiverTest {
         Verifier verifier = new Verifier(new VerifierConfig(
                 List.of(new PinnedKeyring(Keyring.of(Map.of("gateway", gateway.getPublic())), notAfter)),
                 List.of(new PinnedRoot(opsPolicy.signedRoot().rootBytes(), opsPolicy.signedRoot().rootId(), notAfter)),
-                notAfter, Set.of("gateway"), "", new InMemoryNonceCache(), () -> NOW, 5000, 5000));
+                notAfter, Set.of("gateway"), "", new InMemoryNonceCache(), () -> NOW, 5000, 5000,
+                ExtensionSettings.NONE));
         return HttpReceiver.builder("orders").verifier(verifier).verifyRequests(true).publisher(events)
                 .stamper(new Stamper("orders", "ord-1", orders.getPrivate(), false, () -> "x", () -> NOW)).build();
     }
@@ -271,7 +285,7 @@ class HttpReceiverTest {
     /** A request from gateway to orders, whose stamp names {@code named}, with the operation the framework chose. */
     private InboundRequest toOrders(String rid, String named, String operation) {
         Stamper.Stamped gw = new Stamper("gateway", "gw-1", gateway.getPrivate(), true, () -> rid, () -> NOW)
-                .next(null, named, RequestBinding.compute("GET", "/orders/123", new byte[0]), List.of(),
+                .next(null, named, RequestBinding.compute("GET", "/orders/123", new byte[0]), Block.EMPTY,
                         opsPolicy.bundles().get("gateway"));
         Map<String, String> sent = new HashMap<>();
         sent.put(PaztportHeaders.CHAIN, HttpWire.encodeChain(gw.chain()));
@@ -372,7 +386,7 @@ class HttpReceiverTest {
                 List.of(new PinnedKeyring(Keyring.of(Map.of("gateway", gateway.getPublic())), notAfter)),
                 List.of(new PinnedRoot(keysPolicy.signedRoot().rootBytes(), keysPolicy.signedRoot().rootId(),
                         notAfter)),
-                notAfter, Set.of("gateway"), "", nonces, () -> NOW, 5000, 5000));
+                notAfter, Set.of("gateway"), "", nonces, () -> NOW, 5000, 5000, ExtensionSettings.NONE));
         return HttpReceiver.builder("orders").verifier(verifier).verifyRequests(true).publisher(events)
                 .stamper(new Stamper("orders", "ord-1", orders.getPrivate(), false, () -> "x", () -> NOW))
                 .operations(ORDERS_KEYED).build();
@@ -381,7 +395,7 @@ class HttpReceiverTest {
     /** {@code POST target} from gateway to orders, its stamp naming {@code named}, dispatched to {@code operation}. */
     private InboundRequest toOrdersKeyed(String rid, String named, String target, String operation) {
         Stamper.Stamped gw = new Stamper("gateway", "gw-1", gateway.getPrivate(), true, () -> rid, () -> NOW)
-                .next(null, named, RequestBinding.compute("POST", target, new byte[0]), List.of(),
+                .next(null, named, RequestBinding.compute("POST", target, new byte[0]), Block.EMPTY,
                         keysPolicy.bundles().get("gateway"));
         Map<String, String> sent = new HashMap<>();
         sent.put(PaztportHeaders.CHAIN, HttpWire.encodeChain(gw.chain()));
@@ -398,7 +412,7 @@ class HttpReceiverTest {
 
         assertNull(accepted.refusal());
         assertEquals("reserve", accepted.operation());
-        assertEquals(List.of("rid-1|gateway|orders#reserve|A1|req"), nonces.asked);
+        assertEquals(List.of("[\"rid-1\",\"gateway\",\"orders#reserve\",\"A1\",\"req\"]"), nonces.asked);
     }
 
     @Test
@@ -456,7 +470,7 @@ class HttpReceiverTest {
 
         assertNull(accepted.refusal());
         assertNull(accepted.operation());
-        assertEquals(List.of("rid-1|gateway|orders|req"), nonces.asked);
+        assertEquals(List.of("[\"rid-1\",\"gateway\",\"orders\",\"req\"]"), nonces.asked);
         assertNull(accepted.delivery().key(), "a chain naming no operation carries no key value");
     }
 
@@ -484,7 +498,7 @@ class HttpReceiverTest {
     }
 
     @Test
-    void enforceValidRequestPassesWithTheVerifiedInfluence() {
+    void aVerifiedRequestHandsOverWhatItsBlocksHold() {
         Accepted accepted = verifying(null).accept(
                 paymentRequest(headers("rid-1", "/pay", List.of(MINE, WEB)), TO_PAYMENT), null,
                 VerificationMode.ENFORCE);
@@ -492,7 +506,12 @@ class HttpReceiverTest {
         assertNull(accepted.refusal());
         assertEquals(2, accepted.inbound().size());
         assertEquals(accepted.inbound(), accepted.verifiedChain(), "it passed the live order here");
-        assertEquals(List.of(MINE, WEB), accepted.influence());
+        assertTrue(accepted.handOver().verified());
+        assertEquals(List.of(new HandOver.StampItems("gateway", null),
+                new HandOver.StampItems("orders", List.of(MINE.toJson(), WEB.toJson()))),
+                accepted.handOver().under(Influence.NAME), "one entry per stamp, as each block holds it");
+        assertEquals(List.of(Block.EMPTY, ordersBlock(List.of(MINE, WEB))), accepted.blocks(),
+                "the blocks to forward, as received");
         assertTrue(events.all.isEmpty(), "no event on success");
     }
 
@@ -522,16 +541,32 @@ class HttpReceiverTest {
     }
 
     @Test
-    void enforceAlteredInfluenceIsRefusedWithInfluenceMismatch() {
+    void anEnforcedRequestWithAnAlteredBlockIs403ExtensionMismatch() {
         Headers h = headers("rid-1", "/pay", List.of(MINE));
-        Headers altered = new Headers(h.chain(), h.proof(), HttpWire.encodeInfluence(List.of(WEB)));
+        Headers altered = new Headers(h.chain(), h.proof(),
+                HttpWire.encodeBlocks(List.of(Block.EMPTY, ordersBlock(List.of(WEB)))));
 
         Accepted accepted = verifying(null).accept(paymentRequest(altered, TO_PAYMENT), null,
                 VerificationMode.ENFORCE);
 
         assertEquals(403, accepted.refusal().status());
-        assertEquals("{\"reason\":\"INFLUENCE_MISMATCH\"}", text(accepted.refusal()));
-        assertEquals("INFLUENCE_MISMATCH", events.all.get(0).reason());
+        assertEquals("{\"reason\":\"EXTENSION_MISMATCH\"}", text(accepted.refusal()));
+        assertEquals("EXTENSION_MISMATCH", events.all.get(0).reason());
+        assertNull(accepted.handOver());
+    }
+
+    /** K1: a receiver states its extension settings once, so a builder given others beside a verifier refuses. */
+    @Test
+    void builderSettingsThatDifferFromTheVerifiersAreRefused() {
+        HttpReceiver.Builder differing = HttpReceiver.builder("payment").verifier(paymentVerifier())
+                .extensions(ExtensionSettings.NONE);
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class, differing::build);
+        assertTrue(e.getMessage().contains("verifier"), e.getMessage());
+
+        assertNotNull(HttpReceiver.builder("payment").verifier(paymentVerifier()).extensions(ACTS_ON_INFLUENCE)
+                .build(), "the verifier's own settings, given again, are the same settings");
+        assertNotNull(HttpReceiver.builder("payment").extensions(ACTS_ON_INFLUENCE).build(),
+                "a receiver with no verifier takes them from the builder");
     }
 
     @Test
@@ -545,9 +580,9 @@ class HttpReceiverTest {
 
     /** A stamp's JSON in the wire table's member order, not JCS's. */
     private static String wireOrder(Stamp s) {
-        return "{\"v\":3,\"svc\":\"" + s.svc() + "\",\"inst\":\"" + s.inst() + "\",\"rid\":\"" + s.rid()
+        return "{\"v\":4,\"svc\":\"" + s.svc() + "\",\"inst\":\"" + s.inst() + "\",\"rid\":\"" + s.rid()
                 + "\",\"ts\":" + s.ts() + ",\"sess\":\"" + s.sess() + "\",\"rcv\":\"" + s.rcv()
-                + "\",\"bind\":\"" + s.bind() + "\",\"infl\":\"" + s.infl() + "\",\"prev\":\"" + s.prev()
+                + "\",\"bind\":\"" + s.bind() + "\",\"ext\":\"" + s.ext() + "\",\"prev\":\"" + s.prev()
                 + "\",\"sig\":\"" + s.sig() + "\"}";
     }
 
@@ -557,7 +592,7 @@ class HttpReceiverTest {
         List<Stamp> sent = Chains.parse(HttpWire.decodeChain(valid.chain())).stamps();
         String text = "[" + String.join(",", sent.stream().map(HttpReceiverTest::wireOrder).toList()) + "]";
         Headers h = new Headers(Base64Url.encode(text.getBytes(StandardCharsets.UTF_8)), valid.proof(),
-                valid.influence());
+                valid.blocks());
 
         Accepted accepted = verifying(null).accept(paymentRequest(h, TO_PAYMENT), null, VerificationMode.ENFORCE);
 
@@ -570,14 +605,16 @@ class HttpReceiverTest {
     }
 
     @Test
-    void auditModePassesATamperedRequestWithTheReceivedInfluence() {
+    void auditModeServesATamperedRequestWithNothingHandedOn() {
         Accepted accepted = verifying(null).accept(
                 paymentRequest(headers("rid-1", "/pay", List.of(MINE)), "{\"amount\":999}".getBytes()), null,
                 VerificationMode.AUDIT);
 
         assertNull(accepted.refusal(), "audit always passes through");
         assertNull(accepted.verifiedChain(), "but nothing verified");
-        assertEquals(List.of(MINE), accepted.influence(), "what was received still counts towards the rule");
+        // Plan 3b Task 2 hands such a request its items as not verified, where its blocks pass check 9a.
+        assertNull(accepted.handOver(), "nothing is handed on from a chain that failed");
+        assertEquals(List.of(Block.EMPTY, ordersBlock(List.of(MINE))), accepted.blocks(), "the blocks are carried");
         assertEquals(1, events.all.size());
         assertEquals("BINDING_MISMATCH", events.all.get(0).reason());
         assertEquals(true, events.all.get(0).audit());
@@ -639,7 +676,9 @@ class HttpReceiverTest {
         assertNull(accepted.verifiedChain());
         assertFalse(accepted.attests());
         assertNull(accepted.delivery());
-        assertEquals(List.of(WEB), accepted.influence(), "what was received still counts towards the rule");
+        // Plan 3b Task 2 hands such a request its items as not verified, where its blocks pass check 9a.
+        assertNull(accepted.handOver(), "no verdict, so nothing is handed on");
+        assertEquals(List.of(Block.EMPTY, ordersBlock(List.of(WEB))), accepted.blocks(), "the blocks are carried");
         assertEquals(1, receiverWarnings().size());
     }
 
@@ -660,7 +699,7 @@ class HttpReceiverTest {
     }
 
     @Test
-    void aCacheThatIsDownNeverMasksInfluenceThatCannotBeReadUnderEnforce() {
+    void aCacheThatIsDownNeverMasksBlocksThatDoNotReadUnderEnforce() {
         CountingDown cache = new CountingDown();
         Headers h = validHeaders();
         HttpReceiver receiver = HttpReceiver.builder("payment").verifier(paymentVerifier(cache))
@@ -670,17 +709,17 @@ class HttpReceiverTest {
                 null, VerificationMode.ENFORCE);
 
         assertEquals(403, accepted.refusal().status());
-        assertEquals("{\"reason\":\"INFLUENCE_MISMATCH\"}", text(accepted.refusal()));
+        assertEquals("{\"reason\":\"EXTENSION_MISMATCH\"}", text(accepted.refusal()));
         assertNull(accepted.cacheFailure());
         assertNull(accepted.verifiedChain());
         assertFalse(accepted.attests());
         assertEquals(1, events.all.size());
-        assertEquals("INFLUENCE_MISMATCH", events.all.get(0).reason());
+        assertEquals("EXTENSION_MISMATCH", events.all.get(0).reason());
         assertEquals(0, cache.asked, "verification refuses before the nonce cache is asked");
     }
 
     @Test
-    void aCacheThatIsDownNeverMasksInfluenceThatCannotBeReadUnderAudit() {
+    void aCacheThatIsDownNeverMasksBlocksThatDoNotReadUnderAudit() {
         CountingDown cache = new CountingDown();
         Headers h = validHeaders();
         HttpReceiver receiver = HttpReceiver.builder("payment").verifier(paymentVerifier(cache))
@@ -690,12 +729,12 @@ class HttpReceiverTest {
                 null, VerificationMode.AUDIT);
 
         assertEquals(400, accepted.refusal().status());
-        assertEquals("{\"reason\":\"INFLUENCE_MISMATCH\"}", text(accepted.refusal()));
+        assertEquals("{\"reason\":\"EXTENSION_MISMATCH\"}", text(accepted.refusal()));
         assertNull(accepted.cacheFailure());
         assertNull(accepted.verifiedChain());
         assertFalse(accepted.attests());
         assertEquals(1, events.all.size());
-        assertEquals("INFLUENCE_MISMATCH", events.all.get(0).reason());
+        assertEquals("EXTENSION_MISMATCH", events.all.get(0).reason());
         assertEquals(0, cache.asked, "verification fails before the nonce cache is asked");
     }
 
@@ -740,20 +779,21 @@ class HttpReceiverTest {
                 List.of(new PinnedKeyring(Keyring.of(Map.of("gateway", gateway.getPublic(), "orders",
                         orders.getPublic())), notAfter)),
                 List.of(new PinnedRoot(ops.signedRoot().rootBytes(), ops.signedRoot().rootId(), notAfter)),
-                notAfter, Set.of("gateway"), "", new InMemoryNonceCache(), () -> NOW, 5000, 5000));
+                notAfter, Set.of("gateway"), "", new InMemoryNonceCache(), () -> NOW, 5000, 5000,
+                ExtensionSettings.NONE));
         HttpReceiver receiver = HttpReceiver.builder("payment").verifier(verifier).verifyRequests(true)
                 .publisher(events).build();
         Stamper.Stamped gw = new Stamper("gateway", "gw-1", gateway.getPrivate(), true, () -> "rid-1", () -> NOW)
-                .next(null, "orders", RequestBinding.compute("POST", "/orders", "{}".getBytes()), List.of(),
+                .next(null, "orders", RequestBinding.compute("POST", "/orders", "{}".getBytes()), Block.EMPTY,
                         ops.bundles().get("gateway"));
         Delivery[] deliveries = new Delivery[2];
         String[] operations = {"payment#charge", "payment#refund"};
         for (int i = 0; i < operations.length; i++) {
             Stamper.Stamped ord = new Stamper("orders", "ord-1", orders.getPrivate(), false, () -> "x", () -> NOW)
-                    .next(gw.chain(), operations[i], RequestBinding.compute("POST", "/pay", TO_PAYMENT), List.of(),
-                            ops.bundles().get("orders"));
+                    .next(gw.chain(), operations[i], RequestBinding.compute("POST", "/pay", TO_PAYMENT),
+                            Block.EMPTY, ops.bundles().get("orders"));
             Headers h = new Headers(HttpWire.encodeChain(ord.chain()), HttpWire.encodeProof(ord.proof()),
-                    HttpWire.encodeInfluence(List.of()));
+                    HttpWire.encodeBlocks(List.of(Block.EMPTY, Block.EMPTY)));
             InboundRequest plain = paymentRequest(h, TO_PAYMENT);
             Accepted accepted = receiver.accept(new InboundRequest(plain.method(), plain.target(), plain.headers(),
                     plain.body(), operations[i].substring("payment#".length())), null, VerificationMode.ENFORCE);
@@ -783,15 +823,15 @@ class HttpReceiverTest {
         List<Object[]> calls = new ArrayList<>();
         Headers h = headers("rid-1", "/pay", List.of(WEB));
 
-        verifying((chain, proof, influence, method, target, body) ->
-                calls.add(new Object[] {chain, proof, influence, method, target, body}))
+        verifying((chain, proof, blocks, method, target, body) ->
+                calls.add(new Object[] {chain, proof, blocks, method, target, body}))
                 .accept(request("POST", "/pay?id=7", h, TO_PAYMENT), null, VerificationMode.ENFORCE);
 
         assertEquals(1, calls.size());
         Object[] call = calls.get(0);
         assertEquals(h.chain(), call[0]);
         assertEquals(h.proof(), call[1]);
-        assertEquals(h.influence(), call[2]);
+        assertEquals(h.blocks(), call[2]);
         assertEquals("POST", call[3]);
         assertEquals("/pay?id=7", call[4]);
         assertArrayEquals(TO_PAYMENT, (byte[]) call[5]);
@@ -801,7 +841,7 @@ class HttpReceiverTest {
     void theListenerSeesARequestThatVerificationThenRefuses() {
         List<String> order = new ArrayList<>();
 
-        Accepted accepted = verifying((chain, proof, influence, method, target, body) -> order.add("listener"))
+        Accepted accepted = verifying((chain, proof, blocks, method, target, body) -> order.add("listener"))
                 .accept(paymentRequest(validHeaders(), "{\"amount\":999}".getBytes(StandardCharsets.UTF_8)), null,
                         VerificationMode.ENFORCE);
 
@@ -827,20 +867,25 @@ class HttpReceiverTest {
         assertEquals(2, accepted.inbound().size());
         assertEquals("rid-1", accepted.inbound().get(0).rid());
         assertNull(accepted.verifiedChain(), "nothing was checked");
-        assertEquals(List.of(WEB), accepted.influence());
+        assertEquals(List.of(Block.EMPTY, ordersBlock(List.of(WEB))), accepted.blocks(), "carried as received");
+        // Plan 3b Task 2 hands such a request its items as not verified, where its blocks pass check 9a.
+        assertNull(accepted.handOver());
         assertTrue(traceLines().isEmpty(), "nothing was verified");
     }
 
     @Test
-    void aNonVerifyingReceiverAnswersMalformedInfluenceWith400() {
+    void aNonVerifyingReceiverAnswersBlocksItCannotCarryWith400() {
         Headers h = validHeaders();
+        String twoForThree = HttpWire.encodeBlocks(List.of(Block.EMPTY, Block.EMPTY, Block.EMPTY));
 
-        Accepted accepted = plain().accept(paymentRequest(new Headers(h.chain(), h.proof(), "%%%"), TO_PAYMENT),
-                null, VerificationMode.OFF);
+        for (String blocks : List.of("%%%", twoForThree)) {
+            Accepted accepted = plain().accept(paymentRequest(new Headers(h.chain(), h.proof(), blocks), TO_PAYMENT),
+                    null, VerificationMode.OFF);
 
-        assertEquals(400, accepted.refusal().status());
-        assertEquals("{\"reason\":\"INFLUENCE_MISMATCH\"}", text(accepted.refusal()),
-                "influence that cannot be carried must not be dropped");
+            assertEquals(400, accepted.refusal().status(), blocks);
+            assertEquals("{\"reason\":\"EXTENSION_MISMATCH\"}", text(accepted.refusal()),
+                    "blocks that cannot be forwarded unchanged are not dropped: " + blocks);
+        }
     }
 
     @Test
@@ -890,9 +935,9 @@ class HttpReceiverTest {
     void theRefusalBodyIsTheReasonAloneWhateverTheSuspectSigned() {
         String inst = "ord\"1\\";
         Stamper.Stamped gw = new Stamper("gateway", "gw-1", gateway.getPrivate(), true, () -> "rid-1", () -> NOW)
-                .next(null, "orders", "b", List.of(), policy.bundles().get("gateway"));
+                .next(null, "orders", "b", Block.EMPTY, policy.bundles().get("gateway"));
         Stamper.Stamped ord = new Stamper("orders", inst, orders.getPrivate(), false, () -> "x", () -> NOW)
-                .next(gw.chain(), "payment", RequestBinding.compute("POST", "/pay", TO_PAYMENT), List.of(),
+                .next(gw.chain(), "payment", RequestBinding.compute("POST", "/pay", TO_PAYMENT), Block.EMPTY,
                         policy.bundles().get("orders"));
 
         // No proof, so the route is unproven and the last signer, with its chosen inst, is the suspect.
@@ -911,7 +956,7 @@ class HttpReceiverTest {
     }
 
     @Test
-    void auditAndOffModesStillAnswerMalformedInfluenceWith400() {
+    void auditAndOffModesStillAnswerBlocksThatDoNotReadWith400() {
         Headers h = validHeaders();
         for (VerificationMode mode : List.of(VerificationMode.AUDIT, VerificationMode.OFF)) {
             for (HttpReceiver hop : List.of(verifying(null), attesting(paymentVerifier()))) {
@@ -919,7 +964,7 @@ class HttpReceiverTest {
                         null, mode);
 
                 assertEquals(400, accepted.refusal().status(), mode.name());
-                assertEquals("{\"reason\":\"INFLUENCE_MISMATCH\"}", text(accepted.refusal()), mode.name());
+                assertEquals("{\"reason\":\"EXTENSION_MISMATCH\"}", text(accepted.refusal()), mode.name());
             }
         }
     }
@@ -941,7 +986,8 @@ class HttpReceiverTest {
         assertTrue(traceLines().isEmpty(), "no verification ran, not even one for attestation alone");
         assertTrue(events.all.isEmpty());
         assertEquals(2, accepted.inbound().size(), "the inbound chain is carried for outbound stamping");
-        assertEquals(List.of(WEB), accepted.influence(), "and so is the influence received");
+        assertEquals(List.of(Block.EMPTY, ordersBlock(List.of(WEB))), accepted.blocks(), "and so are its blocks");
+        assertNull(accepted.handOver(), "nothing is handed on where nothing was verified");
     }
 
     @Test
@@ -973,21 +1019,20 @@ class HttpReceiverTest {
     }
 
     @Test
-    void aVerifiedRequestsResponseIsAttestedOverTheStatusBodyAndLabelsGiven() throws Exception {
+    void aVerifiedRequestsResponseIsAttestedOverTheStatusAndBody() throws Exception {
         Accepted accepted = attesting(paymentVerifier()).accept(paymentRequest(validHeaders(), TO_PAYMENT), null,
                 VerificationMode.ENFORCE);
 
         assertTrue(accepted.attests());
         String header = accepted.attest(201, PAID, alicesData());
-        List<ContentLabel> labels = ContentLabel.parseAll(labelsText(header));
-        assertEquals(1, labels.size());
-        assertEquals(InfluenceClass.PRIVATE, labels.get(0).cls());
-        assertEquals("alice", labels.get(0).owner());
+        // Plan 3b Task 4 signs the labels in the response's block; until then it is the empty block.
+        assertEquals(Block.EMPTY, responseBlock(header));
         Stamp stamp = responseStamp(header);
         assertEquals("payment", stamp.svc());
         assertEquals("orders", stamp.rcv(), "the response goes back to whoever called");
         assertEquals("rid-1", stamp.rid());
-        assertEquals(Bindings.response(HttpWire.resultHash(201, PAID), "rid-1", labels), stamp.bind());
+        assertEquals("", stamp.ext());
+        assertEquals(Bindings.response(HttpWire.resultHash(201, PAID), "rid-1"), stamp.bind());
     }
 
     @Test
@@ -1014,7 +1059,9 @@ class HttpReceiverTest {
                 "PAZTPORT_TRACE request rid=rid-1 reason=OK receiver=payment ✓ peer=none classes=third-party",
                 "PAZTPORT_TRACE request rid=rid-2 reason=OK receiver=payment ✓ peer=none classes=third-party"),
                 traceLines(), "checked once each, for attestation alone");
-        assertEquals(List.of(WEB), second.influence(), "the influence is still carried");
+        assertTrue(second.handOver().verified(), "it passed the live order here, for attestation");
+        assertEquals(List.of(new HandOver.StampItems("gateway", null),
+                new HandOver.StampItems("orders", List.of(WEB.toJson()))), second.handOver().under(Influence.NAME));
         assertEquals(2, second.inbound().size());
     }
 
@@ -1054,7 +1101,7 @@ class HttpReceiverTest {
         Stamper gatewayStamper = new Stamper("gateway", "gw-1", gateway.getPrivate(), true, () -> "r", () -> NOW);
         for (String sig : FORGED_SIGS) {
             String forged = HttpWire.encodeChain(List.of(new Stamp("orders", "x", "R", NOW, "", "x", "b",
-                    Influence.commit(List.of()), "", sig)));
+                    "", "", sig)));
             for (Verifier verifier : Arrays.asList(null, paymentVerifier())) {
                 Accepted accepted = HttpReceiver.builder("gateway").verifier(verifier).origin(true)
                         .stamper(gatewayStamper).build()
@@ -1079,8 +1126,8 @@ class HttpReceiverTest {
             assertNull(accepted.refusal(), "verify=" + verify);
             assertNull(accepted.inbound(), "verify=" + verify + ": an origin starts a new tree");
             assertNull(accepted.verifiedChain(), "verify=" + verify);
-            assertEquals(List.of(), accepted.influence(),
-                    "verify=" + verify + ": and carries no influence it was sent");
+            assertNull(accepted.blocks(), "verify=" + verify + ": nor the blocks it was sent");
+            assertNull(accepted.handOver(), "verify=" + verify + ": and is handed nothing");
             assertFalse(accepted.attests(), "verify=" + verify);
         }
         assertEquals(List.of("PAZTPORT_TRACE request rid=rid-true reason=OK receiver=payment ✓ peer=none "
@@ -1088,7 +1135,7 @@ class HttpReceiverTest {
     }
 
     @Test
-    void anOriginIgnoresUnreadableInfluence() {
+    void anOriginIgnoresBlocksThatDoNotRead() {
         Headers h = validHeaders();
 
         Accepted accepted = HttpReceiver.builder("payment").origin(true).build()
@@ -1096,7 +1143,7 @@ class HttpReceiverTest {
                         VerificationMode.OFF);
 
         assertNull(accepted.refusal());
-        assertEquals(List.of(), accepted.influence(), "an origin carries none, so none is dropped");
+        assertNull(accepted.blocks(), "an origin carries none, so none is dropped");
     }
 
     @Test
@@ -1118,7 +1165,7 @@ class HttpReceiverTest {
 
     @Test
     void aPeerWhoseCertificateNamesNoServiceIsShownQuoted() {
-        String line = HttpReceiver.traceLine("rid-1", new VerifyResult(ReasonCode.PEER_MISMATCH, "", "10.0.0.9"),
+        String line = HttpReceiver.traceLine("rid-1", new VerifyResult(ReasonCode.PEER_MISMATCH, "", "10.0.0.9", null),
                 "payment", new Peer("", "10.0.0.9"), List.of());
 
         assertEquals("PAZTPORT_TRACE request rid=rid-1 reason=PEER_MISMATCH receiver=payment ✗ peer=\"\" (mTLS) "
@@ -1214,16 +1261,16 @@ class HttpReceiverTest {
         assertEquals(ReasonCode.BINDING_MISMATCH, tampered.result().reason());
     }
 
-    // Under enforce the verification runs first, so influence it cannot read fails it: the 403, not the 400.
+    // Under enforce the verification runs first, so blocks that do not read fail it: the 403, not the 400.
     @Test
-    void enforceRefusesUnreadableInfluenceAsItsVerificationFailure() {
+    void enforceRefusesBlocksThatDoNotReadAsItsVerificationFailure() {
         Headers h = validHeaders();
 
         Accepted accepted = verifying(null).accept(
                 paymentRequest(new Headers(h.chain(), h.proof(), "%%%"), TO_PAYMENT), null, VerificationMode.ENFORCE);
 
         assertEquals(403, accepted.refusal().status());
-        assertEquals(ReasonCode.INFLUENCE_MISMATCH, accepted.result().reason());
+        assertEquals(ReasonCode.EXTENSION_MISMATCH, accepted.result().reason());
     }
 
     @Test
@@ -1239,14 +1286,14 @@ class HttpReceiverTest {
     }
 
     @Test
-    void auditReportsTheResultOfARequestItRefusesForUnreadableInfluence() {
+    void auditReportsTheResultOfARequestItRefusesForBlocksThatDoNotRead() {
         Headers h = validHeaders();
 
         Accepted accepted = verifying(null).accept(
                 paymentRequest(new Headers(h.chain(), h.proof(), "%%%"), TO_PAYMENT), null, VerificationMode.AUDIT);
 
         assertEquals(400, accepted.refusal().status());
-        assertEquals(ReasonCode.INFLUENCE_MISMATCH, accepted.result().reason());
+        assertEquals(ReasonCode.EXTENSION_MISMATCH, accepted.result().reason());
     }
 
     @Test
@@ -1291,6 +1338,6 @@ class HttpReceiverTest {
         Accepted refused = verifying(null).accept(paymentRequest(unreadable, TO_PAYMENT), null,
                 VerificationMode.OFF);
         assertEquals(400, refused.refusal().status());
-        assertNull(refused.result(), "unreadable influence, with nothing verified");
+        assertNull(refused.result(), "blocks that do not read, with nothing verified");
     }
 }

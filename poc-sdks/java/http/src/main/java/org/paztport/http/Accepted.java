@@ -5,9 +5,10 @@ package org.paztport.http;
 
 import java.util.List;
 import org.paztport.core.influence.ContentLabel;
-import org.paztport.core.influence.InfluenceEntry;
+import org.paztport.core.stamp.Block;
 import org.paztport.core.stamp.Stamp;
 import org.paztport.core.stamp.Stamper;
+import org.paztport.core.verify.HandOver;
 import org.paztport.core.verify.NonceCacheUnavailableException;
 import org.paztport.core.verify.VerifyResult;
 import org.paztport.http.internal.LogSafe;
@@ -18,27 +19,30 @@ import org.paztport.http.wire.HttpWire;
  * or what the handler starts from, whether its answer may be attested, and the verification result that decided it.
  *
  * <p>Only a receiver makes one: there is no other constructor, and the class cannot be extended. So a chain it says
- * verified passed the full live order at this hop, and the request context marks that chain verified only from here.
+ * verified passed the full live order at this hop, with the verified hand-over beside it, and the request context
+ * marks that chain verified only from here.
  */
 public final class Accepted {
 
     private final HttpAnswer refusal;
     private final List<Stamp> inbound;
+    private final List<Block> blocks;
     private final boolean verified;
-    private final List<InfluenceEntry> influence;
+    private final HandOver handOver;
     private final Stamper attester;
     private final VerifyResult result;
     private final NonceCacheUnavailableException cacheFailure;
     private final String operation;
     private final String key;
 
-    private Accepted(HttpAnswer refusal, List<Stamp> inbound, boolean verified, List<InfluenceEntry> influence,
-            Stamper attester, VerifyResult result, NonceCacheUnavailableException cacheFailure, String operation,
-            String key) {
+    private Accepted(HttpAnswer refusal, List<Stamp> inbound, List<Block> blocks, boolean verified,
+            HandOver handOver, Stamper attester, VerifyResult result, NonceCacheUnavailableException cacheFailure,
+            String operation, String key) {
         this.refusal = refusal;
         this.inbound = inbound;
+        this.blocks = blocks;
         this.verified = verified;
-        this.influence = influence;
+        this.handOver = handOver;
         this.attester = attester;
         this.result = result;
         this.cacheFailure = cacheFailure;
@@ -48,15 +52,19 @@ public final class Accepted {
 
     /** @param result the result the request was refused for, or null when no verification ran */
     static Accepted refused(HttpAnswer refusal, VerifyResult result) {
-        return new Accepted(refusal, null, false, List.of(), null, result, null, null, null);
+        return new Accepted(refusal, null, null, false, null, null, result, null, null, null);
     }
 
     /** The request refused as unavailable because the nonce cache could not answer: no result, and the failure. */
     static Accepted unavailable(NonceCacheUnavailableException cacheFailure) {
-        return new Accepted(HttpAnswer.unavailable(), null, false, List.of(), null, null, cacheFailure, null, null);
+        return new Accepted(HttpAnswer.unavailable(), null, null, false, null, null, null, cacheFailure, null, null);
     }
 
     /**
+     * @param inbound the chain carried, or null where none is
+     * @param blocks the blocks it came with, one per stamp; null exactly where {@code inbound} is
+     * @param verified whether {@code inbound} passed the live order at this hop
+     * @param handOver what the service is handed, or null for nothing; verified exactly where {@code verified} is
      * @param attester the stamper to attest with, only where the chain verified here and this service attests;
      *     otherwise null
      * @param result the live order's result on the request, or null when it did not run or the nonce cache could not
@@ -64,12 +72,18 @@ public final class Accepted {
      * @param cacheFailure why the nonce cache could not answer, or null
      * @param operation the operation the request was verified as received by, or null ({@link #operation})
      * @param key the key value the request's nonce key carried, where the chain named a keyed operation; or null
+     * @throws IllegalArgumentException blocks beside no chain or no blocks beside one, or a chain said verified
+     *     without a verified hand-over: the request context marks a chain verified from this alone
      */
-    static Accepted served(List<Stamp> inbound, boolean verified, List<InfluenceEntry> influence,
+    static Accepted served(List<Stamp> inbound, List<Block> blocks, boolean verified, HandOver handOver,
             Stamper attester, VerifyResult result, NonceCacheUnavailableException cacheFailure, String operation,
             String key) {
-        return new Accepted(null, inbound, verified, List.copyOf(influence), attester, result, cacheFailure,
-                operation, key);
+        if ((inbound == null) != (blocks == null)
+                || verified != (handOver != null && handOver.verified()) || verified && inbound == null) {
+            throw new IllegalArgumentException("a served request's chain, blocks and hand-over disagree");
+        }
+        return new Accepted(null, inbound, blocks == null ? null : List.copyOf(blocks), verified, handOver,
+                attester, result, cacheFailure, operation, key);
     }
 
     /**
@@ -116,11 +130,20 @@ public final class Accepted {
     }
 
     /**
-     * The influence the handler starts from: the verified entries when the request verified, otherwise the entries
-     * as received; none at an origin, and none for a refusal.
+     * The blocks {@link #inbound} came with, one per stamp, which the handler's own calls forward unchanged before
+     * their own; null where the chain is not carried, and for a refusal.
      */
-    public List<InfluenceEntry> influence() {
-        return influence;
+    public List<Block> blocks() {
+        return blocks;
+    }
+
+    /**
+     * What the service is handed for the extensions it acts on (spec verification.md, The live order): verified
+     * where the chain passed the live order at this hop, under the mode or for attestation alone; null where nothing
+     * is handed on, which is every request served without verifying, a request to an origin, and a refusal.
+     */
+    public HandOver handOver() {
+        return handOver;
     }
 
     /**
@@ -164,9 +187,10 @@ public final class Accepted {
 
     /**
      * The {@code X-Path-Response} header for the handler's complete answer, or null when it is not attested: one
-     * stamp on {@link #inbound} back to the caller, binding {@code status}, {@code body} and {@code labels}. The chain
-     * is the one the request carried, not anything the handler holds, so a handler cannot steer what is vouched for.
-     * A rid or label the binding cannot carry leaves the answer unattested, with a warning, rather than failing it.
+     * stamp on {@link #inbound} back to the caller, binding {@code status} and {@code body}, and its own block beside
+     * it, which names nothing for now, so the caller records the answer as {@code local-untrusted}. The chain is the
+     * one the request carried, not anything the handler holds, so a handler cannot steer what is vouched for. A rid
+     * the binding cannot carry leaves the answer unattested, with a warning, rather than failing it.
      *
      * <p>It takes the answer whole, and knows nothing of when that is: the framework calls it only once the handler
      * has finished with a body nothing else will change. An answer the framework cannot hold whole (one written after
@@ -182,8 +206,11 @@ public final class Accepted {
         String rid = inbound.get(0).rid();
         try {
             String hash = HttpWire.resultHash(status, body);
-            Stamp stamp = attester.respond(inbound, hash, rid, labels);
-            return HttpWire.encodeResponse(stamp, labels);
+            // Plan 3b Task 4 signs the labels here (ContentLabel.block) at a responder that acts on influence; until
+            // then they are dropped, and the caller records the answer as local-untrusted.
+            Block block = Block.EMPTY;
+            Stamp stamp = attester.respond(inbound, hash, rid, block);
+            return HttpWire.encodeResponse(stamp, block);
         } catch (IllegalArgumentException e) {
             // Served unattested, so the caller records it as local-untrusted; the operator learns why here.
             HttpReceiver.LOG.warn("response left unattested: rid={} {}", LogSafe.of(rid), LogSafe.of(e.getMessage()));

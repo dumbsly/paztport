@@ -9,7 +9,9 @@ import java.util.function.Supplier;
 import org.paztport.core.influence.ContentLabel;
 import org.paztport.core.influence.InfluenceClass;
 import org.paztport.core.influence.InfluenceEntry;
+import org.paztport.core.stamp.Block;
 import org.paztport.core.stamp.Stamp;
+import org.paztport.core.verify.HandOver;
 import org.paztport.core.verify.Peer;
 import org.paztport.http.internal.LogSafe;
 import org.slf4j.Logger;
@@ -20,29 +22,33 @@ import org.slf4j.LoggerFactory;
  * other thread-per-request code, virtual threads included. It is not the protocol. The receivers
  * ({@link HttpReceiver}, {@link PartnerReceiver}) decide each request without it; a framework's adapter runs them
  * through it ({@link #accept(HttpReceiver, InboundRequest, Peer, VerificationMode)}), which opens the request's scope
- * and stores the chain the service received and the influence that came with it; the handler adds the influence of
- * whatever else it reads, and labels what it produces; the caller reads the chain to append the next stamp and
- * commits the influence so far. A reactive binding, or another language's (Go would use {@code context.Context}),
- * carries the same values its own way around the same receiver functions.
+ * and stores the chain the service received, the blocks that came with it and what the service is handed
+ * ({@link #handedOn}); the handler adds the influence of whatever else it reads ({@link #addInfluence}), and labels
+ * what it produces; the caller reads the chain and its blocks to append the next stamp and forward them, and builds
+ * its own block from what the service added. A reactive binding, or another language's (Go would use
+ * {@code context.Context}), carries the same values its own way around the same receiver functions.
  *
  * <p>Calls are synchronous on the request thread, so a thread-local is sufficient. Threads are pooled, so what one
- * unit of work learns must not outlive it: influence left behind would be committed to another request's calls,
- * and a label to another request's response. The context is therefore carried only inside a {@link Scope}. An
+ * unit of work learns must not outlive it: influence left behind would be signed into another request's calls,
+ * and a label into another request's response. The context is therefore carried only inside a {@link Scope}. An
  * adapter opens one per request it filters, through {@link #accept}; outside any scope the caller neither reads the
- * context nor records responses into it, so calls made there stamp with no influence and leave nothing behind.
+ * context nor records responses into it, so calls made there stamp with nothing added and leave nothing behind.
  *
  * <p>The verified chain is the one value here other code signs on the strength of (the egress's boundary stamp, the
- * trusted-record rule), so it is set only by {@link #accept}, from what the receiver it ran returned: the method that
- * sets it is package-private, beside the receivers, and an application can read the chain but never mark one.
+ * trusted-record rule), so it is set only by {@link #accept}, from what the receiver it ran returned, and only where
+ * the hand-over beside it is verified: the method that sets it is package-private, beside the receivers, and an
+ * application can read the chain but never mark one. The hand-over is set the same way.
  */
 public final class RequestContext {
 
     private static final Logger LOG = LoggerFactory.getLogger(RequestContext.class);
 
     private static final ThreadLocal<List<Stamp>> INBOUND = new ThreadLocal<>();
+    private static final ThreadLocal<List<Block>> INBOUND_BLOCKS = new ThreadLocal<>();
+    private static final ThreadLocal<HandOver> HANDED_ON = new ThreadLocal<>();
     private static final ThreadLocal<List<Stamp>> VERIFIED = new ThreadLocal<>();
     private static final ThreadLocal<Delivery> DELIVERY = new ThreadLocal<>();
-    private static final ThreadLocal<List<InfluenceEntry>> INFLUENCE = ThreadLocal.withInitial(ArrayList::new);
+    private static final ThreadLocal<List<InfluenceEntry>> ADDED = ThreadLocal.withInitial(ArrayList::new);
     private static final ThreadLocal<List<ContentLabel>> LABELS = ThreadLocal.withInitial(ArrayList::new);
     private static final ThreadLocal<Scope> CURRENT = new ThreadLocal<>();
 
@@ -56,14 +62,45 @@ public final class RequestContext {
      * relies on it, and every receiver the chain reaches verifies it as it would any other. Only a call made inside a
      * scope reads it, and the next scope opened on this thread starts without it. It is for code that starts work from
      * a chain it holds: a test, or a harness that sends a captured chain on to show how receivers refuse it.
+     *
+     * <p>Whatever blocks were held are dropped, since they came with another chain: a call made after this sends one
+     * empty block per stamp of {@code chain} before its own, which check 9a refuses at the next hop unless every
+     * stamp's {@code ext} is empty.
      */
     public static void setInboundChain(List<Stamp> chain) {
+        setInbound(chain, null);
+    }
+
+    /**
+     * Sets the chain this scope's calls are stamped after and the blocks they forward before their own. Only
+     * {@link #accept} calls this, with what the receiver read, so the blocks are always those the chain came with.
+     */
+    static void setInbound(List<Stamp> chain, List<Block> blocks) {
         INBOUND.set(chain);
+        INBOUND_BLOCKS.set(blocks);
     }
 
     /** The inbound chain for this request, or null if none was received or it did not parse (e.g. at the origin). */
     public static List<Stamp> inboundChain() {
         return INBOUND.get();
+    }
+
+    /**
+     * The blocks the inbound chain came with, one per stamp, which this request's calls forward unchanged before
+     * their own; null where no chain is carried, or where it was set by {@link #setInboundChain}, and a call then
+     * sends one empty block per stamp.
+     */
+    public static List<Block> inboundBlocks() {
+        return INBOUND_BLOCKS.get();
+    }
+
+    /**
+     * What this request was handed for the extensions the service acts on (spec verification.md, The live order):
+     * the receiver's {@link Accepted#handOver}, verified only where {@link #verifiedChain} is set; null where nothing
+     * was handed on, and outside any scope.
+     */
+    public static HandOver handedOn() {
+        return HANDED_ON.get();
     }
 
     /**
@@ -73,6 +110,14 @@ public final class RequestContext {
      */
     static void markVerified(List<Stamp> chain) {
         VERIFIED.set(chain);
+    }
+
+    /**
+     * Sets what this request was handed. Only {@link #accept} calls this, from the result of the receiver it has just
+     * run, so a hand-over said to be verified always came from a verifier's {@code OK} at this hop.
+     */
+    static void handOn(HandOver handOver) {
+        HANDED_ON.set(handOver);
     }
 
     /**
@@ -92,14 +137,20 @@ public final class RequestContext {
         return DELIVERY.get();
     }
 
-    /** Everything that has shaped this request so far, in the order it was added; a read-only copy. */
-    public static List<InfluenceEntry> influence() {
-        return List.copyOf(INFLUENCE.get());
+    /**
+     * The influence entries this service added for the request itself, the responses to its own calls among them, in
+     * the order they were added; a read-only copy. Never what it was handed: that is {@link #handedOn}.
+     */
+    public static List<InfluenceEntry> added() {
+        return List.copyOf(ADDED.get());
     }
 
-    /** Records content this request has read, so every call it makes from now on commits to it. */
+    /**
+     * Records content this request has read, so every call it makes from now on, where the service acts on
+     * influence, signs it in its own block.
+     */
     public static void addInfluence(InfluenceEntry... entries) {
-        INFLUENCE.get().addAll(List.of(entries));
+        ADDED.get().addAll(List.of(entries));
     }
 
     /**
@@ -138,8 +189,8 @@ public final class RequestContext {
      * the receiver calls out to (the listener, the event publisher) runs in the request's scope with the chain the
      * request carries already held, and a stale scope can outlive no request, refused or not. Refusing to open the
      * request's own scope instead would fail this request and every later one served here. Once the receiver has
-     * decided, the scope holds, for a request it serves, the influence the handler starts from and the chain as
-     * verified at this hop only where it was.
+     * decided, the scope holds, for a request it serves, the chain and its blocks, what the service is handed, and
+     * the chain as verified at this hop only where it was.
      *
      * <p>Close what this returns, with try-with-resources, once the request is answered, whatever the answer: the
      * scope ends then. If the receiver throws, the scope is ended before the exception goes on.
@@ -149,13 +200,13 @@ public final class RequestContext {
     public static Entered<Accepted> accept(HttpReceiver receiver, InboundRequest request, Peer peer,
             VerificationMode mode) {
         return entered(() -> {
-            Accepted accepted = receiver.accept(request, peer, mode, RequestContext::setInboundChain);
+            Accepted accepted = receiver.accept(request, peer, mode, RequestContext::setInbound);
             if (accepted.refusal() == null) {
                 if (accepted.verifiedChain() != null) {
                     markVerified(accepted.verifiedChain());
                     DELIVERY.set(accepted.delivery());
                 }
-                addInfluence(accepted.influence().toArray(InfluenceEntry[]::new));
+                handOn(accepted.handOver());
             }
             return accepted;
         });
@@ -163,17 +214,17 @@ public final class RequestContext {
 
     /**
      * {@link #accept(HttpReceiver, InboundRequest, Peer, VerificationMode)} for a partner's call: the scope is opened
-     * first in the same way, and then holds, in an attested session, the chain and influence that verified there,
-     * and in an unsafe one nothing, whatever the request carried. Only a framework's adapter calls this, once per
-     * call.
+     * first in the same way, and then holds, in an attested session, the chain that verified there, its block and
+     * what the service is handed, and in an unsafe one nothing, whatever the request carried. Only a framework's
+     * adapter calls this, once per call.
      */
     public static Entered<PartnerAccepted> accept(PartnerReceiver receiver, InboundRequest request, PeerCert peer) {
         return entered(() -> {
             PartnerAccepted accepted = receiver.accept(request, peer);
             if (accepted.attested()) {
-                addInfluence(accepted.influence().toArray(InfluenceEntry[]::new));
-                setInboundChain(accepted.verifiedChain());
+                setInbound(accepted.verifiedChain(), accepted.blocks());
                 markVerified(accepted.verifiedChain());
+                handOn(accepted.handOver());
             }
             return accepted;
         });
@@ -229,7 +280,7 @@ public final class RequestContext {
         return open();
     }
 
-    /** True while a scope is open on this thread: only then are responses recorded as influence. */
+    /** True while a scope is open on this thread: only then are responses recorded among what it added. */
     public static boolean isOpen() {
         return CURRENT.get() != null;
     }
@@ -273,9 +324,11 @@ public final class RequestContext {
     /** Empties the context; an open scope stays open. */
     public static void clear() {
         INBOUND.remove();
+        INBOUND_BLOCKS.remove();
+        HANDED_ON.remove();
         VERIFIED.remove();
         DELIVERY.remove();
-        INFLUENCE.remove();
+        ADDED.remove();
         LABELS.remove();
     }
 }

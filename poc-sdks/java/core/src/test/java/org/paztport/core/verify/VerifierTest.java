@@ -315,6 +315,12 @@ class VerifierTest {
         return with(settings).verify(signed(c, blocks)).reason();
     }
 
+    @Test
+    void theExtensionsAreTheConfigsOwn() {
+        assertSame(LISTED, with(LISTED).extensions());
+        assertSame(ExtensionSettings.NONE, with(ExtensionSettings.NONE).extensions());
+    }
+
     /** Review Focus 1: no blocks received is one empty block per stamp. */
     @Test
     void blocksAbsentAndEveryExtEmptyIsOk() {

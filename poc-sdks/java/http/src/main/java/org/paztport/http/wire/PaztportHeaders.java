@@ -10,9 +10,9 @@ public final class PaztportHeaders {
     public static final String CHAIN = "X-Path-Chain";
     /** The proof of a request's full route, the receiving service included, against the signed root. */
     public static final String PROOF = "X-Path-Proof";
-    /** The influence entries a request commits to. */
-    public static final String INFLUENCE = "X-Path-Influence";
-    /** A response's attestation stamp and content labels. */
+    /** A request's blocks, one per stamp of its chain, in chain order; absent means every block is empty. */
+    public static final String EXTENSIONS = "X-Path-Extensions";
+    /** A response's attestation: its stamp and its own block. */
     public static final String RESPONSE = "X-Path-Response";
 
     /** The id of the session a call to a partner organisation is made in. */

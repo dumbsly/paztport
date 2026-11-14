@@ -3,18 +3,22 @@
 
 package org.paztport.http;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.TreeSet;
-import java.util.function.Consumer;
+import java.util.function.BiConsumer;
 import org.paztport.core.event.AttestationEvent;
 import org.paztport.core.influence.Influence;
 import org.paztport.core.influence.InfluenceEntry;
 import org.paztport.core.policy.OperationTable;
+import org.paztport.core.stamp.Block;
 import org.paztport.core.stamp.Chains;
 import org.paztport.core.stamp.ParsedChain;
 import org.paztport.core.stamp.Stamp;
 import org.paztport.core.stamp.Stamper;
+import org.paztport.core.verify.ExtensionSettings;
+import org.paztport.core.verify.HandOver;
 import org.paztport.core.verify.NonceCacheUnavailableException;
 import org.paztport.core.verify.Peer;
 import org.paztport.core.verify.ReasonCode;
@@ -22,6 +26,7 @@ import org.paztport.core.verify.Verifier;
 import org.paztport.core.verify.VerifyInput;
 import org.paztport.core.verify.VerifyResult;
 import org.paztport.http.event.EventPublisher;
+import org.paztport.http.internal.Extensions;
 import org.paztport.http.internal.LogSafe;
 import org.paztport.http.internal.VerifyInputs;
 import org.paztport.http.wire.HttpWire;
@@ -30,9 +35,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * A service's receiver for v3 over HTTP, with no web framework and no request scope: given one request as it arrived
- * and the peer the transport authenticated, it decides whether the request is refused, what the handler starts from,
- * and whether the response may be attested, and says so in an {@link Accepted}. A framework's adapter reads the
+ * A service's receiver for version 4 over HTTP, with no web framework and no request scope: given one request as it
+ * arrived and the peer the transport authenticated, it decides whether the request is refused, what the handler starts
+ * from, and whether the response may be attested, and says so in an {@link Accepted}. A framework's adapter reads the
  * request, calls {@link #accept}, then writes the refusal or runs the handler, and hands the complete response to
  * {@link Accepted#attest}. Where requests are verified ({@link Builder#verifyRequests}), the
  * {@link VerificationMode} the adapter passes applies, read once per request so that a switch cannot catch a request
@@ -40,9 +45,9 @@ import org.slf4j.LoggerFactory;
  *
  * <ul>
  *   <li>{@code OFF}: Paztport is off on this hop. Nothing is verified, not even to decide attestation, nothing is
- *       published, and the response is not attested. The chain and influence are still carried, so the handler's own
- *       calls are stamped as in any other mode, and unreadable influence is still refused 400.</li>
- *   <li>{@code AUDIT}: verify, publish an event on failure, and pass, unless the influence cannot be read: that is
+ *       published, and the response is not attested. The chain and its blocks are still carried, so the handler's
+ *       own calls are stamped as in any other mode, and blocks that cannot be carried are still refused 400.</li>
+ *   <li>{@code AUDIT}: verify, publish an event on failure, and pass, unless the blocks cannot be carried: that is
  *       refused 400 in every mode, as below.</li>
  *   <li>{@code ENFORCE}: verify, publish an event and refuse {@code 403 {"reason":"<code>"}} on failure.</li>
  * </ul>
@@ -52,9 +57,14 @@ import org.slf4j.LoggerFactory;
  * {@code AUDIT}, and on a receiver with no mode, it is served with its chain unverified and its answer unattested.
  * One warning names the cause's class and nothing else, and {@link Accepted#cacheFailure} carries the failure.
  *
- * <p>The influence the handler starts from is the verified entries when the request verified, and otherwise the
- * entries as received. Influence that cannot be read is never dropped, because dropping it could hide private data
- * from the rule: in every mode, a non-origin service refuses it {@code 400 {"reason":"INFLUENCE_MISMATCH"}}.
+ * <p>The blocks ({@code X-Path-Extensions}) are carried with the chain, as received, for the handler's own calls to
+ * forward before their own (spec wire.md, Blocks); none received is one empty block per stamp. Blocks are never
+ * dropped or altered, because that would hide a claim from every later hop: in every mode, a non-origin service
+ * refuses blocks it cannot carry, ones that do not read as one block per stamp of the chain it carries,
+ * {@code 400 {"reason":"EXTENSION_MISMATCH"}} where verification has not refused them first. Where the chain passed
+ * the live order here, the verifier's hand-over ({@link Accepted#handOver}) holds what the blocks hold for the names
+ * the service acts on, read from its verifier ({@link Builder#extensions}); a request served without verifying is
+ * handed nothing.
  *
  * <p>A chain may name this service's operation ({@code rcv} {@code <service>#<operation>}). The adapter passes the
  * operation its framework will dispatch the request to ({@link InboundRequest#operation}), and the request is
@@ -66,19 +76,19 @@ import org.slf4j.LoggerFactory;
  * <p>Where the receiver holds its own table ({@link Builder#operations}) and the dispatched operation declares a key,
  * the receiver reads the key value from the request target, by the operation's template and never from anything else
  * the request says. A chain naming that operation is then verified with the key value in its nonce key,
- * {@code <rid>|<last svc>|<last rcv>|<key value>|req}, so the operation is served once per request tree for each item,
+ * {@code [rid, lastSvc, lastRcv, keyValue, "req"]}, so the operation is served once per request tree for each item,
  * and {@link Accepted#delivery} carries the value. A request with no key value (a percent-encoded, over-long or absent
  * value) is treated as dispatched to no operation, so a chain naming the operation is refused
  * {@code BINDING_MISMATCH} before any nonce key is spent. A chain that names no operation reads no key value, and is
- * verified with the bare key, {@code <rid>|<last svc>|<last rcv>|req}, whatever is dispatched.
+ * verified with the bare key, {@code [rid, lastSvc, lastRcv, "req"]}, whatever is dispatched.
  *
- * <p>An origin starts every request tree afresh: it ignores the inbound chain and influence, so its handler starts
- * from none, and it never attests.
+ * <p>An origin starts every request tree afresh: it ignores the inbound chain and its blocks, so its handler starts
+ * from none and is handed nothing, and it never attests.
  *
  * <p>A non-origin service holding a stamp key and a verifier attests what it answers: one stamp on the chain it
- * received, back to the caller, binding the status, the body and the labels the handler gave it, sent as
- * {@code X-Path-Response}. It attests only a chain that passed the full live order here (its own verifier, itself as
- * receiver, the request's proof and influence, the peer) whether or not it enforces, unless an operator has switched
+ * received, back to the caller, binding the status and the body the handler gave it, sent as {@code X-Path-Response}
+ * with its own block. It attests only a chain that passed the full live order here (its own verifier, itself as
+ * receiver, the request's proof and blocks, the peer) whether or not it enforces, unless an operator has switched
  * its verification {@code OFF}. A response stamp is shaped like a request stamp, so attesting a chain nobody checked
  * would let whoever sent it mint stamps under this service's key: a one-stamp chain with an empty signature would come
  * back as a valid origin stamp from this service. Where the request was already verified under the mode, that result
@@ -112,7 +122,8 @@ public final class HttpReceiver {
     private static final Logger TRACE = LoggerFactory.getLogger("PAZTPORT_TRACE");
     static final Logger LOG = LoggerFactory.getLogger(HttpReceiver.class);
 
-    private static final HttpAnswer UNREADABLE_INFLUENCE = HttpAnswer.refusal(400, ReasonCode.INFLUENCE_MISMATCH);
+    /** The answer to blocks this service cannot carry, where verification has not refused them first. */
+    private static final HttpAnswer BLOCKS_NOT_CARRIED = HttpAnswer.refusal(400, ReasonCode.EXTENSION_MISMATCH);
 
     private final Verifier verifier;
     private final boolean verifyRequests;
@@ -122,8 +133,11 @@ public final class HttpReceiver {
     private final ReceivedRequestListener listener;
     private final Stamper stamper;
     private final OperationTable table;
+    /** What this service acts on; Plan 3b Task 2 hands a request served without verifying its items under them. */
+    private final ExtensionSettings extensions;
 
-    private HttpReceiver(Builder b) {
+    private HttpReceiver(Builder b, ExtensionSettings extensions) {
+        this.extensions = extensions;
         this.verifier = b.verifier;
         this.verifyRequests = b.verifyRequests;
         this.origin = b.origin;
@@ -157,6 +171,7 @@ public final class HttpReceiver {
         private ReceivedRequestListener listener;
         private Stamper stamper;
         private OperationTable table;
+        private ExtensionSettings extensions;
 
         private Builder(String receiver) {
             this.receiver = receiver;
@@ -217,8 +232,18 @@ public final class HttpReceiver {
         }
 
         /**
-         * @throws IllegalArgumentException when requests are verified with no verifier or no publisher, or the
-         *     operation table is another service's
+         * The extensions this service acts on and the names it carries, for a receiver with no verifier; one with a
+         * verifier reads them from it ({@link Verifier#extensions}), and is refused others.
+         * {@link ExtensionSettings#NONE} unless set.
+         */
+        public Builder extensions(ExtensionSettings extensions) {
+            this.extensions = extensions;
+            return this;
+        }
+
+        /**
+         * @throws IllegalArgumentException when requests are verified with no verifier or no publisher, the
+         *     operation table is another service's, or the extension settings differ from the verifier's
          */
         public HttpReceiver build() {
             if (verifyRequests && (verifier == null || publisher == null)) {
@@ -228,7 +253,7 @@ public final class HttpReceiver {
                 throw new IllegalArgumentException("the operation table is for the service " + table.service()
                         + ", not " + LogSafe.of(receiver));
             }
-            return new HttpReceiver(this);
+            return new HttpReceiver(this, Extensions.resolve(verifier, extensions));
         }
     }
 
@@ -242,29 +267,32 @@ public final class HttpReceiver {
      * @throws IllegalArgumentException when a receiver that does not verify requests is given another mode
      */
     public Accepted accept(InboundRequest request, Peer peer, VerificationMode mode) {
-        return accept(request, peer, mode, chain -> {
+        return accept(request, peer, mode, (chain, blocks) -> {
         });
     }
 
     /**
      * {@link #accept(InboundRequest, Peer, VerificationMode)}, telling {@code carried} the chain the request carries
-     * as soon as it is read, before the listener is offered the request. A binding uses it to hold that chain for
-     * everything the receiver calls out to, as it will for the handler; the receiver itself holds nothing.
+     * and its blocks as soon as they are read, before the listener is offered the request. A binding uses it to hold
+     * them for everything the receiver calls out to, as it will for the handler; the receiver itself holds nothing.
      */
-    Accepted accept(InboundRequest request, Peer peer, VerificationMode mode, Consumer<List<Stamp>> carried) {
+    Accepted accept(InboundRequest request, Peer peer, VerificationMode mode,
+            BiConsumer<List<Stamp>, List<Block>> carried) {
         Objects.requireNonNull(mode, "mode");
         if (!verifyRequests && mode != VerificationMode.OFF) {
             throw new IllegalArgumentException("a receiver that does not verify requests has no mode but OFF");
         }
         String chainHeader = request.header(PaztportHeaders.CHAIN);
         String proofHeader = request.header(PaztportHeaders.PROOF);
-        String influenceHeader = request.header(PaztportHeaders.INFLUENCE);
+        String blocksHeader = request.header(PaztportHeaders.EXTENSIONS);
 
         // An origin starts a new request tree, so whatever chain came with the request is not carried.
         String chain = HttpWire.decodeChain(chainHeader);
         ParsedChain parsed = Chains.parse(chain);
         List<Stamp> received = stamps(parsed);
         List<Stamp> inbound = origin ? null : received;
+        // Null beside a carried chain: blocks that cannot be carried, refused below unless verification refuses first.
+        List<Block> blocks = carriedBlocks(inbound, HttpWire.decodeBlocks(blocksHeader));
         String operation = request.operation();
         String keyValue = keyValue(operation, request.target());
         if (keyValue == null && keyed(operation)) {
@@ -276,21 +304,20 @@ public final class HttpReceiver {
         // Only a chain that names the operation carries its key value; one that names none keeps the bare key.
         String key = Objects.equals(named, receiver) ? null : keyValue;
         String rid = received != null ? received.get(0).rid() : "";
-        carried.accept(inbound);
+        carried.accept(inbound, blocks);
         if (listener != null) {
-            listener.received(chainHeader, proofHeader, influenceHeader, request.method(), request.target(),
+            listener.received(chainHeader, proofHeader, blocksHeader, request.method(), request.target(),
                     request.body());
         }
         // The operator took Paztport off this hop. A service that does not verify requests is OFF here too, but has
         // no mode to switch, so it still attests what verifies.
         boolean switchedOff = verifyRequests && mode == VerificationMode.OFF;
-        List<InfluenceEntry> influence;
         // The live order's result on this request here, once it has run: it decides attestation.
         VerifyResult checked = null;
         boolean verified = false;
         NonceCacheUnavailableException cacheFailure = null;
         if (mode != VerificationMode.OFF) {
-            VerifyInput input = VerifyInputs.request(chain, parsed, proofHeader, influenceHeader, request.method(),
+            VerifyInput input = VerifyInputs.request(chain, parsed, proofHeader, blocksHeader, request.method(),
                     request.target(), request.body(), named, key, peer);
             try {
                 checked = verifier.verify(input);
@@ -298,14 +325,12 @@ public final class HttpReceiver {
                 // No verdict: nothing is verified or published, and only enforce refuses.
                 cacheFailure = cacheUnavailable(e);
             }
-            // On OK these are the entries the last stamp committed to; otherwise what was received.
-            influence = parseInfluence(input.influence());
             if (cacheFailure != null) {
                 if (mode == VerificationMode.ENFORCE) {
                     return Accepted.unavailable(cacheFailure);
                 }
             } else {
-                trace(traceLine(rid, checked, named, peer, influence));
+                trace(traceLine(rid, checked, named, peer, classes(checked)));
                 if (!checked.ok()) {
                     publisher.publish(new AttestationEvent(checked.reason().name(), checked.suspectSvc(),
                             checked.suspectInst(), rid, mode == VerificationMode.AUDIT));
@@ -316,22 +341,21 @@ public final class HttpReceiver {
                     verified = true;
                 }
             }
-        } else {
-            influence = parseInfluence(HttpWire.decodeInfluence(influenceHeader));
         }
-        // An origin starts the tree with no influence: what a client claims is not carried, so it cannot hide
-        // anything by being unreadable either.
-        if (!origin && influence == null) {
-            return Accepted.refused(UNREADABLE_INFLUENCE, checked);
+        // An origin carries no chain, so it has no blocks to carry either, and cannot hide anything by dropping them.
+        if (inbound != null && blocks == null) {
+            // Plan 3b Task 2 applies check 9a here, through ServedUnverified, which also matches each block to its
+            // stamp; until then a request whose blocks cannot be forwarded unchanged is not served.
+            return Accepted.refused(BLOCKS_NOT_CARRIED, checked);
         }
         boolean attesting = !switchedOff && stamper != null && verifier != null && !origin && inbound != null;
         if (attesting && checked == null && cacheFailure == null) {
             // A hop that does not verify requests, so verified here for attestation alone: never refused, never
             // published. Run at most once per request, since the live order spends the request's nonce.
             try {
-                checked = verifier.verify(VerifyInputs.request(chain, parsed, proofHeader, influenceHeader,
+                checked = verifier.verify(VerifyInputs.request(chain, parsed, proofHeader, blocksHeader,
                         request.method(), request.target(), request.body(), named, key, peer));
-                trace(traceLine(rid, checked, named, peer, influence));
+                trace(traceLine(rid, checked, named, peer, classes(checked)));
                 verified = checked.ok();
             } catch (NonceCacheUnavailableException e) {
                 cacheFailure = cacheUnavailable(e);
@@ -340,9 +364,40 @@ public final class HttpReceiver {
         // The operation the request was verified with, where the chain named one and the live order ran, whether
         // or not it passed (it may have failed under audit or where it ran for attestation alone).
         String verifiedOperation = checked != null && !named.equals(receiver) ? operation : null;
-        return Accepted.served(inbound, verified, origin ? List.of() : influence,
+        // Only a chain that passed the live order here is handed on. Plan 3b Task 2 hands a request served without
+        // verifying its items as not verified, where its blocks pass check 9a; until then it is handed nothing.
+        HandOver handOver = verified ? checked.handOver() : null;
+        return Accepted.served(inbound, blocks, verified, handOver,
                 attesting && checked != null && checked.ok() ? stamper : null, checked, cacheFailure,
                 verifiedOperation, key);
+    }
+
+    /**
+     * The blocks to carry with {@code inbound}: those received, read as one block per stamp, or one empty block per
+     * stamp where none were received; null where no chain is carried, and null where the blocks received do not read
+     * as one per stamp, so they cannot be forwarded unchanged.
+     */
+    static List<Block> carriedBlocks(List<Stamp> inbound, String blocks) {
+        if (inbound == null) {
+            return null;
+        }
+        if (blocks == null) {
+            return Collections.nCopies(inbound.size(), Block.EMPTY);
+        }
+        try {
+            List<Block> read = Block.parseAll(blocks);
+            return read.size() == inbound.size() ? read : null;
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
+
+    /**
+     * The influence classes a trace line names: those of the entries handed on under influence where the live order
+     * gave OK and the service acts on it, read by {@link Influence#readRequest}; none otherwise.
+     */
+    static List<InfluenceEntry> classes(VerifyResult result) {
+        return result.ok() ? Influence.readRequest(result.handOver().under(Influence.NAME)).entries() : List.of();
     }
 
     /** Whether this receiver's own table has {@code operation}, and it declares a key. */
@@ -396,15 +451,6 @@ public final class HttpReceiver {
     /** The received chain as stamps, or null when there is none or it does not parse. */
     static List<Stamp> stamps(ParsedChain parsed) {
         return parsed.ok() ? parsed.stamps() : null;
-    }
-
-    /** The entries, or null when the header could not be read as influence. */
-    static List<InfluenceEntry> parseInfluence(String json) {
-        try {
-            return Influence.parse(json);
-        } catch (IllegalArgumentException e) {
-            return null;
-        }
     }
 
     /**

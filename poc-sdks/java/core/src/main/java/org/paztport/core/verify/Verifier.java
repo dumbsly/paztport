@@ -70,6 +70,15 @@ public final class Verifier {
     }
 
     /**
+     * The extension settings this verifier's config holds: the names checks 9b and 9c read and its hand-over carries.
+     * A transport reads them from here, so a service cannot verify under one {@code actsOn} and build its blocks or
+     * read what it is handed under another.
+     */
+    public ExtensionSettings extensions() {
+        return cfg.extensions();
+    }
+
+    /**
      * Runs the live order, 0 to 12. The checks are total on malformed input, so a rejection is always a typed
      * result; a fault in what the verifier was given (a clock that throws) is not input and propagates, rather than
      * being hidden as a rejection.

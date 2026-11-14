@@ -35,11 +35,14 @@ import org.paztport.core.policy.ProofBundle;
 import org.paztport.core.policy.Routes;
 import org.paztport.core.policy.SignedRoot;
 import org.paztport.core.session.ReplyCheck;
+import org.paztport.core.session.Requirement;
 import org.paztport.core.session.SessionReply;
 import org.paztport.core.session.SessionRequest;
 import org.paztport.core.session.Sessions;
+import org.paztport.core.stamp.Block;
 import org.paztport.core.stamp.Stamp;
 import org.paztport.core.stamp.Stamper;
+import org.paztport.core.verify.ExtensionSettings;
 import org.paztport.core.verify.ReasonCode;
 import org.paztport.http.HttpSessions;
 import org.paztport.http.RequestContext;
@@ -88,21 +91,20 @@ import org.slf4j.LoggerFactory;
  * opens a new one; a replacement's session goes at the end of its period or when idle, whichever comes first.
  *
  * <p>In an attested session a call carries the boundary stamp, the proof for {@code <this service>/<partner>}, and
- * the influence reduced by {@link BoundaryInfluence#reduce}: one entry per class and owner, its {@code src}
- * {@code boundary:<this service>} and its {@code h} a salted commitment to the originals of its group, so the
- * partner can apply the owner-aware rule without learning the internal sources or confirming a guess at the
- * content. What the signer has verified: the request's chain passed the live order at this hop (the guard), and
- * only influence the request context holds after that is reduced; every (class, owner) pair of it is kept, so
- * the partner's verdict is the one it would reach on the originals, and the boundary stamp commits to exactly the
- * list sent. The salts come from this service's boundary key, the rid, the partner and the group, not from the
- * service's name, so a boundary key belongs to one egress service and is never shared with another; its replicas
- * share it. In an unsafe session a call carries only the session id: the partner would not verify a stamp, and
- * the owners in the influence are private, so nothing is reduced.
+ * the boundary chain's one block, the stamp's own, in {@code X-Path-Extensions}. For now that block names nothing,
+ * so no influence crosses the boundary and the partner's rules read the call as one whose stamp does not name
+ * influence. The blinded form a boundary block carries its influence in is {@link BoundaryInfluence#reduce}: one
+ * entry per class and owner, its {@code src} {@code boundary:<this service>} and its {@code h} a salted commitment
+ * to the originals of its group, so the partner can apply the owner-aware rule without learning the internal sources
+ * or confirming a guess at the content. The salts come from this service's boundary key, the rid, the partner and
+ * the group, not from the service's name, so a boundary key belongs to one egress service and is never shared with
+ * another; its replicas share it. In an unsafe session a call carries only the session id: the partner would not
+ * verify a stamp, and the owners in any influence are private, so no block is sent.
  *
- * <p>The {@link BoundaryListener}, if there is one, is given the originals and the list sent before the request
- * goes, in an attested session only, so this organisation can keep what it needs to open any entry it sent with
- * {@link #opening}. If it throws, the call stops there and nothing of the request is sent. Nothing about the
- * originals, their owners or the hashes is logged.
+ * <p>The {@link BoundaryListener}, if there is one, is given the originals and the list sent before a request whose
+ * boundary block carries influence goes, so this organisation can keep what it needs to open any entry it sent with
+ * {@link #opening}; while no block carries influence it is not called. If it throws, the call stops there and
+ * nothing of the request is sent. Nothing about the originals, their owners or the hashes is logged.
  *
  * <p>The partner does not attest what it answers, so every reply is recorded as one {@code local-untrusted} entry,
  * as any unattested response is, and this request's own response is labelled {@code local-untrusted}: a handler
@@ -169,6 +171,8 @@ public final class BoundaryClient implements AutoCloseable {
     private final String pinnedPartnerKey;
     private final byte[] blindingKey;
     private final BoundaryListener listener;
+    /** What this egress acts on; Plan 3b Task 7 names influence in the boundary block where it acts on it. */
+    private final ExtensionSettings extensions;
     private final HttpClient http;
     private final Duration readTimeout;
     private final AtomicReference<Session> session = new AtomicReference<>();
@@ -191,6 +195,7 @@ public final class BoundaryClient implements AutoCloseable {
         this.pinnedPartnerKey = b.pinnedPartnerKey;
         this.blindingKey = b.blindingKey.clone();
         this.listener = b.listener;
+        this.extensions = b.extensions;
         this.http = b.http;
         this.readTimeout = b.readTimeout;
         this.nanos = b.nanos;
@@ -206,8 +211,8 @@ public final class BoundaryClient implements AutoCloseable {
 
     /**
      * POSTs {@code json} to {@code path} at the partner, in the session, opening it first if there is none. In an
-     * attested session the influence is reduced, the boundary stamp signed over the reduced list, and the listener
-     * told, in that order, before the request is sent: a call that cannot be signed is never recorded.
+     * attested session the boundary stamp is signed over its block, which names nothing for now, before the request
+     * is sent.
      *
      * @param path the raw path, and {@code ?} and the raw query if any, exactly as it is to go on the wire
      * @throws IllegalStateException with nothing sent, when this request's chain did not verify at this hop or
@@ -216,9 +221,8 @@ public final class BoundaryClient implements AutoCloseable {
      *     would not be sent as given
      * @throws UncheckedIOException when the call itself fails, or has no whole answer within the read timeout (its
      *     cause then an {@link java.net.http.HttpTimeoutException})
-     * @throws RuntimeException whatever the listener throws, with the request not sent; and whatever the stamper
-     *     throws when it cannot sign, with the listener not told. A partner or egress service that is not a route
-     *     node never gets this far: {@link Builder#build} refuses it
+     * @throws RuntimeException whatever the stamper throws when it cannot sign, with the request not sent. A partner
+     *     or egress service that is not a route node never gets this far: {@link Builder#build} refuses it
      */
     public Response post(String path, byte[] json) {
         // The guard, before anything else: nothing is signed, or sent, on the strength of a chain not verified here.
@@ -226,7 +230,6 @@ public final class BoundaryClient implements AutoCloseable {
         if (verified == null || verified.isEmpty()) {
             throw new IllegalStateException(NO_VERIFIED_CHAIN);
         }
-        List<InfluenceEntry> influence = RequestContext.influence();
         Objects.requireNonNull(json, "json");
         URI target = target(path);
         String bind = RequestBinding.compute("POST", path, json);
@@ -237,25 +240,20 @@ public final class BoundaryClient implements AutoCloseable {
                 .header(PaztportHeaders.SESSION, current.sess())
                 .timeout(readTimeout)
                 .POST(HttpRequest.BodyPublishers.ofByteArray(json));
+        // The entries the boundary block carries, which the trace line names.
         List<InfluenceEntry> sent = List.of();
         String rid = verified.get(0).rid();
         if (current.attested()) {
-            // Only influence held after the chain verified here, every (class, owner) pair of it kept.
-            sent = List.copyOf(BoundaryInfluence.reduce(influence, blindingKey, rid, partner, stamper.svc()));
-            // Signed first, so a call that can't be signed is never sent and never recorded.
-            Stamper.Stamped stamped = stamper.boundary(verified, current.sess(), partner, bind, sent, bundle);
-            if (listener != null) {
-                // Before anything of the request goes: if this organisation can't keep the originals, nothing is sent.
-                listener.sent(rid, partner, List.copyOf(Influence.normalise(influence)), sent);
-            }
+            // Plan 3b Task 7 names influence here, with BoundaryInfluence.reduce over the request's influence, where
+            // the egress acts on it and every stamp of the verified chain names it, and tells the listener; until
+            // then the block names nothing and no influence is sent.
+            Block block = Block.EMPTY;
+            Stamper.Stamped stamped = stamper.boundary(verified, current.sess(), partner, bind, block, bundle);
             request.header(PaztportHeaders.CHAIN, HttpWire.encodeChain(stamped.chain()));
             if (stamped.proof() != null) {
                 request.header(PaztportHeaders.PROOF, HttpWire.encodeProof(stamped.proof()));
             }
-            String influenceHeader = HttpWire.encodeInfluence(sent);
-            if (influenceHeader != null) {
-                request.header(PaztportHeaders.INFLUENCE, influenceHeader);
-            }
+            request.header(PaztportHeaders.EXTENSIONS, HttpWire.encodeBlocks(List.of(block)));
         }
 
         HttpResponse<byte[]> response;
@@ -367,7 +365,8 @@ public final class BoundaryClient implements AutoCloseable {
         ReplyCheck check = null;
         try {
             byte[] reply = handshake(full);
-            check = Sessions.checkReply(reply, full, pinnedPartnerKey, partner, millis.getAsLong());
+            // Plan 3b Task 7 passes the egress's requirement here and asks Requirement.callsAfter whether to call.
+            check = Sessions.checkReply(reply, full, pinnedPartnerKey, partner, millis.getAsLong(), Requirement.NONE);
             if (check == ReplyCheck.ATTESTED || check == ReplyCheck.UNSAFE) {
                 // The check read the reply and derived the same id from both sides' inputs, so it is a real one.
                 Session s = new Session(SessionReply.parse(reply).sess(), check == ReplyCheck.ATTESTED, false,
@@ -549,7 +548,8 @@ public final class BoundaryClient implements AutoCloseable {
 
     /**
      * Builds an egress client once its settings are checked. Everything is required but the listener (none unless
-     * set), the read timeout ({@link #DEFAULT_READ_TIMEOUT} unless set) and the clocks (the system's).
+     * set), the extension settings ({@link ExtensionSettings#NONE} unless set), the read timeout
+     * ({@link #DEFAULT_READ_TIMEOUT} unless set) and the clocks (the system's).
      */
     public static final class Builder {
 
@@ -563,6 +563,7 @@ public final class BoundaryClient implements AutoCloseable {
         private String pinnedPartnerKey;
         private byte[] blindingKey;
         private BoundaryListener listener;
+        private ExtensionSettings extensions = ExtensionSettings.NONE;
         private HttpClient http;
         private Duration readTimeout = DEFAULT_READ_TIMEOUT;
         private long sessionIdleMs;
@@ -630,9 +631,22 @@ public final class BoundaryClient implements AutoCloseable {
             return this;
         }
 
-        /** Told the originals and the list sent before each attested call; null for none. */
+        /**
+         * Told the originals and the list sent before each call whose boundary block carries influence; null for
+         * none.
+         */
         public Builder listener(BoundaryListener listener) {
             this.listener = listener;
+            return this;
+        }
+
+        /**
+         * The extensions this egress acts on and the names it carries, built and checked by
+         * {@link ExtensionSettings#of}. The egress holds no verifier, so they are stated here.
+         * {@link ExtensionSettings#NONE} unless set.
+         */
+        public Builder extensions(ExtensionSettings extensions) {
+            this.extensions = Objects.requireNonNull(extensions, "extensions");
             return this;
         }
 

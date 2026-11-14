@@ -43,7 +43,6 @@ import org.paztport.core.crypto.Crypto;
 import org.paztport.core.encoding.Base64Url;
 import org.paztport.core.influence.BoundaryInfluence;
 import org.paztport.core.influence.ContentLabel;
-import org.paztport.core.influence.Influence;
 import org.paztport.core.influence.InfluenceClass;
 import org.paztport.core.influence.InfluenceEntry;
 import org.paztport.core.internal.JsonReader;
@@ -53,8 +52,10 @@ import org.paztport.core.policy.KeyringFile;
 import org.paztport.core.policy.MerkleProof;
 import org.paztport.core.policy.PolicyBuilder;
 import org.paztport.core.policy.SignedRoot;
+import org.paztport.core.stamp.Block;
 import org.paztport.core.stamp.Stamp;
 import org.paztport.core.stamp.Stamper;
+import org.paztport.core.verify.ExtensionSettings;
 import org.paztport.core.verify.InMemoryNonceCache;
 import org.paztport.core.verify.Peer;
 import org.paztport.core.verify.ReasonCode;
@@ -194,7 +195,7 @@ class BoundaryClientTest {
     /** A one-stamp chain from the gateway to payment, as payment's filter would have verified it. */
     private List<Stamp> gatewayChain(String rid) {
         return new Stamper("gateway", "gw-1", gateway.getPrivate(), true, () -> rid, System::currentTimeMillis)
-                .next(null, "payment", RequestBinding.compute("POST", "/pay", CHARGE), List.of(),
+                .next(null, "payment", RequestBinding.compute("POST", "/pay", CHARGE), Block.EMPTY,
                         built.bundles().get("gateway"))
                 .chain();
     }
@@ -261,98 +262,53 @@ class BoundaryClientTest {
         MerkleProof proof = MerkleProof.decode(call.header(PaztportHeaders.PROOF));
         assertTrue(proof.verify("payment/psp", built.signedRoot().rootBytes()));
 
-        List<InfluenceEntry> sent = Influence.parse(HttpWire.decodeInfluence(call.header(PaztportHeaders.INFLUENCE)));
-        assertEquals(BoundaryInfluence.reduce(INFLUENCE, blindingKey, "rid-1", "psp", "payment"), sent,
-                "the owners cross, blinded");
+        // Plan 3b Task 7 names influence in the boundary block, blinded; until then it names nothing.
+        assertEquals(List.of(Block.EMPTY), Block.parseAll(HttpWire.decodeBlocks(
+                call.header(PaztportHeaders.EXTENSIONS))), "the boundary chain's one block, the stamp's own");
+        assertEquals("", stamp.get("ext").textValue());
 
         // And the partner, holding only payment's keyring and root, verifies it in that session.
         Verifier atPartner = new Verifier(VerifierConfig.pinned(List.of(keyring), List.of(built.signedRoot()),
                 policyPub, System.currentTimeMillis(), Set.of("payment"), sess, new InMemoryNonceCache(60_000),
-                System::currentTimeMillis, 30_000, 300_000));
+                System::currentTimeMillis, 30_000, 300_000, ExtensionSettings.NONE));
         assertEquals(ReasonCode.OK, atPartner.verify(new VerifyInput(chainJson,
-                RequestBinding.compute("POST", "/charge", call.body()), HttpWire.decodeInfluence(
-                        call.header(PaztportHeaders.INFLUENCE)),
+                RequestBinding.compute("POST", "/charge", call.body()), HttpWire.decodeBlocks(
+                        call.header(PaztportHeaders.EXTENSIONS)),
                 HttpWire.decodeProof(call.header(PaztportHeaders.PROOF)),
-                "psp", true, "rid-1|payment|psp|req", new Peer("payment", "127.0.0.1"))).reason());
+                "psp", true, "[\"rid-1\",\"payment\",\"psp\",\"req\"]", new Peer("payment", "127.0.0.1")))
+                .reason());
 
         assertEquals(List.of("PAZTPORT_TRACE session partner=psp check=ATTESTED status=attested"),
                 lines("PAZTPORT_TRACE session "));
         assertEquals(List.of("PAZTPORT_TRACE boundary rid=rid-1 receiver=psp session=attested status=200 "
-                + "classes=private,third-party"), lines("PAZTPORT_TRACE boundary "));
+                + "classes=-"), lines("PAZTPORT_TRACE boundary "));
     }
 
-    // The partner needs only each entry's class and owner; the sources and plain hashes are the shop's to keep.
+    /**
+     * Plan 3b Task 7 names influence in the boundary block where the egress acts on it and every stamp of the verified
+     * chain names it, blinded, and tells the listener first; until then no influence crosses, whatever the request
+     * holds, and the listener, with nothing to open later, is not called.
+     */
     @Test
-    void sendsReducedInfluence() throws Exception {
-        List<InfluenceEntry> influence = List.of(
-                new InfluenceEntry(InfluenceClass.THIRD_PARTY, "http:tickets", "h-ticket", "cid-1", null),
-                new InfluenceEntry(InfluenceClass.THIRD_PARTY, "web:example.com", "h-page", null, null),
-                new InfluenceEntry(InfluenceClass.PRIVATE, "http:orders", "h-order", "cid-2", "alice"),
-                new InfluenceEntry(InfluenceClass.PRIVATE, "http:orders", "h-order-2", "cid-3", "alice"),
-                new InfluenceEntry(InfluenceClass.PRIVATE, "http:orders", "h-order", "cid-2", null));
-
-        try (RequestContext.Scope scope = RequestContext.open()) {
-            RequestContext.markVerified(gatewayChain("rid-1"));
-            RequestContext.addInfluence(influence.toArray(InfluenceEntry[]::new));
-            assertEquals(200, charge().status());
-        }
+    void noInfluenceCrossesTheBoundaryForNow() throws Exception {
+        verified("rid-1", this::charge);
 
         StubPartner.Received call = partner.calls().get(0);
-        String header = call.header(PaztportHeaders.INFLUENCE);
-        List<InfluenceEntry> sent = Influence.parse(HttpWire.decodeInfluence(header));
-        assertEquals(3, sent.size(), "one entry per (class, owner)");
-        assertEquals(Set.of(InfluenceClass.THIRD_PARTY + "|null", InfluenceClass.PRIVATE + "|alice",
-                InfluenceClass.PRIVATE + "|null"), Set.copyOf(sent.stream().map(e -> e.cls() + "|" + e.owner())
-                        .toList()));
-        for (InfluenceEntry e : sent) {
-            assertEquals("boundary:payment", e.src());
-            assertNull(e.cid());
-        }
-        assertEquals(Influence.normalise(sent), sent, "the sent list is normalised");
-        assertEquals(BoundaryInfluence.reduce(influence, blindingKey, "rid-1", "psp", "payment"), sent);
-        JsonNode stamp = JSON.readTree(HttpWire.decodeChain(call.header(PaztportHeaders.CHAIN))).get(0);
-        assertEquals(Influence.commit(sent), stamp.get("infl").textValue(), "the stamp commits to what was sent");
-
+        String header = call.header(PaztportHeaders.EXTENSIONS);
         String wire = new String(Base64Url.decode(header), StandardCharsets.UTF_8);
-        for (String secret : List.of("http:tickets", "web:example.com", "http:orders", "h-ticket", "h-order",
-                "cid-1")) {
+        for (String secret : List.of("http:tickets", "http:orders", "h-ticket", "h-order", "cid-1", "alice")) {
             assertFalse(wire.contains(secret), secret + " crossed the boundary");
         }
-        // Nor is any of it logged.
-        for (String line : lines("PAZTPORT_TRACE ")) {
-            for (String secret : List.of("http:", "web:", "h-", "alice", "boundary:")) {
-                assertFalse(line.contains(secret), line);
-            }
-        }
+        assertEquals(List.of(), heard, "nothing was sent that the listener would need to open");
     }
 
+    // The salt is the egress's to derive again: an opening opens the entry the blinded reduction sent for its group.
     @Test
-    void listenerSeesOriginalsAndSent() throws Exception {
-        verified("rid-1", this::charge);
-
-        assertEquals(1, heard.size());
-        Heard h = heard.get(0);
-        assertEquals("rid-1", h.rid());
-        assertEquals("psp", h.partnerEntry());
-        assertEquals(Influence.normalise(INFLUENCE), h.originals(), "every field of every original");
-        StubPartner.Received call = partner.calls().get(0);
-        assertEquals(Influence.parse(HttpWire.decodeInfluence(call.header(PaztportHeaders.INFLUENCE))), h.sent(),
-                "exactly the list sent");
-        assertEquals(0, h.callsBefore(), "it runs before the request is sent");
-        assertThrows(UnsupportedOperationException.class, () -> h.originals().clear());
-    }
-
-    @Test
-    void openingFromListenerOpensWhatPartnerHolds() throws Exception {
-        verified("rid-1", this::charge);
-        verified("rid-2", this::charge);
-
-        List<InfluenceEntry> first = Influence.parse(HttpWire.decodeInfluence(
-                partner.calls().get(0).header(PaztportHeaders.INFLUENCE)));
-        List<InfluenceEntry> originals = heard.get(0).originals();
+    void openingOpensWhatTheReductionSent() {
+        List<InfluenceEntry> first = BoundaryInfluence.reduce(INFLUENCE, blindingKey, "rid-1", "psp", "payment");
         assertEquals(2, first.size());
         for (InfluenceEntry e : first) {
-            BoundaryInfluence.Opening opening = client.opening("rid-1", e.cls(), e.owner(), originals);
+            BoundaryInfluence.Opening opening = client.opening("rid-1", e.cls(), e.owner(), INFLUENCE);
             assertTrue(BoundaryInfluence.opens(e, opening), e.toString());
             assertEquals(1, opening.originals().size(), "only the group's own originals");
         }
@@ -363,44 +319,21 @@ class BoundaryClientTest {
                 .orElseThrow();
         // One group's opening does not open another's entry.
         assertFalse(BoundaryInfluence.opens(privateEntry,
-                client.opening("rid-1", InfluenceClass.THIRD_PARTY, null, originals)));
+                client.opening("rid-1", InfluenceClass.THIRD_PARTY, null, INFLUENCE)));
         // An opening derived for another request does not open this one's, though the content is the same.
         assertFalse(BoundaryInfluence.opens(thirdParty,
-                client.opening("rid-2", InfluenceClass.THIRD_PARTY, null, originals)));
+                client.opening("rid-2", InfluenceClass.THIRD_PARTY, null, INFLUENCE)));
         // Nor does one whose originals were changed.
         List<InfluenceEntry> altered = List.of(
                 new InfluenceEntry(InfluenceClass.THIRD_PARTY, "http:tickets", "h-other", "cid-1", null));
         assertFalse(BoundaryInfluence.opens(thirdParty,
                 client.opening("rid-1", InfluenceClass.THIRD_PARTY, null, altered)));
-        // The same content in the next request was sent under another salt.
-        List<InfluenceEntry> second = Influence.parse(HttpWire.decodeInfluence(
-                partner.calls().get(1).header(PaztportHeaders.INFLUENCE)));
-        assertNotEquals(first, second);
         assertThrows(IllegalArgumentException.class,
-                () -> client.opening("rid-1", InfluenceClass.LOCAL_UNTRUSTED, null, originals),
+                () -> client.opening("rid-1", InfluenceClass.LOCAL_UNTRUSTED, null, INFLUENCE),
                 "no original is in that group");
     }
 
-    // If the shop can't keep what the entries stood for, they must not be sent: it could never open them.
-    @Test
-    void listenerFailureSendsNothing() throws Exception {
-        onSent = (rid, partnerEntry, originals, sent) -> {
-            throw new IllegalStateException("store unavailable");
-        };
-
-        List<InfluenceEntry> after = verified("rid-1", () -> {
-            IllegalStateException thrown = assertThrows(IllegalStateException.class, this::charge);
-            assertEquals("store unavailable", thrown.getMessage());
-            return RequestContext.influence();
-        });
-
-        assertEquals(1, heard.size());
-        assertEquals(List.of(), partner.calls(), "the request is not sent");
-        assertEquals(INFLUENCE, after, "and nothing came back to record");
-        assertEquals(List.of(), lines("PAZTPORT_TRACE boundary "));
-    }
-
-    // A call that is never sent is never recorded: the boundary stamp is signed before the listener is told.
+    // A call that is never sent is never recorded: the boundary stamp is signed before anything goes.
     @Test
     void aStampThatCannotBeSignedIsNotRecordedByTheListener() throws Exception {
         Stamper failing = new Stamper("payment", "payment-1", payment.getPrivate(), false, () -> "unused", () -> {
@@ -419,7 +352,7 @@ class BoundaryClientTest {
     }
 
     @Test
-    void unsafeSessionSendsNoInfluenceAndNoListenerCall() throws Exception {
+    void unsafeSessionSendsNoBlockAndNoListenerCall() throws Exception {
         partner.status("unsafe");
         verified("rid-1", this::charge);
 
@@ -432,7 +365,7 @@ class BoundaryClientTest {
 
         assertEquals(2, partner.calls().size());
         for (StubPartner.Received call : partner.calls()) {
-            assertNull(call.header(PaztportHeaders.INFLUENCE));
+            assertNull(call.header(PaztportHeaders.EXTENSIONS), "no block in an unsafe session");
             assertNull(call.header(PaztportHeaders.CHAIN));
         }
         assertEquals(List.of(), heard, "no listener call in an unsafe session");
@@ -450,7 +383,7 @@ class BoundaryClientTest {
     }
 
     @Test
-    void unsafeSendsNoChainOrInfluence() throws Exception {
+    void unsafeSendsNoChainOrBlock() throws Exception {
         partner.status("unsafe");
 
         BoundaryClient.Response response = verified("rid-1", this::charge);
@@ -461,7 +394,7 @@ class BoundaryClientTest {
         assertEquals(partner.issued().get(0), call.header(PaztportHeaders.SESSION));
         assertNull(call.header(PaztportHeaders.CHAIN));
         assertNull(call.header(PaztportHeaders.PROOF));
-        assertNull(call.header(PaztportHeaders.INFLUENCE));
+        assertNull(call.header(PaztportHeaders.EXTENSIONS));
         assertEquals(List.of("PAZTPORT_TRACE session partner=psp check=UNSAFE status=unsafe"),
                 lines("PAZTPORT_TRACE session "));
         assertEquals(List.of("PAZTPORT_TRACE boundary rid=rid-1 receiver=psp session=unsafe status=200 classes=-"),
@@ -489,7 +422,7 @@ class BoundaryClientTest {
         StubPartner.Received call = partner.calls().get(0);
         assertEquals(partner.issued().get(1), call.header(PaztportHeaders.SESSION));
         assertNull(call.header(PaztportHeaders.CHAIN));
-        assertNull(call.header(PaztportHeaders.INFLUENCE));
+        assertNull(call.header(PaztportHeaders.EXTENSIONS));
         assertEquals(List.of("PAZTPORT_TRACE session partner=psp check=PIN_MISMATCH status=unsafe"),
                 lines("PAZTPORT_TRACE session "));
     }
@@ -532,7 +465,7 @@ class BoundaryClientTest {
         StubPartner.Received call = partner.calls().get(0);
         assertEquals(partner.issued().get(1), call.header(PaztportHeaders.SESSION));
         assertNull(call.header(PaztportHeaders.CHAIN));
-        assertNull(call.header(PaztportHeaders.INFLUENCE));
+        assertNull(call.header(PaztportHeaders.EXTENSIONS));
         assertEquals(List.of(), heard, "nothing was offered to the listener");
         assertEquals(List.of("PAZTPORT_TRACE session partner=psp check=BAD_SIGNATURE status=unsafe"),
                 lines("PAZTPORT_TRACE session "));
@@ -633,7 +566,7 @@ class BoundaryClientTest {
     void replyIsLocalUntrusted() throws Exception {
         List<InfluenceEntry> after = verified("rid-1", () -> {
             BoundaryClient.Response r = charge();
-            List<InfluenceEntry> all = RequestContext.influence();
+            List<InfluenceEntry> all = RequestContext.added();
             assertEquals(HttpWire.resultHash(r.status(), r.body()), all.get(all.size() - 1).h());
             return all;
         });
@@ -922,7 +855,7 @@ class BoundaryClientTest {
                 StubPartner.Received call = stalling.calls().get(0);
                 assertEquals(stalling.issued().get(0), call.header(PaztportHeaders.SESSION));
                 assertNull(call.header(PaztportHeaders.CHAIN), stall + ": no stamp in an unsafe session");
-                assertNull(call.header(PaztportHeaders.INFLUENCE), stall + ": no influence in an unsafe session");
+                assertNull(call.header(PaztportHeaders.EXTENSIONS), stall + ": no influence in an unsafe session");
             }
         }
     }

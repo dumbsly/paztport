@@ -13,15 +13,20 @@ import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import java.security.KeyPair;
 import java.util.List;
+import java.util.Set;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.paztport.core.crypto.Crypto;
+import org.paztport.core.influence.Influence;
 import org.paztport.core.influence.InfluenceClass;
 import org.paztport.core.influence.InfluenceEntry;
 import org.paztport.core.policy.PolicyBuilder;
+import org.paztport.core.stamp.Block;
 import org.paztport.core.stamp.Stamp;
 import org.paztport.core.stamp.Stamper;
+import org.paztport.core.verify.ExtensionSettings;
+import org.paztport.core.verify.HandOver;
 import org.paztport.core.verify.ReasonCode;
 import org.paztport.http.wire.RequestBinding;
 import org.slf4j.LoggerFactory;
@@ -109,7 +114,7 @@ class PublicWritesTest {
         PolicyBuilder.Result built = PolicyBuilder.build(List.of(List.of("gateway", "psp")), 4,
                 NOT_AFTER, policy.getPrivate());
         return new Stamper("gateway", "gw-1", gateway.getPrivate(), true, () -> rid, System::currentTimeMillis)
-                .next(null, "psp", RequestBinding.compute("POST", "/charge", new byte[0]), List.of(),
+                .next(null, "psp", RequestBinding.compute("POST", "/charge", new byte[0]), Block.EMPTY,
                         built.bundles().get("gateway"))
                 .chain();
     }
@@ -153,6 +158,29 @@ class PublicWritesTest {
         assertTrue(trustedWith());
         assertTrue(trustedWith(MINE));
         assertTrue(trustedWith(UNOWNED));
+    }
+
+    /**
+     * The every-stamp rule holds for a trusted record too: a hop that does not name influence may have read anything,
+     * so a verified chain with such a stamp writes no trusted record, however clean the entries it holds.
+     */
+    @Test
+    void aTrustedRecordNeedsEveryStampToNameInfluence() {
+        List<Stamp> chain = chain("rid-1");
+        Block named = Influence.block(List.of(MINE), List.of());
+        assertFalse(trustedHandedOn(chain, List.of(Block.EMPTY)), "the one stamp does not name influence");
+        assertTrue(trustedHandedOn(chain, List.of(named)));
+        assertFalse(trustedHandedOn(chain, List.of(Influence.block(List.of(WEB), List.of()))));
+    }
+
+    /** Asks the trusted-record question in a scope whose chain verified with {@code blocks} handed on. */
+    private boolean trustedHandedOn(List<Stamp> chain, List<Block> blocks) {
+        try (RequestContext.Scope scope = RequestContext.open()) {
+            RequestContext.markVerified(chain);
+            RequestContext.handOn(new HandOver(true, chain, blocks, ExtensionSettings.of(Set.of(Influence.NAME),
+                    null)));
+            return writes.shapedOnlyByTrusted();
+        }
     }
 
     @Test

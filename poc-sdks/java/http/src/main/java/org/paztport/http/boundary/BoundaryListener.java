@@ -12,11 +12,12 @@ import org.paztport.core.influence.InfluenceEntry;
  * organisation needs the originals, which this is the only place to see, and
  * {@code BoundaryClient.opening} re-derives the salt.
  *
- * <p>It is called only in an attested session, after the request's chain passed the live order at this hop and
- * the session is open, and before the request is sent. An unsafe session sends no influence, so it is not called
- * there. An exception it throws stops the call before anything of the request is sent (the handshake may already
- * have happened) and reaches the caller of {@code BoundaryClient.post}: an entry this organisation could not record is
- * an entry it could never open, so it is not sent.
+ * <p>It is called only for a call whose boundary block carries influence, in an attested session, after the request's
+ * chain passed the live order at this hop and the session is open, and before the request is sent. A call whose block
+ * names no influence, an unsafe session's included, sends none, so it is not called there; for now no boundary block
+ * names influence. An exception it throws stops the call before anything of the request is sent (the handshake may
+ * already have happened) and reaches the caller of {@code BoundaryClient.post}: an entry this organisation could not
+ * record is an entry it could never open, so it is not sent.
  *
  * <p>It may be called from several request threads at once, one call per request, so an implementation must be
  * thread-safe.
@@ -30,7 +31,7 @@ public interface BoundaryListener {
     /**
      * @param rid the request's rid, from the chain verified at this hop
      * @param partnerEntry the partner's entry service, the boundary stamp's receiver
-     * @param originals the request context's influence, normalised, every field kept; unmodifiable
+     * @param originals the request's influence, normalised, every field kept; unmodifiable
      * @param sent exactly the list the boundary stamp commits to and the call carries; unmodifiable
      */
     void sent(String rid, String partnerEntry, List<InfluenceEntry> originals, List<InfluenceEntry> sent);

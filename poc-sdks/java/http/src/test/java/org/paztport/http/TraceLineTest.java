@@ -18,6 +18,7 @@ import org.paztport.core.crypto.Crypto;
 import org.paztport.core.influence.InfluenceClass;
 import org.paztport.core.influence.InfluenceEntry;
 import org.paztport.core.policy.PolicyBuilder;
+import org.paztport.core.stamp.Block;
 import org.paztport.core.stamp.Stamp;
 import org.paztport.core.stamp.Stamper;
 import org.paztport.core.verify.Peer;
@@ -60,7 +61,7 @@ class TraceLineTest {
 
     @Test
     void requestLine() {
-        VerifyResult refused = new VerifyResult(ReasonCode.PEER_MISMATCH, "gateway", "gw-1");
+        VerifyResult refused = new VerifyResult(ReasonCode.PEER_MISMATCH, "gateway", "gw-1", null);
         assertEquals("PAZTPORT_TRACE request rid=rid-7 reason=PEER_MISMATCH receiver=payment ✗ "
                 + "peer=gateway (mTLS) classes=private,third-party",
                 HttpReceiver.traceLine("rid-7", refused, "payment", new Peer("gateway", "10.0.0.7"),
@@ -86,7 +87,7 @@ class TraceLineTest {
         PolicyBuilder.Result built = PolicyBuilder.build(List.of(List.of("gateway", "psp")), 4,
                 NOT_AFTER, policy.getPrivate());
         return new Stamper("gateway", "gw-1", gateway.getPrivate(), true, () -> rid, System::currentTimeMillis)
-                .next(null, "psp", RequestBinding.compute("POST", "/charge", new byte[0]), List.of(),
+                .next(null, "psp", RequestBinding.compute("POST", "/charge", new byte[0]), Block.EMPTY,
                         built.bundles().get("gateway"))
                 .chain();
     }

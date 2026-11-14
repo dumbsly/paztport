@@ -320,11 +320,12 @@ public final class StubPartner implements AutoCloseable {
         SessionReply reply;
         if (signer != policy || policyKeyForm) {
             reply = Sessions.signReply(new SessionReply(serverRoot, pub(signer), keyring.services(), null, null, null,
-                    nonce, sess, replyStatus, disabled, null), signer.getPrivate());
+                    nonce, sess, replyStatus, disabled, List.of(), null), signer.getPrivate());
         } else {
             ReplyCert cert = ReplyCert.issue(pub(policy), "psp", pub(entry), replyCertNotAfter, policy.getPrivate());
             reply = Sessions.signReply(new SessionReply(serverRoot, pub(policy), keyring.services(), keyring.sig(),
-                    keyring.notAfter(), cert, nonce, sess, replyStatus, disabled, null), entry.getPrivate());
+                    keyring.notAfter(), cert, nonce, sess, replyStatus, disabled, List.of(), null),
+                    entry.getPrivate());
         }
         replies.add(reply);
         return reply;

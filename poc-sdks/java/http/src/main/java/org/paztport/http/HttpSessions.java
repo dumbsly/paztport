@@ -19,9 +19,9 @@ import org.paztport.core.session.Sessions;
  * refusal, and a partner's answer to one request ({@link #serve}). Each body is its message's wire bytes, the JCS
  * bytes of the JSON forms {@link Sessions} defines. A server reads a request body with
  * {@link SessionRequest#parse(byte[])} and a client checks a reply body with
- * {@link Sessions#checkReply(byte[], SessionRequest, String, String, long)}; both refuse bytes that are not exactly
- * the canonical bytes of one value, so a body cannot carry whitespace, a second value or another spelling that
- * another parser would read differently.
+ * {@link Sessions#checkReply(byte[], SessionRequest, String, String, long, org.paztport.core.session.Requirement)};
+ * both refuse bytes that are not exactly the canonical bytes of one value, so a body cannot carry whitespace, a
+ * second value or another spelling that another parser would read differently.
  */
 public final class HttpSessions {
 
