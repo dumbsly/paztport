@@ -15,16 +15,17 @@ replays `spec/vectors/v4.json` but the sections that belong to the
 `sessionResult`, `bindMcpCall` and `bindResult`), `influence.response`, and the `influence.request` cases whose
 `served` is not empty, which record the extension over MCP; `json.json` but its `jcs` section and the MCP profile's
 `bindings` (`toolsCall`, `result` and `localTool`); and `events.json` and `ed25519.json` in full.
-`paztport-http`, `paztport-spring` and `tools/bench` still hold version 3 code and do not build against this core
-until the next two plans of this wave, so `mvn -q -pl core,tools/keygen,tools/policy-tool -am install` is what builds
-today, and their sections below describe version 3.
+`paztport-http` speaks version 4 over HTTP and replays `spec/vectors/http-v4.json`, every section, and the `http`
+cases of `json.json`'s `bindings`. `paztport-spring` still holds version 3 code and does not build against them until
+the next plan of this wave, so `mvn -q -pl core,http,tools/keygen,tools/policy-tool,tools/bench -am install` is what
+builds today, and its section below describes version 3.
 
 ```bash
-mvn -q -pl core,tools/keygen,tools/policy-tool -am install   # build, test and install what builds today
+mvn -q -pl core,http,tools/keygen,tools/policy-tool,tools/bench -am install   # build, test and install what builds
 ```
 
 The Java demo ([poc-demos/java-mesh](../../poc-demos/java-mesh/README.md)) depends on
-the installed artifacts, so it does not build until the HTTP modules move to version 4.
+the installed artifacts, so it does not build until `paztport-spring` moves to version 4.
 
 ## paztport-core
 
@@ -204,83 +205,113 @@ does not implement.
 
 ## paztport-http
 
-v3 over HTTP, with no web framework. `PaztportHeaders` names the five headers:
-`CHAIN` (`X-Path-Chain`), `PROOF` (`X-Path-Proof`), `INFLUENCE`
-(`X-Path-Influence`), the response's `RESPONSE` (`X-Path-Response`), and `SESSION`
-(`X-Path-Session`), which names the session a call is in. `isPaztport` says whether
-a name is Paztport's: any that begins with `X-Path-`, in any ASCII case.
-`RequestBinding` computes `bind` over the method, the raw path plus `?` and the raw
-query when there is one, and the body. `HttpWire` encodes the headers and decodes
-them to the JSON text they carry, builds a request's verify input (nonce key
-`<rid>|<last svc>|<last rcv>|req`, or
-`<rid>|<last svc>|<last rcv>|<key value>|req` for a keyed operation), computes a
-response's result hash over its status and body, and checks a response's attestation
-against the chain the caller sent (nonce key `<rid>|<last rcv>|resp`, or
-`<rid>|<last rcv>|<key value>|resp` for a keyed operation), `<last rcv>` naming the
-operation when the last stamp names one. A service therefore calls a given receiver,
-or a given operation of it, at most once per request tree, and an operation with a
-key at most once per request tree for each key value. Calls to two operations of one
-receiver spend two keys, and so do calls for two items of one keyed operation.
-`HttpSessions` fixes the handshake's names (`PATH`, `/paztport/session`, and the
-error codes `INVALID_PARAMS` and `NO_SESSION`) and writes `{"error":"<code>"}`; core
-reads the bodies, a request with `SessionRequest.parse(byte[])` and a reply with
-`Sessions.checkReply(byte[], ...)`, as their wire bytes: each body is exactly its
-message's JCS bytes, so a newline after them is refused.
+Version 4 over HTTP, with no web framework. `VectorsHttpV4Test` replays `spec/vectors/http-v4.json`, every section,
+which `VectorsHttpV4Export` writes, and `RequestBindingTest` the `http` cases of `json.json`'s `bindings`.
+`PaztportHeaders` names the five headers: `CHAIN` (`X-Path-Chain`), `PROOF` (`X-Path-Proof`), `EXTENSIONS`
+(`X-Path-Extensions`, a request's blocks, one per stamp), the response's `RESPONSE` (`X-Path-Response`, its stamp
+and its own block), and `SESSION` (`X-Path-Session`), which names the session a call is in. `isPaztport` says
+whether a name is Paztport's: any that begins with `X-Path-`, in any ASCII case. `RequestBinding` computes `bind`
+over the method, the raw path plus `?` and the raw query when there is one, and the body. `HttpWire` encodes the
+headers and decodes them to the JSON text they carry: no `X-Path-Extensions` is no blocks, one empty block per
+stamp, and one that is present but does not decode gives text that does not read as JSON, which check 9a refuses,
+never no blocks. It builds a request's verify input (nonce key `[rid, last svc, last rcv, "req"]`, or
+`[rid, last svc, last rcv, key value, "req"]` for a keyed operation, each written as the JCS text of the array),
+computes a response's result hash over its status and body, and checks a response's attestation, exactly
+`{block, stamp}`, against the chain and the blocks the caller sent (nonce key `[rid, last rcv, "resp"]`, or
+`[rid, last rcv, key value, "resp"]` for a keyed operation), `last rcv` naming the operation when the last stamp
+names one. A service therefore calls a given receiver, or a given operation of it, at most once per request tree,
+and an operation with a key at most once per request tree for each key value. Calls to two operations of one
+receiver spend two keys, and so do calls for two items of one keyed operation. `HttpSessions` fixes the handshake's
+names (`PATH`, `/paztport/session`, and the error codes `INVALID_PARAMS` and `NO_SESSION`) and writes
+`{"error":"<code>"}`; core reads the bodies, a request with `SessionRequest.parse(byte[])` and a reply with
+`Sessions.checkReply(byte[], ...)`, as their wire bytes: each body is exactly its message's JCS bytes, so a newline
+after them is refused.
+
+A service states its extension settings once. `HttpReceiver` and `HttpCaller` read them from their verifier
+(`Verifier.extensions()`); a builder with no verifier takes `extensions(ExtensionSettings)`, a builder given both
+refuses settings that differ from the verifier's (`IllegalArgumentException` at `build()`), and one given neither
+acts on nothing (`ExtensionSettings.NONE`). So a receiver or a caller cannot verify under one `actsOn` and apply
+check 9a, build its blocks or read what it is handed under another. `PartnerSessions`, which builds its sessions'
+verifiers, and `BoundaryClient`, which holds none, take `extensions(ExtensionSettings)`, `ExtensionSettings.NONE`
+unless set.
 
 The receivers decide a request with no framework and keep no per-request state.
-`HttpReceiver.accept(InboundRequest, Peer, VerificationMode)` decides one
-request for a service and returns an `Accepted`: either a refusal to send in
-place of the handler's answer (an `HttpAnswer`, `{"reason":"<code>"}`), or what
-the handler starts from and whether its answer is attested, by
-`Accepted.attest(status, body, labels)` once the framework holds the answer
-whole. `PartnerReceiver.accept(InboundRequest, PeerCert)` does the same for a
-partner, in the session the caller names. `Accepted.result()` is the
-verification result the decision rests on, or null where none ran, for an
-adapter to report; `PartnerAccepted.result()` is the same for a partner's call.
-The caller is never told it. `Accepted.delivery()` is the request's `Delivery`
-(`rid`, the last signer's `svc`, the receiver the last stamp names as `rcv`, with
-the operation when it names one, the `key` value of a keyed operation, null when
-there is none, and the last stamp's `bind`), or null unless its chain passed the
-live order at this in-mesh hop; it is the key for the application's own idempotency
-handling, which a duplicate delivery needs (a client's retry reaches another replica
-with its own cache). The same key and `bind` is the same request sent again by that
-signer; the same key with another `bind` is a different request under a reused key,
-to refuse; a user's second click is a new `rid`. A `NonceCache` that cannot answer,
-because its `seenBefore` throws, gives no verdict: the verifier wraps what it throws
-in `NonceCacheUnavailableException`, and the receiver refuses the request as
-unavailable (`HttpAnswer.unavailable()`, 503) in `ENFORCE`, with
-`Accepted.cacheFailure()` set, or serves it unverified in `AUDIT`. The cache
-owns its own timeouts. `PeerCert.of(certificate, address)` reads the peer
-and its issuer from a client certificate. `PartnerSessions` keeps a partner's
-sessions; its `builder()` refuses own material no client could accept, naming
-each `Fault`. `HttpSessions.serve` answers one handshake, and `UnsafeEndpoints`
-says what an unsafe session may not do. The starter's filters, gate and
-handshake endpoint are adapters over these, and another framework would adapt
-the same functions.
+`HttpReceiver.accept(InboundRequest, Peer, VerificationMode)` decides one request for a service and returns an
+`Accepted`: either a refusal to send in place of the handler's answer (an `HttpAnswer`, `{"reason":"<code>"}`), or
+what the handler starts from and whether its answer is attested. Besides the 503 below, a refusal is one of three
+answers: `403` with the code where verification refuses under `ENFORCE`; `400 {"reason":"EXTENSION_MISMATCH"}`
+where the service would serve a request it did not verify (under `AUDIT` after a failure, `OFF`, or with no mode)
+and its blocks fail check 9a, as `ServedUnverified.of` applies it, or, where the chain did not read, do not read as
+an array of blocks; and
+`400 {"reason":"INFLUENCE_MISMATCH"}` where the service acts on `influence` and an item it is handed, verified or
+not, does not read as an entry (`Influence.readRequest`), with a warning naming the signer of the first block that
+holds one. A service that does not act on `influence` reads no item and refuses nothing for one. A request it serves
+carries its chain, `Accepted.inbound()`, and the blocks the chain came with, `Accepted.blocks()`, one per stamp (one
+`Block.EMPTY` per stamp where no header came), which the handler's own calls forward unchanged before their own.
+`Accepted.handOver()` is what the service is handed for the extensions it acts on: verified where the chain passed
+the live order at this hop, and `Accepted.verifiedChain()` is then that chain; not verified for a request served
+without verifying whose chain read and whose blocks passed check 9a; and null where nothing is handed on (a request
+to an origin, which ignores the chain and its blocks and never attests, a refusal, and a chain that did not read).
+`PartnerReceiver.accept(InboundRequest, PeerCert)` does the same for a partner, in the session the caller names: in
+an attested session the session's verifier, which carries the partner's settings, verifies the call, and the
+handler gets the verified chain, its one block and the verified hand-over; in an unsafe session nothing is verified
+or handed on, and the blocks a call carries are not read, so check 9a is not applied to them.
+`Accepted.result()` is the verification result the decision rests on, or null where none ran, for an adapter to
+report; `PartnerAccepted.result()` is the same for a partner's call. The caller is never told it.
+`Accepted.delivery()` is the request's `Delivery` (`rid`, the last signer's `svc`, the receiver the last stamp names
+as `rcv`, with the operation when it names one, the `key` value of a keyed operation, null when there is none, and
+the last stamp's `bind`), or null unless its chain passed the live order at this in-mesh hop; it is the key for the
+application's own idempotency handling, which a duplicate delivery needs (a client's retry reaches another replica
+with its own cache). The same key and `bind` is the same request sent again by that signer; the same key with
+another `bind` is a different request under a reused key, to refuse; a user's second click is a new `rid`. A
+`NonceCache` that cannot answer, because its `seenBefore` throws, gives no verdict: the verifier wraps what it throws
+in `NonceCacheUnavailableException`, and the receiver refuses the request as unavailable
+(`HttpAnswer.unavailable()`, 503) in `ENFORCE`, with `Accepted.cacheFailure()` set, or serves it unverified in
+`AUDIT`. The cache owns its own timeouts. `PeerCert.of(certificate, address)` reads the peer and its issuer from a
+client certificate. `PartnerSessions` keeps a partner's sessions: every session's verifier carries its extension
+settings, and every reply, attested or unsafe, lists the extensions it acts on, so a client that requires one can
+tell whether it may call. Its `builder()` refuses own material no client could accept, naming each `Fault`.
+`HttpSessions.serve` answers one handshake, and `UnsafeEndpoints` says what an unsafe session may not do.
+
+`Accepted.attest(status, body, labels)`, called once the framework holds the answer whole, gives the
+`X-Path-Response` header, or null where the answer is not attested: one stamp on the chain received, back to the
+caller, binding the status and the body, and committing to its own block. Where the service acts on `influence`
+that block names it with the labels (`ContentLabel.block`, which adds `influence` to the block's `requires` when it
+holds a label, so a caller that does not act on `influence` refuses the response rather than drop the labels);
+otherwise it is `Block.EMPTY`. Labels given at a service that does not act on `influence` leave the answer
+unattested, with a warning, as does a header that would pass the wire limit, 256 KiB: the caller then records the
+answer as one `local-untrusted` entry, which is stricter than any label, so no rule loosens.
 
 `HttpCaller` is a service's side of its own calls.
-`HttpCaller.stamp(method, uri, body, inbound, influence)` stamps one call over its
-raw target and answers the headers to set, and
-`HttpCaller.check(sent, status, xPathResponse, body)` checks its response against the
-chain that was sent and answers what it adds to the request's influence: its labels,
-each with `src` `http:<target>`, when it verifies, and otherwise one
-`local-untrusted` entry. `check` also logs the response's `PAZTPORT_TRACE response`
-line, so a mirror in another language logs the same line wherever it checks a
-response. It names the receiver by its policy name: the URI's host with its ASCII
-letters in lower case, unless its builder's `receivers(Map)` maps that host to
-another name. A host with a character outside ASCII (or none) gets no name, and
-`stamp` refuses the call (`IllegalArgumentException`) before anything is signed; so
-does a null or empty method. An empty path binds as `/` (`http://host?q=1` binds
-`/?q=1`), as a client sends it. The stamper behind it refuses a signing name or
-receiver that is not a route node, on every path (`next`, `boundary`, `respond`).
-`stampFromContext(method, uri, body)` and `recordToContext(...)` are the same two in
-the blocking binding below, which read and add to the request's context, and record
-nothing outside a scope. The layers do not mix: inside a scope, `recordToContext`
-refuses a call that was not stamped from the context (`IllegalStateException`, before
-anything is checked or logged) rather than silently drop what its response adds, so a
-call the function stamped is checked with `check`. It refuses a call stamped in a
-scope that has since closed in the same way, inside a later scope or outside any,
-since its request is over and what its response adds would go to another.
+`HttpCaller.stamp(method, uri, body, inbound, inboundBlocks, added)` stamps one call over its raw target and
+answers the headers to set: `X-Path-Chain`, `X-Path-Proof` when there is a proof for the route, and
+`X-Path-Extensions`, always, holding the blocks the request received, as received (one `Block.EMPTY` per stamp
+where it received none), then its own. Its own block, which its stamp commits to, names `influence` with the
+entries the service added for this request itself (`Influence.block`; `[]` when it added none, and never the entries
+it was handed) where it acts on `influence`, and is `Block.EMPTY` otherwise; either puts in its `requires` what
+`Builder.requires(receiver, extensions)` asks of that receiver, by its policy name. A call whose blocks would pass
+the wire limit, 256 KiB, is refused (`IllegalArgumentException`) before anything is signed or sent, and nothing is
+dropped to make room. A server's own header limit, often 8 to 16 KiB, is reached long before that, so a deployment
+whose influence grows past it raises it. `HttpCaller.check(sent, status, xPathResponse, body)` checks the response
+against the chain and the blocks that were sent and answers a `Received`: the check, null where the caller has no
+verifier; the entries the response adds (`Influence.responseEntries`), one per label of a response that verifies
+and names `influence` with only labels under it, each with `src` `http:<target>` and `h` the result hash, and
+otherwise exactly one `local-untrusted` entry; and `refused()`, true exactly when the response failed check 9c
+(`EXTENSION_REQUIRED`). The responder's handler has then run, so the application must not use the response, and
+must not retry the call on that ground; `paztport-http` does not throw for it. `check` also logs the response's
+`PAZTPORT_TRACE response` line, so a mirror in another language logs the same line wherever it checks a response. It
+names the receiver by its policy name: the URI's host with its ASCII letters in lower case, unless its builder's
+`receivers(Map)` maps that host to another name. A host with a character outside ASCII (or none) gets no name, and
+`stamp` refuses the call (`IllegalArgumentException`) before anything is signed; so does a null or empty method. An
+empty path binds as `/` (`http://host?q=1` binds `/?q=1`), as a client sends it. The stamper behind it refuses a
+signing name or receiver that is not a route node, on every path (`next`, `boundary`, `respond`).
+`stampFromContext(method, uri, body)` and `recordToContext(...)` are the same two in the blocking binding below,
+which read and add to the request's context, and record nothing outside a scope; `recordToContext` answers the check,
+whose reason is `EXTENSION_REQUIRED` for a response the caller refuses. The layers do not mix: inside a scope,
+`recordToContext` refuses a call that was not stamped from the context (`IllegalStateException`, before anything is
+checked or logged) rather than silently drop what its response adds, so a call the function stamped is checked with
+`check`. It refuses a call stamped in a scope that has since closed in the same way, inside a later scope or outside
+any, since its request is over and what its response adds would go to another.
 
 A chain may name the operation each hop invokes (`rcv` `orders#getOrder`).
 A caller names it when its builder is given the receivers' operation tables
@@ -314,13 +345,30 @@ unkeyed nonce key, and the delivery's `key` is null.
 
 `BoundaryClient` is the egress's side: `BoundaryClient.builder()` takes this
 service's stamper, proofs, root, keyring and policy key, the partner's entry
-service, `https` URL and pinned policy key, the boundary key, a listener, the JDK
-`HttpClient` that presents this service's certificate to the partner (the client
-owns it and shuts it down when closed) and a read timeout (30 s unless set), and
-its `build()` refuses a setting no partner could use, naming each `Fault`. Its
-`post(path, json)` reads the verified chain from `RequestContext`, below. The
-starter's egress bean builds one from `paztport.boundary.*`; it logs as
-`org.paztport.http.boundary.BoundaryClient`.
+service, `https` URL and pinned policy key, the boundary key, a listener, the
+extensions it acts on, what it requires of the partner (`requires(Requirement)`,
+`Requirement.NONE` unless set), the JDK `HttpClient` that presents this service's
+certificate to the partner (the client owns it and shuts it down when closed) and
+a read timeout (30 s unless set), and its `build()` refuses a setting no partner
+could use, naming each `Fault`. Its `post(path, json)` reads the verified chain
+from `RequestContext`, below. The handshake's reply is checked against the
+requirement, and `Requirement.callsAfter` decides whether a call is made in the
+session and what each call's boundary block requires; a genuine attested reply
+that does not list a required name is not followed by the replacement. Where no
+call may be made, after such a reply or in an unsafe session unless the requirement
+lets the egress go on without it, `post` throws
+`org.paztport.http.boundary.RequirementUnmetException` once the handshake is done:
+the call was not sent, and it must not be retried against that session. It is an
+`IllegalStateException`, as the egress's other refusals to send are, so a caller
+that must tell a withheld call apart catches this type. No call ever uses such a
+session, so it ends at the egress's idle period and the next call handshakes
+again. In an attested session the boundary block names `influence` only where the
+egress acts on it and every stamp of the internal chain it verified names it: its
+items are then the request's influence, what was handed on and what this service
+added, blinded by `BoundaryInfluence.reduce`, `[]` when there is none, and the
+listener is given the originals and the list sent before the call goes; otherwise
+the block names nothing and sends no entries. In an unsafe session a call carries
+only the session id. It logs as `org.paztport.http.boundary.BoundaryClient`.
 
 `RequestContext` is the blocking Java binding of the receivers: a thread-local
 scope, for servlet and other thread-per-request code, that the handler, the caller
@@ -328,15 +376,43 @@ and `PublicWrites` read. An adapter runs each request's receiver through
 `RequestContext.accept(receiver, request, …)`, which ends a scope other code left
 open on the thread (with a warning), opens the request's own, and only then runs
 the receiver, so the listener and the event publisher run in that scope too, and
-no stale scope outlives a request, refused or not. It is not the protocol: a
-reactive framework, or another language, carries the same results its own way.
-Its verified chain is set only from the result of the receiver it ran.
+no stale scope outlives a request, refused or not. Once the receiver has decided, a
+request it serves holds its chain and blocks (`inboundChain()`, `inboundBlocks()`),
+what the service is handed (`handedOn()`), the chain as verified at this hop only
+where it was (`verifiedChain()`), and the entries the service adds itself
+(`addInfluence`, `added()`), the responses to its own calls among them; nothing in
+`paztport-http` puts what the service was handed among what it added. It is not the
+protocol: a reactive framework, or another language, carries the same results its
+own way. Its verified chain and its hand-over are set only from the result of the
+receiver it ran.
+
+`PublicWrites.decide(destinationOwner)` is the rule for a guarded public write
+over the request in the scope: `Influence.decide` over what was handed on under
+`influence` and the entries the service added. A stamp handed on that does not
+name `influence` makes it `INFLUENCE_DENIED`, whatever the entries say, and so
+does untrusted content beside private content that is not the destination
+owner's; where nothing was handed on, it reads only what the service added. The
+destination owner comes from the service's own records. `shapedOnlyByTrusted()`
+says whether a trusted record may be written: only where the chain verified at
+this hop, every stamp handed on names `influence`, every item reads, and nothing
+handed on or added is `third-party` or `local-untrusted`. Both apply the rules of
+a service that acts on `influence`, so at a service whose settings do not, `decide`
+answers `INFLUENCE_DENIED` and `shapedOnlyByTrusted()` is false: a guard that read
+nothing there would hold vacuously, and a write-guarding service deployed without
+the extension is the mistake `requires` exists to catch
+([influence.md](../spec/influence.md#the-every-stamp-rule)). Outside a scope, and
+in a scope opened by hand (`RequestContext.open()`), which holds no settings,
+`decide` refuses too. Each answer logs one `PAZTPORT_TRACE decision` line.
 
 It also holds what any server needs beside the protocol: `VerificationMode` (`OFF`,
 `AUDIT`, `ENFORCE`) and the `ModeHolder` that switches it at runtime, the
 `ReceivedRequestListener` hook, and the event publishers in
 `org.paztport.http.event`, which log an event or send it, signed, to the responder.
 They log through slf4j.
+
+The starter's filters, gate and handshake endpoint are adapters over these, and another framework would adapt the
+same functions. The Spring starter, and the Java mesh built on it, still call the version 3 API, so they do not build
+until the next plan of this wave moves them to version 4.
 
 ## paztport-spring
 
