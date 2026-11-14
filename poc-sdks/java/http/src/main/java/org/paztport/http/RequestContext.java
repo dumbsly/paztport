@@ -11,6 +11,7 @@ import org.paztport.core.influence.InfluenceClass;
 import org.paztport.core.influence.InfluenceEntry;
 import org.paztport.core.stamp.Block;
 import org.paztport.core.stamp.Stamp;
+import org.paztport.core.verify.ExtensionSettings;
 import org.paztport.core.verify.HandOver;
 import org.paztport.core.verify.Peer;
 import org.paztport.http.internal.LogSafe;
@@ -46,6 +47,7 @@ public final class RequestContext {
     private static final ThreadLocal<List<Stamp>> INBOUND = new ThreadLocal<>();
     private static final ThreadLocal<List<Block>> INBOUND_BLOCKS = new ThreadLocal<>();
     private static final ThreadLocal<HandOver> HANDED_ON = new ThreadLocal<>();
+    private static final ThreadLocal<ExtensionSettings> EXTENSIONS = new ThreadLocal<>();
     private static final ThreadLocal<List<Stamp>> VERIFIED = new ThreadLocal<>();
     private static final ThreadLocal<Delivery> DELIVERY = new ThreadLocal<>();
     private static final ThreadLocal<List<InfluenceEntry>> ADDED = ThreadLocal.withInitial(ArrayList::new);
@@ -118,6 +120,20 @@ public final class RequestContext {
      */
     static void handOn(HandOver handOver) {
         HANDED_ON.set(handOver);
+    }
+
+    /**
+     * The extension settings of the service serving this request; null before a receiver has decided it, and outside
+     * any scope. Package-private, for {@link PublicWrites}, which must not apply the rules of an extension the
+     * service does not act on.
+     */
+    static ExtensionSettings extensions() {
+        return EXTENSIONS.get();
+    }
+
+    /** Sets the settings of the service serving this request; only {@link #accept} and tests call this. */
+    static void actOn(ExtensionSettings settings) {
+        EXTENSIONS.set(settings);
     }
 
     /**
@@ -207,6 +223,7 @@ public final class RequestContext {
                     DELIVERY.set(accepted.delivery());
                 }
                 handOn(accepted.handOver());
+                actOn(accepted.extensions());
             }
             return accepted;
         });
@@ -221,6 +238,9 @@ public final class RequestContext {
     public static Entered<PartnerAccepted> accept(PartnerReceiver receiver, InboundRequest request, PeerCert peer) {
         return entered(() -> {
             PartnerAccepted accepted = receiver.accept(request, peer);
+            if (accepted.refusal() == null) {
+                actOn(accepted.extensions());
+            }
             if (accepted.attested()) {
                 setInbound(accepted.verifiedChain(), accepted.blocks());
                 markVerified(accepted.verifiedChain());
@@ -326,6 +346,7 @@ public final class RequestContext {
         INBOUND.remove();
         INBOUND_BLOCKS.remove();
         HANDED_ON.remove();
+        EXTENSIONS.remove();
         VERIFIED.remove();
         DELIVERY.remove();
         ADDED.remove();

@@ -52,6 +52,8 @@ public final class PartnerReceiver {
 
     private static final Logger TRACE = LoggerFactory.getLogger("PAZTPORT_TRACE");
 
+    private static final HttpAnswer INFLUENCE_UNREAD = HttpAnswer.refusal(400, ReasonCode.INFLUENCE_MISMATCH);
+
     private final PartnerSessions sessions;
     private final String receiver;
 
@@ -94,7 +96,7 @@ public final class PartnerReceiver {
         if (session == null || !session.attested()) {
             trace(String.format("PAZTPORT_TRACE request rid=%s reason=- receiver=%s %s session=unsafe",
                     rid.isEmpty() ? "-" : LogSafe.of(rid), LogSafe.of(receiver), HttpReceiver.peerField(sender)));
-            return PartnerAccepted.unsafe();
+            return PartnerAccepted.unsafe(sessions.extensions());
         }
 
         String blocksHeader = request.header(PaztportHeaders.EXTENSIONS);
@@ -105,10 +107,12 @@ public final class PartnerReceiver {
         if (!result.ok()) {
             return PartnerAccepted.refused(HttpAnswer.refusal(403, result.reason()), result);
         }
-        // Plan 3b Task 3 reads the influence items here and refuses 400 INFLUENCE_MISMATCH when one does not read.
+        if (HttpReceiver.unreadInfluence(sessions.extensions(), result.handOver(), rid)) {
+            return PartnerAccepted.refused(INFLUENCE_UNREAD, result);
+        }
         // Check 9a held, so the blocks read as one per stamp.
         List<Block> blocks = HttpReceiver.carriedBlocks(received, HttpWire.decodeBlocks(blocksHeader));
-        return PartnerAccepted.attested(received, blocks, result);
+        return PartnerAccepted.attested(received, blocks, result, sessions.extensions());
     }
 
     private static void trace(String line) {

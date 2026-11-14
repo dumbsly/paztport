@@ -6,6 +6,7 @@ package org.paztport.http;
 import java.util.List;
 import org.paztport.core.stamp.Block;
 import org.paztport.core.stamp.Stamp;
+import org.paztport.core.verify.ExtensionSettings;
 import org.paztport.core.verify.HandOver;
 import org.paztport.core.verify.VerifyResult;
 
@@ -19,38 +20,50 @@ import org.paztport.core.verify.VerifyResult;
  */
 public final class PartnerAccepted {
 
-    private static final PartnerAccepted UNSAFE = new PartnerAccepted(null, null, null, null);
-
     private final HttpAnswer refusal;
     private final List<Stamp> chain;
     private final List<Block> blocks;
     private final VerifyResult result;
+    private final ExtensionSettings extensions;
 
-    private PartnerAccepted(HttpAnswer refusal, List<Stamp> chain, List<Block> blocks, VerifyResult result) {
+    private PartnerAccepted(HttpAnswer refusal, List<Stamp> chain, List<Block> blocks, VerifyResult result,
+            ExtensionSettings extensions) {
         this.refusal = refusal;
         this.chain = chain;
         this.blocks = blocks;
         this.result = result;
+        this.extensions = extensions;
     }
 
     /** @param result the session verifier's result the call was refused for, or null when none ran */
     static PartnerAccepted refused(HttpAnswer refusal, VerifyResult result) {
-        return new PartnerAccepted(refusal, null, null, result);
+        return new PartnerAccepted(refusal, null, null, result, null);
     }
 
-    static PartnerAccepted unsafe() {
-        return UNSAFE;
+    /** @param extensions the partner's settings: what an unsafe call is judged by, though it is handed nothing */
+    static PartnerAccepted unsafe(ExtensionSettings extensions) {
+        return new PartnerAccepted(null, null, null, null, extensions);
     }
 
     /**
      * @param blocks the blocks the chain came with, one per stamp
      * @param result the session verifier's result, OK, so its hand-over is verified
+     * @param extensions the partner's settings
      */
-    static PartnerAccepted attested(List<Stamp> chain, List<Block> blocks, VerifyResult result) {
+    static PartnerAccepted attested(List<Stamp> chain, List<Block> blocks, VerifyResult result,
+            ExtensionSettings extensions) {
         if (!result.ok()) {
             throw new IllegalArgumentException("only a call that verified is attested");
         }
-        return new PartnerAccepted(null, List.copyOf(chain), List.copyOf(blocks), result);
+        return new PartnerAccepted(null, List.copyOf(chain), List.copyOf(blocks), result, extensions);
+    }
+
+    /**
+     * The partner's extension settings, which the request context holds for the scope so that {@link PublicWrites}
+     * applies the rules of a service that acts on {@code influence} and no other's; null for a refusal.
+     */
+    ExtensionSettings extensions() {
+        return extensions;
     }
 
     /** The answer to send in place of the handler's, or null when the call is served. */

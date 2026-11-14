@@ -1047,6 +1047,73 @@ class HttpReceiverTest {
         assertEquals(true, events.all.get(0).audit());
     }
 
+    /** An orders block whose one influence item is not an entry. */
+    private static final Block UNREAD_ITEM = Block.of(Map.of(Influence.NAME, List.of("\"not an entry\"")), List.of());
+
+    @Test
+    void anItemThatIsNotAnEntryIs400InfluenceMismatchInEveryMode() {
+        Headers verified = headersWithBlock(UNREAD_ITEM);
+        // Enforce and audit, verified.
+        for (VerificationMode mode : List.of(VerificationMode.ENFORCE, VerificationMode.AUDIT)) {
+            Accepted accepted = verifying(null).accept(paymentRequest(verified, TO_PAYMENT), null, mode);
+            assertEquals(400, accepted.refusal().status(), mode.name());
+            assertEquals("{\"reason\":\"INFLUENCE_MISMATCH\"}", text(accepted.refusal()), mode.name());
+        }
+        // Audit, the chain failed (the body changed) and its blocks match: served unverified, and still refused.
+        Accepted failed = verifying(null).accept(paymentRequest(verified, "{\"amount\":999}".getBytes()), null,
+                VerificationMode.AUDIT);
+        assertEquals(400, failed.refusal().status());
+        assertEquals("{\"reason\":\"INFLUENCE_MISMATCH\"}", text(failed.refusal()));
+        assertEquals(1, events.all.size(), "the audit failure is still published");
+        // Off: nothing is verified, and the item is still read.
+        Accepted off = verifying(null).accept(paymentRequest(verified, TO_PAYMENT), null, VerificationMode.OFF);
+        assertEquals(400, off.refusal().status());
+        assertEquals("{\"reason\":\"INFLUENCE_MISMATCH\"}", text(off.refusal()));
+    }
+
+    @Test
+    void aReceiverThatDoesNotActOnInfluenceServesTheSameRequest() {
+        Headers h = headersWithBlock(UNREAD_ITEM);
+        HttpReceiver hop = HttpReceiver.builder("payment")
+                .verifier(paymentVerifier(new InMemoryNonceCache(), ExtensionSettings.NONE)).verifyRequests(true)
+                .publisher(events).build();
+
+        Accepted enforced = hop.accept(paymentRequest(h, TO_PAYMENT), null, VerificationMode.ENFORCE);
+        Accepted unverified = plain().accept(paymentRequest(h, TO_PAYMENT), null, VerificationMode.OFF);
+
+        assertNull(enforced.refusal(), "an item it does not act on is no one's business here");
+        assertTrue(enforced.handOver().verified());
+        assertNull(unverified.refusal());
+    }
+
+    @Test
+    void anUnreadItemLogsItsBlocksSigner() {
+        captureReceiverLog();
+
+        verifying(null).accept(paymentRequest(headersWithBlock(UNREAD_ITEM), TO_PAYMENT), null,
+                VerificationMode.ENFORCE);
+
+        List<String> logged = receiverWarnings();
+        assertEquals(1, logged.size());
+        assertTrue(logged.get(0).contains("unreadSigner=orders"), logged.get(0));
+        assertFalse(logged.get(0).contains("not an entry"), "the item is never logged");
+    }
+
+    // R7: the receiver's settings reach the rule through the scope, so a receiver that does not act on influence
+    // never answers a guarded write OK, however clean the request.
+    @Test
+    void aReceiverThatDoesNotActOnInfluenceRefusesAGuardedWrite() {
+        HttpReceiver hop = HttpReceiver.builder("payment")
+                .verifier(paymentVerifier(new InMemoryNonceCache(), ExtensionSettings.NONE)).verifyRequests(true)
+                .publisher(events).build();
+
+        try (RequestContext.Entered<Accepted> entered = RequestContext.accept(hop,
+                paymentRequest(validHeaders(), TO_PAYMENT), null, VerificationMode.ENFORCE)) {
+            assertNull(entered.result().refusal());
+            assertEquals(ReasonCode.INFLUENCE_DENIED, new PublicWrites("mailer").decide("alice"));
+        }
+    }
+
     // A guarded public write reads what the request was handed, so an audit failure does not open it.
     @Test
     void aGuardedWriteAfterAnAuditFailureReadsTheItemsHandedOn() {

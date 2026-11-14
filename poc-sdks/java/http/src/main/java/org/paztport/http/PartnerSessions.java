@@ -93,6 +93,11 @@ public final class PartnerSessions {
      * A session a peer opened; {@code verifier} is null when it is unsafe. Only the partner's receiver
      * ({@link PartnerReceiver}) reads it.
      */
+    /** The extension settings of this side, which every session's verifier carries. */
+    ExtensionSettings extensions() {
+        return extensions;
+    }
+
     record Session(String sess, boolean attested, Verifier verifier) {
     }
 

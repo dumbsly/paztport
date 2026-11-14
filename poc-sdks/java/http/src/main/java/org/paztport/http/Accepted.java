@@ -4,10 +4,12 @@
 package org.paztport.http;
 
 import java.util.List;
+import java.util.Objects;
 import org.paztport.core.influence.ContentLabel;
 import org.paztport.core.stamp.Block;
 import org.paztport.core.stamp.Stamp;
 import org.paztport.core.stamp.Stamper;
+import org.paztport.core.verify.ExtensionSettings;
 import org.paztport.core.verify.HandOver;
 import org.paztport.core.verify.NonceCacheUnavailableException;
 import org.paztport.core.verify.VerifyResult;
@@ -34,10 +36,11 @@ public final class Accepted {
     private final NonceCacheUnavailableException cacheFailure;
     private final String operation;
     private final String key;
+    private final ExtensionSettings extensions;
 
     private Accepted(HttpAnswer refusal, List<Stamp> inbound, List<Block> blocks, boolean verified,
             HandOver handOver, Stamper attester, VerifyResult result, NonceCacheUnavailableException cacheFailure,
-            String operation, String key) {
+            String operation, String key, ExtensionSettings extensions) {
         this.refusal = refusal;
         this.inbound = inbound;
         this.blocks = blocks;
@@ -48,16 +51,18 @@ public final class Accepted {
         this.cacheFailure = cacheFailure;
         this.operation = operation;
         this.key = key;
+        this.extensions = extensions;
     }
 
     /** @param result the result the request was refused for, or null when no verification ran */
     static Accepted refused(HttpAnswer refusal, VerifyResult result) {
-        return new Accepted(refusal, null, null, false, null, null, result, null, null, null);
+        return new Accepted(refusal, null, null, false, null, null, result, null, null, null, null);
     }
 
     /** The request refused as unavailable because the nonce cache could not answer: no result, and the failure. */
     static Accepted unavailable(NonceCacheUnavailableException cacheFailure) {
-        return new Accepted(HttpAnswer.unavailable(), null, null, false, null, null, null, cacheFailure, null, null);
+        return new Accepted(HttpAnswer.unavailable(), null, null, false, null, null, null, cacheFailure, null, null,
+                null);
     }
 
     /**
@@ -72,18 +77,19 @@ public final class Accepted {
      * @param cacheFailure why the nonce cache could not answer, or null
      * @param operation the operation the request was verified as received by, or null ({@link #operation})
      * @param key the key value the request's nonce key carried, where the chain named a keyed operation; or null
+     * @param extensions the settings of the service that decided the request
      * @throws IllegalArgumentException blocks beside no chain or no blocks beside one, or a chain said verified
      *     without a verified hand-over: the request context marks a chain verified from this alone
      */
     static Accepted served(List<Stamp> inbound, List<Block> blocks, boolean verified, HandOver handOver,
             Stamper attester, VerifyResult result, NonceCacheUnavailableException cacheFailure, String operation,
-            String key) {
+            String key, ExtensionSettings extensions) {
         if ((inbound == null) != (blocks == null)
                 || verified != (handOver != null && handOver.verified()) || verified && inbound == null) {
             throw new IllegalArgumentException("a served request's chain, blocks and hand-over disagree");
         }
         return new Accepted(null, inbound, blocks == null ? null : List.copyOf(blocks), verified, handOver,
-                attester, result, cacheFailure, operation, key);
+                attester, result, cacheFailure, operation, key, Objects.requireNonNull(extensions, "extensions"));
     }
 
     /**
@@ -106,6 +112,15 @@ public final class Accepted {
      */
     public String key() {
         return key;
+    }
+
+    /**
+     * The extension settings of the service that served the request, which the request context holds for the scope
+     * so that {@link PublicWrites} applies the rules of a service that acts on {@code influence} and no other's;
+     * null for a refusal.
+     */
+    ExtensionSettings extensions() {
+        return extensions;
     }
 
     /** The answer to send in place of the handler's, or null when the request is served. */

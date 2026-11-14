@@ -322,4 +322,17 @@ class PartnerReceiverTest {
         assertNotNull(unknown.refusal());
         assertNull(unknown.result(), "the unknown-session result the trace line builds is not exposed");
     }
+
+    @Test
+    void anItemThatIsNotAnEntryIs400InfluenceMismatch() {
+        String sess = attestedSession();
+        Block unread = Block.of(Map.of(Influence.NAME, List.of("\"not an entry\"")), List.of());
+
+        PartnerAccepted accepted = receiver.accept(charge(boundary(sess, "rid-1", REFUND, unread), REFUND),
+                cert(SHOP_CA, "orders"));
+
+        assertEquals(400, accepted.refusal().status());
+        assertEquals("{\"reason\":\"INFLUENCE_MISMATCH\"}", text(accepted.refusal()));
+        assertFalse(accepted.attested(), "an item that does not read is believed by no one");
+    }
 }

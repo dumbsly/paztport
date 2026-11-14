@@ -44,6 +44,8 @@ class PublicWritesTest {
     private static final InfluenceEntry RELAYED =
             new InfluenceEntry(InfluenceClass.LOCAL_UNTRUSTED, "http:psp", "h3", null, null);
 
+    private static final ExtensionSettings ACTS = ExtensionSettings.of(Set.of(Influence.NAME), null);
+
     private final PublicWrites writes = new PublicWrites("mailer");
     private final ListAppender<ILoggingEvent> traces = new ListAppender<>();
     private final Logger traceLog = (Logger) LoggerFactory.getLogger("PAZTPORT_TRACE");
@@ -66,6 +68,7 @@ class PublicWritesTest {
 
     private ReasonCode decideWith(String owner, InfluenceEntry... entries) {
         try (RequestContext.Scope scope = RequestContext.open()) {
+            RequestContext.actOn(ACTS);
             RequestContext.addInfluence(entries);
             return writes.decide(owner);
         }
@@ -122,6 +125,7 @@ class PublicWritesTest {
     /** Asks the trusted-record question in a scope whose chain verified, holding {@code entries}. */
     private boolean trustedWith(InfluenceEntry... entries) {
         try (RequestContext.Scope scope = RequestContext.open()) {
+            RequestContext.actOn(ACTS);
             RequestContext.markVerified(chain("rid-1"));
             RequestContext.addInfluence(entries);
             return writes.shapedOnlyByTrusted();
@@ -137,6 +141,7 @@ class PublicWritesTest {
     @Test
     void trustedRecordNeedsAVerifiedChain() {
         try (RequestContext.Scope scope = RequestContext.open()) {
+            RequestContext.actOn(ACTS);
             RequestContext.setInboundChain(chain("rid-1"));
             assertFalse(writes.shapedOnlyByTrusted());
         }
@@ -176,6 +181,7 @@ class PublicWritesTest {
     /** Asks the trusted-record question in a scope whose chain verified with {@code blocks} handed on. */
     private boolean trustedHandedOn(List<Stamp> chain, List<Block> blocks) {
         try (RequestContext.Scope scope = RequestContext.open()) {
+            RequestContext.actOn(ACTS);
             RequestContext.markVerified(chain);
             RequestContext.handOn(new HandOver(true, chain, blocks, ExtensionSettings.of(Set.of(Influence.NAME),
                     null)));
@@ -198,5 +204,99 @@ class PublicWritesTest {
                 "PAZTPORT_TRACE decision rid=rid-1 receiver=mailer rule=trusted-record reason=OK ✓ classes=-",
                 "PAZTPORT_TRACE decision rid=rid-1 receiver=mailer rule=trusted-record reason=INFLUENCE_DENIED ✗ "
                         + "classes=private,third-party"), lines);
+    }
+
+    private static final Block NAMES_NOTHING = Block.EMPTY;
+
+    /** A guarded write to {@code owner} in a scope, at a service with {@code settings} handed {@code blocks}. */
+    private ReasonCode writeHandedOn(ExtensionSettings settings, List<Block> blocks, boolean verified, String owner,
+            InfluenceEntry... added) {
+        List<Stamp> chain = chain("rid-1");
+        try (RequestContext.Scope scope = RequestContext.open()) {
+            RequestContext.actOn(settings);
+            if (blocks != null) {
+                if (verified) {
+                    RequestContext.markVerified(chain);
+                }
+                RequestContext.handOn(new HandOver(verified, chain, blocks, settings));
+            }
+            RequestContext.addInfluence(added);
+            return writes.decide(owner);
+        }
+    }
+
+    // Review Focus 3: the origin's block does not name influence, so the stamp may have read anything.
+    @Test
+    void aWriteWhoseOriginBlockDoesNotNameInfluenceIsDeniedWhateverItsEntries() {
+        assertEquals(ReasonCode.INFLUENCE_DENIED, writeHandedOn(ACTS, List.of(NAMES_NOTHING), true, "alice", MINE));
+        assertEquals(ReasonCode.INFLUENCE_DENIED, writeHandedOn(ACTS, List.of(NAMES_NOTHING), true, "alice"));
+        assertEquals(ReasonCode.OK, writeHandedOn(ACTS, List.of(Influence.block(List.of(MINE), List.of())), true,
+                "alice"), "the same entries, every stamp naming influence");
+    }
+
+    @Test
+    void theSameRequestAsAReadIsNot() {
+        List<HandOver.StampItems> stamps = List.of(new HandOver.StampItems("gateway", null));
+
+        assertEquals(ReasonCode.INFLUENCE_DENIED, Influence.decide(stamps, List.of(), true, "alice").reason());
+        assertEquals(ReasonCode.OK, Influence.decide(stamps, List.of(), false, "alice").reason(),
+                "a read is served: the write flag is what refuses");
+    }
+
+    @Test
+    void untrustedWithSomeoneElsesPrivateIsDenied() {
+        Block handed = Influence.block(List.of(WEB, MINE), List.of());
+
+        assertEquals(ReasonCode.INFLUENCE_DENIED, writeHandedOn(ACTS, List.of(handed), true, "mallory"));
+        assertEquals(ReasonCode.OK, writeHandedOn(ACTS, List.of(handed), true, "alice"), "the owner's own");
+    }
+
+    @Test
+    void anAddedThirdPartyFactCounts() {
+        Block received = Influence.block(List.of(MINE), List.of());
+
+        assertEquals(ReasonCode.OK, writeHandedOn(ACTS, List.of(received), true, "bob"),
+                "someone else's private alone, with nothing untrusted");
+        assertEquals(ReasonCode.INFLUENCE_DENIED, writeHandedOn(ACTS, List.of(received), true, "bob", WEB));
+    }
+
+    @Test
+    void nothingHandedOnReadsWhatTheServiceIsShown() {
+        assertEquals(ReasonCode.OK, writeHandedOn(ACTS, null, false, "alice"));
+        assertEquals(ReasonCode.OK, writeHandedOn(ACTS, null, false, "alice", RELAYED), "the destination owner's own");
+        assertEquals(ReasonCode.INFLUENCE_DENIED, writeHandedOn(ACTS, null, false, "bob", MINE, RELAYED));
+    }
+
+    @Test
+    void aTrustedRecordIsNeverWrittenFromAHandOverThatIsNotVerified() {
+        List<Stamp> chain = chain("rid-1");
+        Block named = Influence.block(List.of(), List.of());
+        try (RequestContext.Scope scope = RequestContext.open()) {
+            RequestContext.actOn(ACTS);
+            RequestContext.handOn(new HandOver(false, chain, List.of(named), ACTS));
+            assertFalse(writes.shapedOnlyByTrusted(), "no verified chain");
+        }
+        assertTrue(trustedHandedOn(chain, List.of(named)), "the same blocks, verified");
+    }
+
+    // The guard of a service that does not act on influence would hold vacuously (no stamp is read, so every stamp
+    // names it): it must refuse instead (spec influence.md, The every-stamp rule).
+    @Test
+    void aServiceThatDoesNotActOnInfluenceIsDeniedAGuardedWrite() {
+        List<Stamp> chain = chain("rid-1");
+        Block named = Influence.block(List.of(), List.of());
+        ExtensionSettings other = ExtensionSettings.of(Set.of("budget"), null);
+        for (ExtensionSettings settings : List.of(ExtensionSettings.NONE, other)) {
+            try (RequestContext.Scope scope = RequestContext.open()) {
+                RequestContext.actOn(settings);
+                RequestContext.markVerified(chain);
+                RequestContext.handOn(new HandOver(true, chain, List.of(named), settings));
+                assertEquals(ReasonCode.INFLUENCE_DENIED, writes.decide("alice"));
+                assertFalse(writes.shapedOnlyByTrusted());
+            }
+        }
+        // The separating input: the same request at a service that acts on influence.
+        assertEquals(ReasonCode.OK, writeHandedOn(ACTS, List.of(named), true, "alice"));
+        assertTrue(trustedHandedOn(chain, List.of(named)));
     }
 }

@@ -9,6 +9,7 @@ import org.paztport.core.influence.Influence;
 import org.paztport.core.influence.InfluenceEntry;
 import org.paztport.core.influence.InfluenceRule;
 import org.paztport.core.influence.RequestInfluence;
+import org.paztport.core.verify.ExtensionSettings;
 import org.paztport.core.verify.HandOver;
 import org.paztport.core.verify.ReasonCode;
 import org.paztport.http.internal.DecisionLine;
@@ -23,6 +24,11 @@ import org.slf4j.LoggerFactory;
  * {@link ReasonCode#INFLUENCE_DENIED} when a stamp handed on does not name influence, or when untrusted content sits
  * beside private content that is not the destination owner's, {@link ReasonCode#INFLUENCE_MISMATCH} when an item
  * handed on does not read, and {@link ReasonCode#OK} otherwise.
+ *
+ * <p>The rules are those of a service that acts on {@code influence}, so a service whose settings do not act on it
+ * ({@link RequestContext}'s, set by the receiver that served the request) is refused every guarded write and holds no
+ * trusted record: a guard that read nothing there would hold vacuously, which is the deployment spec influence.md,
+ * The every-stamp rule, names as the mistake.
  *
  * <p>The destination owner must come from the service's own records, never from request content, or the request
  * could name its own destination owner and pass. Outside a {@link RequestContext.Scope} there is no influence to
@@ -58,13 +64,19 @@ public final class PublicWrites {
         List<InfluenceEntry> added = RequestContext.added();
         HandOver handedOn = RequestContext.handedOn();
         List<HandOver.StampItems> stamps = handedOn == null ? null : handedOn.under(Influence.NAME);
-        ReasonCode reason = !RequestContext.isOpen() ? ReasonCode.INFLUENCE_DENIED
+        ReasonCode reason = !actsOnInfluence() ? ReasonCode.INFLUENCE_DENIED
                 : Influence.decide(stamps, added.stream().map(InfluenceEntry::fact).toList(), true, destinationOwner)
                         .reason();
         if (TRACE.isInfoEnabled()) {
             TRACE.info(DecisionLine.of(receiver, "public-write", reason, shown(stamps, added).entries()));
         }
         return reason;
+    }
+
+    /** Whether a scope is open and the service serving it acts on {@code influence}. */
+    private static boolean actsOnInfluence() {
+        ExtensionSettings settings = RequestContext.extensions();
+        return RequestContext.isOpen() && settings != null && settings.actsOn().contains(Influence.NAME);
     }
 
     /** What the request was handed under influence, read, beside what the service added. */
@@ -81,7 +93,8 @@ public final class PublicWrites {
     /**
      * Whether only trusted content shaped this request, so that what it asks may be written into a trusted record:
      * a record later decisions take as fact, such as who holds a card, and which {@link #decide} would then take as
-     * a destination owner. {@link #decide} cannot answer this, since it judges whose private data a write carries,
+     * a destination owner. Never true at a service that does not act on {@code influence}. {@link #decide} cannot
+     * answer this, since it judges whose private data a write carries,
      * and a record written at the behest of untrusted text carries none: a hijacked model's charge would register
      * its own card to whoever it names. True only inside a scope whose chain verified at this hop, so that the
      * influence is the one the caller vouched for; only when every item handed on reads and every stamp handed on
@@ -93,7 +106,7 @@ public final class PublicWrites {
         HandOver handedOn = RequestContext.handedOn();
         RequestInfluence shown = shown(handedOn == null ? null : handedOn.under(Influence.NAME),
                 RequestContext.added());
-        boolean trusted = RequestContext.isOpen() && RequestContext.verifiedChain() != null && shown.reads()
+        boolean trusted = actsOnInfluence() && RequestContext.verifiedChain() != null && shown.reads()
                 && shown.everyStampNames()
                 && InfluenceRule.shapedOnlyByTrusted(shown.entries().stream().map(InfluenceEntry::fact).toList());
         if (TRACE.isInfoEnabled()) {
