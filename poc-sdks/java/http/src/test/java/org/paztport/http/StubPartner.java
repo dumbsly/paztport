@@ -57,7 +57,8 @@ import org.paztport.core.session.Sessions;
  *
  * <p>A request with no client root always gets an unsafe reply, as a real partner would give it. Otherwise the
  * reply carries the status the test chose, and is signed by the partner's key unless the test asked for one
- * handshake to be signed by another key, which the egress sees as {@code PIN_MISMATCH}.
+ * handshake to be signed by another key, which the egress sees as {@code PIN_MISMATCH}. Every reply lists the
+ * extensions the test says the partner acts on, none unless set.
  */
 public final class StubPartner implements AutoCloseable {
 
@@ -100,6 +101,7 @@ public final class StubPartner implements AutoCloseable {
     private volatile long handshakeDelayMs;
     private volatile boolean policyKeyForm;
     private volatile long replyCertNotAfter = System.currentTimeMillis() + 7 * 86_400_000L;
+    private volatile List<String> extensions = List.of();
     private final List<SessionReply> replies = new CopyOnWriteArrayList<>();
 
     /**
@@ -192,6 +194,11 @@ public final class StubPartner implements AutoCloseable {
     /** The status a request with a client root gets: {@code attested} or {@code unsafe}. */
     void status(String status) {
         this.status = status;
+    }
+
+    /** The extensions every reply from now on lists as the partner's, sorted as a reply holds them. */
+    void extensions(String... names) {
+        this.extensions = List.of(names).stream().sorted().toList();
     }
 
     /** The next handshake is signed, and names its policy key, as {@code key}. */
@@ -320,11 +327,11 @@ public final class StubPartner implements AutoCloseable {
         SessionReply reply;
         if (signer != policy || policyKeyForm) {
             reply = Sessions.signReply(new SessionReply(serverRoot, pub(signer), keyring.services(), null, null, null,
-                    nonce, sess, replyStatus, disabled, List.of(), null), signer.getPrivate());
+                    nonce, sess, replyStatus, disabled, extensions, null), signer.getPrivate());
         } else {
             ReplyCert cert = ReplyCert.issue(pub(policy), "psp", pub(entry), replyCertNotAfter, policy.getPrivate());
             reply = Sessions.signReply(new SessionReply(serverRoot, pub(policy), keyring.services(), keyring.sig(),
-                    keyring.notAfter(), cert, nonce, sess, replyStatus, disabled, List.of(), null),
+                    keyring.notAfter(), cert, nonce, sess, replyStatus, disabled, extensions, null),
                     entry.getPrivate());
         }
         replies.add(reply);
