@@ -53,10 +53,13 @@ public final class PublicWrites {
 
     /**
      * The rule for a guarded public write over the request in the context. What it was handed is verified only where
-     * the request's chain verified at this hop. Where nothing was handed on, in {@code off} mode, after a chain failed
-     * in audit mode, or in an unsafe partner session, the rule reads only what the service added, and cannot refuse
-     * for content it is not shown: a partner must therefore switch its public writes off for unsafe sessions
-     * ({@link UnsafeEndpoints}), so that an unsafe session never reaches them.
+     * the request's chain verified at this hop. A request served without verifying (in audit mode after a failure, at
+     * a hop that is off, or at a service that verifies no requests under a mode) is handed its items as not verified
+     * where its chain read and its blocks passed check 9a, and the rule reads them too (spec influence.md, What the
+     * rules read). Where nothing was handed on (at an origin, where the chain did not read, or in an unsafe partner
+     * session) the rule reads only what the service added, and cannot refuse for content it is not shown: a partner
+     * must therefore switch its public writes off for unsafe sessions ({@link UnsafeEndpoints}), so that an unsafe
+     * session never reaches them.
      *
      * @param destinationOwner the owner of the destination from trusted records, or null/empty when unknown
      */

@@ -86,8 +86,8 @@ import org.slf4j.LoggerFactory;
  * {@link Requirement#callsAfter} decides whether a call is made in the session and what each call's boundary block
  * requires. A genuine attested reply that does not list a required name is not followed by the replacement, since
  * the reply was sound. Where no call may be made, after such a reply or in an unsafe session, {@link #post} throws
- * {@link RequirementUnmetException} once the handshake is done and sends nothing more; no call uses that session,
- * so it goes at the end of its idle period and the next call after that asks the partner again.
+ * {@link RequirementUnmetException} with at most the handshake sent; no call uses that session, so it goes at the
+ * end of its idle period and the next call after that asks the partner again.
  *
  * <p>A handshake holds every first caller, so it has its own timeout, {@link #HANDSHAKE_TIMEOUT}; each call has
  * the read timeout this is built with ({@link #DEFAULT_READ_TIMEOUT} unless set), so that a partner that takes a

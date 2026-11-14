@@ -239,23 +239,25 @@ The receivers decide a request with no framework and keep no per-request state.
 `HttpReceiver.accept(InboundRequest, Peer, VerificationMode)` decides one request for a service and returns an
 `Accepted`: either a refusal to send in place of the handler's answer (an `HttpAnswer`, `{"reason":"<code>"}`), or
 what the handler starts from and whether its answer is attested. Besides the 503 below, a refusal is one of three
-answers: `403` with the code where verification refuses under `ENFORCE`; `400 {"reason":"EXTENSION_MISMATCH"}`
-where the service would serve a request it did not verify (under `AUDIT` after a failure, `OFF`, or with no mode)
-and its blocks fail check 9a, as `ServedUnverified.of` applies it, or, where the chain did not read, do not read as
-an array of blocks; and
-`400 {"reason":"INFLUENCE_MISMATCH"}` where the service acts on `influence` and an item it is handed, verified or
-not, does not read as an entry (`Influence.readRequest`), with a warning naming the signer of the first block that
-holds one. A service that does not act on `influence` reads no item and refuses nothing for one. A request it serves
-carries its chain, `Accepted.inbound()`, and the blocks the chain came with, `Accepted.blocks()`, one per stamp (one
-`Block.EMPTY` per stamp where no header came), which the handler's own calls forward unchanged before their own.
-`Accepted.handOver()` is what the service is handed for the extensions it acts on: verified where the chain passed
-the live order at this hop, and `Accepted.verifiedChain()` is then that chain; not verified for a request served
-without verifying whose chain read and whose blocks passed check 9a; and null where nothing is handed on (a request
-to an origin, which ignores the chain and its blocks and never attests, a refusal, and a chain that did not read).
+answers: `403` with the code where verification refuses under `ENFORCE`; `400 {"reason":"EXTENSION_MISMATCH"}` where
+the service would serve a request it did not verify (under `AUDIT` after a failure, `OFF`, or with no mode) and its
+blocks fail check 9a, as `ServedUnverified.of` applies it, or, where the chain did not read, do not read as an array
+of blocks; and `400 {"reason":"INFLUENCE_MISMATCH"}` where the service acts on `influence` and an item it is handed,
+verified or not, does not read as an entry (`Influence.readRequest`), with a warning naming the signer of the first
+block that holds one. A service that does not act on `influence` reads no item and refuses nothing for one.
+
+A request a receiver serves carries its chain, `Accepted.inbound()`, and the blocks the chain came with,
+`Accepted.blocks()`, one per stamp (one `Block.EMPTY` per stamp where no header came), which the handler's own calls
+forward unchanged before their own. `Accepted.handOver()` is what the service is handed for the extensions it acts
+on: verified where the chain passed the live order at this hop, and `Accepted.verifiedChain()` is then that chain;
+not verified for a request served without verifying whose chain read and whose blocks passed check 9a; and null
+where nothing is handed on (a request to an origin, which ignores the chain and its blocks and never attests, a
+refusal, and a chain that did not read).
+
 `PartnerReceiver.accept(InboundRequest, PeerCert)` does the same for a partner, in the session the caller names: in
-an attested session the session's verifier, which carries the partner's settings, verifies the call, and the
-handler gets the verified chain, its one block and the verified hand-over; in an unsafe session nothing is verified
-or handed on, and the blocks a call carries are not read, so check 9a is not applied to them.
+an attested session the session's verifier, which carries the partner's settings, verifies the call, and the handler
+gets the verified chain, its one block and the verified hand-over; in an unsafe session nothing is verified or
+handed on, and the blocks a call carries are not read, so check 9a is not applied to them.
 `Accepted.result()` is the verification result the decision rests on, or null where none ran, for an adapter to
 report; `PartnerAccepted.result()` is the same for a partner's call. The caller is never told it.
 `Accepted.delivery()` is the request's `Delivery` (`rid`, the last signer's `svc`, the receiver the last stamp names
@@ -357,8 +359,8 @@ session and what each call's boundary block requires; a genuine attested reply
 that does not list a required name is not followed by the replacement. Where no
 call may be made, after such a reply or in an unsafe session unless the requirement
 lets the egress go on without it, `post` throws
-`org.paztport.http.boundary.RequirementUnmetException` once the handshake is done:
-the call was not sent, and it must not be retried against that session. It is an
+`org.paztport.http.boundary.RequirementUnmetException` with at most the handshake
+sent: the call was not sent, and it must not be retried against that session. It is an
 `IllegalStateException`, as the egress's other refusals to send are, so a caller
 that must tell a withheld call apart catches this type. No call ever uses such a
 session, so it ends at the egress's idle period and the next call handshakes

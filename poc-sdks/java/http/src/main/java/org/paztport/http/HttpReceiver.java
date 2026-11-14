@@ -197,7 +197,7 @@ public final class HttpReceiver {
             return this;
         }
 
-        /** Whether this service is an entry point, which ignores the inbound chain and influence and never attests. */
+        /** Whether this service is an entry point, which ignores the inbound chain and its blocks and never attests. */
         public Builder origin(boolean origin) {
             this.origin = origin;
             return this;
