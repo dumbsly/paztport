@@ -115,7 +115,7 @@ their classes ([verification.md](verification.md#offline-verification), [influen
 passes all of `influence`. It MUST pass `events.json` if it sends or receives responder events. No vector file records
 version 4 over HTTP.
 
-An implementation of version 3, as the Go SDK is, and Java's HTTP modules while they move, MUST pass `ed25519.json`, and `v3.json` and `json.json`
+An implementation of version 3, as the Go SDK is, MUST pass `ed25519.json`, and `v3.json` and `json.json`
 less their sections that belong to the MCP profile if it does not implement it: `recordedLocalStep`,
 `responseAttestation`, `sessionParams`, `sessionResult`, `bindMcpCall` and `bindResult` in `v3.json`, and `jcs` and
 the `toolsCall`, `result` and `localTool` cases of `bindings` in `json.json`. It MUST pass `http-v3.json`, and the

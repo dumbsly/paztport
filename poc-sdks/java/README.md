@@ -76,7 +76,7 @@ has one, the authenticated peer.
   service pins its own one of each, and a partner session its client's.
   `NonceKeys.of` writes a chain's replay key as the JCS text of an array of strings,
   so no part needs a rule against a delimiter.
-  `OfflineVerifier` re-checks a recorded chain by checks 1 to 9b, 11 and 12, never
+  `OfflineVerifier` re-checks a recorded chain by checks 0 to 9b, 11 and 12, never
   9c, and hands over a verified hand-over on `OK`. Given `Signers` in its
   `OfflineConfig`, it also checks a chain that never leaves one process, such as a
   client's local step: the origin must report the expected instance (`BAD_ORIGIN`),
