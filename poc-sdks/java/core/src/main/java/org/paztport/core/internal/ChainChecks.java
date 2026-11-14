@@ -199,6 +199,42 @@ public final class ChainChecks {
     }
 
     /**
+     * Check 9a alone, written once for the verifiers and for a service that serves a request unverified: the blocks
+     * read ({@link #readBlocks}), one per stamp, each block's commitment equal to its stamp's {@code ext}, compared as
+     * text and never decoded. The result carries the blocks, or EXTENSION_MISMATCH.
+     */
+    public static BlocksCheck checkMatch(List<Stamp> stamps, String blocks) {
+        List<Block> read;
+        try {
+            read = readBlocks(blocks);
+        } catch (IllegalArgumentException e) {
+            return BlocksCheck.fail(ReasonCode.EXTENSION_MISMATCH);
+        }
+        if (read == null) {
+            read = Collections.nCopies(stamps.size(), Block.EMPTY);
+        }
+        if (read.size() != stamps.size()) {
+            return BlocksCheck.fail(ReasonCode.EXTENSION_MISMATCH);
+        }
+        for (int i = 0; i < read.size(); i++) {
+            if (!read.get(i).commit().equals(stamps.get(i).ext())) {
+                return BlocksCheck.fail(ReasonCode.EXTENSION_MISMATCH);
+            }
+        }
+        return new BlocksCheck(read, null);
+    }
+
+    /**
+     * The blocks text received, read as an array of blocks; null when none was received. Text that reads as JSON
+     * {@code null}, or as anything but an array of blocks, is refused.
+     *
+     * @throws IllegalArgumentException the text is not an array of blocks
+     */
+    public static List<Block> readBlocks(String blocks) {
+        return blocks == null ? null : Block.parseAll(blocks);
+    }
+
+    /**
      * Checks 9a and 9b, then 9c when {@code requires} is true (spec verification.md, The live order):
      * <ul>
      * <li>9a: {@code blocks}, the JSON text received, reads as an array of blocks ({@link Block#parseAll}) with one
@@ -215,24 +251,11 @@ public final class ChainChecks {
     public static BlocksCheck checkBlocks(List<Stamp> stamps, String blocks, ExtensionSettings settings,
             boolean requires) {
         // 9a. The blocks read, one per stamp, each matching its stamp's ext.
-        List<Block> read;
-        if (blocks == null) {
-            read = Collections.nCopies(stamps.size(), Block.EMPTY);
-        } else {
-            try {
-                read = Block.parseAll(blocks);
-            } catch (IllegalArgumentException e) {
-                return BlocksCheck.fail(ReasonCode.EXTENSION_MISMATCH);
-            }
+        BlocksCheck matched = checkMatch(stamps, blocks);
+        if (matched.failure() != null) {
+            return matched;
         }
-        if (read.size() != stamps.size()) {
-            return BlocksCheck.fail(ReasonCode.EXTENSION_MISMATCH);
-        }
-        for (int i = 0; i < read.size(); i++) {
-            if (!read.get(i).commit().equals(stamps.get(i).ext())) {
-                return BlocksCheck.fail(ReasonCode.EXTENSION_MISMATCH);
-            }
-        }
+        List<Block> read = matched.blocks();
 
         // 9b. Every name is one the verifier carries.
         for (Block b : read) {
