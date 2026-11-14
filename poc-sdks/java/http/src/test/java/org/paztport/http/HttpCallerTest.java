@@ -104,13 +104,17 @@ class HttpCallerTest {
 
     /** What gateway uses to check the responses it gets: it trusts gateway and orders, and gateway is the origin. */
     private Verifier gatewayVerifier() {
+        return gatewayVerifier(ACTS_ON_INFLUENCE);
+    }
+
+    private Verifier gatewayVerifier(ExtensionSettings settings) {
         long notAfter = policy.signedRoot().notAfter();
         return new Verifier(new VerifierConfig(
                 List.of(new PinnedKeyring(Keyring.of(Map.of("gateway", gateway.getPublic(), "orders",
                         orders.getPublic())), notAfter)),
                 List.of(new PinnedRoot(policy.signedRoot().rootBytes(), policy.signedRoot().rootId(), notAfter)),
                 notAfter, Set.of("gateway"), "",
-                new InMemoryNonceCache(), () -> 2500L, 5000, 5000, ACTS_ON_INFLUENCE));
+                new InMemoryNonceCache(), () -> 2500L, 5000, 5000, settings));
     }
 
     private Stamper gatewayStamper() {
@@ -137,9 +141,13 @@ class HttpCallerTest {
      * the call sent: its block names influence with {@code labels}.
      */
     private String attestation(HttpCaller.Outbound sent, String attested, List<ContentLabel> labels) {
+        return respondWith(sent, attested, ContentLabel.block(labels, List.of()));
+    }
+
+    /** Orders' {@code X-Path-Response} over {@code attested}, with {@code block} as its own, whatever that holds. */
+    private String respondWith(HttpCaller.Outbound sent, String attested, Block block) {
         List<Stamp> inbound = chainOf(sent.headers());
         String hash = HttpWire.resultHash(200, utf8(attested));
-        Block block = ContentLabel.block(labels, List.of());
         Stamp stamp = ordersStamper().respond(inbound, hash, inbound.get(0).rid(), block);
         return HttpWire.encodeResponse(stamp, block);
     }
@@ -469,12 +477,8 @@ class HttpCallerTest {
                 utf8("hello"));
 
         assertEquals(ReasonCode.OK, received.check().result().reason());
-        // Plan 3b Task 4 adds one entry per label here; until then every response adds one local-untrusted entry.
-        assertEquals(List.of(new InfluenceEntry(InfluenceClass.LOCAL_UNTRUSTED, "http:orders",
-                HttpWire.resultHash(200, utf8("hello")), null, null)), received.influence());
-        assertEquals(List.of(
-                "PAZTPORT_TRACE response rid=rid-1 from=orders reason=OK receiver=gateway ✓ labels=-"),
-                traceLines());
+        assertEquals(List.of(new InfluenceEntry(InfluenceClass.THIRD_PARTY, "http:orders",
+                HttpWire.resultHash(200, utf8("hello")), web.cid(), null)), received.influence());
     }
 
     // Nothing but case is normalised: the README's keys for these hosts rest on it.
@@ -731,34 +735,162 @@ class HttpCallerTest {
 
     // --- Responses ---
 
-    /**
-     * Plan 3b Task 4 adds one entry per label of a response that verifies; until then every response adds one
-     * {@code local-untrusted} entry, which counts against later calls as much as any label could, and none is refused.
-     */
+    /** The HTTP rule (spec influence.md, Content labels): one entry per label of a response that verifies. */
     @Test
-    void everyResponseAddsOneLocalUntrustedEntry() {
+    void aVerifiedResponseWithLabelsAddsOneEntryPerLabel() {
         ContentLabel mine = ContentLabel.fresh(InfluenceClass.PRIVATE, "alice");
+        ContentLabel web = ContentLabel.fresh(InfluenceClass.THIRD_PARTY, null);
         HttpCaller caller = verifyingCaller();
         List<InfluenceEntry> recorded;
         HttpWire.ResponseCheck check;
-        HttpCaller.Received received;
         try (RequestContext.Scope scope = RequestContext.open()) {
             HttpCaller.Outbound sent = caller.stampFromContext("GET", ORDERS, NO_BODY);
-            String header = attestation(sent, "hello", List.of(mine));
-            check = caller.recordToContext(sent, 200, header, utf8("hello"));
+            check = caller.recordToContext(sent, 200, attestation(sent, "hello", List.of(mine, web)), utf8("hello"));
             recorded = RequestContext.added();
-            received = caller.check(caller.stamp("GET", ORDERS, NO_BODY, null, null, List.of()), 200, header,
-                    utf8("hello"));
         }
 
         String hash = HttpWire.resultHash(200, utf8("hello"));
         assertTrue(check.result().ok());
-        assertEquals(new HandOver.StampItems("orders", List.of(mine.toJson())), check.response(Influence.NAME),
-                "the label verified");
-        assertEquals(List.of(new InfluenceEntry(InfluenceClass.LOCAL_UNTRUSTED, "http:orders", hash, null, null)),
-                recorded);
+        assertEquals(new HandOver.StampItems("orders", List.of(mine.toJson(), web.toJson())),
+                check.response(Influence.NAME), "the labels verified");
+        assertEquals(List.of(
+                new InfluenceEntry(InfluenceClass.PRIVATE, "http:orders", hash, mine.cid(), "alice"),
+                new InfluenceEntry(InfluenceClass.THIRD_PARTY, "http:orders", hash, web.cid(), null)), recorded);
         assertEquals(List.of(), RequestContext.added(), "closing the scope drops what it recorded");
+    }
+
+    @Test
+    void aVerifiedResponseThatNamesInfluenceWithNoLabelAddsNothing() {
+        HttpCaller.Received received;
+        try (RequestContext.Scope scope = RequestContext.open()) {
+            HttpCaller caller = verifyingCaller();
+            HttpCaller.Outbound sent = caller.stamp("GET", ORDERS, NO_BODY, null, null, List.of());
+            received = caller.check(sent, 200, attestation(sent, "hello", List.of()), utf8("hello"));
+        }
+
+        assertEquals(ReasonCode.OK, received.check().result().reason());
+        assertEquals(List.of(), received.influence());
         assertFalse(received.refused());
+    }
+
+    @Test
+    void aSilentResponseAddsOneLocalUntrusted() {
+        HttpCaller caller = verifyingCaller();
+        HttpCaller.Outbound sent = caller.stamp("GET", ORDERS, NO_BODY, null, null, List.of());
+
+        HttpCaller.Received received = caller.check(sent, 200, respondWith(sent, "hello", Block.EMPTY),
+                utf8("hello"));
+
+        assertEquals(ReasonCode.OK, received.check().result().reason());
+        assertEquals(List.of(new InfluenceEntry(InfluenceClass.LOCAL_UNTRUSTED, "http:orders",
+                HttpWire.resultHash(200, utf8("hello")), null, null)), received.influence());
+        assertFalse(received.refused());
+    }
+
+    // Review Focus 4: a label beside an entry is not a label the rule reads, so it is not believed at all.
+    @Test
+    void aResponseWithALabelAndAnEntryAddsOneLocalUntrusted() {
+        ContentLabel mine = ContentLabel.fresh(InfluenceClass.PRIVATE, "alice");
+        Block block = Block.of(Map.of(Influence.NAME, List.of(mine.toJson(), MINE.toJson())), List.of(Influence.NAME));
+        HttpCaller caller = verifyingCaller();
+        HttpCaller.Outbound sent = caller.stamp("GET", ORDERS, NO_BODY, null, null, List.of());
+
+        HttpCaller.Received received = caller.check(sent, 200, respondWith(sent, "hello", block), utf8("hello"));
+
+        assertEquals(ReasonCode.OK, received.check().result().reason());
+        assertEquals(List.of(new InfluenceEntry(InfluenceClass.LOCAL_UNTRUSTED, "http:orders",
+                HttpWire.resultHash(200, utf8("hello")), null, null)), received.influence());
+        assertFalse(received.refused());
+    }
+
+    // K9: a caller that does not act on influence cannot read the labels, and the response says it requires them.
+    @Test
+    void aResponseRefusedAtCheck9cIsRefusedAndAddsOneLocalUntrusted() {
+        HttpCaller caller = HttpCaller.builder("gateway", gatewayStamper()).bundle(policy.bundles().get("gateway"))
+                .verifier(gatewayVerifier(ExtensionSettings.NONE)).build();
+        HttpCaller.Outbound sent = caller.stamp("GET", ORDERS, NO_BODY, null, null, List.of());
+        String header = attestation(sent, "hello", List.of(ContentLabel.fresh(InfluenceClass.PRIVATE, "alice")));
+
+        HttpCaller.Received received = caller.check(sent, 200, header, utf8("hello"));
+
+        assertEquals(ReasonCode.EXTENSION_REQUIRED, received.check().result().reason());
+        assertTrue(received.refused());
+        assertEquals(List.of(new InfluenceEntry(InfluenceClass.LOCAL_UNTRUSTED, "http:orders",
+                HttpWire.resultHash(200, utf8("hello")), null, null)), received.influence());
+    }
+
+    @Test
+    void aRefusal403AddsOneLocalUntrusted() {
+        HttpCaller caller = verifyingCaller();
+        HttpCaller.Outbound sent = caller.stamp("GET", ORDERS, NO_BODY, null, null, List.of());
+
+        HttpCaller.Received received = caller.check(sent, 403, null, utf8("{\"reason\":\"REPLAY\"}"));
+
+        assertEquals(List.of(new InfluenceEntry(InfluenceClass.LOCAL_UNTRUSTED, "http:orders",
+                HttpWire.resultHash(403, utf8("{\"reason\":\"REPLAY\"}")), null, null)), received.influence());
+        assertFalse(received.refused(), "no attestation is not a refused extension");
+    }
+
+    @Test
+    void anUnattestedResponseAddsOneLocalUntrusted() {
+        HttpCaller caller = verifyingCaller();
+        HttpCaller.Outbound sent = caller.stamp("GET", ORDERS, NO_BODY, null, null, List.of());
+
+        HttpCaller.Received received = caller.check(sent, 200, null, utf8("hello"));
+
+        assertEquals(ReasonCode.CHAIN_MISSING, received.check().result().reason());
+        assertEquals(List.of(new InfluenceEntry(InfluenceClass.LOCAL_UNTRUSTED, "http:orders",
+                HttpWire.resultHash(200, utf8("hello")), null, null)), received.influence());
+        assertFalse(received.refused());
+    }
+
+    @Test
+    void aCallerWithNoVerifierAddsOneLocalUntrusted() {
+        HttpCaller caller = gatewayCaller();
+        HttpCaller.Outbound sent = caller.stamp("GET", ORDERS, NO_BODY, null, null, List.of());
+
+        HttpCaller.Received received = caller.check(sent, 200,
+                attestation(sent, "hello", List.of(ContentLabel.fresh(InfluenceClass.PUBLIC, null))), utf8("hello"));
+
+        assertNull(received.check());
+        assertEquals(List.of(new InfluenceEntry(InfluenceClass.LOCAL_UNTRUSTED, "http:orders",
+                HttpWire.resultHash(200, utf8("hello")), null, null)), received.influence());
+        assertFalse(received.refused());
+    }
+
+    @Test
+    void theResponsesTraceLineNamesTheClassesItAdded() {
+        HttpCaller caller = verifyingCaller();
+        HttpCaller.Outbound sent = caller.stamp("GET", ORDERS, NO_BODY, null, null, List.of());
+
+        caller.check(sent, 200, attestation(sent, "hello", List.of(ContentLabel.fresh(InfluenceClass.PRIVATE, "alice"),
+                ContentLabel.fresh(InfluenceClass.THIRD_PARTY, null), ContentLabel.fresh(InfluenceClass.PRIVATE,
+                        "bob"))), utf8("hello"));
+
+        assertEquals(List.of("PAZTPORT_TRACE response rid=rid-1 from=orders reason=OK receiver=gateway ✓"
+                + " labels=private,third-party"), traceLines());
+    }
+
+    /**
+     * R4: what the interim dropped. The scope has read third-party content; a response labels its answer private to
+     * alice; a guarded public write to bob must then be denied, which the owner-aware rule needs the label for. Run
+     * through the real verifier and caller with a hand-built responder (a receiver cannot be wired into this test's
+     * scope), so this is the caller half of the case.
+     */
+    @Test
+    void aPrivateLabelOfAnotherOwnerReachesTheWriteRule() {
+        ContentLabel alices = ContentLabel.fresh(InfluenceClass.PRIVATE, "alice");
+        HttpCaller caller = verifyingCaller();
+        ReasonCode toBob;
+        try (RequestContext.Scope scope = RequestContext.open()) {
+            RequestContext.actOn(ACTS_ON_INFLUENCE);
+            RequestContext.addInfluence(WEB);
+            HttpCaller.Outbound sent = caller.stampFromContext("GET", ORDERS, NO_BODY);
+            caller.recordToContext(sent, 200, attestation(sent, "hello", List.of(alices)), utf8("hello"));
+            toBob = new PublicWrites("mailer").decide("bob");
+        }
+
+        assertEquals(ReasonCode.INFLUENCE_DENIED, toBob);
     }
 
     @Test

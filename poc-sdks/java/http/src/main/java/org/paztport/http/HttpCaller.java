@@ -13,8 +13,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.TreeSet;
 import org.paztport.core.influence.Influence;
-import org.paztport.core.influence.InfluenceClass;
 import org.paztport.core.influence.InfluenceEntry;
 import org.paztport.core.policy.OperationTable;
 import org.paztport.core.policy.ProofBundle;
@@ -23,6 +23,7 @@ import org.paztport.core.stamp.Block;
 import org.paztport.core.stamp.Stamp;
 import org.paztport.core.stamp.Stamper;
 import org.paztport.core.verify.ExtensionSettings;
+import org.paztport.core.verify.ReasonCode;
 import org.paztport.core.verify.Verifier;
 import org.paztport.http.internal.Extensions;
 import org.paztport.http.internal.LogSafe;
@@ -342,11 +343,11 @@ public final class HttpCaller {
 
     /**
      * What a response contributes: the check of its attestation, null where this caller has no verifier and nothing
-     * was checked, the influence entries it adds, and whether the caller refuses it. For now every response adds
-     * exactly one {@code local-untrusted} entry and none is refused.
+     * was checked, the influence entries it adds ({@link Influence#responseEntries}: one per label of a response that
+     * verified and names influence, otherwise one {@code local-untrusted} entry), and whether the caller refuses it.
      *
-     * @param refused whether the response failed check 9c, so the application must not use it, and, since the
-     *     responder's handler has already run, must not retry the call on that ground
+     * @param refused whether the response failed check 9c ({@code EXTENSION_REQUIRED}), so the application must not use it,
+     *     and, since the responder's handler has already run, must not retry the call on that ground
      */
     public record Received(HttpWire.ResponseCheck check, List<InfluenceEntry> influence, boolean refused) {
 
@@ -483,15 +484,14 @@ public final class HttpCaller {
         } else {
             hash = HttpWire.resultHash(status, body);
         }
-        // Plan 3b Task 4 takes the entries from Influence.responseEntries and refuses a response that fails check 9c;
-        // until then every response adds one local-untrusted entry, which counts against later calls, and none is
-        // refused.
-        List<InfluenceEntry> influence = List.of(new InfluenceEntry(InfluenceClass.LOCAL_UNTRUSTED, src, hash, null,
-                null));
+        ReasonCode reason = check == null ? null : check.result().reason();
+        List<InfluenceEntry> influence = Influence.responseEntries(reason,
+                check == null ? null : check.response(Influence.NAME), src, hash);
+        boolean refused = reason == ReasonCode.EXTENSION_REQUIRED;
         if (TRACE.isInfoEnabled()) {
-            TRACE.info(traceLine(sent.sent.chain().get(0).rid(), sent.receiver, check, caller));
+            TRACE.info(traceLine(sent.sent.chain().get(0).rid(), sent.receiver, check, caller, influence));
         }
-        return new Received(check, influence, false);
+        return new Received(check, influence, refused);
     }
 
     /**
@@ -534,14 +534,19 @@ public final class HttpCaller {
 
     /**
      * {@code PAZTPORT_TRACE response rid=… from=… reason=… receiver=… ✓|✗ labels=…|labels=-}. With no
-     * verifier nothing was checked, so the reason is {@code -}. No response adds a label for now, so the labels are
-     * {@code -}; every value goes through {@link LogSafe}, since the target comes from outside.
+     * verifier nothing was checked, so the reason is {@code -}. The labels are the classes of the entries the
+     * response's own labels added, sorted, or {@code -}; every value goes through {@link LogSafe}, since the target
+     * comes from outside.
      */
-    static String traceLine(String rid, String from, HttpWire.ResponseCheck check, String receiver) {
+    static String traceLine(String rid, String from, HttpWire.ResponseCheck check, String receiver,
+            List<InfluenceEntry> added) {
         boolean ok = check != null && check.result().ok();
-        // Plan 3b Task 4 names the classes of the labels the response added here.
-        return String.format("PAZTPORT_TRACE response rid=%s from=%s reason=%s receiver=%s %s labels=-",
+        // Only a label has a content id; the local-untrusted entry of an answer that was not believed has none.
+        TreeSet<String> classes = new TreeSet<>();
+        added.stream().filter(e -> e.cid() != null).forEach(e -> classes.add(e.cls().wire()));
+        return String.format("PAZTPORT_TRACE response rid=%s from=%s reason=%s receiver=%s %s labels=%s",
                 LogSafe.of(rid), LogSafe.of(from), check == null ? "-" : check.result().reason(),
-                LogSafe.of(receiver), ok ? "✓" : "✗");
+                LogSafe.of(receiver), ok ? "✓" : "✗",
+                classes.isEmpty() ? "-" : LogSafe.of(String.join(",", classes)));
     }
 }

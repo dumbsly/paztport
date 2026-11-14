@@ -1263,14 +1263,77 @@ class HttpReceiverTest {
 
         assertTrue(accepted.attests());
         String header = accepted.attest(201, PAID, alicesData());
-        // Plan 3b Task 4 signs the labels in the response's block; until then it is the empty block.
-        assertEquals(Block.EMPTY, responseBlock(header));
+        assertEquals(Set.of(Influence.NAME), responseBlock(header).names(), "this service acts on influence");
+        assertEquals(1, responseBlock(header).itemsUnder(Influence.NAME).size());
         Stamp stamp = responseStamp(header);
         assertEquals("payment", stamp.svc());
         assertEquals("orders", stamp.rcv(), "the response goes back to whoever called");
         assertEquals("rid-1", stamp.rid());
-        assertEquals("", stamp.ext());
+        assertEquals(responseBlock(header).commit(), stamp.ext(), "the stamp commits to its block");
         assertEquals(Bindings.response(HttpWire.resultHash(201, PAID), "rid-1"), stamp.bind());
+    }
+
+    @Test
+    void aResponderThatActsOnInfluenceNamesItOnEveryResponse() throws Exception {
+        Accepted accepted = attesting(paymentVerifier()).accept(paymentRequest(validHeaders(), TO_PAYMENT), null,
+                VerificationMode.ENFORCE);
+
+        Block block = responseBlock(accepted.attest(201, PAID, List.of()));
+
+        assertEquals(Block.of(Map.of(Influence.NAME, List.of()), List.of()), block);
+        assertEquals(Set.of(Influence.NAME), block.names());
+        assertEquals(List.of(), block.requires(), "nothing is labelled, so nothing is required");
+    }
+
+    @Test
+    void aLabelledResponseRequiresInfluence() {
+        Accepted accepted = attesting(paymentVerifier()).accept(paymentRequest(validHeaders(), TO_PAYMENT), null,
+                VerificationMode.ENFORCE);
+
+        List<ContentLabel> labels = alicesData();
+
+        Block block = responseBlock(accepted.attest(201, PAID, labels));
+
+        assertEquals(List.of(Influence.NAME), block.requires());
+        assertEquals(List.of(labels.get(0).toJson()), block.itemsUnder(Influence.NAME));
+    }
+
+    @Test
+    void anUnlabelledResponseOfAResponderThatDoesNotActOnInfluenceIsTheEmptyBlock() {
+        Accepted accepted = attesting(paymentVerifier(new InMemoryNonceCache(), ExtensionSettings.NONE)).accept(
+                paymentRequest(validHeaders(), TO_PAYMENT), null, VerificationMode.ENFORCE);
+
+        assertEquals(Block.EMPTY, responseBlock(accepted.attest(201, PAID, List.of())));
+    }
+
+    // K10: a label this service cannot sign as a block is not dropped quietly; the caller counts the answer untrusted.
+    @Test
+    void labelsAtAResponderThatDoesNotActOnInfluenceLeaveTheAnswerUnattested() {
+        Accepted accepted = attesting(paymentVerifier(new InMemoryNonceCache(), ExtensionSettings.NONE)).accept(
+                paymentRequest(validHeaders(), TO_PAYMENT), null, VerificationMode.ENFORCE);
+        captureReceiverLog();
+
+        assertTrue(accepted.attests());
+        assertNull(accepted.attest(201, PAID, alicesData()));
+        List<String> logged = receiverWarnings();
+        assertEquals(1, logged.size());
+        assertTrue(logged.get(0).startsWith("response left unattested: rid=rid-1 "), logged.get(0));
+        assertTrue(logged.get(0).contains("does not act on influence"), logged.get(0));
+        assertFalse(logged.get(0).contains("alice"), "the label is not logged");
+    }
+
+    // K5: influence has no summarising form, so a block past the wire limit is not sent in part.
+    @Test
+    void aResponseBlockPastTheWireLimitLeavesTheAnswerUnattested() {
+        Accepted accepted = attesting(paymentVerifier()).accept(paymentRequest(validHeaders(), TO_PAYMENT), null,
+                VerificationMode.ENFORCE);
+        List<ContentLabel> heavy = List.of(new ContentLabel(InfluenceClass.PRIVATE, "c".repeat(300 * 1024), "alice"));
+        captureReceiverLog();
+
+        assertNull(accepted.attest(201, PAID, heavy));
+        List<String> logged = receiverWarnings();
+        assertEquals(1, logged.size());
+        assertTrue(logged.get(0).startsWith("response left unattested: rid=rid-1 "), logged.get(0));
     }
 
     @Test

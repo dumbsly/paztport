@@ -6,6 +6,7 @@ package org.paztport.http;
 import java.util.List;
 import java.util.Objects;
 import org.paztport.core.influence.ContentLabel;
+import org.paztport.core.influence.Influence;
 import org.paztport.core.stamp.Block;
 import org.paztport.core.stamp.Stamp;
 import org.paztport.core.stamp.Stamper;
@@ -203,7 +204,8 @@ public final class Accepted {
     /**
      * The {@code X-Path-Response} header for the handler's complete answer, or null when it is not attested: one
      * stamp on {@link #inbound} back to the caller, binding {@code status} and {@code body}, and its own block beside
-     * it, which names nothing for now, so the caller records the answer as {@code local-untrusted}. The chain is the
+     * it: where the service acts on influence, a block naming it with {@code labels}, and otherwise the empty
+     * block. The chain is the
      * one the request carried, not anything the handler holds, so a handler cannot steer what is vouched for. A rid
      * the binding cannot carry leaves the answer unattested, with a warning, rather than failing it.
      *
@@ -212,7 +214,9 @@ public final class Accepted {
      * the handler returned, or an error page the container writes after it) is not one to attest; the caller records
      * an unattested answer as untrusted.
      *
-     * @param labels what the handler labelled its answer with, in order
+     * @param labels what the handler labelled its answer with, in order. At a service that does not act on influence,
+     *     any label leaves the answer unattested, with a warning, as does a block past the wire limit; the caller then
+     *     records the answer as {@code local-untrusted}, which is stricter than the label
      */
     public String attest(int status, byte[] body, List<ContentLabel> labels) {
         if (attester == null) {
@@ -221,9 +225,18 @@ public final class Accepted {
         String rid = inbound.get(0).rid();
         try {
             String hash = HttpWire.resultHash(status, body);
-            // Plan 3b Task 4 signs the labels here (ContentLabel.block) at a responder that acts on influence; until
-            // then they are dropped, and the caller records the answer as local-untrusted.
-            Block block = Block.EMPTY;
+            Block block;
+            if (extensions.actsOn().contains(Influence.NAME)) {
+                block = ContentLabel.block(labels, List.of());
+            } else if (labels.isEmpty()) {
+                block = Block.EMPTY;
+            } else {
+                // A label this service cannot vouch for as a block would be dropped; the caller counts an unattested
+                // answer as untrusted, which is stricter than any label, so no rule loosens.
+                HttpReceiver.LOG.warn("response left unattested: rid={} it carries labels, and this service does not"
+                        + " act on influence", LogSafe.of(rid));
+                return null;
+            }
             Stamp stamp = attester.respond(inbound, hash, rid, block);
             return HttpWire.encodeResponse(stamp, block);
         } catch (IllegalArgumentException e) {
