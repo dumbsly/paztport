@@ -75,7 +75,7 @@ the block above, all of its documentation ([How it was built](#how-it-was-built)
 
 `./run java-mesh` builds the Java SDK and the mesh demo, then runs every
 scenario. It needs Maven on Java 25 or newer, and Docker, its daemon running,
-with Compose. A green run ends `26 passed, 0 failed`, and the mesh stays up.
+with Compose. A green run ends `27 passed, 0 failed`, and the mesh stays up.
 `./run test` runs the repository's checks and every suite, with no Docker and no
 model. `./run test --container` runs the same suites in a container, needing only
 Docker and git. [Running it](#running-it) has the other demos and what each
@@ -151,16 +151,16 @@ with a clean copy, automatically, within seconds.
   refused nothing. With it, 9 of the 13 refusals stopped a public write that held no
   private text: the rule judges what shaped a write, not what the write holds.
   [Where this could go](docs/directions.md) says what is still open.
-- It is checked end to end. The Java mesh's `demo.sh` makes 26 checks, among them
-  forged stamps, replays, altered bodies, expired requests, routes the policy does
-  not list, `audit` mode, and the responder's quarantine with its limit on how often
-  it acts; a green run ends `26 passed, 0 failed`
+- It is checked end to end. The Java mesh's `demo.sh` makes 27 checks, among them
+  forged stamps, replays, altered bodies and blocks, expired requests, routes the
+  policy does not list, `audit` mode, and the responder's quarantine with its limit on
+  how often it acts; a green run ends `27 passed, 0 failed`
   ([the scenarios](poc-demos/java-mesh/README.md#running-it)).
 - Its cost is measured, on one host. Checking a request takes a few Ed25519
   verifications and SHA-256 hashes. In the
   [Java mesh](poc-demos/java-mesh/README.md#measurements), `enforce` adds about
-  1.9 ms at the median with one hop enforcing, most of it stock-JDK Ed25519, and
-  that section ends with its caveats. The
+  1.9 ms at the median with one hop enforcing, most of it stock-JDK Ed25519,
+  measured on version 3 of the protocol, and that section ends with its caveats. The
   [Envoy Gateway](poc-demos/envoy-gateway/README.md#measurements) processor adds
   0.35 ms at the median at 1000 requests a second.
 
@@ -630,8 +630,11 @@ Paztport at a Kubernetes edge, on a local kind cluster. A Go processor, which
 Envoy calls over gRPC for each request through its external processing filter
 (`ext_proc`), and which its own Helm chart installs, stamps each request entering
 the gateway as the origin service `edge`; the Java mesh's `orders` and `payment`
-verify it. Its checks show that a chain a client sends is replaced at the edge,
-not believed, that a request sent around the edge is refused, and that a stamp
+verify it. The processor is built on the Go SDK, which still stamps version 3, while
+the mesh's services read version 4 only, so `./run envoy-gateway` fails its checks
+until the Go SDK moves to version 4; what follows is from runs on version 3. Its
+checks show that a chain a client sends is replaced at the edge, not believed, that a
+request sent around the edge is refused, and that a stamp
 taken from the processor is refused from any connection but Envoy's. Its
 measurement run also tested failure. A processor container killed under load cost
 under a second of refused requests and let none through unstamped. With every
