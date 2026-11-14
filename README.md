@@ -496,16 +496,17 @@ since a tool call's receiver already names one tool
 
 #### Influence
 
-Influence travels with each call (`X-Path-Influence` over HTTP), and the call's last
-stamp commits to it in `infl`, so a hop can't drop an entry without breaking the
-stamp. Its entries record content such as a ticket's text, a customer's order or a
-tool's result, and each has a class: `third-party` for content from outside the
-trust boundary, which may carry instructions; `private` for data that must not reach
-a public destination unless it belongs to the destination's owner; `public` for
-what is already public; and `local-untrusted` for content nothing vouches for, such
-as a response that was not attested. An entry may also name an owner, an opaque id
-of whose data it is, which the service that served the data takes from its own
-records, never from the content
+Influence travels with each call as entries in each hop's own block
+(`X-Path-Extensions` over HTTP), and each stamp commits to its signer's block in
+`ext`, so a later hop can't drop or alter an entry without every honest hop after it
+refusing the chain. Its entries record content such as a ticket's text, a customer's
+order or a tool's result, and each has a class: `third-party` for content from
+outside the trust boundary, which may carry instructions; `private` for data that
+must not reach a public destination unless it belongs to the destination's owner;
+`public` for what is already public; and `local-untrusted` for content nothing
+vouches for, such as a response that was not attested. An entry may also name an
+owner, an opaque id of whose data it is, which the service that served the data
+takes from its own records, never from the content
 ([influence](poc-sdks/spec/influence.md)).
 
 #### The owner-aware rule
@@ -797,7 +798,7 @@ paztport/
 ├── docs/                     limits.md, the known limits in full; directions.md, where this could go
 ├── run                       front door: java-mesh, envoy-gateway, agents-mcp, test, bench
 ├── poc-sdks/
-│   ├── spec/                 the protocol spec, and vectors/: v4.json, TypeScript's; v3.json, Java's and Go's but the MCP profile's sections; http-v3.json, Java's and Go's; events.json, all three's; json.json, TypeScript's but its http bindings, Java's and Go's but the MCP profile's sections; ed25519.json, all three's
+│   ├── spec/                 the protocol spec, and vectors/: v4.json, TypeScript's, and Java's but the MCP profile's sections; v3.json, Go's but the MCP profile's sections; http-v4.json, Java's; http-v3.json, Go's; events.json, all three's; json.json, TypeScript's but its http bindings, Java's and Go's but the MCP profile's sections; ed25519.json, all three's
 │   ├── scripts/              name check, link check, import check, jar check, tests for ./run, THIRD-PARTY.txt regeneration
 │   ├── java/                 core, http, spring (paztport-core, paztport-http, paztport-spring), tools/keygen, tools/policy-tool, tools/bench
 │   ├── typescript/           core, mcp (@paztport/core, @paztport/mcp), policy-tool
