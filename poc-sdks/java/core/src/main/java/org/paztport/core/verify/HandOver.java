@@ -52,6 +52,19 @@ public final class HandOver {
         this.byName = Map.copyOf(map);
     }
 
+    /**
+     * The rule a verifier's result keeps (spec verification.md, The live order: "On OK the verifier hands the
+     * service..."): a hand-over exactly when {@code reason} is OK, and then one that is verified; a refusal hands
+     * nothing over. The live and the offline results both call it.
+     *
+     * @throws IllegalArgumentException a hand-over on a reason other than OK, none on OK, or one not verified
+     */
+    public static void requireFor(ReasonCode reason, HandOver handOver) {
+        if ((reason == ReasonCode.OK) != (handOver != null) || (handOver != null && !handOver.verified)) {
+            throw new IllegalArgumentException("a verifier hands over a verified hand-over exactly on OK");
+        }
+    }
+
     /** Whether the chain passed the verifier's whole order here; false for a request served without verifying. */
     public boolean verified() {
         return verified;

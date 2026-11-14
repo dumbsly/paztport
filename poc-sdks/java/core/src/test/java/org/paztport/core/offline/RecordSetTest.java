@@ -10,6 +10,7 @@ import static org.paztport.core.offline.Handshake.ENTRY;
 import static org.paztport.core.offline.Handshake.FAR;
 import static org.paztport.core.offline.Handshake.NOW;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -69,6 +70,26 @@ class RecordSetTest {
             assertEquals(ReasonCode.OK, verified);
             assertEquals(code, RecordSet.callInSession(s, verified, ts), "at " + ts);
         });
+    }
+
+    // The config a session gives its calls holds the client material as the request signed it; a key or a root whose
+    // text does not decode verifies nothing, so a call that relies on it is refused by the check that needs it.
+    @Test
+    void aRecordedKeyThatDoesNotDecodeSignsNoCall() {
+        Handshake h = Handshake.with(o -> o.piKey = "not-a-key");
+        assertTrue(h.recorded().attested(), "the policy key signed the keyring's text");
+        assertNull(h.recorded().callConfig(Set.of("session"), new HashSet<>(), null, null, ExtensionSettings.NONE)
+                .keyrings().get(0).keys().keyFor("pi"));
+        assertEquals(ReasonCode.BAD_SIGNATURE, checkCall(h, call(h, NOW), NOW, new RecordSet().spent()));
+        Handshake good = Handshake.attested();
+        assertEquals(ReasonCode.OK, checkCall(good, call(good, NOW), NOW, new RecordSet().spent()));
+    }
+
+    @Test
+    void aRecordedRootThatDoesNotDecodeProvesNoRoute() {
+        Handshake h = Handshake.with(o -> o.clientRootText = "not base64url!");
+        assertTrue(h.recorded().attested(), "the policy key signed the root's text");
+        assertEquals(ReasonCode.PATH_NOT_ALLOWED, checkCall(h, call(h, NOW), NOW, new RecordSet().spent()));
     }
 
     @Test

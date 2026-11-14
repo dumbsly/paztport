@@ -46,6 +46,10 @@ final class Handshake {
         long clientKeyring = FAR;
         long serverRoot = FAR;
         long serverKeyring = FAR;
+        /** The text the client keyring signs for pi's key; null for pi's real key. */
+        String piKey;
+        /** The text the client root signs as its root; null for the client tree's root, base64url. */
+        String clientRootText;
     }
 
     final KeyPair clientPolicy = Crypto.generateEd25519KeyPair();
@@ -64,8 +68,10 @@ final class Handshake {
 
     private Handshake(Options o) {
         String clientKey = key(clientPolicy);
-        SignedRoot clientRoot = SignedRoot.sign(clientTree.root(), "c1", o.clientRoot, clientPolicy.getPrivate());
-        Map<String, String> clientServices = Map.of("session", key(session), "pi", key(pi));
+        String rootText = o.clientRootText == null ? Base64Url.encode(clientTree.root()) : o.clientRootText;
+        SignedRoot clientRoot = new SignedRoot("c1", rootText, Base64Url.encode(Crypto.sign(clientPolicy.getPrivate(),
+                SignedRoot.signingBytes("c1", rootText, o.clientRoot))), o.clientRoot);
+        Map<String, String> clientServices = Map.of("session", key(session), "pi", o.piKey == null ? key(pi) : o.piKey);
         KeyringFile clientRing = KeyringFile.sign(clientServices, clientKey, o.clientKeyring,
                 clientPolicy.getPrivate());
         SessionRequest req = SessionRequest.of(clientRoot, clientKey, clientRing, Sessions.newNonce());

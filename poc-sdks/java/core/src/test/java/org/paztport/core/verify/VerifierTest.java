@@ -17,7 +17,6 @@ import java.security.KeyPair;
 import java.security.PublicKey;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
-import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -469,45 +468,6 @@ class VerifierTest {
         VerifyResult byPeer = with(ExtensionSettings.of(Set.of("example", "influence"), null))
                 .verify(signed(c, c.blocksText(), PROOF, "target", "b", SIGNER));
         assertEquals(new VerifyResult(ReasonCode.OK, "pi", "10.0.0.7", h), byPeer);
-    }
-
-    @Test
-    void aRefusalHandsNothingOver() {
-        Case noted = new Case().blocks(Block.EMPTY, NOTED);
-        Case requiring = new Case().blocks(Block.EMPTY, Block.of(Map.of(), List.of("other")));
-        Verifier twice = with(EXAMPLE);
-        twice.verify(signed(noted, noted.blocksText()));
-        long[] clock = {NOW};
-        Verifier expiring = pinnedAt(clock, NOW, NOW + 1000);
-        clock[0] = NOW + 1;
-        List<VerifyResult> results = List.of(
-                with(EXAMPLE).verify(null),
-                with(EXAMPLE).verify(new VerifyInput("\"x\"", "b", null, PROOF, "target", true, "k", SIGNER)),
-                with(EXAMPLE).verify(signed(new Case().origin("other"), null)),
-                with(EXAMPLE).verify(signed(new Case().prev("wrong"), null)),
-                with(EXAMPLE).verify(signed(new Case(), null, PROOF, "elsewhere", "b", null)),
-                with(EXAMPLE).verify(signed(new Case().rid("r2"), null)),
-                with(EXAMPLE).verify(signed(new Case().sess("s2"), null)),
-                with(EXAMPLE).verify(signed(new Case().lastTs(NOW - CALL - 1), null)),
-                with(EXAMPLE).verify(signed(new Case(), null, PROOF, "target", "other", null)),
-                with(EXAMPLE).verify(signed(noted, null)),
-                with(LISTED).verify(signed(new Case().blocks(Block.EMPTY, OTHER), new Case()
-                        .blocks(Block.EMPTY, OTHER).blocksText())),
-                with(EXAMPLE).verify(signed(requiring, requiring.blocksText())),
-                with(EXAMPLE).verify(signed(noted, noted.blocksText(), PROOF, "target", "b", SOMEONE)),
-                twice.verify(signed(noted, noted.blocksText())),
-                with(EXAMPLE).verify(signed(noted, noted.blocksText(), null, "target", "b", null)),
-                expiring.verify(boundaryInput("k", null)));
-        Set<ReasonCode> reached = EnumSet.noneOf(ReasonCode.class);
-        for (VerifyResult r : results) {
-            assertNull(r.handOver(), r.reason().name());
-            reached.add(r.reason());
-        }
-        assertEquals(EnumSet.of(ReasonCode.POLICY_EXPIRED, ReasonCode.CHAIN_MISSING, ReasonCode.BAD_ORIGIN,
-                ReasonCode.BROKEN_LINK, ReasonCode.BINDING_MISMATCH, ReasonCode.RID_MISMATCH,
-                ReasonCode.SESSION_UNKNOWN, ReasonCode.EXPIRED, ReasonCode.EXTENSION_MISMATCH,
-                ReasonCode.EXTENSION_NOT_ALLOWED, ReasonCode.EXTENSION_REQUIRED, ReasonCode.PEER_MISMATCH,
-                ReasonCode.REPLAY, ReasonCode.PATH_NOT_ALLOWED), reached);
     }
 
     /**

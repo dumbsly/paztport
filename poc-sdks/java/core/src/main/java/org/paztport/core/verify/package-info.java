@@ -4,7 +4,7 @@
 /**
  * The live verifier, what it pins and takes per request, and the typed result with its reason codes and the
  * hand-over for the extensions a service acts on. Also the replay guard and the transport-authenticated peer a result
- * can name. The checks the live and the offline verifiers share (1 to 6, 8, 9a to 9c and 12) are written once, in
- * {@code org.paztport.core.internal.ChainChecks}.
+ * can name. The checks the live and the offline verifiers share (1 to 6, 8, 9a and 9b, and 12) are written once, in
+ * {@code org.paztport.core.internal.ChainChecks}, which also holds check 9c, run live only.
  */
 package org.paztport.core.verify;

@@ -14,6 +14,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
+import org.paztport.core.offline.OfflineResult;
 import org.paztport.core.stamp.Block;
 import org.paztport.core.stamp.Stamp;
 
@@ -71,5 +72,28 @@ class HandOverTest {
     void stampsAndBlocksOfDifferentLengthsAreRefused() {
         assertThrows(IllegalArgumentException.class, () -> new HandOver(true, List.of(stamp("a")), List.of(),
                 ExtensionSettings.NONE));
+    }
+
+    /** The rule both verifiers' results keep: a verified hand-over exactly on OK, nothing on a refusal. */
+    @Test
+    void aResultHandsOverAVerifiedHandOverExactlyOnOk() {
+        HandOver verified = handOver(true);
+        HandOver served = handOver(false);
+        HandOver.requireFor(ReasonCode.OK, verified);
+        HandOver.requireFor(ReasonCode.EXTENSION_MISMATCH, null);
+        assertThrows(IllegalArgumentException.class, () -> HandOver.requireFor(ReasonCode.OK, null));
+        assertThrows(IllegalArgumentException.class, () -> HandOver.requireFor(ReasonCode.OK, served));
+        assertThrows(IllegalArgumentException.class,
+                () -> HandOver.requireFor(ReasonCode.EXTENSION_MISMATCH, verified));
+        assertThrows(IllegalArgumentException.class, () -> HandOver.requireFor(ReasonCode.PATH_NOT_ALLOWED, served));
+        // Both results hold it.
+        assertEquals(verified, new VerifyResult(ReasonCode.OK, "pi", "i", verified).handOver());
+        assertEquals(verified, new OfflineResult(ReasonCode.OK, "pi", "i", verified).handOver());
+        assertThrows(IllegalArgumentException.class, () -> new VerifyResult(ReasonCode.OK, "pi", "i", null));
+        assertThrows(IllegalArgumentException.class, () -> new VerifyResult(ReasonCode.OK, "pi", "i", served));
+        assertThrows(IllegalArgumentException.class, () -> new VerifyResult(ReasonCode.REPLAY, "", "", verified));
+        assertThrows(IllegalArgumentException.class, () -> new OfflineResult(ReasonCode.OK, "pi", "i", null));
+        assertThrows(IllegalArgumentException.class, () -> new OfflineResult(ReasonCode.OK, "pi", "i", served));
+        assertThrows(IllegalArgumentException.class, () -> new OfflineResult(ReasonCode.REPLAY, "", "", verified));
     }
 }

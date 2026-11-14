@@ -15,11 +15,10 @@ public record OfflineResult(ReasonCode reason, String suspectSvc, String suspect
 
     /**
      * @throws IllegalArgumentException a hand-over on a result other than OK, none on OK, or one not verified
+     *     ({@link HandOver#requireFor})
      */
     public OfflineResult {
-        if ((reason == ReasonCode.OK) != (handOver != null) || (handOver != null && !handOver.verified())) {
-            throw new IllegalArgumentException("a verifier hands over a verified hand-over exactly on OK");
-        }
+        HandOver.requireFor(reason, handOver);
     }
 
     /** Whether every check held. */
