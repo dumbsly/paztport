@@ -583,6 +583,11 @@ class HttpReceiverTest {
                 .extensions(ExtensionSettings.NONE);
         IllegalArgumentException e = assertThrows(IllegalArgumentException.class, differing::build);
         assertTrue(e.getMessage().contains("verifier"), e.getMessage());
+        // The same actsOn under another allowedExtensions is other settings too: the verifier carries any name, and
+        // these carry influence alone.
+        HttpReceiver.Builder narrower = HttpReceiver.builder("payment").verifier(paymentVerifier())
+                .extensions(ExtensionSettings.of(Set.of(Influence.NAME), Set.of(Influence.NAME)));
+        assertThrows(IllegalArgumentException.class, narrower::build);
 
         assertNotNull(HttpReceiver.builder("payment").verifier(paymentVerifier()).extensions(ACTS_ON_INFLUENCE)
                 .build(), "the verifier's own settings, given again, are the same settings");
