@@ -14,11 +14,11 @@ import java.util.Optional;
 import org.paztport.core.policy.ProofBundle;
 import org.paztport.core.stamp.Stamp;
 import org.paztport.core.stamp.Stamper;
+import org.paztport.core.verify.ExtensionSettings;
 import org.paztport.core.verify.Verifier;
 import org.paztport.http.HttpCaller;
 import org.paztport.http.RequestContext;
 import org.paztport.http.internal.LogSafe;
-import org.paztport.http.wire.HttpWire;
 import org.paztport.http.wire.PaztportHeaders;
 import org.paztport.spring.internal.Observed;
 import org.paztport.spring.internal.ObservedValues;
@@ -46,6 +46,13 @@ import org.springframework.http.client.ClientHttpResponse;
  * Nothing from the response is tagged. Influence is recorded only inside a {@link RequestContext.Scope},
  * which the inbound filter opens per request; outside one a call is still stamped and its response still checked
  * and traced, but nothing is recorded.
+ *
+ * <p>A response the caller refuses ({@link HttpCaller.Received#refused}: it failed check 9c,
+ * {@code EXTENSION_REQUIRED}, spec verification.md, A response, at the caller) never reaches the application: the
+ * response is closed and the call fails with an {@link IOException} naming the receiver, once its one
+ * {@code local-untrusted} entry is recorded and its observation is stopped. The receiver's handler has already run,
+ * so the message says the call must not be retried, and nothing here retries it: the retry below covers only calls
+ * that never connected.
  *
  * <p>The request carries only the Paztport headers the caller stamped, as the spec's header rule says: any the
  * application set on the request before this interceptor runs are removed first.
@@ -101,11 +108,15 @@ public final class OutboundInterceptor implements ClientHttpRequestInterceptor {
 
     /**
      * A caller that names each receiver by its URI host, never retrying. {@code verifier} is null where responses
-     * cannot be checked; {@code caller} is this service's name.
+     * cannot be checked; {@code caller} is this service's name; {@code extensions} are the extensions this service
+     * acts on and the names it carries, the verifier's own where there is one ({@link HttpCaller.Builder#extensions}).
+     *
+     * @throws IllegalArgumentException when {@code extensions} differ from the verifier's
      */
     public OutboundInterceptor(Stamper stamper, ProofBundle bundle, Verifier verifier, String caller,
-            ObservationRegistry observations) {
-        this(HttpCaller.builder(caller, stamper).bundle(bundle).verifier(verifier).build(), observations);
+            ExtensionSettings extensions, ObservationRegistry observations) {
+        this(HttpCaller.builder(caller, stamper).bundle(bundle).verifier(verifier).extensions(extensions).build(),
+                observations);
     }
 
     @Override
@@ -214,16 +225,25 @@ public final class OutboundInterceptor implements ClientHttpRequestInterceptor {
      * the check is made, and stays {@code none} if it throws. One observation handler that throws as it records the
      * check's exception, or as it stops while that exception, or its scope's, is going on, is added to it as
      * suppressed, so the first exception is the one that goes on.
+     *
+     * @throws IOException when the caller refused the response, after the check is recorded and observed; the caller
+     *     of this closes the response
      */
     private void observed(HttpCaller.Outbound sent, Buffered buffered) throws IOException {
         Observation observation = Observation.createNotStarted(PaztportObservation.RESPONSE.getName(), observations)
                 .start();
-        Observed.<HttpWire.ResponseCheck, IOException>run(observation,
+        HttpCaller.Received received = Observed.<HttpCaller.Received, IOException>run(observation,
                 held -> caller.recordToContext(sent, buffered.getStatusCode().value(),
                         buffered.getHeaders().getFirst(PaztportHeaders.RESPONSE), buffered.body),
-                (stopping, check) -> stopping.lowCardinalityKeyValue(PaztportObservation.Keys.REASON.withValue(
-                        check == null ? ObservedValues.NONE : ObservedValues.reason(check.result()))),
-                check -> { });
+                (stopping, done) -> stopping.lowCardinalityKeyValue(PaztportObservation.Keys.REASON.withValue(
+                        done == null || done.check() == null ? ObservedValues.NONE
+                                : ObservedValues.reason(done.check().result()))),
+                done -> { });
+        if (received.refused()) {
+            // The rule is the caller's (Received.refused); this only keeps the answer from the application.
+            throw new IOException("Paztport: the response to " + LogSafe.of(sent.receiver()) + " was refused ("
+                    + "EXTENSION_REQUIRED); the handler ran, so the call must not be retried");
+        }
     }
 
     /** The response, with its body already read into memory, so the caller reads exactly what was checked. */

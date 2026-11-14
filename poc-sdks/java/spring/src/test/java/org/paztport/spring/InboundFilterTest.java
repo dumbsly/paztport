@@ -35,6 +35,7 @@ import org.junit.jupiter.api.Test;
 import org.paztport.core.crypto.Crypto;
 import org.paztport.core.event.AttestationEvent;
 import org.paztport.core.influence.ContentLabel;
+import org.paztport.core.influence.Influence;
 import org.paztport.core.influence.InfluenceClass;
 import org.paztport.core.influence.InfluenceEntry;
 import org.paztport.core.internal.JsonFields;
@@ -43,15 +44,17 @@ import org.paztport.core.internal.JsonWriter;
 import org.paztport.core.policy.Keyring;
 import org.paztport.core.policy.PolicyBuilder;
 import org.paztport.core.stamp.Bindings;
+import org.paztport.core.stamp.Block;
 import org.paztport.core.stamp.Chains;
 import org.paztport.core.stamp.Stamp;
 import org.paztport.core.stamp.Stamper;
+import org.paztport.core.verify.ExtensionSettings;
+import org.paztport.core.verify.HandOver;
 import org.paztport.core.verify.InMemoryNonceCache;
 import org.paztport.core.verify.PinnedKeyring;
 import org.paztport.core.verify.PinnedRoot;
 import org.paztport.core.verify.VerifierConfig;
 import org.paztport.core.verify.Verifier;
-import org.paztport.http.ContextAccess;
 import org.paztport.http.ModeHolder;
 import org.paztport.http.ReceivedRequestListener;
 import org.paztport.http.RequestContext;
@@ -85,6 +88,8 @@ class InboundFilterTest {
     private static final byte[] TO_PAYMENT = "{\"amount\":100}".getBytes(StandardCharsets.UTF_8);
     private static final InfluenceEntry WEB = new InfluenceEntry(InfluenceClass.THIRD_PARTY, "web:a", "h1", null, null);
     private static final InfluenceEntry MINE = new InfluenceEntry(InfluenceClass.PRIVATE, "db:a", "h2", null, "alice");
+    /** Payment acting on influence, as a service whose handlers read what they are handed does. */
+    private static final ExtensionSettings INFLUENCE = ExtensionSettings.of(Set.of(Influence.NAME), null);
 
     private final KeyPair gateway = Crypto.generateEd25519KeyPair();
     private final KeyPair orders = Crypto.generateEd25519KeyPair();
@@ -110,17 +115,23 @@ class InboundFilterTest {
         traceLog.detachAppender(traces);
         traceLog.setLevel(null);
         traceLog.setAdditive(true);
-        ContextAccess.reset();
+        // Every scope a test opens is closed by it or by the filter; one left open would follow this thread.
+        assertFalse(RequestContext.isOpen(), "a test left a request scope open on this thread");
     }
 
+    /** Payment's verifier, acting on influence. */
     private Verifier paymentVerifier() {
+        return paymentVerifier(INFLUENCE);
+    }
+
+    private Verifier paymentVerifier(ExtensionSettings settings) {
         long notAfter = policy.signedRoot().notAfter();
         return new Verifier(new VerifierConfig(
                 List.of(new PinnedKeyring(Keyring.of(Map.of("gateway", gateway.getPublic(), "orders",
                         orders.getPublic())), notAfter)),
                 List.of(new PinnedRoot(policy.signedRoot().rootBytes(), policy.signedRoot().rootId(), notAfter)),
                 notAfter, Set.of("gateway"), "",
-                new InMemoryNonceCache(), () -> NOW, 5000, 5000));
+                new InMemoryNonceCache(), () -> NOW, 5000, 5000, settings));
     }
 
     private static final List<String> CONFIGURED = List.of("/admin", "/debug", "/actuator");
@@ -131,13 +142,16 @@ class InboundFilterTest {
 
     private InboundFilter filter(VerificationMode mode, ReceivedRequestListener listener, List<String> unverified) {
         return new InboundFilter(paymentVerifier(), true, false, "payment", new ModeHolder(mode), events, listener,
-                null, null, ObservationRegistry.NOOP, unverified);
+                null, null, ObservationRegistry.NOOP, unverified, INFLUENCE);
     }
 
-    /** A hop that neither verifies requests nor holds a verifier or a stamp key. */
-    private static InboundFilter plainFilter() {
+    /**
+     * A hop that neither verifies requests nor holds a verifier or a stamp key, acting on what {@code settings} say,
+     * which it holds only here.
+     */
+    private static InboundFilter plainFilter(ExtensionSettings settings) {
         return new InboundFilter(null, false, false, "payment", null, null, null, null,
-                null, ObservationRegistry.NOOP, List.of());
+                null, ObservationRegistry.NOOP, List.of(), settings);
     }
 
     private Stamper paymentStamper() {
@@ -147,21 +161,27 @@ class InboundFilterTest {
     /** Payment verifying requests and holding a stamp key, so it attests what it answers to a verified chain. */
     private InboundFilter attestingFilter(Verifier verifier, VerificationMode mode) {
         return new InboundFilter(verifier, true, false, "payment", new ModeHolder(mode), events, null,
-                paymentStamper(), null, ObservationRegistry.NOOP, List.of());
+                paymentStamper(), null, ObservationRegistry.NOOP, List.of(), verifier.extensions());
     }
 
-    private record Headers(String chain, String proof, String influence) {
+    private record Headers(String chain, String proof, String blocks) {
     }
 
+    /** A chain gateway to orders to payment; orders acts on influence and signs {@code influence} in its block. */
     private Headers headers(String rid, String target, List<InfluenceEntry> influence) {
+        return headers(rid, target, Influence.block(influence, List.of()));
+    }
+
+    /** As above, with orders' own block {@code own}; gateway signs the empty block. */
+    private Headers headers(String rid, String target, Block own) {
         Stamper.Stamped gw = new Stamper("gateway", "gw-1", gateway.getPrivate(), true, () -> rid, () -> NOW)
-                .next(null, "orders", RequestBinding.compute("POST", "/orders", "{}".getBytes()), List.of(),
+                .next(null, "orders", RequestBinding.compute("POST", "/orders", "{}".getBytes()), Block.EMPTY,
                         policy.bundles().get("gateway"));
         Stamper.Stamped ord = new Stamper("orders", "ord-1", orders.getPrivate(), false, () -> "x", () -> NOW)
-                .next(gw.chain(), "payment", RequestBinding.compute("POST", target, TO_PAYMENT), influence,
+                .next(gw.chain(), "payment", RequestBinding.compute("POST", target, TO_PAYMENT), own,
                         policy.bundles().get("orders"));
         return new Headers(HttpWire.encodeChain(ord.chain()), HttpWire.encodeProof(ord.proof()),
-                HttpWire.encodeInfluence(influence));
+                HttpWire.encodeBlocks(List.of(Block.EMPTY, own)));
     }
 
     private Headers validHeaders() {
@@ -176,17 +196,25 @@ class InboundFilterTest {
         if (h.proof() != null) {
             request.addHeader(PaztportHeaders.PROOF, h.proof());
         }
-        if (h.influence() != null) {
-            request.addHeader(PaztportHeaders.INFLUENCE, h.influence());
+        if (h.blocks() != null) {
+            request.addHeader(PaztportHeaders.EXTENSIONS, h.blocks());
         }
         request.setContent(body);
         return request;
     }
 
+    /** The entries the open scope's service was handed under influence, as the rules read them. */
+    private static List<InfluenceEntry> handed() {
+        HandOver handedOn = RequestContext.handedOn();
+        return handedOn == null ? List.of() : Influence.readRequest(handedOn.under(Influence.NAME)).entries();
+    }
+
     /** A handler that records what the context held while the request was served. */
     private static final class Seen extends HttpServlet {
         List<Stamp> chain;
-        List<InfluenceEntry> influence;
+        List<InfluenceEntry> handed;
+        Boolean verified;
+        List<InfluenceEntry> added;
         boolean reached;
         boolean scoped;
 
@@ -195,7 +223,9 @@ class InboundFilterTest {
             reached = true;
             scoped = RequestContext.isOpen();
             chain = RequestContext.inboundChain();
-            influence = RequestContext.influence();
+            handed = handed();
+            verified = RequestContext.handedOn() == null ? null : RequestContext.handedOn().verified();
+            added = RequestContext.added();
         }
     }
 
@@ -229,7 +259,8 @@ class InboundFilterTest {
         assertEquals(200, response.getStatus());
         assertTrue(seen.reached);
         assertEquals(2, seen.chain.size());
-        assertEquals(List.of(MINE, WEB), seen.influence);
+        assertEquals(List.of(MINE, WEB), seen.handed, "orders' entries, handed on");
+        assertEquals(true, seen.verified);
         assertTrue(events.all.isEmpty(), "no event on success");
     }
 
@@ -249,35 +280,73 @@ class InboundFilterTest {
         assertTrue(rejected.getContentAsString().contains("BINDING_MISMATCH"));
     }
 
+    // A request served without verifying is handed what its blocks hold, marked not verified (spec verification.md,
+    // What a request served without verifying is handed).
     @Test
     void nonVerifyingFilterPopulatesContextFromTheHeadersAndProceeds() throws Exception {
         MockHttpServletResponse response = new MockHttpServletResponse();
         Seen seen = new Seen();
 
-        plainFilter().doFilter(
+        plainFilter(INFLUENCE).doFilter(
                 paymentRequest(headers("rid-1", "/pay", List.of(WEB)), TO_PAYMENT), response,
                 new MockFilterChain(seen));
 
         assertEquals(200, response.getStatus());
         assertEquals(2, seen.chain.size());
         assertEquals("rid-1", seen.chain.get(0).rid());
-        assertEquals(List.of(WEB), seen.influence);
+        assertEquals(List.of(WEB), seen.handed);
+        assertEquals(false, seen.verified);
         assertTrue(traceLines().isEmpty(), "nothing was verified");
     }
 
+    // Blocks that do not decode cannot be matched to the stamps, so check 9a fails and the request is not served,
+    // even at a service that acts on no extension (spec verification.md, "A service never serves a request whose
+    // blocks fail check 9a").
     @Test
-    void nonVerifyingFilterAnswersMalformedInfluenceWith400() throws Exception {
+    void nonVerifyingFilterAnswersBlocksThatDoNotDecodeWith400() throws Exception {
         Headers h = validHeaders();
         MockHttpServletResponse response = new MockHttpServletResponse();
         Seen seen = new Seen();
 
-        plainFilter().doFilter(
+        plainFilter(ExtensionSettings.NONE).doFilter(
                 paymentRequest(new Headers(h.chain(), h.proof(), "%%%"), TO_PAYMENT), response,
                 new MockFilterChain(seen));
 
         assertEquals(400, response.getStatus());
-        assertEquals("{\"reason\":\"INFLUENCE_MISMATCH\"}", response.getContentAsString());
-        assertTrue(!seen.reached, "influence that cannot be carried must not be dropped");
+        assertEquals("{\"reason\":\"EXTENSION_MISMATCH\"}", response.getContentAsString());
+        assertTrue(!seen.reached, "blocks that cannot be carried must not be dropped");
+    }
+
+    // An item under influence that does not read as an entry: only a service that acts on influence reads it, and it
+    // refuses it in every mode, verified or not; one that acts on nothing reads no item and serves the request (spec
+    // influence.md, Entries and What the rules read).
+    @Test
+    void anItemThatDoesNotReadIsRefusedOnlyWhereTheServiceActsOnInfluence() throws Exception {
+        Block unreadable = Block.of(Map.of(Influence.NAME, List.of("{\"cls\":\"no-such-class\"}")), List.of());
+        Map<String, InboundFilter> filters = Map.of(
+                "verifying", filter(VerificationMode.ENFORCE, null),
+                "served unverified", plainFilter(INFLUENCE));
+        int rid = 0;
+        for (Map.Entry<String, InboundFilter> acting : filters.entrySet()) {
+            MockHttpServletResponse refused = new MockHttpServletResponse();
+            Seen seen = new Seen();
+
+            acting.getValue().doFilter(paymentRequest(headers("rid-u" + rid++, "/pay", unreadable), TO_PAYMENT),
+                    refused, new MockFilterChain(seen));
+
+            assertEquals(400, refused.getStatus(), acting.getKey());
+            assertEquals("{\"reason\":\"INFLUENCE_MISMATCH\"}", refused.getContentAsString(), acting.getKey());
+            assertFalse(seen.reached, acting.getKey());
+        }
+
+        MockHttpServletResponse served = new MockHttpServletResponse();
+        Seen seen = new Seen();
+        plainFilter(ExtensionSettings.NONE).doFilter(paymentRequest(headers("rid-u9", "/pay", unreadable),
+                TO_PAYMENT), served, new MockFilterChain(seen));
+
+        assertEquals(200, served.getStatus());
+        assertTrue(seen.reached);
+        assertEquals(List.of(), seen.handed, "a service acting on nothing is handed nothing under influence");
     }
 
     @Test
@@ -381,14 +450,16 @@ class InboundFilterTest {
                 new MockFilterChain());
 
         assertNull(RequestContext.inboundChain());
-        assertTrue(RequestContext.influence().isEmpty());
+        assertNull(RequestContext.handedOn());
+        assertTrue(RequestContext.added().isEmpty());
     }
 
     /** Two endpoints: one dirties the context, the other reports what it found. */
     @RestController
     static final class ReuseController {
         List<Stamp> chain;
-        List<InfluenceEntry> influence;
+        List<InfluenceEntry> handed;
+        List<InfluenceEntry> added;
         List<ContentLabel> labels;
 
         @PostMapping("/dirty")
@@ -401,7 +472,8 @@ class InboundFilterTest {
         @PostMapping("/look")
         String look() {
             chain = RequestContext.inboundChain();
-            influence = RequestContext.influence();
+            handed = handed();
+            added = RequestContext.added();
             labels = RequestContext.labels();
             return "ok";
         }
@@ -411,21 +483,23 @@ class InboundFilterTest {
     void threadReuseStartsClean() throws Exception {
         ReuseController controller = new ReuseController();
         MockMvc mvc = MockMvcBuilders.standaloneSetup(controller)
-                .addFilters(plainFilter())
+                .addFilters(plainFilter(INFLUENCE))
                 .build();
         Headers first = headers("rid-1", "/pay", List.of(MINE));
         Headers second = headers("rid-2", "/pay", List.of());
 
         // MockMvc serves both on this test thread, as a pooled server thread would serve two requests.
         mvc.perform(post("/dirty").header(PaztportHeaders.CHAIN, first.chain())
-                        .header(PaztportHeaders.INFLUENCE, first.influence()).content(TO_PAYMENT))
+                        .header(PaztportHeaders.EXTENSIONS, first.blocks()).content(TO_PAYMENT))
                 .andExpect(status().isOk());
-        mvc.perform(post("/look").header(PaztportHeaders.CHAIN, second.chain()).content(TO_PAYMENT))
+        mvc.perform(post("/look").header(PaztportHeaders.CHAIN, second.chain())
+                        .header(PaztportHeaders.EXTENSIONS, second.blocks()).content(TO_PAYMENT))
                 .andExpect(status().isOk());
 
         assertEquals("rid-2", controller.chain.get(0).rid());
         assertEquals(2, controller.chain.size());
-        assertEquals(List.of(), controller.influence);
+        assertEquals(List.of(), controller.handed);
+        assertEquals(List.of(), controller.added);
         assertEquals(List.of(), controller.labels);
     }
 
@@ -444,9 +518,9 @@ class InboundFilterTest {
     void theRefusalBodyIsTheReasonAloneWhateverTheSuspectSigned() throws Exception {
         String inst = "ord\"1\\";
         Stamper.Stamped gw = new Stamper("gateway", "gw-1", gateway.getPrivate(), true, () -> "rid-1", () -> NOW)
-                .next(null, "orders", "b", List.of(), policy.bundles().get("gateway"));
+                .next(null, "orders", "b", Block.EMPTY, policy.bundles().get("gateway"));
         Stamper.Stamped ord = new Stamper("orders", inst, orders.getPrivate(), false, () -> "x", () -> NOW)
-                .next(gw.chain(), "payment", RequestBinding.compute("POST", "/pay", TO_PAYMENT), List.of(),
+                .next(gw.chain(), "payment", RequestBinding.compute("POST", "/pay", TO_PAYMENT), Block.EMPTY,
                         policy.bundles().get("orders"));
         MockHttpServletResponse response = new MockHttpServletResponse();
 
@@ -466,6 +540,9 @@ class InboundFilterTest {
                 traceLines().get(0));
     }
 
+    // Payment acts on influence, so the handler's label rides in the response's own block, which requires influence
+    // of the caller and which the response stamp commits to; the binding covers the status and the body (spec
+    // influence.md, Content labels; wire.md, HTTP responses).
     @Test
     void aVerifiedRequestsResponseIsAttestedOverWhatTheHandlerSent() throws Exception {
         MockHttpServletResponse response = new MockHttpServletResponse();
@@ -476,25 +553,31 @@ class InboundFilterTest {
         assertEquals(201, response.getStatus());
         assertEquals("paid", response.getContentAsString(), "the body still reaches the caller");
         JsonNode attestation = decodeAttestation(response);
-        List<ContentLabel> labels = ContentLabel.parseAll(JsonWriter.text(
-                JsonFields.object(JsonReader.token(response.getHeader(PaztportHeaders.RESPONSE))).get("labels")));
+        List<String> members = new ArrayList<>();
+        attestation.fieldNames().forEachRemaining(members::add);
+        assertEquals(List.of("block", "stamp"), members, "the response header is {block, stamp}");
+        Block block = Block.parseAll("[" + JsonWriter.text(JsonFields.object(
+                JsonReader.token(response.getHeader(PaztportHeaders.RESPONSE))).get("block")) + "]").get(0);
+        List<ContentLabel> labels = block.itemsUnder(Influence.NAME).stream().map(ContentLabel::parse).toList();
         assertEquals(1, labels.size());
         assertEquals(InfluenceClass.PRIVATE, labels.get(0).cls());
         assertEquals("alice", labels.get(0).owner());
+        assertEquals(List.of(Influence.NAME), block.requires(), "a labelled answer requires influence of its caller");
         Stamp stamp = Chains.parse(
                 new ObjectMapper().createArrayNode().add(attestation.get("stamp")).toString()).stamps().get(0);
         assertEquals("payment", stamp.svc());
         assertEquals("orders", stamp.rcv(), "the response goes back to whoever called");
         assertEquals("rid-1", stamp.rid());
-        assertEquals(Bindings.response(HttpWire.resultHash(201, "paid".getBytes(StandardCharsets.UTF_8)), "rid-1",
-                labels), stamp.bind());
+        assertEquals(block.commit(), stamp.ext());
+        assertEquals(Bindings.response(HttpWire.resultHash(201, "paid".getBytes(StandardCharsets.UTF_8)), "rid-1"),
+                stamp.bind());
     }
 
     @Test
     void verifyingRequestsNeedsAVerifierAModeAndAPublisher() {
         assertThrows(IllegalArgumentException.class,
                 () -> new InboundFilter(null, true, false, "payment", new ModeHolder(VerificationMode.ENFORCE),
-                        events, null, null, null, ObservationRegistry.NOOP, List.of()));
+                        events, null, null, null, ObservationRegistry.NOOP, List.of(), INFLUENCE));
     }
 
     @Test
@@ -534,18 +617,18 @@ class InboundFilterTest {
             Seen first = new Seen();
             MockHttpServletResponse firstResponse = new MockHttpServletResponse();
             List<Object> listened = new ArrayList<>();
-            filter(VerificationMode.ENFORCE, (chain, proof, influence, method, target, body) -> {
+            filter(VerificationMode.ENFORCE, (chain, proof, blocks, method, target, body) -> {
                 listened.add(warnings.list.size());
                 listened.add(RequestContext.isOpen());
                 listened.add(RequestContext.inboundChain().get(0).rid());
-                listened.add(RequestContext.influence());
+                listened.add(RequestContext.added());
             }).doFilter(paymentRequest(validHeaders(), TO_PAYMENT), firstResponse, new MockFilterChain(first));
 
             assertEquals(List.of(1, true, "rid-1", List.of()), listened,
                     "the leak was ended first, and the listener ran in the request's own scope");
             assertEquals(200, firstResponse.getStatus());
             assertTrue(first.reached && first.scoped);
-            assertEquals(List.of(), first.influence, "nothing the leaked scope held reaches the request");
+            assertEquals(List.of(), first.added, "nothing the leaked scope held reaches the request");
             assertTrue(!RequestContext.isOpen());
             assertEquals(1, warnings.list.size());
             String warning = warnings.list.get(0).getFormattedMessage();
@@ -571,7 +654,7 @@ class InboundFilterTest {
 
             assertEquals(403, refused.getStatus());
             assertTrue(!RequestContext.isOpen(), "the thread is clean after a refusal too");
-            assertEquals(List.of(), RequestContext.influence());
+            assertEquals(List.of(), RequestContext.added());
             assertEquals(2, warnings.list.size());
         } finally {
             filterLog.detachAppender(warnings);

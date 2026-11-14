@@ -22,7 +22,9 @@ import org.paztport.core.policy.KeyringFile;
 import org.paztport.core.policy.ProofBundle;
 import org.paztport.core.policy.SignedRoot;
 import org.paztport.core.session.ReplyCert;
+import org.paztport.core.session.Requirement;
 import org.paztport.core.stamp.Stamper;
+import org.paztport.core.verify.ExtensionSettings;
 import org.paztport.core.verify.InMemoryNonceCache;
 import org.paztport.core.verify.VerifierConfig;
 import org.paztport.http.PartnerSessions;
@@ -43,8 +45,9 @@ import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
 /**
- * The beans for calls between organisations: the egress's {@link BoundaryClient}, and the partner entry's session
- * registry, handshake endpoint and unsafe-session gate. The partner's filter is registered beside the inbound
+ * The beans for calls between organisations: the egress's {@link BoundaryClient} and what it requires of the partner,
+ * and the partner entry's session registry, handshake endpoint and unsafe-session gate. Both sides take this
+ * service's one {@link ExtensionSettings}. The partner's filter is registered beside the inbound
  * filter, in {@link PaztportAutoConfiguration}, which imports this; it is not for an application to use directly.
  */
 @Configuration(proxyBeanMethods = false)
@@ -67,7 +70,7 @@ public class PartnerConfiguration {
     @ConditionalOnProperty("paztport.boundary.url")
     BoundaryClient paztportBoundaryClient(PaztportProperties props, ObjectProvider<Stamper> stamper,
             ObjectProvider<ProofBundle> bundle, ObjectProvider<SslBundles> ssl,
-            ObjectProvider<BoundaryListener> listener) {
+            ObjectProvider<BoundaryListener> listener, ExtensionSettings extensions, Requirement requirement) {
         PaztportProperties.Boundary b = props.getBoundary();
         Map<String, String> needed = new LinkedHashMap<>();
         needed.put("paztport.key-path", props.getKeyPath());
@@ -123,6 +126,8 @@ public class PartnerConfiguration {
                     .pinnedPartnerKey(partnerPin)
                     .blindingKey(blindingKey)
                     .listener(told)
+                    .extensions(extensions)
+                    .requires(requirement)
                     .http(http)
                     .readTimeout(readTimeout)
                     .sessionIdleMs(b.getSessionIdleMs())
@@ -130,6 +135,22 @@ public class PartnerConfiguration {
         } catch (RuntimeException e) {
             http.shutdownNow();
             throw e instanceof BoundaryClient.InvalidSetting invalid ? inTermsOfTheProperty(invalid, b) : e;
+        }
+    }
+
+    /**
+     * What the egress requires of the partner, from {@code paztport.boundary.requires} and
+     * {@code paztport.boundary.continue-without-required}: {@link Requirement#NONE} when nothing is required. It is
+     * built on every service, egress or not, so a name {@link Requirement#of} refuses fails the start wherever it is
+     * written, naming the property, rather than waiting for a boundary URL to be read.
+     */
+    @Bean
+    Requirement paztportBoundaryRequirement(PaztportProperties props) {
+        PaztportProperties.Boundary b = props.getBoundary();
+        try {
+            return Requirement.of(b.getRequires(), b.isContinueWithoutRequired());
+        } catch (IllegalArgumentException refused) {
+            throw new IllegalStateException("paztport.boundary.requires is refused: " + refused.getMessage(), refused);
         }
     }
 
@@ -166,18 +187,19 @@ public class PartnerConfiguration {
     @Bean
     @ConditionalOnProperty("paztport.partner.enabled")
     @ConditionalOnMissingBean(PartnerSessions.class)
-    PartnerSessions paztportPartnerSessions(PaztportProperties props) {
-        return partnerSessions(props, System::currentTimeMillis);
+    PartnerSessions paztportPartnerSessions(PaztportProperties props, ExtensionSettings extensions) {
+        return partnerSessions(props, extensions, System::currentTimeMillis);
     }
 
     /**
-     * The partner's session registry as {@link #paztportPartnerSessions} builds it, judged by {@code clock} (ms since
-     * the epoch) at startup and from then on. Package-private, for tests, which move time. An application that
+     * The partner's session registry as {@link #paztportPartnerSessions} builds it, with {@code extensions} for every
+     * session verifier and every reply's list, judged by {@code clock} (ms since the epoch) at startup and from then
+     * on. Package-private, for tests, which move time. An application that
      * defines a {@link PartnerSessions} bean of its own, with {@link PartnerSessions#builder}, has it used in place
      * of this one, judged by whatever clock it gave the builder: that is a choice it makes in code, as it would be
      * for any other bean it replaces, and never one a stray clock bean makes for it.
      */
-    static PartnerSessions partnerSessions(PaztportProperties props, LongSupplier clock) {
+    static PartnerSessions partnerSessions(PaztportProperties props, ExtensionSettings extensions, LongSupplier clock) {
         PaztportProperties.Partner p = props.getPartner();
         if (props.isVerify()) {
             throw new IllegalStateException("paztport.partner.enabled cannot be combined with paztport.verify=true");
@@ -245,6 +267,7 @@ public class PartnerConfiguration {
                     .runMaxAgeMs(runMaxAgeMs)
                     .maxSessionsPerPeer(p.getMaxSessionsPerPeer())
                     .sessionIdleMs(p.getSessionIdleMs())
+                    .extensions(extensions)
                     .build();
         } catch (PartnerSessions.InvalidMaterial e) {
             throw new IllegalStateException(message(e.fault()));

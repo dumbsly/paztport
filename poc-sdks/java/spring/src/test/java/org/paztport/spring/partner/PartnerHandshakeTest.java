@@ -22,6 +22,7 @@ import java.util.Base64;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.AfterAll;
@@ -34,6 +35,7 @@ import org.paztport.core.policy.KeyringFile;
 import org.paztport.core.policy.PolicyBuilder;
 import org.paztport.core.session.ReplyCert;
 import org.paztport.core.session.ReplyCheck;
+import org.paztport.core.session.Requirement;
 import org.paztport.core.session.SessionReply;
 import org.paztport.core.session.SessionRequest;
 import org.paztport.core.session.Sessions;
@@ -125,6 +127,7 @@ class PartnerHandshakeTest {
         registry.add("paztport.partner.client-origins[0]", () -> "payment");
         registry.add("paztport.partner.unsafe-disabled[0]", () -> "POST /refund");
         registry.add("paztport.partner.max-sessions-per-peer", () -> "2");
+        registry.add("paztport.extensions.acts-on[0]", () -> "influence");
     }
 
     private static String fixture(String name) throws IOException {
@@ -214,7 +217,8 @@ class PartnerHandshakeTest {
         SessionReply reply = SessionReply.parse(answer.body());
         assertEquals(reply.toJson(), answer.body(), "the reply exactly as the SDK writes it");
         assertEquals(ReplyCheck.ATTESTED,
-                Sessions.checkReply(answer.body(), req, PSP_PIN, "psp", System.currentTimeMillis()));
+                Sessions.checkReply(answer.body(), req, PSP_PIN, "psp", System.currentTimeMillis(),
+                        Requirement.NONE));
         assertOpen("orders", reply.sess());
         assertThat(logs.list.stream().map(ILoggingEvent::getFormattedMessage).toList())
                 .contains("PAZTPORT_TRACE session peer=orders status=attested");
@@ -237,7 +241,8 @@ class PartnerHandshakeTest {
         assertEquals(NOT_AFTER, reply.get("serverKeyringNotAfter").longValue());
         assertEquals(NOT_AFTER, reply.get("serverRoot").get("notAfter").longValue());
         assertEquals("attested", reply.get("status").asText());
-        assertEquals(ReplyCheck.ATTESTED, Sessions.checkReply(body, req, PSP_PIN, "psp", System.currentTimeMillis()));
+        assertEquals(ReplyCheck.ATTESTED, Sessions.checkReply(body, req, PSP_PIN, "psp", System.currentTimeMillis(),
+                Requirement.NONE));
         assertOpen("orders", reply.get("sess").asText());
     }
 
@@ -251,14 +256,32 @@ class PartnerHandshakeTest {
         long now = System.currentTimeMillis();
 
         assertEquals(JSON.readTree(CERT.toJson()), reply.get("serverReplyCert"));
-        assertEquals(ReplyCheck.ATTESTED, Sessions.checkReply(body, req, PSP_PIN, "psp", now));
-        assertEquals(ReplyCheck.BAD_SIGNATURE, Sessions.checkReply(body, req, PSP_PIN, "ledger", now));
-        assertEquals(ReplyCheck.BAD_SIGNATURE, Sessions.checkReply(body, req, PSP_PIN, "psp", CERT.notAfter() + 1));
+        assertEquals(ReplyCheck.ATTESTED, Sessions.checkReply(body, req, PSP_PIN, "psp", now, Requirement.NONE));
+        assertEquals(ReplyCheck.BAD_SIGNATURE,
+                Sessions.checkReply(body, req, PSP_PIN, "ledger", now, Requirement.NONE));
+        assertEquals(ReplyCheck.BAD_SIGNATURE, Sessions.checkReply(body, req, PSP_PIN, "psp", CERT.notAfter() + 1,
+                Requirement.NONE));
         SessionReply read = SessionReply.parse(body);
         SessionReply stripped = new SessionReply(read.serverRoot(), read.serverPolicyKey(), read.serverKeyring(), null,
                 read.serverKeyringNotAfter(), null, read.nonce(), read.sess(), read.status(), read.disabled(),
-                read.sig());
-        assertEquals(ReplyCheck.BAD_SIGNATURE, Sessions.checkReply(stripped.toJson(), req, PSP_PIN, "psp", now));
+                read.extensions(), read.sig());
+        assertEquals(ReplyCheck.BAD_SIGNATURE, Sessions.checkReply(stripped.toJson(), req, PSP_PIN, "psp", now,
+                Requirement.NONE));
+    }
+
+    // Every reply lists what the partner acts on (spec sessions.md, The reply), so a client that requires influence of
+    // it may call in the session, and one that requires a name it does not list may not.
+    @Test
+    void theReplyListsWhatThePartnerActsOn() throws Exception {
+        SessionRequest req = request(Sessions.newNonce());
+        String body = post(client("orders"), json(req)).body();
+        long now = System.currentTimeMillis();
+
+        assertEquals(List.of("influence"), SessionReply.parse(body).extensions());
+        assertEquals(ReplyCheck.ATTESTED, Sessions.checkReply(body, req, PSP_PIN, "psp", now,
+                Requirement.of(Set.of("influence"), false)));
+        assertEquals(ReplyCheck.EXTENSION_REQUIRED, Sessions.checkReply(body, req, PSP_PIN, "psp", now,
+                Requirement.of(Set.of("audit"), false)));
     }
 
     @Test

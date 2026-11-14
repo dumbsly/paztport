@@ -15,6 +15,7 @@ import org.paztport.core.policy.KeyringFile;
 import org.paztport.core.policy.ProofBundle;
 import org.paztport.core.policy.SignedRoot;
 import org.paztport.core.stamp.Stamper;
+import org.paztport.core.verify.ExtensionSettings;
 import org.paztport.core.verify.InMemoryNonceCache;
 import org.paztport.core.verify.NonceCache;
 import org.paztport.core.verify.VerifierConfig;
@@ -38,8 +39,9 @@ import org.springframework.core.type.AnnotatedTypeMetadata;
 
 /**
  * Builds what this service signs and verifies with from its {@code paztport.*} files and settings: its stamper and
- * route proofs, the pinned verifiers for requests and for responses, and the verification mode with its admin
- * endpoint. {@link PaztportAutoConfiguration} imports it; it is not for an application to use directly.
+ * route proofs, its extension settings, the pinned verifiers for requests and for responses, and the verification
+ * mode with its admin endpoint. {@link PaztportAutoConfiguration} imports it; it is not for an application to use
+ * directly.
  */
 @Configuration(proxyBeanMethods = false)
 public class TrustConfiguration {
@@ -56,6 +58,24 @@ public class TrustConfiguration {
                 props.isOrigin(),
                 () -> UUID.randomUUID().toString(),
                 System::currentTimeMillis);
+    }
+
+    /**
+     * The extensions this service acts on and the names it carries, from {@code paztport.extensions.*}, built once
+     * here and given to everything that verifies, receives or calls for this service: both verifiers, the receiver,
+     * the caller, the partner's sessions and the egress. One instance means a service cannot verify under one
+     * {@code acts-on} and build its blocks or read what it is handed under another. {@link ExtensionSettings#of} is
+     * the only check of the names, and what it refuses fails the start, naming the property.
+     */
+    @Bean
+    ExtensionSettings paztportExtensionSettings(PaztportProperties props) {
+        PaztportProperties.Extensions e = props.getExtensions();
+        try {
+            return ExtensionSettings.of(e.getActsOn(), e.getAllowed());
+        } catch (IllegalArgumentException refused) {
+            throw new IllegalStateException("paztport.extensions.acts-on or paztport.extensions.allowed is refused: "
+                    + refused.getMessage(), refused);
+        }
     }
 
     @Bean
@@ -76,7 +96,10 @@ public class TrustConfiguration {
         return new InMemoryNonceCache(VerifierConfig.nonceTtlFor(props.getMaxAgeMs()));
     }
 
-    /** The requests' verifier: the response verifier's pinned material, over the requests' {@link NonceCache}. */
+    /**
+     * The requests' verifier: the response verifier's pinned material and extension settings, over the requests'
+     * {@link NonceCache}.
+     */
     @Bean
     @ConditionalOnProperty({"paztport.keyring-path", "paztport.root-path", "paztport.policy-key-path"})
     Verifier paztportVerifier(PaztportProperties props, NonceCache nonces, ResponseVerifier responses) {
@@ -94,16 +117,17 @@ public class TrustConfiguration {
         }
         VerifierConfig m = responses.material();
         return new Verifier(new VerifierConfig(m.keyrings(), m.roots(), m.policyNotAfter(), m.allowedOrigins(),
-                m.sess(), nonces, m.clock(), m.callMaxAgeMs(), m.runMaxAgeMs()));
+                m.sess(), nonces, m.clock(), m.callMaxAgeMs(), m.runMaxAgeMs(), m.extensions()));
     }
 
     /**
-     * The pinned material, read and judged once, and the verifier for responses over the starter's own in-memory
-     * cache, which remembers a key for {@link VerifierConfig#nonceTtlFor(long)} of the call window.
+     * The pinned material, read and judged once, with this service's extension settings, and the verifier for
+     * responses over the starter's own in-memory cache, which remembers a key for
+     * {@link VerifierConfig#nonceTtlFor(long)} of the call window.
      */
     @Bean
     @ConditionalOnProperty({"paztport.keyring-path", "paztport.root-path", "paztport.policy-key-path"})
-    ResponseVerifier paztportResponseVerifier(PaztportProperties props) {
+    ResponseVerifier paztportResponseVerifier(PaztportProperties props, ExtensionSettings extensions) {
         if (props.getOrigins() == null || props.getOrigins().isEmpty()) {
             throw new IllegalStateException("paztport.origins is not set: a service holding trust material names "
                     + "the origins it accepts, for example paztport.origins=gateway (at a partner they check only "
@@ -147,7 +171,8 @@ public class TrustConfiguration {
                 new InMemoryNonceCache(VerifierConfig.nonceTtlFor(props.getMaxAgeMs())),
                 System::currentTimeMillis,
                 props.getMaxAgeMs(),
-                runMaxAgeMs), roots);
+                runMaxAgeMs,
+                extensions), roots);
     }
 
     private static List<Path> paths(List<String> names) {

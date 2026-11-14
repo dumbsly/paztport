@@ -21,6 +21,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import org.paztport.core.stamp.Stamper;
+import org.paztport.core.verify.ExtensionSettings;
 import org.paztport.core.verify.Peer;
 import org.paztport.core.verify.Verifier;
 import org.paztport.http.Accepted;
@@ -122,7 +123,7 @@ public final class InboundFilter extends OncePerRequestFilter {
 
     /** The headers a receiver reads, which are the only ones it is handed. */
     private static final List<String> RECEIVED = List.of(PaztportHeaders.CHAIN, PaztportHeaders.PROOF,
-            PaztportHeaders.INFLUENCE, PaztportHeaders.SESSION);
+            PaztportHeaders.EXTENSIONS, PaztportHeaders.SESSION);
 
     /** The request attribute holding the answer this filter holds for attestation until it is finished. */
     private static final String PENDING = InboundFilter.class.getName() + ".pending";
@@ -140,8 +141,8 @@ public final class InboundFilter extends OncePerRequestFilter {
      * @param verifyRequests true where requests are verified under the mode ({@code paztport.verify=true}); it
      *     needs a verifier, a mode holder and a publisher, and under {@code OFF} it neither verifies nor attests.
      *     Otherwise the verifier only decides attestation.
-     * @param origin true for an entry point ({@code paztport.origin=true}), which ignores the inbound chain and
-     *     influence and never attests
+     * @param origin true for an entry point ({@code paztport.origin=true}), which ignores the inbound chain and its
+     *     blocks and never attests
      * @param receiver this service's name
      * @param modeHolder where the current {@link VerificationMode} is read, once per request; needed where
      *     {@code verifyRequests}, otherwise unused and may be null
@@ -158,18 +159,20 @@ public final class InboundFilter extends OncePerRequestFilter {
      *     where the application has no {@code ObservationRegistry} bean
      * @param unverifiedPaths the path prefixes ({@code paztport.unverified-paths}) that are neither verified nor
      *     attested, each a first path segment starting with {@code /}; empty where every path is verified
+     * @param extensions the extensions this service acts on and the names it carries; the verifier's own where there
+     *     is one, which the receiver refuses to differ, and the only statement of them where there is none
      */
     InboundFilter(
             Verifier verifier, boolean verifyRequests, boolean origin, String receiver, ModeHolder modeHolder,
             EventPublisher publisher, ReceivedRequestListener listener, Stamper stamper,
             OperationResolver operations, ObservationRegistry observations,
-            List<String> unverifiedPaths) {
+            List<String> unverifiedPaths, ExtensionSettings extensions) {
         if (verifyRequests && (verifier == null || modeHolder == null || publisher == null)) {
             throw new IllegalArgumentException("verifying requests needs a verifier, a mode holder and a publisher");
         }
         this.receiver = HttpReceiver.builder(receiver).verifier(verifier).verifyRequests(verifyRequests)
                 .origin(origin).publisher(publisher).listener(listener).stamper(stamper)
-                .operations(operations == null ? null : operations.table()).build();
+                .operations(operations == null ? null : operations.table()).extensions(extensions).build();
         this.verifyRequests = verifyRequests;
         this.modeHolder = modeHolder;
         this.operations = operations;

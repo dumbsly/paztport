@@ -40,7 +40,9 @@ import org.junit.jupiter.api.io.TempDir;
 import org.paztport.core.policy.Keyring;
 import org.paztport.core.policy.OperationTable;
 import org.paztport.core.policy.PolicyBuilder;
+import org.paztport.core.stamp.Block;
 import org.paztport.core.stamp.Stamper;
+import org.paztport.core.verify.ExtensionSettings;
 import org.paztport.core.verify.InMemoryNonceCache;
 import org.paztport.core.verify.PinnedKeyring;
 import org.paztport.core.verify.PinnedRoot;
@@ -215,7 +217,8 @@ class DispatchCheckTest {
         try (Service orders = start(dir, "enforce")) {
             Service.Exchange exchange = orders.exchange("GET", "/orders/search?forward=yes", "orders#search", null);
             HttpWire.ResponseCheck check = HttpWire.verifyResponse(orders.gatewayVerifier(),
-                    exchange.sent().chain(), exchange.sent().proof(), attestation(exchange.answer()), 200,
+                    exchange.sent().chain(), List.of(Block.EMPTY), exchange.sent().proof(),
+                    attestation(exchange.answer()), 200,
                     "getOrder".getBytes(StandardCharsets.UTF_8), "gateway", null);
             assertThat(check.result().reason()).isEqualTo(ReasonCode.OK);
         }
@@ -759,15 +762,12 @@ class DispatchCheckTest {
             String rid = UUID.randomUUID().toString();
             Stamper.Stamped sent = new Stamper("gateway", "gw-1", world.gateway.getPrivate(), true, () -> rid,
                     System::currentTimeMillis).next(null, rcv, RequestBinding.compute(method, target, body),
-                    List.of(), built.bundles().get("gateway"));
+                    Block.EMPTY, built.bundles().get("gateway"));
             HttpRequest.Builder request = TestHttp.request(URI.create("http://127.0.0.1:" + port + target))
                     .method(method, body.length == 0 ? HttpRequest.BodyPublishers.noBody()
                             : HttpRequest.BodyPublishers.ofByteArray(body))
-                    .header(PaztportHeaders.CHAIN, HttpWire.encodeChain(sent.chain()));
-            String influence = HttpWire.encodeInfluence(List.of());
-            if (influence != null) {
-                request.header(PaztportHeaders.INFLUENCE, influence);
-            }
+                    .header(PaztportHeaders.CHAIN, HttpWire.encodeChain(sent.chain()))
+                    .header(PaztportHeaders.EXTENSIONS, HttpWire.encodeBlocks(List.of(Block.EMPTY)));
             if (sent.proof() != null) {
                 request.header(PaztportHeaders.PROOF, HttpWire.encodeProof(sent.proof()));
             }
@@ -788,7 +788,7 @@ class DispatchCheckTest {
                             "orders", world.orders.getPublic(), "payment", world.payment.getPublic())), notAfter)),
                     List.of(new PinnedRoot(built.signedRoot().rootBytes(), built.signedRoot().rootId(), notAfter)),
                     notAfter, Set.of("gateway"), "", new InMemoryNonceCache(60_000), System::currentTimeMillis,
-                    30_000, 300_000));
+                    30_000, 300_000, ExtensionSettings.NONE));
         }
 
         @Override

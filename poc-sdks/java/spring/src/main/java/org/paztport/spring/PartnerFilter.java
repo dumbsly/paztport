@@ -36,8 +36,9 @@ import org.springframework.web.filter.OncePerRequestFilter;
  * authenticated ({@link PeerIdentity}), through the request context
  * ({@link RequestContext#accept(PartnerReceiver, InboundRequest, PeerCert)}), which first ends any scope left open
  * on the thread and opens the call's own. It then either writes the receiver's refusal or serves the call in that
- * scope, which holds what the receiver decided: in an unsafe session, no influence and no verified chain, whatever
- * headers came; in an attested one, the verified influence, owners included, and the verified chain.
+ * scope, which holds what the receiver decided: in an unsafe session, nothing handed on and no verified chain,
+ * whatever headers came; in an attested one, the boundary block's items as handed on, owners included, and the
+ * verified chain.
  * {@link org.paztport.spring.partner.PartnerGate} then refuses the endpoints switched off for unsafe sessions.
  *
  * <p>Every request gets {@link #SESSION_STATUS}, {@code attested} or {@code unsafe}, for the gate; a refused one is
@@ -49,8 +50,8 @@ import org.springframework.web.filter.OncePerRequestFilter;
  * from the call is tagged, only fixed words and reason codes' names.
  *
  * <p>The handshake endpoint and the paths in {@code paztport.unverified-paths} are not filtered. A handler under
- * those paths therefore runs outside any scope, with no influence and no verified chain, and the gate counts it as
- * unsafe.
+ * those paths therefore runs outside any scope, with nothing handed on and no verified chain, and the gate counts
+ * it as unsafe.
  */
 public final class PartnerFilter extends OncePerRequestFilter {
 
@@ -109,9 +110,9 @@ public final class PartnerFilter extends OncePerRequestFilter {
      * recorded as an observation that is open while the decision runs and stopped before this returns, so before the
      * handler. Every tag is known only once it is made. If an observation handler throws once the decision is made,
      * as its scope closes or as it stops, the call's scope is ended before the exception goes on, since nothing else
-     * would close it and in an attested session it holds the verified chain and influence. One that throws as it
-     * records the decision's exception, or as it stops while that exception, or its scope's, is going on, is added
-     * to it as suppressed, so the first exception is the one that goes on.
+     * would close it and in an attested session it holds the verified chain and what was handed on. One that throws
+     * as it records the decision's exception, or as it stops while that exception, or its scope's, is going on, is
+     * added to it as suppressed, so the first exception is the one that goes on.
      */
     private RequestContext.Entered<PartnerAccepted> observed(InboundRequest inbound, PeerCert peer) {
         Observation observation = Observation

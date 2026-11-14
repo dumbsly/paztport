@@ -14,6 +14,7 @@ import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import jakarta.servlet.http.HttpServletRequest;
 import java.io.IOException;
@@ -22,10 +23,12 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.KeyPair;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.AfterAll;
@@ -43,11 +46,14 @@ import org.paztport.core.policy.PolicyBuilder;
 import org.paztport.core.session.ReplyCert;
 import org.paztport.core.session.SessionRequest;
 import org.paztport.core.session.Sessions;
+import org.paztport.core.stamp.Block;
 import org.paztport.core.stamp.Stamp;
 import org.paztport.core.stamp.Stamper;
-import org.paztport.http.ContextAccess;
+import org.paztport.core.verify.ExtensionSettings;
+import org.paztport.core.verify.HandOver;
 import org.paztport.http.HttpSessions;
 import org.paztport.http.RequestContext;
+import org.paztport.http.TestScopes;
 import org.paztport.http.boundary.BoundaryClient;
 import org.paztport.http.wire.HttpWire;
 import org.paztport.http.wire.PaztportHeaders;
@@ -72,8 +78,9 @@ import org.springframework.web.client.RestClient;
 
 /**
  * The partner's request path through the real container under mutual TLS: a boundary chain verifies only in the
- * attested session of the peer that sent it, and an unsafe session, or none, reaches the handlers with no influence
- * and no verified chain, and never reaches an endpoint switched off for it. The partner's entry is named
+ * attested session of the peer that sent it, and an unsafe session, or none, reaches the handlers with nothing handed
+ * on and no verified chain, and never reaches an endpoint switched off for it. The partner acts on influence, so in
+ * an attested session its handlers are handed the boundary block's entries. The partner's entry is named
  * {@code localhost}, after the fixture certificate it serves; the shop's egress is the fixture {@code orders}.
  */
 @SpringBootTest(classes = PartnerRequestTest.App.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
@@ -106,6 +113,9 @@ class PartnerRequestTest {
     private static final List<InfluenceEntry> INFLUENCE = List.of(
             new InfluenceEntry(InfluenceClass.THIRD_PARTY, "http:tickets", "h-ticket", "cid-1", null),
             new InfluenceEntry(InfluenceClass.PRIVATE, "http:orders", "h-order", "cid-2", "alice"));
+    /** The boundary block a boundary call carries, naming influence with {@link #INFLUENCE}. */
+    private static final Block INFLUENCE_BLOCK = Influence.block(INFLUENCE, List.of());
+    private static final ExtensionSettings ACTS_ON_INFLUENCE = ExtensionSettings.of(Set.of(Influence.NAME), null);
     private static Path trust;
 
     private static String pub(KeyPair k) {
@@ -138,6 +148,7 @@ class PartnerRequestTest {
         registry.add("paztport.partner.client-origins[0]", () -> "orders");
         registry.add("paztport.partner.unsafe-disabled[0]", () -> "POST /refund");
         registry.add("paztport.partner.unsafe-disabled[1]", () -> "GET /statement");
+        registry.add("paztport.extensions.acts-on[0]", () -> "influence");
     }
 
     @AfterAll
@@ -157,9 +168,9 @@ class PartnerRequestTest {
     }
 
     /**
-     * Each handler answers with what the request scope held when it ran. The body is written here with the SDK's own
-     * Jackson and handed over as a string, so the assertions read the influence exactly as the SDK writes it rather
-     * than as the web framework would serialise the SDK's objects.
+     * Each handler answers with what the request scope held when it ran: the entries it was handed under influence,
+     * each as the SDK writes it, in a JSON string, so the assertions read them exactly as the SDK does rather than as
+     * the web framework would serialise the SDK's objects.
      */
     @RestController
     static class Handlers {
@@ -181,7 +192,12 @@ class PartnerRequestTest {
 
         private static String seen(HttpServletRequest request) throws IOException {
             ObjectNode seen = JSON.createObjectNode();
-            seen.set("influence", JSON.readTree(Influence.toJson(RequestContext.influence())));
+            HandOver handedOn = RequestContext.handedOn();
+            ArrayNode influence = seen.putArray("influence");
+            if (handedOn != null) {
+                Influence.readRequest(handedOn.under(Influence.NAME)).entries()
+                        .forEach(entry -> influence.add(entry.toJson()));
+            }
             seen.put("verified", RequestContext.verifiedChain() != null);
             seen.put("session", (String) request.getAttribute(PartnerFilter.SESSION_STATUS));
             return JSON.writeValueAsString(seen);
@@ -207,7 +223,8 @@ class PartnerRequestTest {
         trace.detachAppender(logs);
         trace.setLevel(null);
         trace.setAdditive(true);
-        ContextAccess.reset();
+        // Every scope a test opens is closed by it or by the filter; one left open would follow this thread.
+        assertFalse(RequestContext.isOpen(), "a test left a request scope open on this thread");
     }
 
     private static final List<PooledTlsClient> POOLED = new CopyOnWriteArrayList<>();
@@ -224,6 +241,13 @@ class PartnerRequestTest {
         PooledTlsClient pooled = PooledTlsClient.of(fixtureBundle(name));
         POOLED.add(pooled);
         return pooled.builder().build();
+    }
+
+    /** The entries a handler answered it was handed, read back as the SDK reads them. */
+    private static List<InfluenceEntry> handed(JsonNode seen) {
+        List<InfluenceEntry> entries = new ArrayList<>();
+        seen.get("influence").forEach(item -> entries.add(InfluenceEntry.parse(item.textValue())));
+        return entries;
     }
 
     /** {@code types} is every {@code Content-Type} header the answer carried, as sent. */
@@ -254,7 +278,7 @@ class PartnerRequestTest {
     /** An internal chain the shop's egress verified, as far as the boundary stamp needs one: its rid. */
     private static List<Stamp> internal(String rid) {
         return new Stamper("gateway", "gw-1", GATEWAY_KEY.getPrivate(), true, () -> rid, System::currentTimeMillis)
-                .next(null, "orders", "unused", List.of(), null).chain();
+                .next(null, "orders", "unused", Block.EMPTY, null).chain();
     }
 
     private static Stamper orders() {
@@ -262,14 +286,16 @@ class PartnerRequestTest {
                 System::currentTimeMillis);
     }
 
-    /** The headers of a boundary call from {@code orders} in {@code sess}, carrying {@link #INFLUENCE}. */
+    /** The headers of a boundary call from {@code orders} in {@code sess}, carrying {@link #INFLUENCE_BLOCK}. */
     private static Map<String, String> boundary(String sess, String rid, String path, byte[] body) {
         Stamper.Stamped stamped = orders().boundary(internal(rid), sess, PARTNER,
-                RequestBinding.compute("POST", path, body), INFLUENCE, SHOP_BUILT.bundles().get("orders"));
-        return headers(sess, stamped.chain(), stamped);
+                RequestBinding.compute("POST", path, body), INFLUENCE_BLOCK, SHOP_BUILT.bundles().get("orders"));
+        return headers(sess, stamped.chain(), stamped, List.of(INFLUENCE_BLOCK));
     }
 
-    private static Map<String, String> headers(String sess, List<Stamp> chain, Stamper.Stamped proofFrom) {
+    /** The headers of a call carrying {@code chain} and its {@code blocks}, one per stamp. */
+    private static Map<String, String> headers(String sess, List<Stamp> chain, Stamper.Stamped proofFrom,
+            List<Block> blocks) {
         Map<String, String> headers = new LinkedHashMap<>();
         if (sess != null) {
             headers.put(PaztportHeaders.SESSION, sess);
@@ -278,7 +304,7 @@ class PartnerRequestTest {
         if (proofFrom != null && proofFrom.proof() != null) {
             headers.put(PaztportHeaders.PROOF, HttpWire.encodeProof(proofFrom.proof()));
         }
-        headers.put(PaztportHeaders.INFLUENCE, HttpWire.encodeInfluence(INFLUENCE));
+        headers.put(PaztportHeaders.EXTENSIONS, HttpWire.encodeBlocks(blocks));
         return headers;
     }
 
@@ -311,7 +337,7 @@ class PartnerRequestTest {
 
         assertEquals(200, answer.status(), answer.body());
         JsonNode seen = answer.json();
-        assertEquals(INFLUENCE, Influence.parse(seen.get("influence").toString()), "both entries, owners included");
+        assertEquals(INFLUENCE, handed(seen), "both entries of the boundary block, owners included");
         assertTrue(seen.get("verified").asBoolean());
         assertEquals("attested", seen.get("session").asText());
         assertThat(lines("PAZTPORT_TRACE request ")).containsExactly("PAZTPORT_TRACE request rid=rid-a reason=OK "
@@ -326,9 +352,10 @@ class PartnerRequestTest {
 
         // The shop's internal chain, sent as it is: gateway, then orders, inside the mesh's empty session.
         List<Stamp> gatewayFirst = new Stamper("gateway", "gw-1", GATEWAY_KEY.getPrivate(), true, () -> "rid-i",
-                System::currentTimeMillis).next(null, "orders", "unused", List.of(), null).chain();
-        Stamper.Stamped twoStamps = orders().next(gatewayFirst, PARTNER, bind, INFLUENCE, null);
-        Answer internal = post(orders, "/refund", headers(sess, twoStamps.chain(), null), REFUND);
+                System::currentTimeMillis).next(null, "orders", "unused", Block.EMPTY, null).chain();
+        Stamper.Stamped twoStamps = orders().next(gatewayFirst, PARTNER, bind, INFLUENCE_BLOCK, null);
+        Answer internal = post(orders, "/refund",
+                headers(sess, twoStamps.chain(), null, List.of(Block.EMPTY, INFLUENCE_BLOCK)), REFUND);
 
         // The other organisation is told the reason only, never whom this side suspects.
         assertEquals(403, internal.status());
@@ -336,9 +363,10 @@ class PartnerRequestTest {
 
         // One stamp from orders, but in the mesh's empty session rather than this one.
         Stamper.Stamped meshStamp = new Stamper("orders", "orders-1", SHOP_KEY.getPrivate(), true,
-                () -> "rid-j", System::currentTimeMillis).next(null, PARTNER, bind, INFLUENCE,
+                () -> "rid-j", System::currentTimeMillis).next(null, PARTNER, bind, INFLUENCE_BLOCK,
                         SHOP_BUILT.bundles().get("orders"));
-        Answer mesh = post(orders, "/refund", headers(sess, meshStamp.chain(), meshStamp), REFUND);
+        Answer mesh = post(orders, "/refund", headers(sess, meshStamp.chain(), meshStamp, List.of(INFLUENCE_BLOCK)),
+                REFUND);
 
         assertEquals(403, mesh.status());
         assertEquals("SESSION_UNKNOWN", mesh.reason());
@@ -360,7 +388,7 @@ class PartnerRequestTest {
     void anUnsafeSessionRefusalIsPlainApplicationJson() throws Exception {
         RestClient orders = client("orders");
 
-        Answer refund = post(orders, "/refund", headers(null, internal("rid-c2"), null), REFUND);
+        Answer refund = post(orders, "/refund", headers(null, internal("rid-c2"), null, List.of(Block.EMPTY)), REFUND);
 
         assertEquals(403, refund.status());
         assertEquals("{\"reason\":\"UNSAFE_SESSION\"}", refund.body());
@@ -413,7 +441,7 @@ class PartnerRequestTest {
         // In the unsafe session, even sending what an attested call would; and again with no session at all.
         for (String sess : new String[] {unsafe, null}) {
             Map<String, String> headers = sess == null
-                    ? headers(null, internal("rid-u"), null)
+                    ? headers(null, internal("rid-u"), null, List.of(Block.EMPTY))
                     : boundary(sess, "rid-u", "/refund", REFUND);
 
             Answer refund = post(orders, "/refund", headers, REFUND);
@@ -453,8 +481,9 @@ class PartnerRequestTest {
                 "PAZTPORT_TRACE request rid=- reason=- receiver=localhost peer=orders (mTLS) session=unsafe");
     }
 
-    // The egress sends the influence blinded, and the partner verifies the boundary stamp's commitment to it and
-    // applies the owner-aware rule to its classes and owners, which survive.
+    // The egress acts on influence and every stamp of the internal chain it verified names it, so it sends the
+    // request's influence blinded; the partner verifies the boundary stamp's commitment to it and is handed its
+    // classes and owners, which survive (spec influence.md, Blinded influence).
     @Test
     void roundTrip() throws Exception {
         PooledTlsClient tls = PooledTlsClient.of(fixtureBundle("orders"));
@@ -462,11 +491,15 @@ class PartnerRequestTest {
         try (BoundaryClient boundary = BoundaryClient.builder().stamper(orders())
                 .bundle(SHOP_BUILT.bundles().get("orders")).ownRoot(SHOP_BUILT.signedRoot()).ownKeyring(SHOP_RING)
                 .ownPolicyKey(SHOP_PIN).partner(PARTNER).partnerUrl(URI.create("https://localhost:" + port))
-                .pinnedPartnerKey(PSP_PIN).blindingKey(blindingKey).listener(null)
+                .pinnedPartnerKey(PSP_PIN).blindingKey(blindingKey).listener(null).extensions(ACTS_ON_INFLUENCE)
                 .http(tls.httpClient()).readTimeout(tls.readTimeout()).sessionIdleMs(600_000).build()) {
             for (String rid : List.of("rid-t1", "rid-t2")) {
                 try (RequestContext.Scope scope = RequestContext.open()) {
-                    ContextAccess.markVerified(internal(rid));
+                    // The gateway acted on influence and added nothing; orders added the entries its calls gave it.
+                    Block gatewayBlock = Influence.block(List.of(), List.of());
+                    List<Stamp> chain = new Stamper("gateway", "gw-1", GATEWAY_KEY.getPrivate(), true, () -> rid,
+                            System::currentTimeMillis).next(null, "orders", "unused", gatewayBlock, null).chain();
+                    TestScopes.verified(chain, new HandOver(true, chain, List.of(gatewayBlock), ACTS_ON_INFLUENCE));
                     RequestContext.addInfluence(INFLUENCE.toArray(InfluenceEntry[]::new));
 
                     BoundaryClient.Response response = boundary.post("/refund", REFUND);
@@ -475,7 +508,7 @@ class PartnerRequestTest {
                     assertTrue(response.attested());
                     JsonNode seen = JSON.readTree(response.body());
                     assertEquals(BoundaryInfluence.reduce(INFLUENCE, blindingKey, rid, PARTNER, "orders"),
-                            Influence.parse(seen.get("influence").toString()));
+                            handed(seen));
                     assertTrue(seen.get("verified").asBoolean());
                 }
             }

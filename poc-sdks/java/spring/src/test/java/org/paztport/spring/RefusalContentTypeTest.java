@@ -25,12 +25,14 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.paztport.core.crypto.Crypto;
 import org.paztport.core.encoding.Base64Url;
+import org.paztport.core.influence.Influence;
 import org.paztport.core.influence.InfluenceClass;
 import org.paztport.core.influence.InfluenceEntry;
 import org.paztport.core.policy.KeyringFile;
 import org.paztport.core.policy.PolicyBuilder;
 import org.paztport.core.policy.ProofBundle;
 import org.paztport.core.stamp.Stamper;
+import org.paztport.core.verify.ExtensionSettings;
 import org.paztport.core.verify.Verifier;
 import org.paztport.http.ModeHolder;
 import org.paztport.http.RequestContext;
@@ -152,14 +154,18 @@ class RefusalContentTypeTest {
         mode.set(VerificationMode.ENFORCE);
     }
 
-    /** The origin's client, claiming influence the stamp never committed to, or none that parses, as given. */
-    private RestClient client(String influenceHeader) {
+    /**
+     * The origin's client, acting on no extension as the app does, so its stamp commits to the empty block; it sends
+     * {@code blocksHeader} in place of the blocks it stamped: blocks the stamp never committed to, or a header that
+     * does not decode.
+     */
+    private RestClient client(String blocksHeader) {
         return TestHttp.restClient(http).requestInterceptor(new OutboundInterceptor(
                 new Stamper("localhost", "origin-1", APP.getPrivate(), true, () -> UUID.randomUUID().toString(),
-                        System::currentTimeMillis), bundle, verifier, "localhost",
+                        System::currentTimeMillis), bundle, verifier, "localhost", ExtensionSettings.NONE,
                 ObservationRegistry.NOOP))
                 .requestInterceptor((request, body, execution) -> {
-                    request.getHeaders().set(PaztportHeaders.INFLUENCE, influenceHeader);
+                    request.getHeaders().set(PaztportHeaders.EXTENSIONS, blocksHeader);
                     return execution.execute(request, body);
                 }).build();
     }
@@ -167,35 +173,38 @@ class RefusalContentTypeTest {
     private record Answer(int status, byte[] body, List<String> types) {
     }
 
-    private Answer call(String influenceHeader) {
+    private Answer call(String blocksHeader) {
         try (RequestContext.Scope scope = RequestContext.open()) {
-            return client(influenceHeader).get().uri(URI.create("http://localhost:" + port + "/orders"))
+            return client(blocksHeader).get().uri(URI.create("http://localhost:" + port + "/orders"))
                     .exchange((request, response) -> new Answer(response.getStatusCode().value(),
                             response.getBody().readAllBytes(), response.getHeaders().getOrEmpty("Content-Type")),
                             false);
         }
     }
 
+    // Influence claimed in a block the stamp did not commit to fails check 9a (spec verification.md, The live order).
     @Test
     void anEnforcedMeshRefusalIsPlainApplicationJson() {
-        String claimed = HttpWire.encodeInfluence(List.of(
-                new InfluenceEntry(InfluenceClass.THIRD_PARTY, "web:a", "h1", null, null)));
+        String claimed = HttpWire.encodeBlocks(List.of(Influence.block(List.of(
+                new InfluenceEntry(InfluenceClass.THIRD_PARTY, "web:a", "h1", null, null)), List.of())));
 
         Answer refused = call(claimed);
 
         assertEquals(403, refused.status());
-        assertArrayEquals("{\"reason\":\"INFLUENCE_MISMATCH\"}".getBytes(StandardCharsets.UTF_8), refused.body());
+        assertArrayEquals("{\"reason\":\"EXTENSION_MISMATCH\"}".getBytes(StandardCharsets.UTF_8), refused.body());
         assertEquals(List.of("application/json"), refused.types());
     }
 
+    // Audit serves what fails verification, but not blocks that do not read: a request served without verifying is
+    // refused 400 EXTENSION_MISMATCH when its blocks header does not decode.
     @Test
-    void anAuditedUnreadableInfluenceRefusalIsPlainApplicationJson() {
+    void anAuditedUnreadableBlocksRefusalIsPlainApplicationJson() {
         mode.set(VerificationMode.AUDIT);
 
         Answer refused = call("%%%");
 
         assertEquals(400, refused.status());
-        assertArrayEquals("{\"reason\":\"INFLUENCE_MISMATCH\"}".getBytes(StandardCharsets.UTF_8), refused.body());
+        assertArrayEquals("{\"reason\":\"EXTENSION_MISMATCH\"}".getBytes(StandardCharsets.UTF_8), refused.body());
         assertEquals(List.of("application/json"), refused.types());
     }
 }

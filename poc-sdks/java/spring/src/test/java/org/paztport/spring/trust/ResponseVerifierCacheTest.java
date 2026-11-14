@@ -17,6 +17,7 @@ import org.paztport.core.crypto.Crypto;
 import org.paztport.core.encoding.Base64Url;
 import org.paztport.core.policy.KeyringFile;
 import org.paztport.core.policy.PolicyBuilder;
+import org.paztport.core.verify.ExtensionSettings;
 import org.paztport.core.verify.VerifierConfig;
 import org.paztport.spring.PaztportProperties;
 
@@ -46,7 +47,7 @@ class ResponseVerifierCacheTest {
         props.setOrigins(List.of("gateway"));
         props.setMaxAgeMs(20_000);
 
-        ResponseVerifier responses = new TrustConfiguration().paztportResponseVerifier(props);
+        ResponseVerifier responses = new TrustConfiguration().paztportResponseVerifier(props, ExtensionSettings.NONE);
 
         assertThat(responses.material().nonces().ttlMs()).isEqualTo(VerifierConfig.nonceTtlFor(20_000));
     }

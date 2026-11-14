@@ -26,6 +26,7 @@ import java.io.IOException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
+import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpTimeoutException;
 import java.nio.file.Files;
@@ -63,9 +64,12 @@ import org.paztport.core.policy.KeyringFile;
 import org.paztport.core.policy.PolicyBuilder;
 import org.paztport.core.policy.ProofBundle;
 import org.paztport.core.session.ReplyCert;
+import org.paztport.core.session.Requirement;
+import org.paztport.core.stamp.Block;
 import org.paztport.core.stamp.Chains;
 import org.paztport.core.stamp.Stamp;
 import org.paztport.core.stamp.Stamper;
+import org.paztport.core.verify.ExtensionSettings;
 import org.paztport.core.verify.InMemoryNonceCache;
 import org.paztport.core.verify.NonceCache;
 import org.paztport.core.verify.ReasonCode;
@@ -76,6 +80,7 @@ import org.paztport.http.PartnerSessions;
 import org.paztport.http.PeerCert;
 import org.paztport.http.RequestContext;
 import org.paztport.http.SilentPeer;
+import org.paztport.http.boundary.BoundaryClient;
 import org.paztport.http.event.EventAccess;
 import org.paztport.http.event.EventPublisher;
 import org.paztport.http.event.LoggingEventPublisher;
@@ -84,6 +89,7 @@ import org.paztport.http.wire.HttpWire;
 import org.paztport.http.wire.PaztportHeaders;
 import org.paztport.spring.internal.StartupMaterial;
 import org.paztport.spring.outbound.OutboundConfiguration;
+import org.paztport.spring.outbound.OutboundInterceptor;
 import org.paztport.spring.outbound.PooledTlsClient;
 import org.paztport.spring.trust.AdminModeController;
 import org.paztport.spring.trust.ResponseVerifier;
@@ -105,9 +111,16 @@ import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.core.Ordered;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.client.ClientHttpRequestInterceptor;
+import org.springframework.mock.http.client.MockClientHttpRequest;
+import org.springframework.mock.http.client.MockClientHttpResponse;
 import org.springframework.mock.web.MockFilterChain;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.client.ExpectedCount;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.ResourceAccessException;
@@ -219,9 +232,9 @@ class PaztportAutoConfigurationTest {
                     // A request through the verifier spends its key in the application's cache.
                     Stamper.Stamped sent = new Stamper("gateway", "gw-1", gateway.getPrivate(), true,
                             () -> "rid-mine", System::currentTimeMillis)
-                            .next(null, "orders", "b", List.of(),
+                            .next(null, "orders", "b", Block.EMPTY,
                                     ProofBundle.load(dir.resolve("proofs-gateway.json")));
-                    VerifyInput input = new VerifyInput(Chains.toJson(sent.chain()), "b", "[]",
+                    VerifyInput input = new VerifyInput(Chains.toJson(sent.chain()), "b", null,
                             sent.proof().toJson(), "orders", true, "rid-mine|gateway|orders|req", null);
                     assertThat(verifier.verify(input).reason()).isEqualTo(ReasonCode.OK);
                     assertThat(mine.keys).contains("rid-mine|gateway|orders|req");
@@ -245,9 +258,9 @@ class PaztportAutoConfigurationTest {
                     // application's, and the same key again is a replay there.
                     Stamper.Stamped sent = new Stamper("gateway", "gw-1", gateway.getPrivate(), true,
                             () -> "rid-resp", System::currentTimeMillis)
-                            .next(null, "orders", "b", List.of(),
+                            .next(null, "orders", "b", Block.EMPTY,
                                     ProofBundle.load(dir.resolve("proofs-gateway.json")));
-                    VerifyInput input = new VerifyInput(Chains.toJson(sent.chain()), "b", "[]",
+                    VerifyInput input = new VerifyInput(Chains.toJson(sent.chain()), "b", null,
                             sent.proof().toJson(), "orders", true, "rid-resp|orders|resp", null);
                     assertThat(responses.verify(input).reason()).isEqualTo(ReasonCode.OK);
                     assertThat(responses.verify(input).reason()).isEqualTo(ReasonCode.REPLAY);
@@ -637,9 +650,9 @@ class PaztportAutoConfigurationTest {
                         // The guard holds, so a fresh request verifies rather than failing closed as a replay.
                         Stamper.Stamped sent = new Stamper("gateway", "gw-1", gateway.getPrivate(), true,
                                 () -> "rid-" + maxAge, System::currentTimeMillis)
-                                .next(null, "orders", "b", List.of(),
+                                .next(null, "orders", "b", Block.EMPTY,
                                         ProofBundle.load(dir.resolve("proofs-gateway.json")));
-                        VerifyInput input = new VerifyInput(Chains.toJson(sent.chain()), "b", "[]",
+                        VerifyInput input = new VerifyInput(Chains.toJson(sent.chain()), "b", null,
                                 sent.proof().toJson(), "orders", true, "rid-" + maxAge + "|gateway|orders|req", null);
                         assertThat(verifier.verify(input).reason()).isEqualTo(ReasonCode.OK);
                         assertThat(verifier.verify(input).reason()).isEqualTo(ReasonCode.REPLAY);
@@ -648,9 +661,9 @@ class PaztportAutoConfigurationTest {
                         // and current under 20000 ms.
                         Stamper.Stamped aged = new Stamper("gateway", "gw-1", gateway.getPrivate(), true,
                                 () -> "rid-aged-" + maxAge, () -> System.currentTimeMillis() - 10_000)
-                                .next(null, "orders", "b", List.of(),
+                                .next(null, "orders", "b", Block.EMPTY,
                                         ProofBundle.load(dir.resolve("proofs-gateway.json")));
-                        VerifyInput agedInput = new VerifyInput(Chains.toJson(aged.chain()), "b", "[]",
+                        VerifyInput agedInput = new VerifyInput(Chains.toJson(aged.chain()), "b", null,
                                 aged.proof().toJson(), "orders", true,
                                 "rid-aged-" + maxAge + "|gateway|orders|req", null);
                         assertThat(verifier.verify(agedInput).reason())
@@ -1184,6 +1197,8 @@ class PaztportAutoConfigurationTest {
         // None: every service has the inbound filter and the public-writes rule.
         assertStarterBeans(runner,
                 "paztport-org.paztport.spring.PaztportProperties",
+                "paztportBoundaryRequirement",
+                "paztportExtensionSettings",
                 "paztportInboundFilterRegistration",
                 "paztportPublicWrites");
         // A caller: a key and its proofs.
@@ -1193,6 +1208,8 @@ class PaztportAutoConfigurationTest {
                         "paztport.key-path=" + dir.resolve("gateway.key"),
                         "paztport.proofs-path=" + dir.resolve("proofs-gateway.json")),
                 "paztport-org.paztport.spring.PaztportProperties",
+                "paztportBoundaryRequirement",
+                "paztportExtensionSettings",
                 "paztportInboundFilterRegistration",
                 "paztportProofBundle",
                 "paztportPublicWrites",
@@ -1202,7 +1219,9 @@ class PaztportAutoConfigurationTest {
         assertStarterBeans(runner.withPropertyValues(VERIFIER_PROPS).withPropertyValues(trust(dir))
                         .withPropertyValues("paztport.key-path=" + dir.resolve("gateway.key")),
                 "paztport-org.paztport.spring.PaztportProperties",
+                "paztportBoundaryRequirement",
                 "paztportEventPublisher",
+                "paztportExtensionSettings",
                 "paztportInboundFilterRegistration",
                 "paztportModeHolder",
                 "paztportNonceCache",
@@ -1215,7 +1234,9 @@ class PaztportAutoConfigurationTest {
         assertStarterBeans(withClients.withPropertyValues(stampingVerifier(dir, "http://127.0.0.1:1"))
                         .withPropertyValues(MESH_BUNDLE),
                 "paztport-org.paztport.spring.PaztportProperties",
+                "paztportBoundaryRequirement",
                 "paztportEventPublisher",
+                "paztportExtensionSettings",
                 "paztportInboundFilterRegistration",
                 "paztportModeHolder",
                 "paztportNonceCache",
@@ -1248,6 +1269,8 @@ class PaztportAutoConfigurationTest {
                                 "spring.ssl.bundle.pem.psp.truststore.certificate=classpath:tls/ca.crt"),
                 "paztport-org.paztport.spring.PaztportProperties",
                 "paztportBoundaryClient",
+                "paztportBoundaryRequirement",
+                "paztportExtensionSettings",
                 "paztportInboundFilterRegistration",
                 "paztportNonceCache",
                 "paztportProofBundle",
@@ -1261,6 +1284,8 @@ class PaztportAutoConfigurationTest {
         writePartner(partnerDir);
         assertStarterBeans(runner.withPropertyValues(partner(partnerDir)),
                 "paztport-org.paztport.spring.PaztportProperties",
+                "paztportBoundaryRequirement",
+                "paztportExtensionSettings",
                 "paztportNonceCache",
                 "paztportPartnerFilterRegistration",
                 "paztportPartnerGate",
@@ -1271,6 +1296,192 @@ class PaztportAutoConfigurationTest {
                 "paztportRestClientCustomizer",
                 "paztportStamper",
                 "paztportVerifier");
+    }
+
+    // --- Extension settings: stated once, built once, given to every builder ---
+
+    private final ApplicationContextRunner withSsl = new ApplicationContextRunner()
+            .withConfiguration(AutoConfigurations.of(SslAutoConfiguration.class, PaztportAutoConfiguration.class));
+
+    /**
+     * An egress to the partner {@code psp}, beside the world {@link #writeWorld} wrote: gateway's key and proofs, the
+     * partner's pin and a boundary key, and the bundle presented to the partner. The partner is never called.
+     */
+    private String[] egress(Path dir) throws IOException {
+        Files.writeString(dir.resolve("partner-policy.pub"), pub(Crypto.generateEd25519KeyPair()) + "\n");
+        Files.writeString(dir.resolve("boundary.key"), Base64Url.encode(new byte[32]) + "\n");
+        List<String> props = new ArrayList<>(List.of(trust(dir)));
+        props.addAll(List.of(
+                "paztport.service-name=gateway",
+                "paztport.key-path=" + dir.resolve("gateway.key"),
+                "paztport.proofs-path=" + dir.resolve("proofs-gateway.json"),
+                "paztport.boundary.partner=psp",
+                "paztport.boundary.url=https://127.0.0.1:1",
+                "paztport.boundary.tls-bundle=psp",
+                "paztport.boundary.partner-policy-key-path=" + dir.resolve("partner-policy.pub"),
+                "paztport.boundary.blinding-key-path=" + dir.resolve("boundary.key"),
+                "spring.ssl.bundle.pem.psp.keystore.certificate=classpath:tls/payment.crt",
+                "spring.ssl.bundle.pem.psp.keystore.private-key=classpath:tls/payment.key",
+                "spring.ssl.bundle.pem.psp.truststore.certificate=classpath:tls/ca.crt"));
+        return props.toArray(String[]::new);
+    }
+
+    /**
+     * A private field of {@code owner}. The builders keep the settings and the requirement they were given to
+     * themselves, and what these tests check is that the one instance the context built reached each of them.
+     */
+    private static Object field(Object owner, String name) {
+        return ReflectionTestUtils.getField(owner, name);
+    }
+
+    /** The interceptor the context's stamping customizer puts on a builder. */
+    private static OutboundInterceptor interceptor(ApplicationContext context) {
+        RestClient.Builder builder = RestClient.builder();
+        context.getBean("paztportRestClientCustomizer", RestClientCustomizer.class).customize(builder);
+        List<ClientHttpRequestInterceptor> interceptors = new ArrayList<>();
+        builder.requestInterceptors(interceptors::addAll);
+        assertThat(interceptors).hasSize(1);
+        return (OutboundInterceptor) interceptors.get(0);
+    }
+
+    // Plan 3b's K1: the receiver, the caller, the partner's sessions, the egress and both verifiers hold the one
+    // instance the properties built, so none can act on another set than the others.
+    @Test
+    void oneSettingsInstanceReachesEveryBuilder(@TempDir Path dir) throws Exception {
+        writeWorld(dir);
+        withSsl.withPropertyValues(egress(dir)).withPropertyValues("paztport.extensions.acts-on=influence")
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    ExtensionSettings settings = context.getBean(ExtensionSettings.class);
+                    assertThat(settings.actsOn()).containsExactly("influence");
+                    assertThat(context.getBean(Verifier.class).extensions()).isSameAs(settings);
+                    assertThat(context.getBean(ResponseVerifier.class).verifier().extensions()).isSameAs(settings);
+                    InboundFilter filter = (InboundFilter) context.getBean("paztportInboundFilterRegistration",
+                            FilterRegistrationBean.class).getFilter();
+                    assertThat(field(field(filter, "receiver"), "extensions")).isSameAs(settings);
+                    assertThat(field(field(interceptor(context), "caller"), "extensions")).isSameAs(settings);
+                    assertThat(field(context.getBean(BoundaryClient.class), "extensions")).isSameAs(settings);
+                });
+        Path partnerDir = Files.createDirectory(dir.resolve("partner"));
+        writePartner(partnerDir);
+        runner.withPropertyValues(partner(partnerDir)).withPropertyValues("paztport.extensions.acts-on=influence")
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    ExtensionSettings settings = context.getBean(ExtensionSettings.class);
+                    assertThat(settings.actsOn()).containsExactly("influence");
+                    assertThat(field(context.getBean(PartnerSessions.class), "extensions")).isSameAs(settings);
+                    assertThat(context.getBean(Verifier.class).extensions()).isSameAs(settings);
+                    assertThat(context.getBean(ResponseVerifier.class).verifier().extensions()).isSameAs(settings);
+                });
+    }
+
+    // ExtensionSettings.of is the one check of the names: what it refuses stops the start, naming the property.
+    @Test
+    void aNameThatIsNotAnExtensionNameFailsStartUp() {
+        for (String property : List.of("paztport.extensions.acts-on=Influence", "paztport.extensions.allowed=a_b")) {
+            runner.withPropertyValues(property).run(context -> {
+                assertThat(context).hasFailed();
+                assertThat(context.getStartupFailure()).hasStackTraceContaining(
+                        "paztport.extensions.acts-on or paztport.extensions.allowed is refused")
+                        .rootCause().hasMessage("extension settings: a name that is not an extension name");
+            });
+        }
+    }
+
+    // Present and empty, allowed carries no name, so a service cannot act on influence beside it (L4).
+    @Test
+    void anEmptyAllowedBesideActsOnFailsStartUp() {
+        runner.withPropertyValues("paztport.extensions.acts-on=influence", "paztport.extensions.allowed=")
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure()).hasStackTraceContaining("paztport.extensions.allowed")
+                            .rootCause()
+                            .hasMessage("extension settings: a name in actsOn outside the allowed list");
+                });
+        // Alone it is a list that carries nothing, which a service acting on nothing may state.
+        runner.withPropertyValues("paztport.extensions.allowed=").run(context -> {
+            assertThat(context).hasNotFailed();
+            ExtensionSettings settings = context.getBean(ExtensionSettings.class);
+            assertThat(settings.allowed()).isEmpty();
+            assertThat(settings.carries("influence")).isFalse();
+        });
+    }
+
+    // Absent, allowed is no list: any name is carried, and the service acts on what acts-on says (L4).
+    @Test
+    void anAbsentAllowedCarriesAnyName() {
+        runner.withPropertyValues("paztport.extensions.acts-on=influence").run(context -> {
+            assertThat(context).hasNotFailed();
+            assertThat(context.getBean(PaztportProperties.class).getExtensions().getAllowed()).isNull();
+            ExtensionSettings settings = context.getBean(ExtensionSettings.class);
+            assertThat(settings.allowed()).isNull();
+            assertThat(settings.actsOn()).containsExactly("influence");
+            assertThat(settings.carries("influence")).isTrue();
+            assertThat(settings.carries("audit")).isTrue();
+        });
+        // And with nothing set the service acts on no extension (L2).
+        runner.run(context -> assertThat(context.getBean(ExtensionSettings.class).actsOn()).isEmpty());
+    }
+
+    /** The own block of a call {@code interceptor} stamps to {@code uri}, outside any request. */
+    private static Block ownBlock(OutboundInterceptor interceptor, String uri) throws IOException {
+        List<HttpHeaders> sent = new ArrayList<>();
+        interceptor.intercept(new MockClientHttpRequest(HttpMethod.POST, URI.create(uri)), new byte[0],
+                (request, body) -> {
+                    sent.add(HttpHeaders.copyOf(request.getHeaders()));
+                    return new MockClientHttpResponse(new byte[0], HttpStatus.OK);
+                }).close();
+        List<Block> blocks = Block.parseAll(HttpWire.decodeBlocks(sent.get(0).getFirst(PaztportHeaders.EXTENSIONS)));
+        return blocks.get(blocks.size() - 1);
+    }
+
+    // What a call requires of its receiver goes in its own block, per receiver policy name (Plan 3b's K4).
+    @Test
+    void requiresPerReceiverReachesTheCaller(@TempDir Path dir) throws Exception {
+        writeWorld(dir);
+        String[] caller = {
+            "paztport.service-name=gateway", "paztport.origin=true", "paztport.key-path=" + dir.resolve("gateway.key")};
+        runner.withPropertyValues(caller).withPropertyValues("paztport.extensions.requires.payment=influence")
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    OutboundInterceptor interceptor = interceptor(context);
+                    assertThat(ownBlock(interceptor, "https://payment/pay").requires()).containsExactly("influence");
+                    assertThat(ownBlock(interceptor, "https://search/q").requires()).isEmpty();
+                });
+        runner.withPropertyValues(caller).withPropertyValues("paztport.extensions.requires.payment=Influence")
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure())
+                            .hasStackTraceContaining("paztport.extensions.requires.payment is refused");
+                });
+    }
+
+    // The egress's requirement and its switch come from paztport.boundary.*, through Requirement.of alone.
+    @Test
+    void theBoundaryRequirementAndItsSwitchReachTheEgress(@TempDir Path dir) throws Exception {
+        writeWorld(dir);
+        withSsl.withPropertyValues(egress(dir))
+                .withPropertyValues("paztport.boundary.requires=influence",
+                        "paztport.boundary.continue-without-required=true")
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    Requirement requirement = context.getBean(Requirement.class);
+                    assertThat(requirement.extensions()).containsExactly("influence");
+                    assertThat(requirement.continueWithout()).isTrue();
+                    assertThat(field(context.getBean(BoundaryClient.class), "requirement")).isSameAs(requirement);
+                });
+        withSsl.withPropertyValues(egress(dir)).run(context -> {
+            assertThat(context).hasNotFailed();
+            Requirement requirement = context.getBean(Requirement.class);
+            assertThat(requirement.extensions()).isEmpty();
+            assertThat(requirement.continueWithout()).isFalse();
+            assertThat(field(context.getBean(BoundaryClient.class), "requirement")).isSameAs(requirement);
+        });
+        runner.withPropertyValues("paztport.boundary.requires=Influence").run(context -> {
+            assertThat(context).hasFailed();
+            assertThat(context.getStartupFailure()).hasStackTraceContaining("paztport.boundary.requires is refused")
+                    .rootCause().hasMessage("a name that is not an extension name");
+        });
     }
 
     /** Whichever filter a service has runs before any other, so nothing sees a request it has not checked. */

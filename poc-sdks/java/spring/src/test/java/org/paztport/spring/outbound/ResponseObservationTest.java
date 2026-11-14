@@ -26,12 +26,15 @@ import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.paztport.core.crypto.Crypto;
 import org.paztport.core.influence.ContentLabel;
+import org.paztport.core.influence.Influence;
 import org.paztport.core.influence.InfluenceClass;
 import org.paztport.core.policy.Keyring;
 import org.paztport.core.policy.PolicyBuilder;
+import org.paztport.core.stamp.Block;
 import org.paztport.core.stamp.Chains;
 import org.paztport.core.stamp.Stamp;
 import org.paztport.core.stamp.Stamper;
+import org.paztport.core.verify.ExtensionSettings;
 import org.paztport.core.verify.InMemoryNonceCache;
 import org.paztport.core.verify.PinnedKeyring;
 import org.paztport.core.verify.PinnedRoot;
@@ -66,6 +69,9 @@ class ResponseObservationTest {
     private final PolicyBuilder.Result policy = PolicyBuilder.build(
             List.of(List.of("gateway", "orders")), 4, NOT_AFTER, Crypto.generateEd25519KeyPair().getPrivate());
 
+    /** Gateway acts on influence, so it takes the labels orders' answers carry rather than refusing them. */
+    private static final ExtensionSettings INFLUENCE = ExtensionSettings.of(Set.of(Influence.NAME), null);
+
     private Verifier gatewayVerifier() {
         long notAfter = policy.signedRoot().notAfter();
         return new Verifier(new VerifierConfig(
@@ -73,7 +79,7 @@ class ResponseObservationTest {
                         orders.getPublic())), notAfter)),
                 List.of(new PinnedRoot(policy.signedRoot().rootBytes(), policy.signedRoot().rootId(), notAfter)),
                 notAfter, Set.of("gateway"), "",
-                new InMemoryNonceCache(), () -> 2500L, 5000, 5000));
+                new InMemoryNonceCache(), () -> 2500L, 5000, 5000, INFLUENCE));
     }
 
     private OutboundInterceptor interceptor(Verifier verifier) {
@@ -83,7 +89,7 @@ class ResponseObservationTest {
     private OutboundInterceptor interceptor(Verifier verifier, ObservationRegistry observations) {
         return new OutboundInterceptor(
                 new Stamper("gateway", "gw-1", gateway.getPrivate(), true, () -> "rid-1", () -> 1000L),
-                policy.bundles().get("gateway"), verifier, "gateway", observations);
+                policy.bundles().get("gateway"), verifier, "gateway", INFLUENCE, observations);
     }
 
     /** A RestClient carrying {@code interceptor}, whose one expected call to orders is answered by {@code answer}. */
@@ -100,11 +106,12 @@ class ResponseObservationTest {
             HttpHeaders sent = request.getHeaders();
             List<Stamp> inbound = Chains.parse(HttpWire.decodeChain(sent.getFirst(PaztportHeaders.CHAIN))).stamps();
             String hash = HttpWire.resultHash(200, "hello".getBytes(StandardCharsets.UTF_8));
-            List<ContentLabel> labels = List.of(ContentLabel.fresh(InfluenceClass.THIRD_PARTY, null));
+            Block labelled = ContentLabel.block(List.of(ContentLabel.fresh(InfluenceClass.THIRD_PARTY, null)),
+                    List.of());
             Stamp stamp = new Stamper("orders", "ord-1", orders.getPrivate(), false, () -> "x", () -> 2000L)
-                    .respond(inbound, hash, inbound.get(0).rid(), labels);
+                    .respond(inbound, hash, inbound.get(0).rid(), labelled);
             return withSuccess("hello", MediaType.TEXT_PLAIN)
-                    .header(PaztportHeaders.RESPONSE, HttpWire.encodeResponse(stamp, labels))
+                    .header(PaztportHeaders.RESPONSE, HttpWire.encodeResponse(stamp, labelled))
                     .createResponse(request);
         };
     }

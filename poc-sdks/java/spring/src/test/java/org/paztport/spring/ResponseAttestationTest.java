@@ -25,6 +25,7 @@ import java.security.KeyPair;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.stream.Stream;
@@ -34,12 +35,14 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.paztport.core.crypto.Crypto;
 import org.paztport.core.encoding.Base64Url;
+import org.paztport.core.influence.Influence;
 import org.paztport.core.influence.InfluenceClass;
 import org.paztport.core.influence.InfluenceEntry;
 import org.paztport.core.policy.KeyringFile;
 import org.paztport.core.policy.PolicyBuilder;
 import org.paztport.core.policy.ProofBundle;
 import org.paztport.core.stamp.Stamper;
+import org.paztport.core.verify.ExtensionSettings;
 import org.paztport.core.verify.Verifier;
 import org.paztport.http.ModeHolder;
 import org.paztport.http.RequestContext;
@@ -68,7 +71,8 @@ import org.springframework.web.context.request.async.DeferredResult;
  * caller cannot verify still counts, as one {@code local-untrusted} entry, because dropping it would let content
  * shape later calls unseen. The app is {@code localhost}, a verifying hop that is not an origin, since an origin
  * never attests; the test plays the origin that calls it, under the same name and key, because the interceptor
- * takes the receiver from the URI host.
+ * takes the receiver from the URI host. Both act on influence, so labels ride in the response's block and the caller
+ * takes them.
  */
 @SpringBootTest(classes = ResponseAttestationTest.App.class,
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = "spring.main.banner-mode=off")
@@ -79,6 +83,8 @@ class ResponseAttestationTest {
 
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final KeyPair APP = Crypto.generateEd25519KeyPair();
+    /** What the app and its caller both act on: a labelled answer requires it of the caller. */
+    private static final ExtensionSettings INFLUENCE = ExtensionSettings.of(Set.of(Influence.NAME), null);
     /** One JDK client for every call, closed after the class; {@link TestHttp} bounds its waits. */
     private static final HttpClient http = TestHttp.newClient();
     private static Path trust;
@@ -109,6 +115,7 @@ class ResponseAttestationTest {
         registry.add("paztport.root-path", () -> trust.resolve("root.json").toString());
         registry.add("paztport.policy-key-path", () -> trust.resolve("policy.pub").toString());
         registry.add("paztport.unverified-paths", () -> "/admin,/debug");
+        registry.add("paztport.extensions.acts-on", () -> "influence");
     }
 
     @AfterAll
@@ -194,7 +201,7 @@ class ResponseAttestationTest {
     private RestClient.Builder origin() {
         return TestHttp.restClient(http).requestInterceptor(new OutboundInterceptor(
                 new Stamper("localhost", "origin-1", APP.getPrivate(), true, () -> UUID.randomUUID().toString(),
-                        System::currentTimeMillis), bundle, verifier, "localhost",
+                        System::currentTimeMillis), bundle, verifier, "localhost", INFLUENCE,
                 ObservationRegistry.NOOP));
     }
 
@@ -228,7 +235,7 @@ class ResponseAttestationTest {
         try (RequestContext.Scope scope = RequestContext.open()) {
             return client.get().uri(uri(path)).exchange((request, response) -> new Answer(
                     response.getStatusCode().value(), response.getBody().readAllBytes(),
-                    response.getHeaders().getFirst(PaztportHeaders.RESPONSE), RequestContext.influence()), false);
+                    response.getHeaders().getFirst(PaztportHeaders.RESPONSE), RequestContext.added()), false);
         }
     }
 
@@ -311,18 +318,18 @@ class ResponseAttestationTest {
 
     @Test
     void refusalIsUntrusted() {
-        // Runs after the stamping interceptor and claims influence the stamp never committed to, so the
-        // verifying filter refuses the request.
+        // Runs after the stamping interceptor and claims influence in a block the stamp never committed to, so the
+        // verifying filter refuses the request at check 9a.
         RestClient client = origin().requestInterceptor((request, body, execution) -> {
-            request.getHeaders().set(PaztportHeaders.INFLUENCE, HttpWire.encodeInfluence(List.of(
-                    new InfluenceEntry(InfluenceClass.THIRD_PARTY, "web:a", "h1", null, null))));
+            request.getHeaders().set(PaztportHeaders.EXTENSIONS, HttpWire.encodeBlocks(List.of(Influence.block(
+                    List.of(new InfluenceEntry(InfluenceClass.THIRD_PARTY, "web:a", "h1", null, null)), List.of()))));
             return execution.execute(request, body);
         }).build();
 
         Answer refused = call(client, "/labelled");
 
         assertEquals(403, refused.status());
-        assertTrue(new String(refused.body(), StandardCharsets.UTF_8).contains("INFLUENCE_MISMATCH"));
+        assertEquals("{\"reason\":\"EXTENSION_MISMATCH\"}", new String(refused.body(), StandardCharsets.UTF_8));
         assertNull(refused.attestation(), "a refusal is not attested");
         assertEquals(List.of(untrusted(refused)), refused.recorded());
     }

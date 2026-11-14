@@ -4,6 +4,7 @@
 package org.paztport.spring;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
@@ -19,17 +20,17 @@ import java.util.Set;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.paztport.core.crypto.Crypto;
-import org.paztport.core.influence.Influence;
 import org.paztport.core.policy.Keyring;
 import org.paztport.core.policy.PolicyBuilder;
+import org.paztport.core.stamp.Block;
 import org.paztport.core.stamp.Stamp;
 import org.paztport.core.stamp.Stamper;
+import org.paztport.core.verify.ExtensionSettings;
 import org.paztport.core.verify.InMemoryNonceCache;
 import org.paztport.core.verify.PinnedKeyring;
 import org.paztport.core.verify.PinnedRoot;
 import org.paztport.core.verify.VerifierConfig;
 import org.paztport.core.verify.Verifier;
-import org.paztport.http.ContextAccess;
 import org.paztport.http.ModeHolder;
 import org.paztport.http.RequestContext;
 import org.paztport.http.VerificationMode;
@@ -61,7 +62,8 @@ class VerifiedChainTest {
 
     @AfterEach
     void cleanup() {
-        ContextAccess.reset();
+        // Every scope a test opens is closed by it or by the filter; one left open would follow this thread.
+        assertFalse(RequestContext.isOpen(), "a test left a request scope open on this thread");
     }
 
     /** Captures, inside the handler, what the context says was verified. */
@@ -83,27 +85,27 @@ class VerifiedChainTest {
                         ordersKey.getPublic())), notAfter)),
                 List.of(new PinnedRoot(policy.signedRoot().rootBytes(), policy.signedRoot().rootId(), notAfter)),
                 notAfter, Set.of("gateway"), "",
-                new InMemoryNonceCache(), () -> NOW, 5000, 5000));
+                new InMemoryNonceCache(), () -> NOW, 5000, 5000, ExtensionSettings.NONE));
     }
 
     private InboundFilter filter(VerificationMode mode, boolean origin) {
         return new InboundFilter(verifier(orders), true, origin, "payment", new ModeHolder(mode),
-                event -> { }, null, null, null, ObservationRegistry.NOOP, List.of());
+                event -> { }, null, null, null, ObservationRegistry.NOOP, List.of(), ExtensionSettings.NONE);
     }
 
     private InboundFilter attestOnly() {
         return new InboundFilter(verifier(orders), false, false, "payment", null, null, null,
                 new Stamper("payment", "pay-1", payment.getPrivate(), false, () -> "x", () -> NOW),
-                null, ObservationRegistry.NOOP, List.of());
+                null, ObservationRegistry.NOOP, List.of(), ExtensionSettings.NONE);
     }
 
     /** A chain gateway to orders to payment, the last stamp signed by {@code ordersKey}. */
     private MockHttpServletRequest request(KeyPair ordersKey) {
         Stamper.Stamped gw = new Stamper("gateway", "gw-1", gateway.getPrivate(), true, () -> "rid-1", () -> NOW)
-                .next(null, "orders", RequestBinding.compute("POST", "/orders", "{}".getBytes()), List.of(),
+                .next(null, "orders", RequestBinding.compute("POST", "/orders", "{}".getBytes()), Block.EMPTY,
                         policy.bundles().get("gateway"));
         Stamper.Stamped ord = new Stamper("orders", "ord-1", ordersKey.getPrivate(), false, () -> "x", () -> NOW)
-                .next(gw.chain(), "payment", RequestBinding.compute("POST", "/pay", BODY), List.of(),
+                .next(gw.chain(), "payment", RequestBinding.compute("POST", "/pay", BODY), Block.EMPTY,
                         policy.bundles().get("orders"));
         MockHttpServletRequest request = new MockHttpServletRequest("POST", "/pay");
         request.addHeader(PaztportHeaders.CHAIN, HttpWire.encodeChain(ord.chain()));
@@ -111,10 +113,7 @@ class VerifiedChainTest {
         if (proof != null) {
             request.addHeader(PaztportHeaders.PROOF, proof);
         }
-        String influence = HttpWire.encodeInfluence(List.of());
-        if (influence != null) {
-            request.addHeader(PaztportHeaders.INFLUENCE, influence);
-        }
+        request.addHeader(PaztportHeaders.EXTENSIONS, HttpWire.encodeBlocks(List.of(Block.EMPTY, Block.EMPTY)));
         request.setContent(BODY);
         return request;
     }
@@ -122,7 +121,7 @@ class VerifiedChainTest {
     private static MockHttpServletRequest forged() {
         MockHttpServletRequest request = new MockHttpServletRequest("POST", "/pay");
         request.addHeader(PaztportHeaders.CHAIN, HttpWire.encodeChain(List.of(new Stamp("gateway", "gw-1", "rid-f",
-                NOW, "", "payment", RequestBinding.compute("POST", "/pay", BODY), Influence.commit(List.of()), "",
+                NOW, "", "payment", RequestBinding.compute("POST", "/pay", BODY), Block.EMPTY.commit(), "",
                 ""))));
         request.setContent(BODY);
         return request;

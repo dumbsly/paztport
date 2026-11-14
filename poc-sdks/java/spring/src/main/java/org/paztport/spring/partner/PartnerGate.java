@@ -58,8 +58,9 @@ final class PartnerGate implements HandlerInterceptor {
             return true;
         }
         if (TRACE.isInfoEnabled()) {
+            // An unsafe session hands nothing on, so the classes are only what the service has added itself.
             TRACE.info(DecisionLine.of(receiver, "unsafe-session", ReasonCode.UNSAFE_SESSION,
-                    RequestContext.influence()));
+                    RequestContext.added()));
         }
         HttpAnswer refusal = UnsafeEndpoints.refusal();
         Refusals.write(response, refusal);

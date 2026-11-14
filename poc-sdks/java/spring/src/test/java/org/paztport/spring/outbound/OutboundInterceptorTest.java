@@ -33,6 +33,8 @@ import java.net.http.HttpConnectTimeoutException;
 import java.net.http.HttpTimeoutException;
 import java.nio.channels.ClosedChannelException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.security.KeyPair;
 import java.time.Clock;
 import java.time.Duration;
@@ -50,7 +52,9 @@ import javax.net.ssl.SSLHandshakeException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.paztport.core.crypto.Crypto;
+import org.paztport.core.encoding.Base64Url;
 import org.paztport.core.influence.ContentLabel;
 import org.paztport.core.influence.Influence;
 import org.paztport.core.influence.InfluenceClass;
@@ -58,9 +62,11 @@ import org.paztport.core.influence.InfluenceEntry;
 import org.paztport.core.policy.Keyring;
 import org.paztport.core.policy.OperationTable;
 import org.paztport.core.policy.PolicyBuilder;
+import org.paztport.core.stamp.Block;
 import org.paztport.core.stamp.Chains;
 import org.paztport.core.stamp.Stamp;
 import org.paztport.core.stamp.Stamper;
+import org.paztport.core.verify.ExtensionSettings;
 import org.paztport.core.verify.InMemoryNonceCache;
 import org.paztport.core.verify.PinnedKeyring;
 import org.paztport.core.verify.PinnedRoot;
@@ -71,7 +77,11 @@ import org.paztport.http.RequestContext;
 import org.paztport.http.wire.HttpWire;
 import org.paztport.http.wire.PaztportHeaders;
 import org.paztport.http.wire.RequestBinding;
+import org.paztport.spring.PaztportAutoConfiguration;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.autoconfigure.AutoConfigurations;
+import org.springframework.boot.restclient.RestClientCustomizer;
+import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpRequest;
@@ -101,6 +111,9 @@ class OutboundInterceptorTest {
 
     private static final InfluenceEntry WEB = new InfluenceEntry(InfluenceClass.THIRD_PARTY, "web:a", "h1", null, null);
     private static final InfluenceEntry MINE = new InfluenceEntry(InfluenceClass.PRIVATE, "db:a", "h2", null, "alice");
+
+    /** A service that acts on influence and carries any name. */
+    private static final ExtensionSettings INFLUENCE = ExtensionSettings.of(Set.of(Influence.NAME), null);
 
     private final KeyPair gateway = Crypto.generateEd25519KeyPair();
     private final KeyPair orders = Crypto.generateEd25519KeyPair();
@@ -134,20 +147,23 @@ class OutboundInterceptorTest {
         return traces.list.stream().map(ILoggingEvent::getFormattedMessage).toList();
     }
 
-    /** What gateway uses to check the responses it gets: it trusts gateway and orders, and gateway is the origin. */
-    private Verifier gatewayVerifier() {
+    /**
+     * What gateway uses to check the responses it gets: it trusts gateway and orders, gateway is the origin, and it
+     * acts on what {@code settings} say.
+     */
+    private Verifier gatewayVerifier(ExtensionSettings settings) {
         long notAfter = policy.signedRoot().notAfter();
         return new Verifier(new VerifierConfig(
                 List.of(new PinnedKeyring(Keyring.of(Map.of("gateway", gateway.getPublic(), "orders",
                         orders.getPublic())), notAfter)),
                 List.of(new PinnedRoot(policy.signedRoot().rootBytes(), policy.signedRoot().rootId(), notAfter)),
                 notAfter, Set.of("gateway"), "",
-                new InMemoryNonceCache(), () -> 2500L, 5000, 5000));
+                new InMemoryNonceCache(), () -> 2500L, 5000, 5000, settings));
     }
 
     private OutboundInterceptor gatewayInterceptor() {
         return new OutboundInterceptor(gatewayStamper(), policy.bundles().get("gateway"), null, "gateway",
-                ObservationRegistry.NOOP);
+                ExtensionSettings.NONE, ObservationRegistry.NOOP);
     }
 
     private Stamper gatewayStamper() {
@@ -174,14 +190,18 @@ class OutboundInterceptorTest {
         return builder.build();
     }
 
-    /** Orders' answer: {@code body} with an attestation over {@code attested}, as orders' filter would send it. */
-    private ResponseCreator attested(String body, String attested, List<ContentLabel> labels) {
+    /**
+     * Orders' answer: {@code body} with an attestation over {@code attested}, as orders' filter would send it, its
+     * response stamp committing to {@code block}: the empty block for an unlabelled answer, or
+     * {@link ContentLabel#block} where orders acts on influence and labels what it answers.
+     */
+    private ResponseCreator attested(String body, String attested, Block block) {
         return request -> {
             List<Stamp> inbound = chainOf(request.getHeaders());
             String hash = HttpWire.resultHash(200, attested.getBytes(StandardCharsets.UTF_8));
-            Stamp stamp = ordersStamper().respond(inbound, hash, inbound.get(0).rid(), labels);
+            Stamp stamp = ordersStamper().respond(inbound, hash, inbound.get(0).rid(), block);
             return withSuccess(body, MediaType.TEXT_PLAIN)
-                    .header(PaztportHeaders.RESPONSE, HttpWire.encodeResponse(stamp, labels))
+                    .header(PaztportHeaders.RESPONSE, HttpWire.encodeResponse(stamp, block))
                     .createResponse(request);
         };
     }
@@ -196,7 +216,7 @@ class OutboundInterceptorTest {
     private static List<InfluenceEntry> fetchRecorded(RestClient client, String expectedBody) {
         try (RequestContext.Scope scope = RequestContext.open()) {
             assertEquals(expectedBody, fetchOrders(client), "the caller still reads the whole body");
-            return RequestContext.influence();
+            return RequestContext.added();
         }
     }
 
@@ -204,31 +224,54 @@ class OutboundInterceptorTest {
         return Chains.parse(HttpWire.decodeChain(headers.getFirst(PaztportHeaders.CHAIN))).stamps();
     }
 
-    @Test
-    void appendsToTheInboundChainCommittingTheContextInfluence() {
-        Stamper.Stamped received = gatewayStamper().next(null, "orders", "b", List.of(),
+    private static List<Block> blocksOf(HttpHeaders headers) {
+        return Block.parseAll(HttpWire.decodeBlocks(headers.getFirst(PaztportHeaders.EXTENSIONS)));
+    }
+
+    /**
+     * Orders, acting on what {@code settings} say, calls payment for a request gateway sent with its own named block,
+     * after adding {@code MINE} and {@code WEB} itself; answers the call's headers.
+     */
+    private HttpHeaders ordersCallsPayment(ExtensionSettings settings) {
+        Block gatewayBlock = Influence.block(List.of(), List.of());
+        Stamper.Stamped received = gatewayStamper().next(null, "orders", "b", gatewayBlock,
                 policy.bundles().get("gateway"));
         try (RequestContext.Scope scope = RequestContext.open()) {
-            RequestContext.setInboundChain(received.chain());
+            RequestContext.setInboundChain(received.chain(), List.of(gatewayBlock));
             RequestContext.addInfluence(MINE, WEB);
 
             client(new OutboundInterceptor(ordersStamper(), policy.bundles().get("orders"), null, "orders",
-                    ObservationRegistry.NOOP),
+                    settings, ObservationRegistry.NOOP),
                     "http://payment:8080/pay")
                     .post().uri("http://payment:8080/pay").body("{\"amount\":1}").retrieve().toBodilessEntity();
         }
+        return sent.get(sent.size() - 1);
+    }
 
-        List<Stamp> chain = chainOf(sent.get(0));
-        assertEquals(2, chain.size());
-        Stamp last = chain.get(1);
-        assertEquals("orders", last.svc());
-        assertEquals("payment", last.rcv());
-        assertEquals(Influence.commit(List.of(MINE, WEB)), last.infl());
-        assertEquals(RequestBinding.compute("POST", "/pay", "{\"amount\":1}".getBytes(StandardCharsets.UTF_8)),
-                last.bind());
-        assertEquals(List.of(MINE, WEB),
-                Influence.parse(HttpWire.decodeInfluence(sent.get(0).getFirst(PaztportHeaders.INFLUENCE))));
-        assertNotNull(sent.get(0).getFirst(PaztportHeaders.PROOF));
+    // The call forwards the blocks the request came with, as received, then its own, which its stamp commits to and
+    // which holds what orders added only where orders acts on influence (spec wire.md, Blocks; influence.md, The
+    // every-stamp rule).
+    @Test
+    void appendsToTheInboundChainForwardingItsBlocksThenItsOwn() {
+        Block gatewayBlock = Influence.block(List.of(), List.of());
+        Map<ExtensionSettings, Block> own = Map.of(
+                INFLUENCE, Influence.block(List.of(MINE, WEB), List.of()),
+                ExtensionSettings.NONE, Block.EMPTY);
+        for (Map.Entry<ExtensionSettings, Block> expected : own.entrySet()) {
+            HttpHeaders call = ordersCallsPayment(expected.getKey());
+
+            List<Stamp> chain = chainOf(call);
+            assertEquals(2, chain.size());
+            Stamp last = chain.get(1);
+            assertEquals("orders", last.svc());
+            assertEquals("payment", last.rcv());
+            assertEquals(List.of(gatewayBlock, expected.getValue()), blocksOf(call));
+            assertEquals(expected.getValue().commit(), last.ext(), "the stamp commits to orders' own block");
+            assertEquals(gatewayBlock.commit(), chain.get(0).ext());
+            assertEquals(RequestBinding.compute("POST", "/pay",
+                    "{\"amount\":1}".getBytes(StandardCharsets.UTF_8)), last.bind());
+            assertNotNull(call.getFirst(PaztportHeaders.PROOF));
+        }
     }
 
     @Test
@@ -248,6 +291,7 @@ class OutboundInterceptorTest {
                 .get().uri("https://payment/x")
                 .header("X-Path-Proof", "p")
                 .header("X-Path-Influence", "i")
+                .header("X-Path-Extensions", "e")
                 .header("x-path-session", "s")
                 .header("X-Path-Future", "f")
                 .header("x-path-chain", "c1", "c2")
@@ -262,7 +306,9 @@ class OutboundInterceptorTest {
         assertEquals("gateway", chain.get(0).svc());
         assertEquals("payment", chain.get(0).rcv());
         assertNull(received.get("X-Path-Proof"), "the application's proof is not sent");
-        assertNull(received.get("X-Path-Influence"), "the application's influence is not sent");
+        assertNull(received.get("X-Path-Influence"), "an unknown X-Path- header is not sent");
+        assertEquals(List.of(HttpWire.encodeBlocks(List.of(Block.EMPTY))), received.get("X-Path-Extensions"),
+                "one blocks value: the one the caller stamped");
         assertNull(received.get("X-Path-Session"), "the application's session is not sent");
         assertNull(received.get("X-Path-Future"), "an unknown X-Path- header is not sent");
         assertEquals("kept", received.getFirst("X-Pathology"), "a header outside the prefix is the application's");
@@ -280,20 +326,22 @@ class OutboundInterceptorTest {
         assertEquals(RequestBinding.compute("GET", "/search?q=a%20b", new byte[0]), stamp.bind());
     }
 
+    // The labels ride in the response's own block, which requires influence; a caller that acts on it takes them.
     @Test
-    void aVerifiedResponseRecordsItsLabelsAsInfluence() {
+    void aLabelledResponseAtACallerActingOnInfluenceIsRecorded() {
         ContentLabel mine = ContentLabel.fresh(InfluenceClass.PRIVATE, "alice");
         ContentLabel web = ContentLabel.fresh(InfluenceClass.THIRD_PARTY, null);
         RestClient client = client(
-                new OutboundInterceptor(gatewayStamper(), policy.bundles().get("gateway"), gatewayVerifier(),
-                        "gateway", ObservationRegistry.NOOP),
-                "http://orders:8080/orders", attested("hello", "hello", List.of(mine, web)));
+                new OutboundInterceptor(gatewayStamper(), policy.bundles().get("gateway"), gatewayVerifier(INFLUENCE),
+                        "gateway", INFLUENCE, ObservationRegistry.NOOP),
+                "http://orders:8080/orders", attested("hello", "hello", ContentLabel.block(List.of(mine, web),
+                        List.of())));
 
         List<InfluenceEntry> recorded = fetchRecorded(client, "hello");
 
         String hash = HttpWire.resultHash(200, "hello".getBytes(StandardCharsets.UTF_8));
         assertEquals(List.of(mine.toEntry("http:orders", hash), web.toEntry("http:orders", hash)), recorded);
-        assertEquals(List.of(), RequestContext.influence(), "closing the scope drops what it recorded");
+        assertEquals(List.of(), RequestContext.added(), "closing the scope drops what it recorded");
         assertEquals(List.of(
                 "PAZTPORT_TRACE response rid=rid-1 from=orders reason=OK receiver=gateway ✓ "
                         + "labels=private,third-party"),
@@ -303,8 +351,9 @@ class OutboundInterceptorTest {
     @Test
     void anUnattestedErrorIsBufferedAndUntrusted() {
         RestClient client = client(
-                new OutboundInterceptor(gatewayStamper(), policy.bundles().get("gateway"), gatewayVerifier(),
-                        "gateway", ObservationRegistry.NOOP),
+                new OutboundInterceptor(gatewayStamper(), policy.bundles().get("gateway"),
+                        gatewayVerifier(ExtensionSettings.NONE), "gateway", ExtensionSettings.NONE,
+                        ObservationRegistry.NOOP),
                 "http://orders:8080/orders", withStatus(HttpStatus.INTERNAL_SERVER_ERROR).body("boom"));
 
         List<InfluenceEntry> recorded = fetchRecorded(client, "boom");
@@ -315,6 +364,122 @@ class OutboundInterceptorTest {
         assertEquals(List.of(
                 "PAZTPORT_TRACE response rid=rid-1 from=orders reason=CHAIN_MISSING receiver=gateway ✗ labels=-"),
                 traceLines());
+    }
+
+    /** {@code answer}, whose response sets {@code closed[0]} when it is closed. */
+    private static ResponseCreator closing(ResponseCreator answer, boolean[] closed) {
+        return request -> {
+            ClientHttpResponse response = answer.createResponse(request);
+            return new ClientHttpResponse() {
+                @Override
+                public HttpStatusCode getStatusCode() throws IOException {
+                    return response.getStatusCode();
+                }
+
+                @Override
+                public String getStatusText() throws IOException {
+                    return response.getStatusText();
+                }
+
+                @Override
+                public HttpHeaders getHeaders() {
+                    return response.getHeaders();
+                }
+
+                @Override
+                public InputStream getBody() throws IOException {
+                    return response.getBody();
+                }
+
+                @Override
+                public void close() {
+                    closed[0] = true;
+                    response.close();
+                }
+            };
+        };
+    }
+
+    // Orders labels its answer, so the response's block requires influence, and gateway acts on nothing: the check
+    // gives EXTENSION_REQUIRED (spec verification.md, A response, at the caller, check 9c). Orders' handler ran, so
+    // the application never sees the answer, and the call is not sent again.
+    @Test
+    void aResponseRefusedAtCheck9cThrowsAndIsNotRetried() {
+        TestObservationRegistry registry = TestObservationRegistry.create();
+        ContentLabel mine = ContentLabel.fresh(InfluenceClass.PRIVATE, "alice");
+        boolean[] closed = {false};
+        Attempts attempts = new Attempts(closing(attested("hello", "hello",
+                ContentLabel.block(List.of(mine), List.of())), closed));
+
+        try (RequestContext.Scope scope = RequestContext.open()) {
+            IOException thrown = assertThrows(IOException.class,
+                    () -> post(gatewayRetrying(registry, retryAt(NOW)), "http://orders:8080/orders", attempts));
+
+            assertEquals("Paztport: the response to orders was refused (EXTENSION_REQUIRED); the handler ran, so the "
+                    + "call must not be retried", thrown.getMessage());
+            assertEquals(List.of(new InfluenceEntry(InfluenceClass.LOCAL_UNTRUSTED, "http:orders",
+                    HttpWire.resultHash(200, "hello".getBytes(StandardCharsets.UTF_8)), null, null)),
+                    RequestContext.added(), "one local-untrusted entry, as for any answer not believed");
+        }
+        assertTrue(closed[0], "the refused response is closed, so its connection is released");
+        assertEquals(1, attempts.headers.size(), "the call is sent once");
+        assertThat(registry).hasNumberOfObservationsWithNameEqualTo("paztport.outbound.retry", 0)
+                .hasObservationWithNameEqualTo("paztport.response").that()
+                .hasLowCardinalityKeyValue("reason", "EXTENSION_REQUIRED").hasBeenStopped();
+        assertEquals(List.of(
+                "PAZTPORT_TRACE response rid=rid-1 from=orders reason=EXTENSION_REQUIRED receiver=gateway ✗ labels=-"),
+                traceLines());
+    }
+
+    // --- A service with a stamp key and no verifier, as the starter builds it ---
+
+    private final ApplicationContextRunner starter = new ApplicationContextRunner()
+            .withConfiguration(AutoConfigurations.of(PaztportAutoConfiguration.class));
+
+    /**
+     * The headers of a call gateway makes, built by the starter from a stamp key and no trust paths, so with no
+     * verifier, and {@code properties}; its handler added {@code WEB} before the call.
+     */
+    private HttpHeaders gatewayCallFromTheStarter(Path dir, String... properties) throws IOException {
+        Path key = Files.writeString(dir.resolve("gateway.key"),
+                Base64Url.encode(Crypto.encodePrivateKey(gateway.getPrivate())));
+        starter.withPropertyValues("paztport.service-name=gateway", "paztport.origin=true", "paztport.key-path=" + key)
+                .withPropertyValues(properties).run(context -> {
+                    assertNull(context.getStartupFailure());
+                    assertNull(context.getBeanProvider(Verifier.class).getIfAvailable(), "no trust paths, no verifier");
+                    RestClient.Builder builder = RestClient.builder();
+                    context.getBean("paztportRestClientCustomizer", RestClientCustomizer.class).customize(builder);
+                    MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+                    server.expect(requestTo("http://orders:8080/orders")).andRespond(request -> {
+                        sent.add(request.getHeaders());
+                        return withSuccess().createResponse(request);
+                    });
+                    try (RequestContext.Scope scope = RequestContext.open()) {
+                        RequestContext.addInfluence(WEB);
+                        builder.build().get().uri("http://orders:8080/orders").retrieve().toBodilessEntity();
+                    }
+                });
+        assertEquals(1, sent.size());
+        return sent.get(0);
+    }
+
+    // With no verifier the caller has nowhere else to read the settings from: the starter hands them to it, so the
+    // handler's entries travel in gateway's own block.
+    @Test
+    void aServiceWithAKeyAndNoVerifierThatActsOnInfluenceNamesItInItsBlock(@TempDir Path dir) throws IOException {
+        HttpHeaders call = gatewayCallFromTheStarter(dir, "paztport.extensions.acts-on=influence");
+
+        Block own = Influence.block(List.of(WEB), List.of());
+        assertEquals(List.of(own), blocksOf(call));
+        assertEquals(own.commit(), chainOf(call).get(0).ext());
+    }
+
+    @Test
+    void aServiceWithAKeyAndNoVerifierAndNoExtensionPropertySignsTheEmptyBlock(@TempDir Path dir) throws IOException {
+        HttpHeaders call = gatewayCallFromTheStarter(dir);
+
+        assertEquals(List.of(Block.EMPTY), blocksOf(call));
+        assertEquals("", chainOf(call).get(0).ext());
     }
 
     @Test
@@ -418,7 +583,8 @@ class OutboundInterceptorTest {
     /** Gateway checking its responses, retrying with {@code retry}, observed by {@code registry}. */
     private OutboundInterceptor gatewayRetrying(TestObservationRegistry registry, UnconnectedRetry retry) {
         return new OutboundInterceptor(HttpCaller.builder("gateway", movingGatewayStamper())
-                .bundle(policy.bundles().get("gateway")).verifier(gatewayVerifier()).build(), registry, retry);
+                .bundle(policy.bundles().get("gateway")).verifier(gatewayVerifier(ExtensionSettings.NONE)).build(),
+                registry, retry);
     }
 
     /**
@@ -492,7 +658,7 @@ class OutboundInterceptorTest {
     @Test
     void retriesAConnectTimeoutOnceWithAFreshStamp() throws IOException {
         TestObservationRegistry registry = TestObservationRegistry.create();
-        Attempts attempts = new Attempts(attested("hello", "hello", List.of()), connectTimeout());
+        Attempts attempts = new Attempts(attested("hello", "hello", Block.EMPTY), connectTimeout());
 
         String body = post(gatewayRetrying(registry, retryAt(NOW)), "http://orders:8080/orders", attempts);
 
@@ -513,7 +679,7 @@ class OutboundInterceptorTest {
         for (Map.Entry<String, IOException> failure : failures.entrySet()) {
             traces.list.clear();
             TestObservationRegistry registry = TestObservationRegistry.create();
-            Attempts attempts = new Attempts(attested("hello", "hello", List.of()), failure.getValue());
+            Attempts attempts = new Attempts(attested("hello", "hello", Block.EMPTY), failure.getValue());
 
             String body = post(gatewayRetrying(registry, retryAt(NOW)), "http://orders:8080/orders", attempts);
 
@@ -593,7 +759,7 @@ class OutboundInterceptorTest {
 
         try (RequestContext.Scope scope = RequestContext.open()) {
             // Gateway's stamp is 4500 ms old: with a 1000 ms connect the retry could arrive only after 5000 ms.
-            RequestContext.setInboundChain(gatewayStamper().next(null, "orders", "b", List.of(),
+            RequestContext.setInboundChain(gatewayStamper().next(null, "orders", "b", Block.EMPTY,
                     policy.bundles().get("gateway")).chain());
 
             IOException thrown = assertThrows(IOException.class,
@@ -611,12 +777,12 @@ class OutboundInterceptorTest {
     @Test
     void retriesOutsideAScope() throws IOException {
         UnconnectedRetry late = retryAt(1_000_000L);
-        Attempts outside = new Attempts(attested("hello", "hello", List.of()), connectTimeout());
+        Attempts outside = new Attempts(attested("hello", "hello", Block.EMPTY), connectTimeout());
 
         assertRetriedFreshlyStamped(outside,
                 post(gatewayRetrying(TestObservationRegistry.create(), late), "http://orders:8080/orders", outside));
 
-        Attempts atTheOrigin = new Attempts(attested("hello", "hello", List.of()), connectTimeout());
+        Attempts atTheOrigin = new Attempts(attested("hello", "hello", Block.EMPTY), connectTimeout());
         try (RequestContext.Scope scope = RequestContext.open()) {
             assertRetriedFreshlyStamped(atTheOrigin, post(gatewayRetrying(TestObservationRegistry.create(), late),
                     "http://orders:8080/orders", atTheOrigin));

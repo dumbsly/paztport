@@ -4,8 +4,10 @@
 package org.paztport.spring;
 
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.paztport.http.PartnerSessions;
 import org.springframework.beans.factory.InitializingBean;
 import org.springframework.boot.context.properties.ConfigurationProperties;
@@ -257,6 +259,19 @@ public class PaztportProperties implements InitializingBean {
          */
         private long sessionIdleMs = 600_000;
 
+        /**
+         * The extensions this egress requires of the partner: it makes a call only in a session whose attested reply
+         * lists each one (spec sessions.md, A client that requires extensions), and each call's boundary block
+         * requires them. Empty, the default, requires nothing.
+         */
+        private Set<String> requires = new LinkedHashSet<>();
+
+        /**
+         * Whether the egress still makes its calls in a session that does not give it what paztport.boundary.requires
+         * names, each call then requiring only what the partner listed. False, the default, makes no call there.
+         */
+        private boolean continueWithoutRequired = false;
+
         public String getPartner() {
             return partner;
         }
@@ -303,6 +318,78 @@ public class PaztportProperties implements InitializingBean {
 
         public void setSessionIdleMs(long sessionIdleMs) {
             this.sessionIdleMs = sessionIdleMs;
+        }
+
+        public Set<String> getRequires() {
+            return requires;
+        }
+
+        public void setRequires(Set<String> requires) {
+            this.requires = requires;
+        }
+
+        public boolean isContinueWithoutRequired() {
+            return continueWithoutRequired;
+        }
+
+        public void setContinueWithoutRequired(boolean continueWithoutRequired) {
+            this.continueWithoutRequired = continueWithoutRequired;
+        }
+    }
+
+    /** The extensions this service acts on, the names it carries, and what its calls require of their receivers. */
+    private final Extensions extensions = new Extensions();
+
+    /**
+     * {@code paztport.extensions.*}: the service's extension settings, stated once and given to everything that
+     * verifies, receives or calls for it (spec verification.md, Inputs). Unset, the service acts on no extension and
+     * carries any name, as a mesh with no model runs none of them (spec influence.md). A service whose handlers use
+     * {@code PublicWrites} or label what they answer acts on {@code influence}. The names are checked, and the start
+     * refused, where the settings are built ({@code ExtensionSettings.of}).
+     */
+    public static class Extensions {
+
+        /** The extensions this service acts on, such as influence; empty, the default, for none. */
+        private Set<String> actsOn = new LinkedHashSet<>();
+
+        /**
+         * The extension names this service's verifier carries. Absent, the default, carries any name; present and
+         * empty carries none, which refuses the start beside any paztport.extensions.acts-on, since a service cannot
+         * act on a name it does not carry.
+         */
+        private Set<String> allowed;
+
+        /**
+         * What this service's calls require of each receiver, by the receiver's policy name: every call to it names
+         * these in its own block, and the receiver refuses it ({@code EXTENSION_REQUIRED}) unless it acts on each.
+         * paztport.extensions.requires.payment=influence. A receiver not listed, or listed with none, is required
+         * nothing.
+         */
+        private Map<String, Set<String>> requires = new LinkedHashMap<>();
+
+        public Set<String> getActsOn() {
+            return actsOn;
+        }
+
+        public void setActsOn(Set<String> actsOn) {
+            this.actsOn = actsOn;
+        }
+
+        /** The names carried, or null where the property is absent and any name is carried. */
+        public Set<String> getAllowed() {
+            return allowed;
+        }
+
+        public void setAllowed(Set<String> allowed) {
+            this.allowed = allowed;
+        }
+
+        public Map<String, Set<String>> getRequires() {
+            return requires;
+        }
+
+        public void setRequires(Map<String, Set<String>> requires) {
+            this.requires = requires;
         }
     }
 
@@ -623,5 +710,9 @@ public class PaztportProperties implements InitializingBean {
 
     public Boundary getBoundary() {
         return boundary;
+    }
+
+    public Extensions getExtensions() {
+        return extensions;
     }
 }

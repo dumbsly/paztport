@@ -5,12 +5,12 @@
  * The starter's request path and its entry points. The request path is the two servlet filters, {@code InboundFilter}
  * for a service and {@code PartnerFilter} for a partner, with {@code CachedBodyHttpServletRequest}, which lets them
  * hash a body and still pass it on. They adapt {@code paztport-http}'s receivers, which decide each request, and
- * run each one through {@code RequestContext.accept}, which carries the result for the request: the chain and the
- * influence that the handler, the outbound calls and {@code PublicWrites} then read. An application's
- * {@code ReceivedRequestListener} bean, {@code paztport-http}'s hook that offers each request before verification,
- * is passed to the service's receiver. The entry points are {@code PaztportAutoConfiguration}, which defines the
- * filters and the public-writes rule, and {@code PaztportProperties}, the {@code paztport.*} settings it binds. The
- * sub-packages hold the rest.
+ * run each one through {@code RequestContext.accept}, which carries the result for the request: the chain, its
+ * blocks and what the service is handed, which the handler, the outbound calls and {@code PublicWrites} then read.
+ * An application's {@code ReceivedRequestListener} bean, {@code paztport-http}'s hook that offers each request
+ * before verification, is passed to the service's receiver. The entry points are {@code PaztportAutoConfiguration},
+ * which defines the filters and the public-writes rule, and {@code PaztportProperties}, the {@code paztport.*}
+ * settings it binds. The sub-packages hold the rest.
  *
  * <p>Nothing here can mark a chain verified: only {@code RequestContext.accept} does, from the receiver it runs.
  */

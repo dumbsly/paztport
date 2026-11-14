@@ -34,6 +34,7 @@ import org.paztport.core.policy.KeyringFile;
 import org.paztport.core.policy.PolicyBuilder;
 import org.paztport.core.policy.ProofBundle;
 import org.paztport.core.stamp.Stamper;
+import org.paztport.core.verify.ExtensionSettings;
 import org.paztport.core.verify.Verifier;
 import org.paztport.spring.outbound.OutboundInterceptor;
 import org.slf4j.LoggerFactory;
@@ -160,7 +161,7 @@ class MeshRoundTripTest {
             RestClient origin = TestHttp.restClient(http).requestInterceptor(new OutboundInterceptor(
                     new Stamper("localhost", "origin-1", APP.getPrivate(), true,
                             () -> UUID.randomUUID().toString(), System::currentTimeMillis), bundle, verifier,
-                    "localhost", ObservationRegistry.NOOP)).build();
+                    "localhost", ExtensionSettings.NONE, ObservationRegistry.NOOP)).build();
             body = origin.get()
                     .uri(URI.create("http://localhost:" + port + "/search?q=caf%C3%A9%20x"))
                     .retrieve().body(new ParameterizedTypeReference<>() { });

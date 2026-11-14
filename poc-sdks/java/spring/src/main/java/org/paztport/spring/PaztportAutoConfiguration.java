@@ -5,6 +5,7 @@ package org.paztport.spring;
 
 import io.micrometer.observation.ObservationRegistry;
 import org.paztport.core.stamp.Stamper;
+import org.paztport.core.verify.ExtensionSettings;
 import org.paztport.core.verify.Verifier;
 import org.paztport.http.ModeHolder;
 import org.paztport.http.PartnerSessions;
@@ -72,6 +73,12 @@ import org.springframework.core.Ordered;
  * {@code paztport.operations.receiver-tables} makes its calls name their receivers' operations.
  * {@link OperationConfiguration} says what is checked at startup.
  *
+ * <p>{@code paztport.extensions.*} states the extensions this service acts on and the names it carries, once:
+ * {@link TrustConfiguration} builds the one {@link ExtensionSettings} from them, and that instance goes to both
+ * verifiers, the inbound filter's receiver, the caller, the partner's sessions and the egress. Unset, the service acts
+ * on none, so {@link PublicWrites} denies every guarded write; a service whose handlers use it, or label what they
+ * answer, acts on {@code influence}.
+ *
  * <p>Each feature's beans are built by a configuration class of its own, which this imports. The request path's
  * own beans are defined here: the two filters, which adapt the receivers, and the public-writes rule.
  */
@@ -118,7 +125,8 @@ public class PaztportAutoConfiguration {
             ObjectProvider<ReceivedRequestListener> listener,
             ObjectProvider<Stamper> stamper,
             ObjectProvider<OperationResolver> operations,
-            ObjectProvider<ObservationRegistry> observations) {
+            ObjectProvider<ObservationRegistry> observations,
+            ExtensionSettings extensions) {
         Verifier shared = verifier.getIfAvailable();
         if (props.isVerify() && shared == null) {
             throw new IllegalStateException("paztport.verify is true but paztport.keyring-path, "
@@ -129,7 +137,7 @@ public class PaztportAutoConfiguration {
                 shared, props.isVerify(), props.isOrigin(), props.getServiceName(), modeHolder.getIfAvailable(),
                 publisher.getIfAvailable(), listener.getIfAvailable(), stamper.getIfAvailable(),
                 operations.getIfAvailable(), observations.getIfAvailable(() -> ObservationRegistry.NOOP),
-                props.getUnverifiedPaths());
+                props.getUnverifiedPaths(), extensions);
         FilterRegistrationBean<InboundFilter> registration = new FilterRegistrationBean<>(filter);
         registration.setOrder(Ordered.HIGHEST_PRECEDENCE);
         registration.addUrlPatterns("/*");

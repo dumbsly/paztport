@@ -8,6 +8,7 @@ import java.time.Clock;
 import java.time.Duration;
 import org.paztport.core.policy.ProofBundle;
 import org.paztport.core.stamp.Stamper;
+import org.paztport.core.verify.ExtensionSettings;
 import org.paztport.core.verify.Verifier;
 import org.paztport.http.HttpCaller;
 import org.paztport.spring.PaztportAutoConfiguration;
@@ -27,27 +28,43 @@ import org.springframework.context.annotation.Configuration;
 /**
  * The beans for this service's own calls: the stamping customizer on the shared {@code RestClient.Builder}, which
  * names each receiver by {@code paztport.receiver-names} or else by its host, names the operation a call invokes on a
- * receiver whose table it holds ({@link OperationConfiguration#receiverTables}) and checks each response with the
- * {@link ResponseVerifier}, and the pooled client that presents {@code paztport.tls-bundle} with its customizer. The
- * two customizers are defined here in the order the builder applies them. {@link PaztportAutoConfiguration} imports
- * it; it is not for an application to use directly.
+ * receiver whose table it holds ({@link OperationConfiguration#receiverTables}), signs its own block under this
+ * service's extension settings with what {@code paztport.extensions.requires} asks of each receiver, and checks each
+ * response with the {@link ResponseVerifier}, and the pooled client that presents {@code paztport.tls-bundle} with
+ * its customizer. The two customizers are defined here in the order the builder applies them.
+ * {@link PaztportAutoConfiguration} imports it; it is not for an application to use directly.
  */
 @Configuration(proxyBeanMethods = false)
 public class OutboundConfiguration {
 
     private static final Logger LOG = LoggerFactory.getLogger(OutboundConfiguration.class);
 
+    /**
+     * The stamping customizer. The extension settings go to the caller even beside a verifier, which holds the same
+     * instance: a service with a stamp key and no trust paths has no verifier, and its own blocks would otherwise
+     * act on nothing whatever {@code paztport.extensions.acts-on} says.
+     */
     @Bean
     @ConditionalOnProperty("paztport.key-path")
     RestClientCustomizer paztportRestClientCustomizer(
             Stamper stamper, ObjectProvider<ProofBundle> bundle, ObjectProvider<ResponseVerifier> responses,
-            PaztportProperties props, ObjectProvider<ObservationRegistry> observations) {
+            PaztportProperties props, ExtensionSettings extensions,
+            ObjectProvider<ObservationRegistry> observations) {
         ResponseVerifier checks = responses.getIfAvailable();
         Verifier verifier = checks != null ? checks.verifier() : null;
         ProofBundle proofs = bundle.getIfAvailable();
-        OutboundInterceptor interceptor = new OutboundInterceptor(HttpCaller.builder(props.getServiceName(), stamper)
+        HttpCaller.Builder caller = HttpCaller.builder(props.getServiceName(), stamper)
                 .bundle(proofs).verifier(verifier).receivers(props.getReceiverNames())
-                .operations(OperationConfiguration.receiverTables(props, proofs, checks)).build(),
+                .operations(OperationConfiguration.receiverTables(props, proofs, checks)).extensions(extensions);
+        props.getExtensions().getRequires().forEach((receiver, names) -> {
+            try {
+                caller.requires(receiver, names);
+            } catch (IllegalArgumentException refused) {
+                throw new IllegalStateException("paztport.extensions.requires." + receiver + " is refused: "
+                        + refused.getMessage(), refused);
+            }
+        });
+        OutboundInterceptor interceptor = new OutboundInterceptor(caller.build(),
                 observations.getIfAvailable(() -> ObservationRegistry.NOOP),
                 unconnectedRetry(props));
         return builder -> builder.requestInterceptor(interceptor);
