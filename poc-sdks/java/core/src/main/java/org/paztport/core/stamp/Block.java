@@ -49,8 +49,11 @@ public final class Block {
     private Block(TreeMap<String, List<String>> items, List<String> requires) {
         this.items = Collections.unmodifiableMap(items);
         this.requires = requires;
-        // written once here, so a block too large or too deep for the writer is refused where it is built
-        this.json = JsonWriter.text(toValue());
+        JsonValue value = toValue();
+        // a block travels as an element of the array of blocks, one level deeper than alone, so the limits are
+        // checked there, by the writer, and a block built here can always be written with its chain's others
+        JsonWriter.text(new JsonValue.Arr(List.of(value)));
+        this.json = JsonWriter.text(value);
     }
 
     /** Whether name is an extension name: 1 to 32 of a-z, 0-9 and '-' (spec wire.md, Blocks, Names). */

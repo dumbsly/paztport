@@ -101,4 +101,27 @@ class BlockTest {
     void nullDoesNotRead() {
         assertThrows(IllegalArgumentException.class, () -> Block.parseAll(null));
     }
+
+    /** An item of {@code levels} nested arrays, innermost empty: "[[]]" is 2. */
+    private static String nested(int levels) {
+        return "[".repeat(levels) + "]".repeat(levels);
+    }
+
+    @Test
+    void theDeepestItemABlockTakesRoundTripsInTheArrayOfBlocks() {
+        // inside the array of blocks the item sits under 3 containers (array, block, items) and the item's
+        // array under items' member: v4.json's "an item at the depth limit" has 28 levels, at JsonReader.MAX_DEPTH 32
+        Block b = Block.of(Map.of("example", List.of(nested(28))), List.of());
+        List<Block> one = List.of(b);
+        assertEquals(one, Block.parseAll(Block.toJson(one)));
+    }
+
+    @Test
+    void anItemOneLevelDeeperIsRefusedWhereTheBlockIsBuilt() {
+        // the vector "an item one level past the depth limit" is this item, which Block.parseAll refuses too
+        assertThrows(IllegalArgumentException.class,
+                () -> Block.of(Map.of("example", List.of(nested(29))), List.of()));
+        assertThrows(IllegalArgumentException.class,
+                () -> Block.parseAll("[{\"items\":{\"example\":[" + nested(29) + "]},\"requires\":[]}]"));
+    }
 }
