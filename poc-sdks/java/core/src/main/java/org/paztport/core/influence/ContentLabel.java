@@ -49,22 +49,6 @@ public record ContentLabel(InfluenceClass cls, String cid, String owner) {
     }
 
     /**
-     * Reads the wire form of a label list: the JCS text of an array of labels, each with exactly {@code cls} and
-     * {@code cid} and, for private content, {@code owner}. Throws {@link IllegalArgumentException} for text that is
-     * not that, or for a label that is not well formed.
-     */
-    public static List<ContentLabel> parseAll(String json) {
-        if (json == null) {
-            throw new IllegalArgumentException("labels must be an array");
-        }
-        List<ContentLabel> out = new ArrayList<>();
-        for (JsonValue item : JsonFields.array(JsonReader.wireText(json))) {
-            out.add(fromTree(item));
-        }
-        return out;
-    }
-
-    /**
      * Reads one item, its JCS text, as a label (spec influence.md, Content labels): an object with exactly a known
      * {@code cls} and a string {@code cid}, and an optional non-empty string {@code owner}.
      *
@@ -102,16 +86,6 @@ public record ContentLabel(InfluenceClass cls, String cid, String owner) {
             required.add(Influence.NAME);
         }
         return Block.of(Map.of(Influence.NAME, labels.stream().map(ContentLabel::toJson).toList()), required);
-    }
-
-    /** The wire form of {@code labels}, in the order given, each as {@link #toJson()} writes it. */
-    public static String toJson(List<ContentLabel> labels) {
-        return JsonWriter.text(tree(labels));
-    }
-
-    /** The labels as a JSON value. */
-    static JsonValue.Arr tree(List<ContentLabel> labels) {
-        return new JsonValue.Arr(labels.stream().map(l -> (JsonValue) l.tree()).toList());
     }
 
     /** The wire form: the object's JCS text, {@code {cls, cid, owner?}} with an absent owner left out. */

@@ -10,9 +10,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import org.paztport.core.internal.JsonFields;
-import org.paztport.core.internal.JsonReader;
 import org.paztport.core.internal.JsonValue;
-import org.paztport.core.internal.JsonWriter;
 import org.paztport.core.offline.OfflineResult;
 import org.paztport.core.offline.RecordSet;
 import org.paztport.core.offline.RecordedSession;
@@ -178,19 +176,11 @@ public final class Influence {
     }
 
     /**
-     * Reads the JCS text of an array of entries, each as {@link InfluenceEntry#parse} reads one. The list form the
-     * blinded entries of {@link BoundaryInfluence} are written in.
+     * Reads an array of entries already read, each as {@link InfluenceEntry#parse} reads one: the list form the
+     * originals of a {@link BoundaryInfluence.Opening} travel in.
      *
-     * @throws IllegalArgumentException for text that is not that, null included
+     * @throws IllegalArgumentException for a value that is not that
      */
-    public static List<InfluenceEntry> parse(String json) {
-        if (json == null) {
-            throw new IllegalArgumentException("influence must be an array");
-        }
-        return fromTree(JsonReader.wireText(json));
-    }
-
-    /** {@link #parse(String)}'s schema over a value already read. */
     static List<InfluenceEntry> fromTree(JsonValue value) {
         List<InfluenceEntry> out = new ArrayList<>();
         for (JsonValue item : JsonFields.array(value)) {
@@ -206,12 +196,10 @@ public final class Influence {
         return new ArrayList<>(new LinkedHashSet<>(sorted));
     }
 
-    /** The wire form of {@code entries}, in the order given, each as {@link InfluenceEntry#toJson()} writes it. */
-    public static String toJson(List<InfluenceEntry> entries) {
-        return JsonWriter.text(tree(entries));
-    }
-
-    /** The entries as a JSON value. */
+    /**
+     * The entries as a JSON value, in the order given: the list form a {@link BoundaryInfluence} commitment hashes and
+     * an opening's originals travel in.
+     */
     static JsonValue.Arr tree(List<InfluenceEntry> entries) {
         return new JsonValue.Arr(entries.stream().map(e -> (JsonValue) e.tree()).toList());
     }

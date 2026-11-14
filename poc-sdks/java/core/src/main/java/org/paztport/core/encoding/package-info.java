@@ -18,9 +18,10 @@
  * {@code SessionRequest.parse(byte[])}, and the session reply, with {@code SessionReply.parse(byte[])}, which
  * {@code Sessions.checkReply(byte[], ...)} reads it with before checking it.
  * <li>A list carried on the wire is read and written by the class that owns it, named for what it reads:
- * {@code Influence.parse} and {@code Influence.toJson}, {@code ContentLabel.parseAll} and
- * {@code ContentLabel.toJson(List)}, {@code Chains.parse} and {@code Chains.toJson}. {@code Chains.parse} returns
- * its failure as a reason rather than throwing, since reading a chain is the verifier's first check.
+ * {@code Block.parseAll} and {@code Block.toJson(List)}, {@code Chains.parse} and {@code Chains.toJson}.
+ * {@code Chains.parse} returns its failure as a reason rather than throwing, since reading a chain is the verifier's
+ * first check. An item a block holds is read one at a time, by its extension: {@code InfluenceEntry.parse} and
+ * {@code ContentLabel.parse}.
  * <li>A message judged as received has no reader of its own. A responder event is one:
  * {@code EventVerifier.accept} takes the body's text, and a sender writes it with {@code ResponderEvent.toJson} and
  * {@code EventEnvelope.toJson}.

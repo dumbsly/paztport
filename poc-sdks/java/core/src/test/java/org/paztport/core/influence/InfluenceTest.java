@@ -15,44 +15,28 @@ import org.paztport.core.stamp.Block;
 class InfluenceTest {
 
     @Test
-    void rejectsMalformed() {
+    void anItemThatIsNotAWellFormedEntryIsRefused() {
         String[] bad = {
-            "{}",
             "\"x\"",
-            "[1]",
-            "[[]]",
-            "[{\"cls\":\"nope\",\"h\":\"x\",\"src\":\"s\"}]",
-            "[{\"h\":\"x\",\"src\":\"s\"}]",
-            "[{\"cls\":\"public\",\"h\":\"x\",\"src\":1}]",
-            "[{\"cls\":\"public\",\"h\":2,\"src\":\"s\"}]",
-            "[{\"cid\":3,\"cls\":\"public\",\"h\":\"x\",\"src\":\"s\"}]",
-            "[{\"cid\":null,\"cls\":\"public\",\"h\":\"x\",\"src\":\"s\"}]",
-            "[{\"cls\":\"private\",\"h\":\"x\",\"owner\":\"\",\"src\":\"s\"}]",
-            "[{\"cls\":\"private\",\"h\":\"x\",\"owner\":5,\"src\":\"s\"}]",
-            "[{\"cls\":\"public\",\"h\":\"x\",\"src\":\"\ud800\"}]",
-            "[{\"cls\":\"public\",\"h\":\"x\",\"src\":\"\ufdd0\"}]",
+            "1",
+            "[]",
+            "null",
+            "{\"cls\":\"nope\",\"h\":\"x\",\"src\":\"s\"}",
+            "{\"h\":\"x\",\"src\":\"s\"}",
+            "{\"cls\":\"public\",\"h\":\"x\",\"src\":1}",
+            "{\"cls\":\"public\",\"h\":2,\"src\":\"s\"}",
+            "{\"cid\":3,\"cls\":\"public\",\"h\":\"x\",\"src\":\"s\"}",
+            "{\"cid\":null,\"cls\":\"public\",\"h\":\"x\",\"src\":\"s\"}",
+            "{\"cls\":\"private\",\"h\":\"x\",\"owner\":\"\",\"src\":\"s\"}",
+            "{\"cls\":\"private\",\"h\":\"x\",\"owner\":5,\"src\":\"s\"}",
+            "{\"cls\":\"public\",\"h\":\"x\",\"src\":\"\ud800\"}",
+            "{\"cls\":\"public\",\"h\":\"x\",\"src\":\"\ufdd0\"}",
+            "{\"cls\":\"public\",\"extra\":1,\"h\":\"x\",\"src\":\"s\"}",
+            "{\"cls\"",
         };
         for (String b : bad) {
-            assertThrows(IllegalArgumentException.class, () -> Influence.parse(b), b);
+            assertThrows(IllegalArgumentException.class, () -> InfluenceEntry.parse(b), b);
         }
-        assertThrows(IllegalArgumentException.class, () -> Influence.parse(null));
-        assertThrows(IllegalArgumentException.class, () -> Influence.parse("[{\"cls\""));
-        String good = "[{\"cid\":\"c\",\"cls\":\"private\",\"h\":\"x\",\"owner\":\"o\",\"src\":\"s\"}]";
-        assertEquals(good, Influence.toJson(Influence.parse(good)));
-    }
-
-    @Test
-    void anEntryWithAnExtraMemberIsRefused() {
-        assertThrows(IllegalArgumentException.class,
-                () -> Influence.parse("[{\"cls\":\"public\",\"extra\":1,\"h\":\"x\",\"src\":\"s\"}]"));
-    }
-
-    @Test
-    void aListInWireMemberOrderIsRefused() {
-        assertThrows(IllegalArgumentException.class,
-                () -> Influence.parse("[{\"cls\":\"public\",\"src\":\"s\",\"h\":\"x\"}]"));
-        assertThrows(IllegalArgumentException.class,
-                () -> Influence.parse("[ {\"cls\":\"public\",\"h\":\"x\",\"src\":\"s\"}]"));
     }
 
     // [] names the extension with nothing to add (influence.md, The every-stamp rule): a hop that acts on influence
@@ -145,23 +129,24 @@ class InfluenceTest {
     }
 
     @Test
-    void aLabelListHasExactlyTheLabelMembersInJcsOrder() {
-        assertEquals(1, ContentLabel.parseAll("[{\"cid\":\"c\",\"cls\":\"public\"}]").size());
-        for (String bad : new String[] {"[{\"cid\":\"c\",\"cls\":\"public\",\"extra\":1}]",
-                "[{\"cls\":\"public\",\"cid\":\"c\"}]", "[{\"cid\":\"c\"}]", "[{\"cid\":\"c\",\"cls\":\"bogus\"}]",
-                "[ {\"cid\":\"c\",\"cls\":\"public\"}]", "{}", "[1]"}) {
-            assertThrows(IllegalArgumentException.class, () -> ContentLabel.parseAll(bad), bad);
+    void aLabelHasExactlyTheLabelMembersInJcsOrder() {
+        assertEquals(new ContentLabel(InfluenceClass.PUBLIC, "c", null),
+                ContentLabel.parse("{\"cid\":\"c\",\"cls\":\"public\"}"));
+        for (String bad : new String[] {"{\"cid\":\"c\",\"cls\":\"public\",\"extra\":1}",
+                "{\"cls\":\"public\",\"cid\":\"c\"}", "{\"cid\":\"c\"}", "{\"cid\":\"c\",\"cls\":\"bogus\"}",
+                " {\"cid\":\"c\",\"cls\":\"public\"}", "{}", "1"}) {
+            assertThrows(IllegalArgumentException.class, () -> ContentLabel.parse(bad), bad);
         }
     }
 
     @Test
     void labelsRoundTripAndRefuseEmptyOwner() {
         ContentLabel fresh = ContentLabel.fresh(InfluenceClass.PRIVATE, "alice");
-        assertEquals(List.of(fresh), ContentLabel.parseAll(ContentLabel.toJson(List.of(fresh))));
+        assertEquals(fresh, ContentLabel.parse(fresh.toJson()));
         assertEquals(22, ContentLabel.fresh(InfluenceClass.PUBLIC, null).cid().length());
         assertEquals(new InfluenceEntry(InfluenceClass.PRIVATE, "http:x", "h", fresh.cid(), "alice"),
                 fresh.toEntry("http:x", "h"));
-        String bad = "[{\"cid\":\"c\",\"cls\":\"private\",\"owner\":\"\"}]";
-        assertThrows(IllegalArgumentException.class, () -> ContentLabel.parseAll(bad));
+        String bad = "{\"cid\":\"c\",\"cls\":\"private\",\"owner\":\"\"}";
+        assertThrows(IllegalArgumentException.class, () -> ContentLabel.parse(bad));
     }
 }

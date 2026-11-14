@@ -129,7 +129,8 @@ has one, the authenticated peer.
   `IllegalArgumentException` for anything malformed, text that is not one JSON value
   included. A reader of a whole HTTP body also takes its bytes, `parse(byte[])`. A
   list is read and written by the class that owns it (`Block.parseAll`,
-  `Influence.parse`, `ContentLabel.parseAll`, `Chains.parse`). A session request and reply are read
+  `Chains.parse`), and an item a block holds by its extension (`InfluenceEntry.parse`,
+  `ContentLabel.parse`). A session request and reply are read
   from their wire bytes, by `SessionRequest.parse` and `SessionReply.parse`, with
   exactly their members; `Sessions.checkReply` takes a reply's text or bytes and
   reads it first, and `RecordedSession.of` takes both as text. The verifiers take
