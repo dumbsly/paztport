@@ -61,7 +61,7 @@ asks only *who are you?* (the payment service, the customer database, the admin
 panel) does what it's told.
 
 This repository holds Paztport, a protocol for path attestation, written as a
-[spec](poc-sdks/spec/README.md) (version 3). SDKs in Java and Go carry it over HTTP,
+[spec](poc-sdks/spec/README.md) (version 4). SDKs in Java and Go carry it over HTTP,
 and one in TypeScript carries it over MCP, the protocol AI agents use to call tools.
 Three demos run it: a small
 [mesh of Spring Boot services](poc-demos/java-mesh/README.md), an
