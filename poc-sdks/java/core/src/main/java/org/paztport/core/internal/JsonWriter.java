@@ -131,12 +131,21 @@ public final class JsonWriter {
         }
     }
 
-    /**
-     * The string as RFC 8785 (section 3.2.2.2) escapes it: the two-character escapes for the characters that have
-     * one, <code>&#92;u00xx</code> in lowercase hex for any other below U+0020, and every other character as itself.
-     */
     private void string(String s) {
-        ascii("\"");
+        String quoted = quoted(s, false);
+        out.append(quoted);
+        count(quoted.getBytes(StandardCharsets.UTF_8).length);
+    }
+
+    /**
+     * The string, in quotes, as RFC 8785 (section 3.2.2.2) escapes it: the two-character escapes for the characters
+     * that have one, <code>&#92;u00xx</code> in lowercase hex for any other below U+0020, and every other character as
+     * itself. A lone surrogate is refused. A noncharacter is refused too unless {@code noncharactersAllowed}: wire
+     * objects refuse it, while hashed content and a verifier's own keys, which never travel, write it as itself.
+     * This is the one place the escape rule is written.
+     */
+    public static String quoted(String s, boolean noncharactersAllowed) {
+        StringBuilder q = new StringBuilder("\"");
         for (int i = 0; i < s.length(); ) {
             char c = s.charAt(i);
             int cp = c;
@@ -145,29 +154,28 @@ public final class JsonWriter {
             } else if (Character.isSurrogate(c)) {
                 throw refuse("a string holding a lone surrogate");
             }
-            if (Text.isNoncharacter(cp)) {
+            if (!noncharactersAllowed && Text.isNoncharacter(cp)) {
                 throw refuse("a string holding a noncharacter");
             }
             switch (cp) {
-                case '"' -> ascii("\\\"");
-                case '\\' -> ascii("\\\\");
-                case '\b' -> ascii("\\b");
-                case '\f' -> ascii("\\f");
-                case '\n' -> ascii("\\n");
-                case '\r' -> ascii("\\r");
-                case '\t' -> ascii("\\t");
+                case '"' -> q.append("\\\"");
+                case '\\' -> q.append("\\\\");
+                case '\b' -> q.append("\\b");
+                case '\f' -> q.append("\\f");
+                case '\n' -> q.append("\\n");
+                case '\r' -> q.append("\\r");
+                case '\t' -> q.append("\\t");
                 default -> {
                     if (cp < 0x20) {
-                        ascii("\\u00" + HEX[cp >> 4] + HEX[cp & 15]);
+                        q.append("\\u00").append(HEX[cp >> 4]).append(HEX[cp & 15]);
                     } else {
-                        out.appendCodePoint(cp);
-                        count(cp < 0x80 ? 1 : cp < 0x800 ? 2 : cp < 0x10000 ? 3 : 4);
+                        q.appendCodePoint(cp);
                     }
                 }
             }
             i += Character.charCount(cp);
         }
-        ascii("\"");
+        return q.append('"').toString();
     }
 
     private void ascii(String s) {
