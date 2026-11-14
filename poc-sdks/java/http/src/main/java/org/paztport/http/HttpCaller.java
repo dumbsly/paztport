@@ -368,13 +368,15 @@ public final class HttpCaller {
      *     {@code /?q=1})
      * @param body the request body, whole
      * @param inbound the chain this request received, or null where there is none (an origin, or no request)
-     * @param inboundBlocks the blocks it came with, one per stamp, or null for one empty block per stamp
+     * @param inboundBlocks the blocks it came with, one per stamp, or null for one empty block per stamp; null where
+     *     there is no inbound chain
      * @param added the entries this service added for the request itself so far, never those it was handed; empty
      *     for none
      * @throws IllegalArgumentException when the method is null or empty, the URI's host has no receiver name (see
      *     {@link #receiver}), the receiver or this service is not a route node, or the receiver has an operation table
      *     and no operation of it matches the method and path, or the operation matched declares a key and the call
-     *     gives no key value, or the blocks would pass the wire limit; nothing is signed
+     *     gives no key value, or {@code inboundBlocks} are not one per stamp of {@code inbound} or are given with no
+     *     inbound chain, or the blocks would pass the wire limit; nothing is signed
      */
     public Outbound stamp(String method, URI uri, byte[] body, List<Stamp> inbound, List<Block> inboundBlocks,
             List<InfluenceEntry> added) {
@@ -403,6 +405,12 @@ public final class HttpCaller {
             List<InfluenceEntry> added, RequestContext.Scope scope) {
         if (method == null || method.isEmpty()) {
             throw new IllegalArgumentException("the method of a call must not be empty");
+        }
+        // One block per inbound stamp (spec wire.md, Blocks): a list of another length, or one beside no chain, would
+        // be signed into a call the next hop refuses at check 9a, so it is refused here, before anything is signed.
+        if (inboundBlocks != null && (inbound == null || inboundBlocks.size() != inbound.size())) {
+            throw new IllegalArgumentException(inbound == null ? "blocks given with no inbound chain; nothing is sent"
+                    : "the inbound blocks are not one per inbound stamp; nothing is sent");
         }
         String receiver = receiver(uri);
         if (receiver == null) {

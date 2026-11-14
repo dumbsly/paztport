@@ -364,6 +364,57 @@ class HttpCallerTest {
                 "a call within the limit is stamped");
     }
 
+    /**
+     * Blocks forwarded are one per stamp of the inbound chain (spec wire.md, Blocks), so a list of another length is
+     * refused before anything is signed, rather than sent to a next hop that would refuse it at check 9a.
+     */
+    @Test
+    void inboundBlocksOfAnotherLengthThanTheChainAreRefusedBeforeSigning() {
+        List<Stamp> inbound = gatewayStamper().next(null, "orders", "b", Block.EMPTY, policy.bundles().get("gateway"))
+                .chain();
+        AtomicInteger signed = new AtomicInteger();
+        HttpCaller caller = HttpCaller.builder("orders", countingOrdersStamper(signed)).extensions(ACTS_ON_INFLUENCE)
+                .build();
+        URI payment = URI.create("http://payment:8080/pay");
+
+        assertThrows(IllegalArgumentException.class, () -> caller.stamp("POST", payment, NO_BODY, inbound,
+                List.of(Block.EMPTY, Block.EMPTY), List.of()));
+        assertThrows(IllegalArgumentException.class, () -> caller.stamp("POST", payment, NO_BODY, inbound,
+                List.of(), List.of()));
+
+        assertEquals(0, signed.get(), "nothing is signed");
+        assertEquals(2, caller.stamp("POST", payment, NO_BODY, inbound, List.of(Block.EMPTY), List.of()).blocks()
+                .size(), "one block per stamp is forwarded, then the caller's own");
+        assertEquals(1, signed.get());
+    }
+
+    /** Blocks given with no inbound chain belong to no stamp, so they are refused rather than silently left out. */
+    @Test
+    void inboundBlocksWithNoInboundChainAreRefusedBeforeSigning() {
+        AtomicInteger signed = new AtomicInteger();
+        Stamper counting = new Stamper("gateway", "gw-1", gateway.getPrivate(), true, () -> "rid-1", () -> {
+            signed.incrementAndGet();
+            return 1000L;
+        });
+        HttpCaller caller = HttpCaller.builder("gateway", counting).extensions(ACTS_ON_INFLUENCE).build();
+
+        assertThrows(IllegalArgumentException.class, () -> caller.stamp("POST", ORDERS, NO_BODY, null,
+                List.of(Block.EMPTY), List.of()));
+
+        assertEquals(0, signed.get(), "nothing is signed");
+        assertEquals(1, caller.stamp("POST", ORDERS, NO_BODY, null, null, List.of()).blocks().size(),
+                "with neither, the call carries its own block alone");
+        assertEquals(1, signed.get());
+    }
+
+    /** Orders' stamper, counting each stamp it signs by the clock reads it makes, one per stamp. */
+    private Stamper countingOrdersStamper(AtomicInteger signed) {
+        return new Stamper("orders", "ord-1", orders.getPrivate(), false, () -> "x", () -> {
+            signed.incrementAndGet();
+            return 2000L;
+        });
+    }
+
     /** K1: a caller states its extension settings once, so a builder given others beside a verifier refuses. */
     @Test
     void builderSettingsThatDifferFromTheVerifiersAreRefused() {
