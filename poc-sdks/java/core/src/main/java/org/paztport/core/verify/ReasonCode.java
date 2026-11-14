@@ -76,7 +76,7 @@ public enum ReasonCode {
     EXTENSION_REQUIRED,
     /**
      * No check of the live order: the extension {@code influence} refused an item on a request's block that does not
-     * read as an entry. 403 when verification gives it, 400 over HTTP in either mode; live and offline.
+     * read as an entry. 400 over HTTP in either mode; live and offline.
      */
     INFLUENCE_MISMATCH,
     /** Check 10: the peer the transport authenticated is not the last signer. 403. */
@@ -87,7 +87,8 @@ public enum ReasonCode {
     PROMPT_MISMATCH,
     /**
      * No check of the live order: the every-stamp rule or the owner-aware rule of the extension {@code influence}
-     * refused a public write. {@code PublicWrites} returns it, and the handler answers the write.
+     * refused a public write. {@code Influence.decide} gives it, and the handler answers the write: 403 over HTTP in
+     * either mode.
      */
     INFLUENCE_DENIED,
     /**

@@ -20,14 +20,14 @@ import org.paztport.core.stamp.Block;
 
 /**
  * What a response says about its own content: a class, a content id the caller can later cite, and (for private
- * content) whose it is. Labels travel beside a response and are committed by its binding, so a caller can trust
- * them exactly as far as it trusts the responder's stamp. {@code owner} is null when absent and is then left out of
- * the JSON, never written as null, so the bound bytes match every other SDK.
+ * content) whose it is. Labels travel as items in the response's block, which the response stamp's {@code ext}
+ * commits to, so a caller can trust them exactly as far as it trusts the responder's stamp. {@code owner} is null
+ * when absent and is then left out of the JSON, never written as null, so the committed bytes match every other SDK.
  */
 public record ContentLabel(InfluenceClass cls, String cid, String owner) {
 
     /**
-     * Refuses a missing class or cid, an empty owner, a lone surrogate or a noncharacter, none of which the binding
+     * Refuses a missing class or cid, an empty owner, a lone surrogate or a noncharacter, none of which a block's bytes
      * could carry.
      */
     public ContentLabel {
