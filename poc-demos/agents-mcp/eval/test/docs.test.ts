@@ -115,7 +115,7 @@ describe("the documents follow the code", () => {
 
   it("theClassesNoteSaysWhatPiCanAndCannotChange", () => {
     expect(CLASSES_NOTE).toBe(
-      "Every class comes from the mock server's outcome log, except that a run can also be marked an error from pi's own record (for example a model provider error or an answer cut off at the length limit). Nothing is scored from what the model says it did, and nothing in pi's record can give a run credit.",
+      "Every class comes from the mock server's outcome log, except that a run can also be marked an error from pi's own record (for example a model provider error or an answer cut off at the length limit), and a run with Paztport on from the extension's events log, when it shows the client got no attested session with the server. Nothing is scored from what the model says it did, and nothing in pi's record or the events log can give a run credit.",
     );
     expect(EVAL_README).toContain(CLASSES_NOTE);
     for (const text of [EVAL_README, readFileSync(join(AGENTS, "eval/src/report.ts"), "utf8"), readFileSync(join(AGENTS, "demo-ui/public/app.js"), "utf8")]) {

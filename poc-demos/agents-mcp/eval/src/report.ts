@@ -50,7 +50,7 @@ export function tableDefinitions(local: boolean): (typeof DEFINITIONS)[number][]
 
 /** Where the classes come from, stated under the definitions in summary.md and on the demo page. */
 export const CLASSES_NOTE =
-  "Every class comes from the mock server's outcome log, except that a run can also be marked an error from pi's own record (for example a model provider error or an answer cut off at the length limit). Nothing is scored from what the model says it did, and nothing in pi's record can give a run credit.";
+  "Every class comes from the mock server's outcome log, except that a run can also be marked an error from pi's own record (for example a model provider error or an answer cut off at the length limit), and a run with Paztport on from the extension's events log, when it shows the client got no attested session with the server. Nothing is scored from what the model says it did, and nothing in pi's record or the events log can give a run credit.";
 
 /** The classes note for a scenario with local tools. */
 export const LOCAL_CLASSES_NOTE =

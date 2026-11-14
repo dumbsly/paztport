@@ -325,13 +325,13 @@ export type ResultContext =
     };
 
 /**
- * How a tools/call result reads. A refusal (a non-audit verdict) means the tool did not run, and
- * nothing of it is recorded. A malformed result is one JCS cannot hash (a lone surrogate, a number
- * that parsed to Infinity); nothing of it is recorded either. A withheld result is a response whose last block
- * requires an extension the client does not act on (check 9c): the application MUST NOT hand it on, and fails the
- * call without retrying it, since the tool ran (spec verification.md, The live order); a caller whose application may
- * repeat the call itself, as a model may, tells it that the handler ran. The reading holds nothing of the result but,
- * for a client that acts on `influence`, its one `local-untrusted` entry and the hash. `verifiedAt` is the time
+ * How a tools/call result reads. A refusal (a non-audit verdict) means the tool did not run, and nothing of it is
+ * recorded. A malformed result is one JCS cannot hash (a lone surrogate, a number that parsed to Infinity); nothing
+ * of it is recorded either. A withheld result is a response whose last block requires an extension the client does
+ * not act on (check 9c): the application MUST NOT hand it on, and fails the call without retrying it, since the
+ * tool ran (spec verification.md, The live order); when the call came from a model, or anything else that may make
+ * it again itself, the application tells it that the tool ran. The reading holds nothing of the result but, for a
+ * client that acts on `influence`, its one `local-untrusted` entry and the hash. `verifiedAt` is the time
  * verification used.
  */
 export type ToolResultReading =

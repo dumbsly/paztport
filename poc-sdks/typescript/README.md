@@ -238,16 +238,16 @@ lacks one of them, so a call never drops, silently, what the client's requiremen
 did not run; `malformed` for a result JCS cannot hash; `withheld` for a response whose last block requires an extension
 the client does not act on (check 9c, `EXTENSION_REQUIRED`); and otherwise `read`, with the verification and what the
 result adds to influence. The application MUST NOT hand a `withheld` result on: it fails the call and does not retry it,
-since the tool ran. A caller whose application may repeat the call itself, as a model may, tells it that the handler
-ran. The context also carries `serverId`, the server's id from the client's configuration. For a client that acts on
-`influence`, a `read` result in an attested or unsafe session, and a `withheld` one, which only an attested session
-gives, carry `{ kind: "entries", entries, hash }`: the entries it adds to the client's influence, built by core's
-`responseEntries` with `src` `server:<serverId>` and `h` the result hash, which is there too for the client's record.
-That is an entry for each label of a response that verified and names `influence` in every block with only labels under
-it, and otherwise one `local-untrusted` entry, as for a `withheld` result and every result in an unsafe session. A
-`refused` result adds nothing, a `malformed` one carries no influence at all, and in a session that is `off` (Paztport
-switched off) no result adds anything. A client that does not act on `influence` reads `{ kind: "none" }` in every
-session. `verifyMcpResponse` is the response check `readToolResult` runs; a client re-checking a recorded response
+since the tool ran. When the call came from a model, or anything else that may make it again itself, the application
+tells it that the tool ran. The context also carries `serverId`, the server's id from the client's configuration. For a
+client that acts on `influence`, a `read` result in an attested or unsafe session, and a `withheld` one, which only an
+attested session gives, carry `{ kind: "entries", entries, hash }`: the entries it adds to the client's influence, built
+by core's `responseEntries` with `src` `server:<serverId>` and `h` the result hash, which is there too for the client's
+record. That is an entry for each label of a response that verified and names `influence` in every block with only
+labels under it, and otherwise one `local-untrusted` entry, as for a `withheld` result and every result in an unsafe
+session. A `refused` result adds nothing, a `malformed` one carries no influence at all, and in a session that is `off`
+(Paztport switched off) no result adds anything. A client that does not act on `influence` reads `{ kind: "none" }` in
+every session. `verifyMcpResponse` is the response check `readToolResult` runs; a client re-checking a recorded response
 passes the time it recorded verifying it as `now`, and settings from `recordExtensionSettings`.
 
 **The server side.** `McpServerSession` takes the server's `ExtensionSettings` beside its policy and rules. Its replies
