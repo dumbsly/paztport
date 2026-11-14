@@ -9,24 +9,22 @@ application installs first is used for the other primitives, whose results do no
 depend on the provider. `keygen` uses Bouncy Castle only to build its X.509
 certificates, which the JDK signs.
 
-It implements protocol v3 as the [spec](../spec/README.md) defines it, and carries
-it over HTTP. It replays `spec/vectors/http-v3.json`, `events.json` and
-`ed25519.json` in full, `json.json` but its `jcs` section and the MCP profile's
-`bindings` (`toolsCall`, `result` and `localTool`), and `v3.json` but the recorded
-local steps, the response attestations, `paztport/session`'s params and result,
-and the result and `tools/call` bindings (`recordedLocalStep`,
-`responseAttestation`, `sessionParams`, `sessionResult`, `bindResult` and
-`bindMcpCall`), which belong to the
-[MCP profile](../spec/README.md#the-mcp-profile) that an HTTP-only SDK need not
-implement.
+`paztport-core` implements protocol version 4 as the [spec](../spec/README.md) defines it, with no transport. It
+replays `spec/vectors/v4.json` but the sections that belong to the
+[MCP profile](../spec/README.md#the-mcp-profile) (`recordedLocalStep`, `responseAttestation`, `sessionParams`,
+`sessionResult`, `bindMcpCall` and `bindResult`), `influence.response`, and the `influence.request` cases whose
+`served` is not empty, which record the extension over MCP; `json.json` but its `jcs` section and the MCP profile's
+`bindings` (`toolsCall`, `result` and `localTool`); and `events.json` and `ed25519.json` in full.
+`paztport-http`, `paztport-spring` and `tools/bench` still hold version 3 code and do not build against this core
+until the next two plans of this wave, so `mvn -q -pl core,tools/keygen,tools/policy-tool -am install` is what builds
+today, and their sections below describe version 3.
 
 ```bash
-mvn -q install   # build, test, and install into the local Maven repository
+mvn -q -pl core,tools/keygen,tools/policy-tool -am install   # build, test and install what builds today
 ```
 
 The Java demo ([poc-demos/java-mesh](../../poc-demos/java-mesh/README.md)) depends on
-the installed artifacts, so install the SDK before building it. `./run java-mesh` and
-`./run test` do this for you.
+the installed artifacts, so it does not build until the HTTP modules move to version 4.
 
 ## paztport-core
 
@@ -34,24 +32,52 @@ The protocol, with no transport. It never touches TLS or HTTP: a transport hands
 the verifier the binding of what was received, the receiver's name and, when it
 has one, the authenticated peer.
 
-- **Stamps and chains.** `Stamp` signs and refuses a field holding `|`, a lone
-  surrogate or a noncharacter, or a `ts` outside [0, 2^53 − 1]. `Chains` reads a
-  chain off the wire strictly, from its bytes, as checks 1 and 2 of the live order,
-  and never throws; a `ts` is a protocol integer, so `1.0` is refused. A stamp whose
-  `v` is not 3 is `CHAIN_MISSING`. `Stamper` signs only for a service name and a
-  receiver that are route nodes, since a policy can hold nothing else; `Stamp`
-  itself does not check, so a verifier reaches its own reason codes.
+- **Stamps and chains.** `Stamp` is a version 4 stamp: `Stamp.VERSION`, the one place
+  the number is written, and a signature over the JCS bytes of its other ten members,
+  which escape every string, so no field needs a rule against a delimiter. It refuses
+  a lone surrogate or a noncharacter, and a `ts` outside [0, 2^53 − 1], and signs
+  neither. `Chains` reads a chain off the wire strictly, from its bytes, as check 1
+  of the live order, and never throws; a `ts` is a protocol integer, so `1.0` is
+  refused, and a stamp whose `v` is not 4 is `CHAIN_MISSING`. `Stamper` signs only for
+  a service name and a receiver that are route nodes, since a policy can hold nothing
+  else, and takes the `Block` the stamp commits to; `Stamp` itself does not check, so a
+  verifier reaches its own reason codes.
+- **Blocks.** A `Block` is what one stamp's signer attaches: items under extension
+  names, and the names it requires of the next hop. The core never reads an item, so
+  an item is the JCS text of one JSON value, and `Block.of` refuses text that is not
+  exactly that, so a block's commitment (`Block.commit`, the stamp's `ext`) is over the
+  bytes its caller wrote and nothing is canonicalised silently. A block copies what it
+  is built from and hands out unmodifiable views, and `Block.parseAll` and
+  `Block.toJson(List)` read and write an array of them. `Block.EMPTY` attaches nothing.
+- **Extension settings.** `ExtensionSettings.of(actsOn, allowed)` builds the settings
+  once, and refuses a name that is not an extension name and an `actsOn` name outside
+  a non-null `allowed`, so a verifier never meets a service that acts on an extension
+  its own list refuses. `VerifierConfig` and `OfflineConfig` take only that type.
 - **Verifying.** A `VerifierConfig` pins one or more keyrings (`PinnedKeyring`) and
   roots (`PinnedRoot`), each with its own `notAfter`, so a rollover can pin the old
-  and the new together. `Verifier` runs the live order: first its own policy's window
-  (`POLICY_EXPIRED`, naming no one, once its clock passes `policyNotAfter`, the
-  earlier of the latest keyring and the latest root `notAfter`), then the twelve
-  checks, using only the keyrings and roots current at its clock: a stamp verifies
-  under any key they give its service by its own name, and a proof against a current
-  root with its `rootId`. `VerifierConfig.pinned` checks every keyring and root
-  against the pinned policy key, and refuses to build a config if one fails or has
-  expired; each service pins its own one of each, and a partner session its client's.
-  `OfflineVerifier` re-checks a recorded chain. Given `Signers` in its
+  and the new together. `Verifier.verify` runs the live order: first its own policy's
+  window (`POLICY_EXPIRED`, naming no one, once its clock passes `policyNotAfter`, the
+  earlier of the latest keyring and the latest root `notAfter`), then checks 1 to 8,
+  the blocks (9a: they read, one per stamp, each matching its stamp's `ext`; 9b: every
+  name is in the verifier's allowed list, when it has one; 9c: every name the last
+  block requires is one the service acts on), the peer (10), the nonce (11) and the
+  route (12), using only the keyrings and roots current at its clock: a stamp
+  verifies under any key they give its service by its own name, and a proof against a
+  current root with its `rootId`. The verifiers take the blocks as the JSON text
+  received (`VerifyInput.blocks`); null is none received, which is one empty block per
+  stamp, and text that reads as JSON `null` is not an array of blocks. On `OK` the
+  result's `HandOver` holds, for each name the service acts on, one entry per stamp
+  (`StampItems`: its signer and the items its block holds under the name, null where
+  it does not name it), and `verified()` is true; a refusal hands nothing over
+  (`HandOver.requireFor`). `Verifier.verifyRecorded` runs the same order without
+  check 9c, for a response read back from a record, which was held to the caller's
+  `actsOn` live. `VerifierConfig.pinned` checks every keyring and root against the
+  pinned policy key, and refuses to build a config if one fails or has expired; each
+  service pins its own one of each, and a partner session its client's.
+  `NonceKeys.of` writes a chain's replay key as the JCS text of an array of strings,
+  so no part needs a rule against a delimiter.
+  `OfflineVerifier` re-checks a recorded chain by checks 1 to 9b, 11 and 12, never
+  9c, and hands over a verified hand-over on `OK`. Given `Signers` in its
   `OfflineConfig`, it also checks a chain that never leaves one process, such as a
   client's local step: the origin must report the expected instance (`BAD_ORIGIN`),
   and each stamp must be by the expected service and instance (`BAD_SIGNATURE`); the
@@ -61,24 +87,39 @@ has one, the authenticated peer.
   with no recorded time fails check 7 (`TIME_MISMATCH`), and each age limit the
   `OfflineConfig` leaves null is its live default (`VerifierConfig.RUN_MAX_AGE_MS`,
   `CALL_MAX_AGE_MS`), so no configuration leaves a chain's age unlimited.
+- **A request served without verifying.** `ServedUnverified.of(stamps, blocks,
+  settings)` is the keyless function for a service about to serve a request it did not
+  verify (in audit mode, with no verifier, or with Paztport off). It applies check 9a
+  alone: `blocksMatch()` false means the service does not serve it (over HTTP, 400
+  `EXTENSION_MISMATCH`), and otherwise `handOver()` is the items under the names the
+  service acts on, with `verified()` false, or null where the chain did not read.
+  Nothing that signs on the strength of what a transport trusts relies on that flag
+  alone.
 - **Record sets.** `RecordedSession` reads a recorded handshake from its request and
   reply, each its wire bytes as text, the pin and the configured entry: attested at a
   time, at all (at the earliest of its limits) and the response limit, none where the
-  server's signatures do not verify (`Sessions.responseNotAfterOffline`). `RecordSet`
-  holds a record set's spent nonce keys and a response cache that never forgets, and
-  `RecordSet.callInSession` limits a recorded call to its session
-  (`OUTSIDE_SESSION`).
+  server's signatures do not verify (`Sessions.responseNotAfterOffline`).
+  `RecordedSession.callConfig` builds the `OfflineConfig` a call recorded in the
+  session is checked with: the client's keyring and root from the recorded request,
+  with no window of their own, since the session's limits judge them, and the
+  reply's session id. `RecordSet` holds a record set's spent nonce keys and a
+  response cache that never forgets, and `RecordSet.callInSession` limits a recorded
+  call to its session (`OUTSIDE_SESSION`).
 - **Stamping.** `Stamper` stamps a hop's outbound call, starting a chain only at
   an origin, and stamps a response as one more stamp on the request chain, back to
-  the caller.
-- **Bindings, influence and labels.** `Bindings` (the prompt and response
-  bindings, which refuse a lone surrogate), `Influence`, `InfluenceRule` (the one
-  owner-aware rule) and `ContentLabel`.
-- **Sessions.** `Sessions`: the handshake as messages, with no transport. `status`
+  the caller; each commits to the `Block` it is given.
+- **Bindings.** `Bindings` (the prompt and response bindings, which refuse a lone
+  surrogate).
+- **Sessions.** `Sessions`: the handshake as messages, with no transport. A
+  `SessionReply` lists the `extensions` the server acts on, sorted, each once. `status`
   and `checkReply` judge both sides' roots and keyrings at the handshake: past
   `notAfter` makes the session unsafe, or the reply `BAD_SIGNATURE`, and a partner
-  whose own material has expired opens every session unsafe. `attestedOffline`
-  reads a recorded handshake instead, at the time of the record judged. A root or
+  whose own material has expired opens every session unsafe. `checkReply` also takes
+  the client's `Requirement` (`Requirement.NONE` for none) and, once an attested reply
+  passes steps 1 to 4, gives `EXTENSION_REQUIRED` if it does not list every name
+  required; `Requirement.callsAfter` says what the client may do after each outcome,
+  which only `continueWithout` loosens. `attestedOffline` reads a recorded handshake
+  instead, at the time of the record judged, by steps 1 to 4 alone. A root or
   keyring without a `notAfter` is malformed, refused by its reader.
 - **JSON in and out.** The SDK has no JSON library, and no public signature names
   one: it reads and writes JSON with its own strict reader and writer, by the
@@ -87,12 +128,12 @@ has one, the authenticated peer.
   as `KeyringFile.parse` or `SessionRequest.parse`, which throws
   `IllegalArgumentException` for anything malformed, text that is not one JSON value
   included. A reader of a whole HTTP body also takes its bytes, `parse(byte[])`. A
-  list is read and written by the class that owns it (`Influence.parse`,
-  `ContentLabel.parseAll`, `Chains.parse`). A session request and reply are read
+  list is read and written by the class that owns it (`Block.parseAll`,
+  `Influence.parse`, `ContentLabel.parseAll`, `Chains.parse`). A session request and reply are read
   from their wire bytes, by `SessionRequest.parse` and `SessionReply.parse`, with
   exactly their members; `Sessions.checkReply` takes a reply's text or bytes and
   reads it first, and `RecordedSession.of` takes both as text. The verifiers take
-  the stamps, influence and proof as the JSON text received and read it themselves,
+  the stamps, blocks and proof as the JSON text received and read it themselves,
   so text that is not JSON is a typed rejection at the check that reads it. `Jcs`
   canonicalises JSON text. The `org.paztport.core.encoding` package states the rule.
 - **Encodings and keys.** `Base64Url` (the canonical encoding only, as the spec's
@@ -105,6 +146,60 @@ has one, the authenticated peer.
   `KeyringFile.load`, `SignedRoot.load`, `ProofBundle.load`, `KeyFiles.loadPolicyPin`
   and `BoundaryInfluence.loadKey`, and `OwnMaterial.check` and `expiringSoon` say
   what it may start with and when to warn that it is ending.
+
+### The extension `influence`
+
+`influence` ([influence.md](../spec/influence.md)) is a set of functions over the
+hand-over, in `org.paztport.core.influence`. The core's verifier imports none of them:
+`NoExtensionInTheCoreTest` pins that no main source of the core outside that package
+names it, so the verifier carries influence's items without reading them.
+
+- **What a request holds.** `InfluenceEntry.parse` reads one item, its JCS text, as an
+  entry: an object with exactly a known `cls`, a string `src` and `h`, and an optional
+  string `cid` and non-empty string `owner`, or it throws. `Influence.readRequest(stamps)`
+  reads the items handed on under `influence` (`HandOver.under("influence")`), each by
+  `InfluenceEntry.parse`: it gives a `RequestInfluence` with the entries and whether
+  every stamp names `influence`; or, when an item does not read as an entry,
+  `INFLUENCE_MISMATCH` and the signer of the first block holding one, for the
+  operator's log, since the code names no one. It is the one place that code is given
+  for such an item: `Influence.decide`, `Influence.reason` and
+  `Influence.recordedCallReason` take it from there. `Influence.reason` gives a
+  verified record that code, and otherwise the verifier's reason; `recordedCallReason`
+  then holds the call to its session's limits.
+- **The rules.** `InfluenceRule.guardedWriteRefused(everyStampNames, influence,
+  destinationOwner)` is the every-stamp rule, then the owner-aware rule,
+  `publicWriteRefused`; the caller takes the destination's owner from its own records.
+  `shapedOnlyByTrusted` says whether influence holds no untrusted content, the
+  condition on the content for writing a trusted record.
+- **The server's decision.** `Influence.decide(stamps, added, guardedWrite,
+  destinationOwner)` is the decision of a service that acts on `influence`: first every
+  item must read as an entry (`INFLUENCE_MISMATCH`), then a guarded write to a public
+  destination is decided by `guardedWriteRefused` over the entries handed on and the
+  facts the service added itself (`INFLUENCE_DENIED`); anything else is allowed.
+- **What a response adds.** `ContentLabel.parse` reads one item as a label: an object
+  with exactly a known `cls` and a string `cid`, and an optional non-empty string
+  `owner`, or it throws. `Influence.responseEntries(reason, response, src, resultHash)`
+  turns a response over HTTP into the entries a caller that acts on `influence` adds:
+  when the response check gave `OK` and the response's block names `influence` with
+  only labels under it, one entry per label; else exactly one `local-untrusted`
+  entry, also for a result no check ran on (`reason` null). Each entry has the given
+  `src` and `h` the result hash. It reads the response stamp's own entry of the
+  hand-over, not every block of the chain, which is the MCP rule that `v4.json`'s
+  `influence.response` records and Java does not replay.
+- **Blocks.** `Influence.block(entries, requires)` builds a request's block that names
+  `influence` with the entries a hop adds, as written; an empty list names it with
+  nothing to add, which is not the empty block. `ContentLabel.block(labels, requires)`
+  builds a response's, adding `influence` to `requires` when it holds a label.
+- **Across an organisation's edge.** `BoundaryInfluence` reduces the entries an egress
+  hands a partner to one blinded entry per class and owner, and `opens` checks one
+  against its opening.
+
+`v4.json`'s member `influence` pins these functions: its replay calls
+`InfluenceEntry.parse` (`entries`), `ContentLabel.parse` (`labels`),
+`InfluenceRule` (`rule`), `Influence.decide` (the `request` cases whose `served` is
+empty) and `Influence.recordedCallReason` (`recordedCall`). `influence.response` and
+the `request` cases whose `served` is not empty are the extension over MCP, which Java
+does not implement.
 
 ## paztport-http
 
