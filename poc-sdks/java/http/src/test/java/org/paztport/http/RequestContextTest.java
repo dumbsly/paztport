@@ -315,8 +315,7 @@ class RequestContextTest {
             assertEquals(1, RequestContext.inboundChain().size(), "carried for the handler's calls");
             assertNull(RequestContext.verifiedChain(), "but nothing checked it");
             assertEquals(List.of(block(List.of(WEB))), RequestContext.inboundBlocks(), "nor its blocks");
-            // Plan 3b Task 2 hands such a request its items as not verified, where its blocks pass check 9a.
-            assertNull(RequestContext.handedOn());
+            assertFalse(RequestContext.handedOn().verified(), "its items are handed on as not verified");
         }
     }
 

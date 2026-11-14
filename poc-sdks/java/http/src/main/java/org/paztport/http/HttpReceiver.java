@@ -22,6 +22,7 @@ import org.paztport.core.verify.HandOver;
 import org.paztport.core.verify.NonceCacheUnavailableException;
 import org.paztport.core.verify.Peer;
 import org.paztport.core.verify.ReasonCode;
+import org.paztport.core.verify.ServedUnverified;
 import org.paztport.core.verify.Verifier;
 import org.paztport.core.verify.VerifyInput;
 import org.paztport.core.verify.VerifyResult;
@@ -122,7 +123,7 @@ public final class HttpReceiver {
     private static final Logger TRACE = LoggerFactory.getLogger("PAZTPORT_TRACE");
     static final Logger LOG = LoggerFactory.getLogger(HttpReceiver.class);
 
-    /** The answer to blocks this service cannot carry, where verification has not refused them first. */
+    /** The answer to blocks that fail check 9a at a request this service would serve without verifying. */
     private static final HttpAnswer BLOCKS_NOT_CARRIED = HttpAnswer.refusal(400, ReasonCode.EXTENSION_MISMATCH);
 
     private final Verifier verifier;
@@ -133,7 +134,7 @@ public final class HttpReceiver {
     private final ReceivedRequestListener listener;
     private final Stamper stamper;
     private final OperationTable table;
-    /** What this service acts on; Plan 3b Task 2 hands a request served without verifying its items under them. */
+    /** What this service acts on: a request served without verifying is handed its items under them. */
     private final ExtensionSettings extensions;
 
     private HttpReceiver(Builder b, ExtensionSettings extensions) {
@@ -342,12 +343,6 @@ public final class HttpReceiver {
                 }
             }
         }
-        // An origin carries no chain, so it has no blocks to carry either, and cannot hide anything by dropping them.
-        if (inbound != null && blocks == null) {
-            // Plan 3b Task 2 applies check 9a here, through ServedUnverified, which also matches each block to its
-            // stamp; until then a request whose blocks cannot be forwarded unchanged is not served.
-            return Accepted.refused(BLOCKS_NOT_CARRIED, checked);
-        }
         boolean attesting = !switchedOff && stamper != null && verifier != null && !origin && inbound != null;
         if (attesting && checked == null && cacheFailure == null) {
             // A hop that does not verify requests, so verified here for attestation alone: never refused, never
@@ -364,9 +359,19 @@ public final class HttpReceiver {
         // The operation the request was verified with, where the chain named one and the live order ran, whether
         // or not it passed (it may have failed under audit or where it ran for attestation alone).
         String verifiedOperation = checked != null && !named.equals(receiver) ? operation : null;
-        // Only a chain that passed the live order here is handed on. Plan 3b Task 2 hands a request served without
-        // verifying its items as not verified, where its blocks pass check 9a; until then it is handed nothing.
-        HandOver handOver = verified ? checked.handOver() : null;
+        // A chain that passed the live order here is handed on as verified. Every other request this service is
+        // about to serve is read by ServedUnverified (verification.md, "A service never serves a request whose
+        // blocks fail check 9a"); an origin carries no chain and is not subject to it.
+        HandOver handOver = null;
+        if (verified) {
+            handOver = checked.handOver();
+        } else if (!origin) {
+            ServedUnverified unverified = ServedUnverified.of(chain, HttpWire.decodeBlocks(blocksHeader), extensions);
+            if (!unverified.blocksMatch()) {
+                return Accepted.refused(BLOCKS_NOT_CARRIED, checked);
+            }
+            handOver = unverified.handOver();
+        }
         return Accepted.served(inbound, blocks, verified, handOver,
                 attesting && checked != null && checked.ok() ? stamper : null, checked, cacheFailure,
                 verifiedOperation, key);
