@@ -97,6 +97,7 @@ public final class Requirement {
      */
     public record Calls(boolean calls, List<String> requires) {
 
+        /** Copies {@code requires}, so the record cannot change after it is built. */
         public Calls {
             requires = List.copyOf(requires);
         }

@@ -55,6 +55,20 @@ class HandOverTest {
     }
 
     @Test
+    void namesAreInUtf16CodeUnitOrder() {
+        HandOver h = new HandOver(true, List.of(stamp("a")), List.of(Block.EMPTY),
+                ExtensionSettings.of(Set.of("zeta", "alpha", "mid", "beta", "a-b", "9z"), null));
+        // Code unit order: the hyphen, then the digits, then the letters.
+        assertEquals(List.of("9z", "a-b", "alpha", "beta", "mid", "zeta"), List.copyOf(h.names()));
+    }
+
+    @Test
+    void aStampsSignerIsNeverNull() {
+        assertThrows(NullPointerException.class, () -> new HandOver.StampItems(null, List.of()));
+        assertThrows(NullPointerException.class, () -> new HandOver.StampItems(null, null));
+    }
+
+    @Test
     void theListsAreUnmodifiable() {
         HandOver h = handOver(true);
         assertThrows(UnsupportedOperationException.class, () -> h.under("example").clear());

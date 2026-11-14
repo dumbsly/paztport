@@ -228,6 +228,7 @@ public final class Sessions {
      */
     public static ReplyCheck checkReply(String reply, SessionRequest req, String pinnedServerPolicyKey,
             String serverEntry, long nowMs, Requirement requires) {
+        Objects.requireNonNull(requires, "requires");
         return checkReply(readOrNull(() -> SessionReply.parse(reply)), req, pinnedServerPolicyKey, serverEntry,
                 nowMs, requires);
     }
@@ -238,6 +239,7 @@ public final class Sessions {
      */
     public static ReplyCheck checkReply(byte[] reply, SessionRequest req, String pinnedServerPolicyKey,
             String serverEntry, long nowMs, Requirement requires) {
+        Objects.requireNonNull(requires, "requires");
         return checkReply(readOrNull(() -> SessionReply.parse(reply)), req, pinnedServerPolicyKey, serverEntry,
                 nowMs, requires);
     }

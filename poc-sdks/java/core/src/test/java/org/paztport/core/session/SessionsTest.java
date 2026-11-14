@@ -615,6 +615,15 @@ class SessionsTest {
     }
 
     @Test
+    void aNullRequirementIsAProgrammingErrorNotABadSignature() {
+        SessionRequest req = request(clientRoot);
+        String text = signed(wire(replyListing(req)), serverPolicy.getPrivate());
+        assertThrows(NullPointerException.class, () -> Sessions.checkReply(text, req, serverKey, "pay", NOW, null));
+        byte[] bytes = text.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        assertThrows(NullPointerException.class, () -> Sessions.checkReply(bytes, req, serverKey, "pay", NOW, null));
+    }
+
+    @Test
     void aReplyWithoutExtensionsDoesNotRead() {
         SessionRequest req = request(clientRoot);
         String text = signed(without(wire(replyListing(req)), "extensions"), serverPolicy.getPrivate());

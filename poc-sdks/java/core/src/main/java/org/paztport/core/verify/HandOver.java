@@ -4,6 +4,7 @@
 package org.paztport.core.verify;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -19,8 +20,21 @@ import org.paztport.core.stamp.Stamp;
  */
 public final class HandOver {
 
-    /** One stamp's entry: its signer, and the items its block holds under the name, null when it does not name it. */
+    /**
+     * One stamp's entry: its signer, and the items its block holds under the name, null when it does not name it.
+     *
+     * @param svc the stamp's {@code svc}; never null
+     * @param items the items under the name, null when the block does not name it
+     */
     public record StampItems(String svc, List<String> items) {
+
+        /**
+         * Refuses a null {@code svc}: a signer is a stamp's {@code svc}, and {@code Influence.readRequest} reports an
+         * item that does not read by naming its signer, so a null one would read as no failure at all.
+         */
+        public StampItems {
+            Objects.requireNonNull(svc, "svc");
+        }
     }
 
     private final boolean verified;
@@ -49,7 +63,7 @@ public final class HandOver {
             }
             map.put(name, List.copyOf(entries));
         }
-        this.byName = Map.copyOf(map);
+        this.byName = Collections.unmodifiableMap(map);
     }
 
     /**
@@ -70,7 +84,7 @@ public final class HandOver {
         return verified;
     }
 
-    /** The extension names the service acts on; unmodifiable. */
+    /** The extension names the service acts on, in UTF-16 code unit order; unmodifiable. */
     public Set<String> names() {
         return byName.keySet();
     }
