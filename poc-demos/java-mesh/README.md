@@ -116,7 +116,7 @@ sequenceDiagram
     Note over O: check [s0] and [b0] as receiver orders#createOrder, with the proof gateway sent:<br/>orders doesn't refuse, but attests only a chain that verified
     Note over O: s1 = Sign(k_orders, …, rcv = payment#pay, ext = commit(b1), prev = sig of s0)<br/>bind = hash of the /pay request it is about to send<br/>attach proof(gateway/orders#createOrder/payment#pay)
     O->>P: POST /pay (mTLS, orders' certificate)<br/>X-Path-Chain = [s0, s1]<br/>X-Path-Proof = proof(gateway/orders#createOrder/payment#pay)<br/>X-Path-Extensions = [b0, b1]: gateway's, unchanged, then orders' own
-    Note over P: check 0: its own keyring and root are within their notAfter,<br/>then checks 1 to 12, as receiver payment#pay: the chain reads, its origin,<br/>signatures, links and receivers, rid, sess, freshness, binding,<br/>each block against its stamp's ext (9a to 9c), the peer: the last signer is orders,<br/>the nonce, and the route gateway/orders#createOrder/payment#pay against the root
+    Note over P: check 0: its own keyring and root are within their notAfter,<br/>then checks 1 to 12, as receiver payment#pay: the chain reads, its origin,<br/>signatures, links and receivers, rid, sess, freshness, binding,<br/>each block against its stamp's ext (9a), the blocks' names (9b, 9c), the peer: the last signer is orders,<br/>the nonce, and the route gateway/orders#createOrder/payment#pay against the root
     Note over P: r1 = Sign(k_payment, …, rcv = orders, ext = commit(its block), prev = sig of s1)<br/>bind = the 200 and its body
     P-->>O: 200 PAID<br/>X-Path-Response = {block, stamp: r1}
     Note over O: check [s0, s1, r1] and their blocks as receiver orders,<br/>with the proof it sent
@@ -144,13 +144,13 @@ to its own block, which holds any content labels. The caller runs the same live
 checks on it, all but the peer check, against the chain, the blocks and the proof it
 sent, so a response needs no proof of its own.
 A response that is unattested or fails is still delivered, but counts as untrusted
-influence on whatever the caller does next
-([Response attestation](#response-attestation)).
+influence on whatever the caller does next; the one exception, a response that fails
+check 9c, is refused ([Response attestation](#response-attestation)).
 
-Everything so far is the core: the chain, the proof, the binding, the blocks matched
-to their stamps, and the peer. It decides the checkout, every attack row, the
-operations rows and the quarantine, and it is all `search` runs. The extension
-`influence` is switched on only where a model is, in the storyline below.
+The path is the core alone: the chain, the proof, the binding, the blocks matched to
+their stamps, and the peer. It decides the checkout, every attack row, the operations
+rows and the quarantine, and it is all `search` runs. The extension `influence` is on
+at the services on the model's chains to a guarded write, in the storyline below.
 
 ## The support-assistant storyline
 
@@ -271,9 +271,10 @@ in an unsafe session it signs and sends nothing. `payment` requires `influence` 
 the PSP (`paztport.boundary.requires`), so it calls only in a session whose attested
 reply lists it; a call it withholds is answered `502 {"reason":"EXTENSION_REQUIRED"}`,
 which no row shows, since the PSP acts on `influence`. Rows 14a and 14b are the
-operator's own session at the PSP and do not pass through `payment`. The handshake, the stamp and the partner's checks are in
-the [spec](../../poc-sdks/spec/sessions.md#between-organisations) and
-the [Java SDK](../../poc-sdks/java/README.md); this demo only wires them up.
+operator's own session at the PSP and do not pass through `payment`. The handshake,
+the stamp and the partner's checks are in the
+[spec](../../poc-sdks/spec/sessions.md#between-organisations) and the
+[Java SDK](../../poc-sdks/java/README.md); this demo only wires them up.
 
 ### Opening a blinded entry
 
@@ -333,17 +334,18 @@ gateway: PAZTPORT_TRACE response rid=d7e7d7b9 from=tickets reason=OK receiver=ga
 ```
 
 Read it top to bottom. A request line's `classes` are what the request was handed,
-read from the blocks it came with (at the PSP, the one boundary block). The column is empty at `tickets`, gains
-`third-party` at `assistant` (from `tickets`' block), gains `private` once `orders`
-has answered (in the assistant's block), and reaches `payment` and `psp` as
-`private,third-party`. The two receivers that
-name an operation read `orders#findOrders` and `payment#refund`: the operation
-each request was confirmed as. Payment relays the PSP's answer, which nobody attests, so its response is labelled `local-untrusted`, and
-the `mailer` sees that too. The `rid` is the same at every service, including the
-PSP, in another organisation. The `psp` request line shows `session=attested`, and
-the two `decision … INFLUENCE_DENIED` lines are the two refusals. The chain verified at every hop: the requests were
-all legitimate positions on allowed routes, which is why the refusals have to come
-from the influence and not from the path. The gateway has only a `response` line
+read from the blocks it came with (at the PSP, the one boundary block). The column
+is empty at `tickets`, gains `third-party` at `assistant` (from `tickets`' block),
+gains `private` once `orders` has answered (in the assistant's block), and reaches
+`payment` and `psp` as `private,third-party`. The two receivers that name an
+operation read `orders#findOrders` and `payment#refund`: the operation each request
+was confirmed as. Payment relays the PSP's answer, which nobody attests, so its
+response is labelled `local-untrusted`, and the `mailer` sees that too. The `rid` is
+the same at every service, including the PSP, in another organisation. The `psp`
+request line shows `session=attested`, and the two `decision … INFLUENCE_DENIED`
+lines are the two refusals. The chain verified at every hop: the requests were all
+legitimate positions on allowed routes, which is why the refusals have to come from
+the influence and not from the path. The gateway has only a `response` line
 because, as the origin, it verifies no request.
 
 ## Least knowledge: who holds what
@@ -459,11 +461,11 @@ flowchart TD
     S13 -->|no| R13["400 INFLUENCE_MISMATCH"]
     S13 -->|yes| OK["200: handled, response attested"]
 
-    U["a request served without verifying: after a failure<br/>in audit, or at orders, which verifies only to<br/>decide attestation; or any request in off"] --> U9a["blocks pass check 9a?"]
+    U["a request that did not pass the live order here:<br/>it failed in audit, or failed at orders, which verifies<br/>only to decide attestation, or came in off"] --> U9a["blocks pass check 9a?"]
     U9a -->|no| RU9a["400 EXTENSION_MISMATCH"]
     U9a -->|yes| U13["every influence item it is handed reads?<br/>(at a service that acts on influence)"]
     U13 -->|no| RU13["400 INFLUENCE_MISMATCH"]
-    U13 -->|yes| UOK["served, not attested"]
+    U13 -->|yes| UOK["served, not verified, not attested"]
 
     classDef plain fill:#f2f2f2,stroke:#6e6a86,color:#1f1d2e,stroke-width:1px
     classDef reject fill:#eb6f92,stroke:#b4637a,color:#ffffff
@@ -522,10 +524,10 @@ keyring, the root and the pin, so each checks every response it gets.
   stamp is shaped like a request stamp, so attesting a chain nobody checked would
   let anyone mint stamps under the service's key: a forged one-stamp chain with an
   empty signature would come back as a genuine origin stamp. So `orders` and
-  `search`, which don't refuse requests, still run the full live order on each
-  request's chain, with their own trust material, themselves as receiver and the
-  peer their client certificate names, and attest only when it passes; a failure
-  just leaves the answer unattested. `payment` attests what it verified. In `off`,
+  `search`, which don't refuse requests by verification, still run the full live
+  order on each request's chain, with their own trust material, themselves as
+  receiver and the peer their client certificate names, and attest only when it
+  passes; a failure just leaves the answer unattested. `payment` attests what it verified. In `off`,
   Paztport is off on `payment`: it verifies nothing, not even for attestation, and
   attests nothing, so `orders` counts its answer as untrusted. A refusal, or a
   request that failed in `audit`, is answered without an attestation. `gateway` is
@@ -618,8 +620,8 @@ it calls: `gateway` mounts orders', the `assistant` both, `orders` payment's.
 A caller names the operation from the receiver's table, and the receiver confirms
 it: `orders` and `payment` take the operation from the handler Spring will
 dispatch the request to, never from the request, and a stamp that names another
-fails there (`payment` refuses it; `orders`, which refuses nothing, leaves its
-answer unattested). A caller uses a table only when its bundle holds the
+fails there (`payment` refuses it; `orders`, which refuses nothing by verification,
+leaves its answer unattested). A caller uses a table only when its bundle holds the
 table's proof, which goes to the service and to every caller with a route ending at
 it. `search` mounts payment's table too, but holds its proof only once row 10
 widens the policy, so in row 4 its call names no operation and meets a route that
@@ -764,8 +766,9 @@ Each verifying service runs in one of three modes (`PAZTPORT_MODE`):
 | `enforce` | yes | yes, with a 403 | Protection |
 
 In every mode a service that acts on `influence` also answers an item it cannot read
-`400 INFLUENCE_MISMATCH`. The mode governs `payment`'s check of requests and, in `off`, its attestation of
-responses: with Paztport off, `payment` vouches for nothing it answers. That is
+`400 INFLUENCE_MISMATCH`. The mode governs `payment`'s check of requests and, in
+`off`, its attestation of responses: with Paztport off, `payment` vouches for nothing
+it answers. That is
 fail-safe, since `orders` records an unattested answer as `local-untrusted`, so
 switching a hop off can only add caution downstream. Callers check every response
 they get in every mode, and a response check refuses only a response that fails
