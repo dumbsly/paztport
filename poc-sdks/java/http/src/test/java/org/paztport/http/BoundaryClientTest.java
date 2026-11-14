@@ -71,6 +71,7 @@ import org.paztport.http.boundary.BoundaryAccess;
 import org.paztport.http.boundary.BoundaryClient;
 import org.paztport.http.boundary.BoundaryHooks;
 import org.paztport.http.boundary.BoundaryListener;
+import org.paztport.http.boundary.RequirementUnmetException;
 import org.paztport.http.wire.HttpWire;
 import org.paztport.http.wire.PaztportHeaders;
 import org.paztport.http.wire.RequestBinding;
@@ -103,6 +104,8 @@ class BoundaryClientTest {
 
     private final KeyPair gateway = Crypto.generateEd25519KeyPair();
     private final KeyPair payment = Crypto.generateEd25519KeyPair();
+    /** orders' key, for a two-stamp internal chain; no keyring here holds it, since nothing verifies that chain. */
+    private final KeyPair orders = Crypto.generateEd25519KeyPair();
     private final KeyPair policy = Crypto.generateEd25519KeyPair();
     private final String policyPub = pub(policy);
     private final PolicyBuilder.Result built = PolicyBuilder.build(
@@ -229,7 +232,7 @@ class BoundaryClientTest {
                 System::currentTimeMillis).next(null, blocks.size() == 1 ? "payment" : "orders", bind,
                 blocks.get(0), null).chain();
         for (Block block : blocks.subList(1, blocks.size())) {
-            chain = new Stamper("orders", "ord-1", gateway.getPrivate(), false, () -> rid, System::currentTimeMillis)
+            chain = new Stamper("orders", "ord-1", orders.getPrivate(), false, () -> rid, System::currentTimeMillis)
                     .next(chain, "payment", bind, block, null).chain();
         }
         try (RequestContext.Scope scope = RequestContext.open()) {
@@ -471,9 +474,10 @@ class BoundaryClientTest {
     }
 
     /**
-     * Review Focus 5: the case above with orders' block, the internal chain's last, not naming influence. The
-     * partner's every-stamp rule cannot see the silent hop, so the block names nothing and sends no entries, though
-     * the request holds some, and there is nothing for the listener to keep.
+     * Review Focus 5: as the case above, entries handed on and added, but with orders' block, the internal chain's
+     * last, not naming influence, so the handed-on entry is in gateway's. The partner's every-stamp rule cannot see
+     * the silent hop, so the block names nothing and sends no entries, though the request holds some, and there is
+     * nothing for the listener to keep.
      */
     @Test
     void theBoundaryBlockNamesNothingWhenOneInternalStampDoesNot() throws Exception {
@@ -532,23 +536,26 @@ class BoundaryClientTest {
 
     /**
      * A reply that does not list a required extension fails step 5: no call is made in that session, and it is not
-     * replaced, since the reply was sound. The session stays until its idle period, as no call uses it, so the next
-     * call within it makes none either and asks for no handshake.
+     * replaced, since the reply was sound. No call uses the session, so an attempt does not start its idle period
+     * again: an attempt half way through keeps it, and it goes at the end of the period counted from the handshake,
+     * when the next call asks the partner again. Were each attempt to count as a use, the second attempt would carry
+     * the session past that point and the third would still find it.
      */
     @Test
     void aRequirementTheReplyDoesNotListMakesNoCallAndNoReplacement() throws Exception {
         partner.extensions("example");
+        long half = TimeUnit.MILLISECONDS.toNanos(IDLE_MS / 2);
         try (BoundaryClient requiring = egress(partner, tls()).requires(Requirement.of(Set.of("influence"), false))
                 .build()) {
             for (String rid : List.of("rid-1", "rid-2")) {
-                IllegalStateException e = assertThrows(IllegalStateException.class,
+                RequirementUnmetException e = assertThrows(RequirementUnmetException.class,
                         () -> verified(rid, () -> requiring.post("/charge", CHARGE)));
                 assertEquals(BoundaryHooks.REQUIREMENT_UNMET, e.getMessage());
+                nanos.addAndGet(half);
             }
-            assertEquals(1, partner.handshakes().size(), "no replacement, and the session is kept");
+            assertEquals(1, partner.handshakes().size(), "no replacement, and the session is kept within its period");
 
-            nanos.addAndGet(TimeUnit.MILLISECONDS.toNanos(IDLE_MS));
-            assertThrows(IllegalStateException.class, () -> verified("rid-3", () -> requiring.post("/charge",
+            assertThrows(RequirementUnmetException.class, () -> verified("rid-3", () -> requiring.post("/charge",
                     CHARGE)));
             assertEquals(2, partner.handshakes().size(), "no call used it, so it went at its idle period");
         }
@@ -593,14 +600,14 @@ class BoundaryClientTest {
         partner.extensions("influence");
         Requirement strict = Requirement.of(Set.of("influence"), false);
         try (BoundaryClient requiring = egress(partner, tls()).requires(strict).build()) {
-            assertEquals(BoundaryHooks.REQUIREMENT_UNMET, assertThrows(IllegalStateException.class,
+            assertEquals(BoundaryHooks.REQUIREMENT_UNMET, assertThrows(RequirementUnmetException.class,
                     () -> verified("rid-1", () -> requiring.post("/charge", CHARGE))).getMessage());
         }
         assertEquals(1, partner.handshakes().size());
         partner.status("attested");
         partner.signNextHandshakeWith(Crypto.generateEd25519KeyPair());
         try (BoundaryClient requiring = egress(partner, tls()).requires(strict).build()) {
-            assertEquals(BoundaryHooks.REQUIREMENT_UNMET, assertThrows(IllegalStateException.class,
+            assertEquals(BoundaryHooks.REQUIREMENT_UNMET, assertThrows(RequirementUnmetException.class,
                     () -> verified("rid-2", () -> requiring.post("/charge", CHARGE))).getMessage());
         }
         assertEquals(3, partner.handshakes().size(), "the full handshake, then the replacement");

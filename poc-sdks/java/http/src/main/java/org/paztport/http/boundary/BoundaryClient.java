@@ -86,8 +86,8 @@ import org.slf4j.LoggerFactory;
  * {@link Requirement#callsAfter} decides whether a call is made in the session and what each call's boundary block
  * requires. A genuine attested reply that does not list a required name is not followed by the replacement, since
  * the reply was sound. Where no call may be made, after such a reply or in an unsafe session, {@link #post} throws
- * once the handshake is done and sends nothing more; no call uses that session, so it goes at the end of its idle
- * period and the next call after that asks the partner again.
+ * {@link RequirementUnmetException} once the handshake is done and sends nothing more; no call uses that session,
+ * so it goes at the end of its idle period and the next call after that asks the partner again.
  *
  * <p>A handshake holds every first caller, so it has its own timeout, {@link #HANDSHAKE_TIMEOUT}; each call has
  * the read timeout this is built with ({@link #DEFAULT_READ_TIMEOUT} unless set), so that a partner that takes a
@@ -141,7 +141,7 @@ public final class BoundaryClient implements AutoCloseable {
     /** The message every refusal by the guard carries. */
     static final String NO_VERIFIED_CHAIN = "no verified chain: nothing is signed at the boundary";
 
-    /** The message of a call not made because the session does not meet this egress's requirement. */
+    /** The message of {@link RequirementUnmetException}: a call not made for this egress's requirement. */
     static final String REQUIREMENT_UNMET =
             "the session with the partner does not meet this egress's requirement: no call is made";
 
@@ -240,8 +240,9 @@ public final class BoundaryClient implements AutoCloseable {
      *
      * @param path the raw path, and {@code ?} and the raw query if any, exactly as it is to go on the wire
      * @throws IllegalStateException with nothing sent, when this request's chain did not verify at this hop or
-     *     there is no request scope; when no session could be opened; or, with only the handshake sent, when the
-     *     session does not meet this egress's requirement, so no call is made in it
+     *     there is no request scope; or when no session could be opened
+     * @throws RequirementUnmetException with at most the handshake sent, when the session does not meet this egress's
+     *     requirement, so no call is made in it; it must not be retried against this session
      * @throws IllegalArgumentException with nothing sent, when {@code path} would leave the partner's origin or
      *     would not be sent as given
      * @throws UncheckedIOException when the call itself fails, or has no whole answer within the read timeout (its
@@ -262,7 +263,7 @@ public final class BoundaryClient implements AutoCloseable {
 
         Session current = session();
         if (!current.calls().calls()) {
-            throw new IllegalStateException(REQUIREMENT_UNMET);
+            throw new RequirementUnmetException();
         }
         HttpRequest.Builder request = HttpRequest.newBuilder(target)
                 .header("Content-Type", "application/json")

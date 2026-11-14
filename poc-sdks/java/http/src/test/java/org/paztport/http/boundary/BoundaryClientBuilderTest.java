@@ -13,7 +13,6 @@ import java.time.Duration;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.paztport.core.crypto.Crypto;
@@ -22,7 +21,6 @@ import org.paztport.core.influence.BoundaryInfluence;
 import org.paztport.core.policy.KeyringFile;
 import org.paztport.core.policy.PolicyBuilder;
 import org.paztport.core.policy.SignedRoot;
-import org.paztport.core.session.Requirement;
 import org.paztport.core.stamp.Stamper;
 
 /**
@@ -146,12 +144,5 @@ class BoundaryClientBuilderTest {
         // Each has a default, so null is a mistake, not a way to ask for it.
         assertThrows(NullPointerException.class, () -> sound().extensions(null));
         assertThrows(NullPointerException.class, () -> sound().requires(null));
-    }
-
-    // A requirement is built and checked by Requirement.of, so the builder takes one with no check of its own.
-    @Test
-    void aRequirementBuilds() {
-        sound().requires(Requirement.of(Set.of("influence"), false)).build();
-        sound().requires(Requirement.NONE).build();
     }
 }
