@@ -6,29 +6,34 @@ package org.paztport.core.internal;
 import java.security.PublicKey;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import org.paztport.core.crypto.Crypto;
 import org.paztport.core.encoding.Base64Url;
-import org.paztport.core.influence.Influence;
 import org.paztport.core.offline.Signers;
 import org.paztport.core.policy.Keyring;
 import org.paztport.core.policy.MerkleProof;
+import org.paztport.core.stamp.Block;
 import org.paztport.core.stamp.Chains;
 import org.paztport.core.stamp.ParsedChain;
 import org.paztport.core.stamp.Stamp;
+import org.paztport.core.verify.ExtensionSettings;
+import org.paztport.core.verify.HandOver;
 import org.paztport.core.verify.PinnedKeyring;
 import org.paztport.core.verify.PinnedRoot;
 import org.paztport.core.verify.ReasonCode;
 import org.paztport.core.verify.VerifyResult;
 
 /**
- * The checks the live and the offline chain verifiers share, each written once: 3 to 6 on the stamps, 8 and 9
- * on the last stamp, and 11 on the route. Checks 1 and 2 are {@link Chains#parse}. Internal, as the two
- * verifiers sit in two packages: callers choose the order and add their own checks (freshness, replay, the peer)
- * around these. Each verifier also judges here, once and at its own time, which pinned keyrings and roots are
- * current, and hands only those to the checks; the event verifier shares the keyrings' lookup.
+ * The checks the live and the offline chain verifiers share, each written once, numbered as the spec's live order
+ * (verification.md, The live order): 1 to 6 on the stamps, check 1 being {@link Chains#parse}; 8 on the last stamp;
+ * 9a to 9c on the blocks; and 12 on the route, with the hand-over on OK. Internal, as the two verifiers sit in two
+ * packages: callers choose the order and add their own checks (freshness, the peer, replay) around these. Each
+ * verifier also judges here, once and at its own time, which pinned keyrings and roots are current, and hands only
+ * those to the checks; the event verifier shares the keyrings' lookup. Nothing here reads an item: what an item means
+ * is its extension's to say.
  */
 public final class ChainChecks {
 
@@ -98,18 +103,17 @@ public final class ChainChecks {
     }
 
     /**
-     * Checks 1 to 6: the chain parses (CHAIN_MISSING) with no delimiter in a field (BAD_SIGNATURE), the origin is
-     * allowed (BAD_ORIGIN), each stamp is signed under one of the keys {@code keyrings}, the current ones, give its
-     * service ({@link #keysFor}) and links to the one before (BAD_SIGNATURE, BROKEN_LINK), then each stamp's
-     * {@code rcv} addresses the next stamp's service, bare or with {@code #} and an operation name, and the last's
-     * names the receiver exactly (BINDING_MISMATCH), every stamp carries the rid (RID_MISMATCH) and the session
-     * (SESSION_UNKNOWN). With {@code signers}, a stamp from another service or instance than expected is not one the
-     * expected key signed: BAD_ORIGIN for the origin's instance, BAD_SIGNATURE for any other. The result carries the
-     * stamps, or the first failure.
+     * Checks 1 to 6: the chain reads (CHAIN_MISSING), the origin is allowed (BAD_ORIGIN), each stamp is signed under
+     * one of the keys {@code keyrings}, the current ones, give its service ({@link #keysFor}) and links to the one
+     * before (BAD_SIGNATURE, BROKEN_LINK), then each stamp's {@code rcv} addresses the next stamp's service, bare or
+     * with {@code #} and an operation name, and the last's names the receiver exactly (BINDING_MISMATCH), every stamp
+     * carries the rid (RID_MISMATCH) and the session (SESSION_UNKNOWN). With {@code signers}, a stamp from another
+     * service or instance than expected is not one the expected key signed: BAD_ORIGIN for the origin's instance,
+     * BAD_SIGNATURE for any other. The result carries the stamps, or the first failure.
      */
     public static ParsedChain checkStamps(String value, List<Keyring> keyrings, Set<String> allowedOrigins,
             String sess, Shape shape) {
-        // 1-2. Parse, and no delimiter in any field.
+        // 1. The chain reads.
         ParsedChain parsed = Chains.parse(value);
         if (!parsed.ok()) {
             return parsed;
@@ -118,12 +122,12 @@ public final class ChainChecks {
         Stamp first = stamps.get(0);
         Signers signers = shape.signers();
 
-        // 3. Origin.
+        // 2. Origin.
         if (!allowedOrigins.contains(first.svc()) || (signers != null && !first.inst().equals(signers.inst()))) {
             return fail(ReasonCode.BAD_ORIGIN);
         }
 
-        // 4. Signatures and links.
+        // 3. Signatures and links.
         for (int i = 0; i < stamps.size(); i++) {
             Stamp s = stamps.get(i);
             if (keysFor(keyrings, s.svc()).stream().noneMatch(key -> signatureValid(key, s))
@@ -135,8 +139,8 @@ public final class ChainChecks {
                 return fail(ReasonCode.BROKEN_LINK);
             }
         }
-        // Then the receivers: each stamp addresses the next stamp's service, with an operation if it names one, and
-        // the last names the chain's receiver exactly.
+        // 4. Only after the whole chain's signatures, the receivers: each stamp addresses the next stamp's service,
+        // with an operation if it names one, and the last names the chain's receiver exactly.
         for (int i = 0; i < stamps.size(); i++) {
             String rcv = stamps.get(i).rcv();
             boolean addressed = i + 1 < stamps.size() ? Chains.addressedTo(rcv, stamps.get(i + 1).svc())
@@ -176,38 +180,88 @@ public final class ChainChecks {
         }
     }
 
-    /**
-     * Checks 8 and 9: the last stamp binds what was expected (BINDING_MISMATCH) and commits to the influence
-     * (INFLUENCE_MISMATCH). Null when both hold.
-     */
-    public static ReasonCode checkCommitments(Stamp last, String expectedBind, String influence) {
-        // 8. Binding.
-        if (!last.bind().equals(expectedBind)) {
-            return ReasonCode.BINDING_MISMATCH;
+    /** Check 8 alone: the last stamp binds what was received (BINDING_MISMATCH); null when it does. */
+    public static ReasonCode checkBinding(Stamp last, String expectedBind) {
+        return last.bind().equals(expectedBind) ? null : ReasonCode.BINDING_MISMATCH;
+    }
+
+    /** What checks 9a to 9c give: the blocks, one per stamp, or the first failure, and then no blocks. */
+    public record BlocksCheck(List<Block> blocks, ReasonCode failure) {
+
+        /** The blocks are copied; a failure carries none. */
+        public BlocksCheck {
+            blocks = blocks == null ? null : List.copyOf(blocks);
         }
-        // 9. Influence commitment.
-        String committed;
-        try {
-            committed = Influence.commit(Influence.parse(influence));
-        } catch (IllegalArgumentException e) {
-            return ReasonCode.INFLUENCE_MISMATCH;
+
+        static BlocksCheck fail(ReasonCode code) {
+            return new BlocksCheck(null, code);
         }
-        return last.infl().equals(committed) ? null : ReasonCode.INFLUENCE_MISMATCH;
     }
 
     /**
-     * Check 11 and the result: the route {@link Chains#route} gives, the first service then each {@code rcv}, the
+     * Checks 9a and 9b, then 9c when {@code requires} is true (spec verification.md, The live order):
+     * <ul>
+     * <li>9a: {@code blocks}, the JSON text received, reads as an array of blocks ({@link Block#parseAll}) with one
+     *     block per stamp, and each block's commitment equals its stamp's {@code ext}, compared as text and never
+     *     decoded. Null, no text received, is one empty block per stamp; text that reads as JSON {@code null} is not
+     *     an array of blocks (EXTENSION_MISMATCH);
+     * <li>9b: when the settings' allowed list is set, every name in any block's {@code items} or {@code requires} is
+     *     in it (EXTENSION_NOT_ALLOWED);
+     * <li>9c: every name in the last block's {@code requires} is one the service acts on (EXTENSION_REQUIRED): only
+     *     the direct caller's requirements bind.
+     * </ul>
+     * 9a runs first, so every name 9b and 9c read is one its block's signer committed to.
+     */
+    public static BlocksCheck checkBlocks(List<Stamp> stamps, String blocks, ExtensionSettings settings,
+            boolean requires) {
+        // 9a. The blocks read, one per stamp, each matching its stamp's ext.
+        List<Block> read;
+        if (blocks == null) {
+            read = Collections.nCopies(stamps.size(), Block.EMPTY);
+        } else {
+            try {
+                read = Block.parseAll(blocks);
+            } catch (IllegalArgumentException e) {
+                return BlocksCheck.fail(ReasonCode.EXTENSION_MISMATCH);
+            }
+        }
+        if (read.size() != stamps.size()) {
+            return BlocksCheck.fail(ReasonCode.EXTENSION_MISMATCH);
+        }
+        for (int i = 0; i < read.size(); i++) {
+            if (!read.get(i).commit().equals(stamps.get(i).ext())) {
+                return BlocksCheck.fail(ReasonCode.EXTENSION_MISMATCH);
+            }
+        }
+
+        // 9b. Every name is one the verifier carries.
+        for (Block b : read) {
+            if (!b.names().stream().allMatch(settings::carries) || !b.requires().stream().allMatch(settings::carries)) {
+                return BlocksCheck.fail(ReasonCode.EXTENSION_NOT_ALLOWED);
+            }
+        }
+
+        // 9c. Every name the direct caller requires is acted on.
+        if (requires && !settings.actsOn().containsAll(read.get(read.size() - 1).requires())) {
+            return BlocksCheck.fail(ReasonCode.EXTENSION_REQUIRED);
+        }
+        return new BlocksCheck(read, null);
+    }
+
+    /**
+     * Check 12 and the result: the route {@link Chains#route} gives, the first service then each {@code rcv}, the
      * last left off unless {@code receiverInRoute}, proven against one of {@code roots}, the current ones, that has the
      * proof's {@code rootId} (PATH_NOT_ALLOWED). Both outcomes name the last stamp; the caller decides whether that
-     * name is kept.
+     * name is kept. On OK the result holds the hand-over, verified: for each name the settings act on, one entry per
+     * stamp of its block's items under it.
      */
     public static VerifyResult checkRoute(List<Stamp> stamps, boolean receiverInRoute, String proof,
-            List<PinnedRoot> roots) {
+            List<PinnedRoot> roots, List<Block> blocks, ExtensionSettings settings) {
         Stamp last = stamps.get(stamps.size() - 1);
         if (!provesPath(proof, Chains.route(stamps, receiverInRoute), roots)) {
-            return new VerifyResult(ReasonCode.PATH_NOT_ALLOWED, last.svc(), last.inst());
+            return new VerifyResult(ReasonCode.PATH_NOT_ALLOWED, last.svc(), last.inst(), null);
         }
-        return new VerifyResult(ReasonCode.OK, last.svc(), last.inst());
+        return new VerifyResult(ReasonCode.OK, last.svc(), last.inst(), new HandOver(true, stamps, blocks, settings));
     }
 
     /**

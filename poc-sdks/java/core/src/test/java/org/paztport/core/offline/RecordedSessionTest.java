@@ -3,9 +3,11 @@
 
 package org.paztport.core.offline;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.paztport.core.offline.Handshake.ENTRY;
@@ -17,9 +19,11 @@ import static org.paztport.core.offline.Handshake.with;
 import static org.paztport.core.offline.Handshake.without;
 
 import java.security.KeyPair;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.OptionalLong;
+import java.util.Set;
 import java.util.function.Consumer;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -32,6 +36,9 @@ import org.paztport.core.session.ReplyCheck;
 import org.paztport.core.session.Requirement;
 import org.paztport.core.session.SessionRequest;
 import org.paztport.core.session.Sessions;
+import org.paztport.core.verify.ExtensionSettings;
+import org.paztport.core.verify.PinnedKeyring;
+import org.paztport.core.verify.PinnedRoot;
 
 /**
  * One test per sentence of sessions.md §Recorded handshakes, and of verification.md §Offline
@@ -294,5 +301,42 @@ class RecordedSessionTest {
             assertFalse(s.attestedAt(NOW));
             }
         assertEquals(OptionalLong.empty(), RecordedSession.of(null, null, null, null).responseNotAfter());
+    }
+
+    // J10: a recorded session gives the config the calls recorded in it are checked with.
+    @Test
+    void callConfigHoldsTheClientsKeyringAndRootAndTheRepliesSession() {
+        Handshake h = Handshake.attested();
+        Set<String> seen = new HashSet<>();
+        ExtensionSettings settings = ExtensionSettings.of(Set.of("example"), null);
+        OfflineConfig cfg = h.recorded().callConfig(Set.of("session"), seen, 60_000L, 5000L, settings);
+        assertEquals(1, cfg.keyrings().size());
+        PinnedKeyring ring = cfg.keyrings().get(0);
+        assertArrayEquals(h.session.getPublic().getEncoded(), ring.keys().keyFor("session").getEncoded());
+        assertArrayEquals(h.pi.getPublic().getEncoded(), ring.keys().keyFor("pi").getEncoded());
+        assertNull(ring.keys().keyFor("tools"), "the server's services are not the client's");
+        assertEquals(Long.MAX_VALUE, ring.notAfter());
+        assertEquals(1, cfg.roots().size());
+        PinnedRoot root = cfg.roots().get(0);
+        assertArrayEquals(h.clientTree.root(), root.root());
+        assertEquals("c1", root.rootId());
+        assertEquals(Long.MAX_VALUE, root.notAfter());
+        assertEquals(h.sess(), cfg.sess());
+        assertSame(seen, cfg.seen(), "the record set's spent keys, not a copy");
+        assertEquals(Set.of("session"), cfg.allowedOrigins());
+        assertEquals(60_000L, cfg.runMaxAgeMs());
+        assertEquals(5000L, cfg.callMaxAgeMs());
+        assertSame(settings, cfg.extensions());
+        assertNull(cfg.signers());
+    }
+
+    @Test
+    void callConfigIsNullForASessionThatIsNotAttested() {
+        Handshake unsafe = Handshake.with(o -> o.status = "unsafe");
+        assertNull(unsafe.recorded().callConfig(Set.of("session"), new HashSet<>(), null, null,
+                ExtensionSettings.NONE));
+        Handshake h = Handshake.attested();
+        assertNull(RecordedSession.of("not a request", text(h.reply), h.pin, ENTRY).callConfig(Set.of("session"),
+                new HashSet<>(), null, null, ExtensionSettings.NONE));
     }
 }

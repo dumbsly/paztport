@@ -33,6 +33,10 @@ import org.paztport.core.policy.SignedRoot;
  * tests and vectors that hold material already judged. The constructor does not range-check it: the verifier's
  * check 0 refuses every request under a window outside [0, 2^53 &minus; 1], as the spec and the TypeScript verifier
  * do, so a vector pins one answer for both.
+ *
+ * <p>{@code extensions} are the extensions the service acts on and the names its verifier carries, built and checked
+ * by {@link ExtensionSettings#of}: checks 9b and 9c read them, and the hand-over holds the names it acts on. A config
+ * always has them; {@link ExtensionSettings#NONE} acts on none and carries any name.
  */
 public record VerifierConfig(
         List<PinnedKeyring> keyrings,
@@ -43,7 +47,8 @@ public record VerifierConfig(
         NonceCache nonces,
         LongSupplier clock,
         long callMaxAgeMs,
-        long runMaxAgeMs) {
+        long runMaxAgeMs,
+        ExtensionSettings extensions) {
 
     /** How recent the last stamp must be, either side of now. */
     public static final long CALL_MAX_AGE_MS = 5000;
@@ -74,6 +79,7 @@ public record VerifierConfig(
         Objects.requireNonNull(sess, "sess");
         Objects.requireNonNull(nonces, "nonces");
         Objects.requireNonNull(clock, "clock");
+        Objects.requireNonNull(extensions, "extensions");
         allowedOrigins = Set.copyOf(allowedOrigins);
     }
 
@@ -97,7 +103,8 @@ public record VerifierConfig(
      * never the clock itself. Throws {@link IllegalArgumentException} otherwise, naming the member by its
      * place in its list ({@code keyrings[1]}), so a verifier is never built on material the pin does not vouch for
      * now; and for an empty list. Each member keeps its own window, and {@link #policyNotAfter(List, List)} of them is
-     * recorded as {@code policyNotAfter}.
+     * recorded as {@code policyNotAfter}. {@code extensions} is kept as given; null is refused
+     * ({@link NullPointerException}).
      */
     public static VerifierConfig pinned(
             List<KeyringFile> keyrings,
@@ -109,7 +116,9 @@ public record VerifierConfig(
             NonceCache nonces,
             LongSupplier clock,
             long callMaxAgeMs,
-            long runMaxAgeMs) {
+            long runMaxAgeMs,
+            ExtensionSettings extensions) {
+        Objects.requireNonNull(extensions, "extensions");
         ChainChecks.members(keyrings, "keyrings");
         ChainChecks.members(roots, "roots");
         List<PinnedKeyring> pinnedKeyrings = new ArrayList<>();
@@ -127,7 +136,7 @@ public record VerifierConfig(
             pinnedRoots.add(root(roots.get(i), "roots[" + i + "]", pin, at));
         }
         return new VerifierConfig(pinnedKeyrings, pinnedRoots, policyNotAfter(pinnedKeyrings, pinnedRoots),
-                allowedOrigins, sess, nonces, clock, callMaxAgeMs, runMaxAgeMs);
+                allowedOrigins, sess, nonces, clock, callMaxAgeMs, runMaxAgeMs, extensions);
     }
 
     /** {@code keyring}, named {@code name}, once it verifies under the pin and is current at {@code now}. */

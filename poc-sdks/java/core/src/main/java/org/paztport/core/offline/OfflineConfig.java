@@ -4,8 +4,10 @@
 package org.paztport.core.offline;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 import org.paztport.core.internal.ChainChecks;
+import org.paztport.core.verify.ExtensionSettings;
 import org.paztport.core.verify.PinnedKeyring;
 import org.paztport.core.verify.PinnedRoot;
 import org.paztport.core.verify.VerifierConfig;
@@ -20,7 +22,8 @@ import org.paztport.core.verify.VerifierConfig;
  * its last stamp's time, the last stamp is at most {@code runMaxAgeMs} after the origin and the origin at most
  * {@code callMaxAgeMs} after the last stamp. A limit left null is its live default
  * ({@link VerifierConfig#RUN_MAX_AGE_MS}, {@link VerifierConfig#CALL_MAX_AGE_MS}), each independently, so no
- * configuration leaves a chain's age unlimited.
+ * configuration leaves a chain's age unlimited. Of {@code extensions}, the allowed list is check 9b's and
+ * {@code actsOn} names what the hand-over holds; check 9c never runs offline. Null is refused.
  */
 public record OfflineConfig(
         List<PinnedKeyring> keyrings,
@@ -30,10 +33,16 @@ public record OfflineConfig(
         Set<String> seen,
         Signers signers,
         Long runMaxAgeMs,
-        Long callMaxAgeMs) {
+        Long callMaxAgeMs,
+        ExtensionSettings extensions) {
 
+    /**
+     * @throws IllegalArgumentException no keyrings or no roots
+     * @throws NullPointerException a null list, member or {@code extensions}
+     */
     public OfflineConfig {
         keyrings = ChainChecks.members(keyrings, "keyrings");
         roots = ChainChecks.members(roots, "roots");
+        Objects.requireNonNull(extensions, "extensions");
     }
 }

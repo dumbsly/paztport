@@ -4,9 +4,14 @@
 package org.paztport.core.stamp;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.security.KeyPair;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -16,15 +21,12 @@ import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.paztport.core.crypto.Crypto;
 import org.paztport.core.encoding.Base64Url;
-import org.paztport.core.influence.ContentLabel;
-import org.paztport.core.influence.Influence;
-import org.paztport.core.influence.InfluenceClass;
-import org.paztport.core.influence.InfluenceEntry;
 import org.paztport.core.policy.Keyring;
 import org.paztport.core.policy.KeyringFile;
 import org.paztport.core.policy.MerkleProof;
 import org.paztport.core.policy.PolicyBuilder;
 import org.paztport.core.policy.ProofBundle;
+import org.paztport.core.verify.ExtensionSettings;
 import org.paztport.core.verify.InMemoryNonceCache;
 import org.paztport.core.verify.Peer;
 import org.paztport.core.verify.PinnedKeyring;
@@ -35,7 +37,7 @@ import org.paztport.core.verify.Verifier;
 import org.paztport.core.verify.VerifyInput;
 import org.paztport.core.verify.VerifyResult;
 
-/** The stamper's output, checked by the live verifier it feeds: calls, committed influence and responses. */
+/** The stamper's output, checked by the live verifier it feeds: calls, the blocks they commit to, and responses. */
 class StamperTest {
 
     /** The validity window of the fixture roots and keyrings: 2100-01-01, beyond any clock here. */
@@ -43,6 +45,7 @@ class StamperTest {
 
     private static final long NOW = 1_000_000L;
     private static final String RID = "rid-1";
+    private static final Block NOTED = Block.of(Map.of("example", List.of("{\"note\":\"n1\"}", "7")), List.of());
 
     private final KeyPair gatewayKey = Crypto.generateEd25519KeyPair();
     private final KeyPair ordersKey = Crypto.generateEd25519KeyPair();
@@ -62,7 +65,7 @@ class StamperTest {
                         ordersKey.getPublic(), "payment", paymentKey.getPublic())), notAfter)),
                 List.of(new PinnedRoot(policy.signedRoot().rootBytes(), policy.signedRoot().rootId(), notAfter)),
                 notAfter, Set.of("gateway"), "",
-                new InMemoryNonceCache(60_000), () -> NOW, 30_000, 300_000));
+                new InMemoryNonceCache(60_000), () -> NOW, 30_000, 300_000, ExtensionSettings.NONE));
     }
 
     private static String json(List<Stamp> chain) {
@@ -73,18 +76,18 @@ class StamperTest {
         return proof == null ? null : proof.toJson();
     }
 
-    private Stamper.Stamped toOrders(String bind, List<InfluenceEntry> influence) {
-        return stamper("gateway", gatewayKey, true).next(List.of(), "orders", bind, influence,
+    private Stamper.Stamped toOrders(String bind, Block block) {
+        return stamper("gateway", gatewayKey, true).next(List.of(), "orders", bind, block,
                 policy.bundles().get("gateway"));
     }
 
-    private Stamper.Stamped toPayment(Stamper.Stamped fromGateway, List<InfluenceEntry> influence) {
-        return stamper("orders", ordersKey, false).next(fromGateway.chain(), "payment", "b2", influence,
+    private Stamper.Stamped toPayment(Stamper.Stamped fromGateway, Block block) {
+        return stamper("orders", ordersKey, false).next(fromGateway.chain(), "payment", "b2", block,
                 policy.bundles().get("orders"));
     }
 
     private Stamper.Stamped toPayment(Stamper.Stamped fromGateway) {
-        return toPayment(fromGateway, List.of());
+        return toPayment(fromGateway, Block.EMPTY);
     }
 
     /**
@@ -97,30 +100,26 @@ class StamperTest {
      */
     @Test
     void aResponseToAnUncheckedChainIsAValidOriginStamp() {
-        List<Stamp> forged = List.of(new Stamp("orders", "x", RID, NOW, "", "x", "b",
-                Influence.commit(List.of()), "", ""));
+        List<Stamp> forged = List.of(new Stamp("orders", "x", RID, NOW, "", "x", "b", "", "", ""));
 
-        Stamp minted = stamper("gateway", gatewayKey, true).respond(forged, "h", RID, List.of());
+        Stamp minted = stamper("gateway", gatewayKey, true).respond(forged, "h", RID, Block.EMPTY);
         Stamper.Stamped driven = stamper("orders", ordersKey, false).next(List.of(minted), "payment", "b2",
-                List.of(), policy.bundles().get("orders"));
+                Block.EMPTY, policy.bundles().get("orders"));
 
         VerifyResult r = verifier().verify(new VerifyInput(json(driven.chain()), "b2",
-                "[]", json(driven.proof()), "payment", true, RID + "|orders|req",
+                null, json(driven.proof()), "payment", true, RID + "|orders|req",
                 new Peer("orders", "10.0.0.3")));
         assertEquals(ReasonCode.OK, r.reason(), "the attack the filter's rule closes");
     }
 
     private static final String SESS = "sess-1";
-    private static final List<InfluenceEntry> BOUNDARY_INFLUENCE = List.of(
-            new InfluenceEntry(InfluenceClass.PRIVATE, "db:orders", "h1", "cid-1", "alice"));
 
     private final PolicyBuilder.Result egress = PolicyBuilder.build(
             List.of(List.of("payment", "psp")), 4, NOT_AFTER, policyKey.getPrivate());
 
     private Stamper.Stamped boundary(String sess, ProofBundle bundle) {
-        Stamp inbound = toPayment(toOrders("b1", List.of())).chain().get(1);
-        return stamper("payment", paymentKey, false).boundary(List.of(inbound), sess, "psp", "b3",
-                BOUNDARY_INFLUENCE, bundle);
+        Stamp inbound = toPayment(toOrders("b1", Block.EMPTY)).chain().get(1);
+        return stamper("payment", paymentKey, false).boundary(List.of(inbound), sess, "psp", "b3", NOTED, bundle);
     }
 
     @Test
@@ -135,7 +134,7 @@ class StamperTest {
         assertEquals(SESS, s.sess());
         assertEquals("psp", s.rcv());
         assertEquals("b3", s.bind());
-        assertEquals(Influence.commit(BOUNDARY_INFLUENCE), s.infl());
+        assertEquals(NOTED.commit(), s.ext());
         assertEquals("", s.prev());
     }
 
@@ -156,9 +155,9 @@ class StamperTest {
     void boundaryRefusesNoChain() {
         Stamper payment = stamper("payment", paymentKey, false);
         assertThrows(IllegalStateException.class,
-                () -> payment.boundary(null, SESS, "psp", "b3", List.of(), null));
+                () -> payment.boundary(null, SESS, "psp", "b3", Block.EMPTY, null));
         assertThrows(IllegalStateException.class,
-                () -> payment.boundary(List.of(), SESS, "psp", "b3", List.of(), null));
+                () -> payment.boundary(List.of(), SESS, "psp", "b3", Block.EMPTY, null));
     }
 
     private VerifyResult verifyAtPartner(Stamper.Stamped b, String sess) {
@@ -166,8 +165,9 @@ class StamperTest {
         KeyringFile ring = KeyringFile.sign(Map.of("payment", Base64Url.encode(Crypto.encodePublicKey(
                 paymentKey.getPublic()))), pin, NOT_AFTER, policyKey.getPrivate());
         Verifier partner = new Verifier(VerifierConfig.pinned(List.of(ring), List.of(egress.signedRoot()), pin,
-                NOW, Set.of("payment"), sess, new InMemoryNonceCache(60_000), () -> NOW, 30_000, 300_000));
-        return partner.verify(new VerifyInput(json(b.chain()), "b3", Influence.toJson(BOUNDARY_INFLUENCE),
+                NOW, Set.of("payment"), sess, new InMemoryNonceCache(60_000), () -> NOW, 30_000, 300_000,
+                ExtensionSettings.NONE));
+        return partner.verify(new VerifyInput(json(b.chain()), "b3", Block.toJson(List.of(NOTED)),
                 json(b.proof()), "psp", true, RID + "|payment|req", new Peer("payment", "10.0.0.1")));
     }
 
@@ -180,32 +180,69 @@ class StamperTest {
 
     @Test
     void hopsVerify() {
-        Stamper.Stamped first = toOrders("b1", List.of());
+        Stamper.Stamped first = toOrders("b1", Block.EMPTY);
         assertNull(first.proof());
         Stamper.Stamped second = toPayment(first);
         assertEquals(2, second.chain().size());
         VerifyResult r = verifier().verify(new VerifyInput(json(second.chain()), "b2",
-                "[]", json(second.proof()), "payment", true,
+                null, json(second.proof()), "payment", true,
                 RID + "|orders|req", null));
         assertEquals(ReasonCode.OK, r.reason());
     }
 
     @Test
-    void influenceCommitted() {
-        List<InfluenceEntry> influence = List.of(
-                new InfluenceEntry(InfluenceClass.PRIVATE, "db:users", "h1", "cid-1", "alice"));
-        Stamper.Stamped second = toPayment(toOrders("b1", List.of()), influence);
-        assertEquals(Influence.commit(influence), second.chain().get(1).infl());
+    void theStampCommitsToItsBlock() {
+        Stamper.Stamped second = toPayment(toOrders("b1", Block.EMPTY), NOTED);
+        assertEquals(NOTED.commit(), second.chain().get(1).ext());
+        assertEquals("", second.chain().get(0).ext());
         assertEquals(ReasonCode.OK, verifier().verify(new VerifyInput(json(second.chain()), "b2",
-                Influence.toJson(influence), json(second.proof()), "payment", true, RID + "|orders|a", null))
-                .reason());
-        assertEquals(ReasonCode.INFLUENCE_MISMATCH, verifier().verify(new VerifyInput(json(second.chain()), "b2",
-                "[]", json(second.proof()), "payment", true, RID + "|orders|b",
+                Block.toJson(List.of(Block.EMPTY, NOTED)), json(second.proof()), "payment", true, RID + "|orders|a",
                 null)).reason());
+        assertEquals(ReasonCode.EXTENSION_MISMATCH, verifier().verify(new VerifyInput(json(second.chain()), "b2",
+                null, json(second.proof()), "payment", true, RID + "|orders|b", null)).reason());
     }
 
-    /** payment answers orders; the labels and the proof orders sent are what the caller verifies against. */
-    private record Response(List<Stamp> sent, MerkleProof proof, List<ContentLabel> labels, Stamp stamp) {
+    @Test
+    void theBoundaryStampCommitsToItsBlock() {
+        assertEquals(NOTED.commit(), boundary(SESS, null).chain().get(0).ext());
+        Stamp inbound = toPayment(toOrders("b1", Block.EMPTY)).chain().get(1);
+        assertEquals("", stamper("payment", paymentKey, false)
+                .boundary(List.of(inbound), SESS, "psp", "b3", Block.EMPTY, null).chain().get(0).ext());
+    }
+
+    @Test
+    void theResponseStampCommitsToItsBlock() {
+        List<Stamp> sent = toPayment(toOrders("b1", Block.EMPTY)).chain();
+        Stamper payment = stamper("payment", paymentKey, false);
+        assertEquals(NOTED.commit(), payment.respond(sent, "hash-1", RID, NOTED).ext());
+        assertEquals("", payment.respond(sent, "hash-1", RID, Block.EMPTY).ext());
+    }
+
+    /** A null block is a caller's fault, refused before the clock is read or a key used, so nothing is signed. */
+    @Test
+    void aNullBlockIsRefusedBeforeAnythingIsSigned() {
+        boolean[] read = {false};
+        Stamper orders = new Stamper("orders", "orders-1", ordersKey.getPrivate(), false, () -> RID, () -> {
+            read[0] = true;
+            return NOW;
+        });
+        List<Stamp> inbound = toOrders("b1", Block.EMPTY).chain();
+        assertThrows(NullPointerException.class, () -> orders.next(inbound, "payment", "b2", null, null));
+        assertThrows(NullPointerException.class, () -> orders.boundary(inbound, SESS, "psp", "b3", null, null));
+        assertThrows(NullPointerException.class, () -> orders.respond(inbound, "h", RID, null));
+        assertFalse(read[0], "the clock was not read, so no stamp was made");
+    }
+
+    /** J11: the stamper commits to a block and reads no extension. */
+    @Test
+    void theStamperImportsNoExtension() throws IOException {
+        Path source = Path.of("src/main/java/org/paztport/core/stamp/Stamper.java");
+        assertTrue(Files.isRegularFile(source), source.toAbsolutePath().toString());
+        assertFalse(Files.readString(source).contains("org.paztport.core.influence"));
+    }
+
+    /** payment answers orders; the chain and proof orders sent are what the caller verifies against. */
+    private record Response(List<Stamp> sent, MerkleProof proof, Stamp stamp) {
         String chain() {
             List<Stamp> all = new ArrayList<>(sent);
             all.add(stamp);
@@ -214,14 +251,13 @@ class StamperTest {
     }
 
     private Response response() {
-        Stamper.Stamped second = toPayment(toOrders("b1", List.of()));
-        List<ContentLabel> labels = List.of(new ContentLabel(InfluenceClass.PRIVATE, "cid-9", "alice"));
-        Stamp stamp = stamper("payment", paymentKey, false).respond(second.chain(), "hash-1", RID, labels);
-        return new Response(second.chain(), second.proof(), labels, stamp);
+        Stamper.Stamped second = toPayment(toOrders("b1", Block.EMPTY));
+        Stamp stamp = stamper("payment", paymentKey, false).respond(second.chain(), "hash-1", RID, Block.EMPTY);
+        return new Response(second.chain(), second.proof(), stamp);
     }
 
     private VerifyResult verifyResponse(Response r, String bind, String receiver) {
-        return verifier().verify(new VerifyInput(r.chain(), bind, "[]",
+        return verifier().verify(new VerifyInput(r.chain(), bind, null,
                 json(r.proof()), receiver, false, RID + "|payment|resp", null));
     }
 
@@ -229,53 +265,29 @@ class StamperTest {
     void responseVerifies() {
         Response r = response();
         assertEquals("orders", r.stamp().rcv());
-        assertEquals(Influence.commit(List.of()), r.stamp().infl());
-        assertEquals(ReasonCode.OK,
-                verifyResponse(r, Bindings.response("hash-1", RID, r.labels()), "orders").reason());
+        assertEquals("", r.stamp().ext());
+        assertEquals(ReasonCode.OK, verifyResponse(r, Bindings.response("hash-1", RID), "orders").reason());
     }
 
     @Test
-    void responseTamperedLabels() {
+    void responseToAnotherResultIsBindingMismatch() {
         Response r = response();
-        List<ContentLabel> other = List.of(new ContentLabel(InfluenceClass.PRIVATE, "cid-9", "mallory"));
         assertEquals(ReasonCode.BINDING_MISMATCH,
-                verifyResponse(r, Bindings.response("hash-1", RID, other), "orders").reason());
+                verifyResponse(r, Bindings.response("hash-2", RID), "orders").reason());
     }
 
     @Test
     void responseToWrongCaller() {
         Response r = response();
         assertEquals(ReasonCode.BINDING_MISMATCH,
-                verifyResponse(r, Bindings.response("hash-1", RID, r.labels()), "gateway").reason());
+                verifyResponse(r, Bindings.response("hash-1", RID), "gateway").reason());
     }
 
     @Test
     void nonOriginNeedsChain() {
         Stamper orders = stamper("orders", ordersKey, false);
-        assertThrows(IllegalStateException.class, () -> orders.next(List.of(), "payment", "b", List.of(), null));
-        assertThrows(IllegalStateException.class, () -> orders.respond(List.of(), "h", RID, List.of()));
-    }
-
-    @Test
-    void aLabelListHasExactlyTheLabelMembersInJcsOrder() {
-        assertEquals(1, ContentLabel.parseAll("[{\"cid\":\"c\",\"cls\":\"public\"}]").size());
-        for (String bad : new String[] {"[{\"cid\":\"c\",\"cls\":\"public\",\"extra\":1}]",
-                "[{\"cls\":\"public\",\"cid\":\"c\"}]", "[{\"cid\":\"c\"}]", "[{\"cid\":\"c\",\"cls\":\"bogus\"}]",
-                "[ {\"cid\":\"c\",\"cls\":\"public\"}]", "{}", "[1]"}) {
-            assertThrows(IllegalArgumentException.class, () -> ContentLabel.parseAll(bad), bad);
-        }
-    }
-
-    @Test
-    void labelsRoundTripAndRefuseEmptyOwner() throws Exception {
-        ContentLabel fresh = ContentLabel.fresh(InfluenceClass.PRIVATE, "alice");
-        assertEquals(List.of(fresh), ContentLabel.parseAll(ContentLabel.toJson(List.of(fresh))));
-        assertEquals(22, ContentLabel.fresh(InfluenceClass.PUBLIC, null).cid().length());
-        assertEquals(new InfluenceEntry(InfluenceClass.PRIVATE, "http:x", "h", fresh.cid(), "alice"),
-                fresh.toEntry("http:x", "h"));
-        String bad = "[{\"cid\":\"c\",\"cls\":\"private\",\"owner\":\"\"}]";
-        assertThrows(IllegalArgumentException.class, () -> ContentLabel.parseAll(bad));
-        assertThrows(IllegalArgumentException.class, () -> Bindings.response("h", "a\nb", List.of()));
+        assertThrows(IllegalStateException.class, () -> orders.next(List.of(), "payment", "b", Block.EMPTY, null));
+        assertThrows(IllegalStateException.class, () -> orders.respond(List.of(), "h", RID, Block.EMPTY));
     }
 
     // --- Refusing what could never verify: nothing is signed for a name no policy can hold ---
@@ -286,22 +298,22 @@ class StamperTest {
     void nextRefusesAReceiverThatIsNotARouteNode() {
         Stamper gateway = stamper("gateway", gatewayKey, true);
         for (String bad : BAD_NODES) {
-            assertThrows(IllegalArgumentException.class, () -> gateway.next(null, bad, "b1", List.of(), null),
+            assertThrows(IllegalArgumentException.class, () -> gateway.next(null, bad, "b1", Block.EMPTY, null),
                     String.valueOf(bad));
         }
     }
 
     @Test
     void everySigningPathRefusesASvcThatIsNotARouteNode() {
-        List<Stamp> inbound = stamper("gateway", gatewayKey, true).next(null, "orders", "b1", List.of(), null)
+        List<Stamp> inbound = stamper("gateway", gatewayKey, true).next(null, "orders", "b1", Block.EMPTY, null)
                 .chain();
         for (String bad : BAD_NODES) {
             Stamper s = new Stamper(bad, "i", ordersKey.getPrivate(), false, () -> RID, () -> NOW);
-            assertThrows(IllegalArgumentException.class, () -> s.next(inbound, "payment", "b2", List.of(), null),
+            assertThrows(IllegalArgumentException.class, () -> s.next(inbound, "payment", "b2", Block.EMPTY, null),
                     "next " + bad);
             assertThrows(IllegalArgumentException.class,
-                    () -> s.boundary(inbound, SESS, "psp", "b3", List.of(), null), "boundary " + bad);
-            assertThrows(IllegalArgumentException.class, () -> s.respond(inbound, "h", "c", List.of()),
+                    () -> s.boundary(inbound, SESS, "psp", "b3", Block.EMPTY, null), "boundary " + bad);
+            assertThrows(IllegalArgumentException.class, () -> s.respond(inbound, "h", "c", Block.EMPTY),
                     "respond " + bad);
         }
     }
@@ -309,28 +321,26 @@ class StamperTest {
     @Test
     void boundaryRefusesAPartnerEntryThatIsNotARouteNode() {
         Stamper payment = stamper("payment", paymentKey, false);
-        List<Stamp> inbound = stamper("gateway", gatewayKey, true).next(null, "payment", "b1", List.of(), null)
+        List<Stamp> inbound = stamper("gateway", gatewayKey, true).next(null, "payment", "b1", Block.EMPTY, null)
                 .chain();
         for (String bad : BAD_NODES) {
             assertThrows(IllegalArgumentException.class,
-                    () -> payment.boundary(inbound, SESS, bad, "b3", List.of(), null), String.valueOf(bad));
+                    () -> payment.boundary(inbound, SESS, bad, "b3", Block.EMPTY, null), String.valueOf(bad));
         }
     }
 
     @Test
     void respondRefusesACallerThatIsNotARouteNode() {
         // An unverified chain whose last svc is empty: the response would name an empty receiver.
-        Stamp odd = Stamp.sign("", "i", RID, NOW, "", "orders", "b1", Influence.commit(List.of()), "",
-                gatewayKey.getPrivate());
+        Stamp odd = Stamp.sign("", "i", RID, NOW, "", "orders", "b1", "", "", gatewayKey.getPrivate());
         Stamper orders = stamper("orders", ordersKey, false);
-        assertThrows(IllegalArgumentException.class, () -> orders.respond(List.of(odd), "h", "c", List.of()));
+        assertThrows(IllegalArgumentException.class, () -> orders.respond(List.of(odd), "h", "c", Block.EMPTY));
     }
 
     @Test
     void aStampOverAnEmptyRcvStillReadsAndSignsAtTheLowLevel() {
         // The route-node rule is the stamper's; Stamp itself is what verifiers rebuild signing bytes with.
-        Stamp s = Stamp.sign("gateway", "i", RID, NOW, "", "", "b1", Influence.commit(List.of()), "",
-                gatewayKey.getPrivate());
+        Stamp s = Stamp.sign("gateway", "i", RID, NOW, "", "", "b1", "", "", gatewayKey.getPrivate());
         assertEquals("", s.rcv());
     }
 
@@ -348,22 +358,22 @@ class StamperTest {
     void nextLooksUpTheRouteFromRcv() {
         ProofBundle bundle = bundleFor("gateway", "orders#createOrder", "payment#charge");
         Stamper.Stamped fromGateway = stamper("gateway", gatewayKey, true).next(List.of(), "orders#createOrder", "b",
-                List.of(), null);
+                Block.EMPTY, null);
         Stamper.Stamped toPayment = stamper("orders", ordersKey, false).next(fromGateway.chain(), "payment#charge",
-                "b2", List.of(), bundle);
+                "b2", Block.EMPTY, bundle);
         assertEquals(bundle.proofFor("gateway/orders#createOrder/payment#charge"), toPayment.proof());
     }
 
     @Test
     void refusesAServiceNameWithHash() {
         Stamper bad = stamper("a#b", ordersKey, true);
-        assertThrows(IllegalArgumentException.class, () -> bad.next(List.of(), "payment", "b", List.of(), null));
+        assertThrows(IllegalArgumentException.class, () -> bad.next(List.of(), "payment", "b", Block.EMPTY, null));
     }
 
     @Test
     void refusesAnEmptyOperation() {
         Stamper gateway = stamper("gateway", gatewayKey, true);
         assertThrows(IllegalArgumentException.class,
-                () -> gateway.next(List.of(), "payment#", "b", List.of(), null));
+                () -> gateway.next(List.of(), "payment#", "b", Block.EMPTY, null));
     }
 }

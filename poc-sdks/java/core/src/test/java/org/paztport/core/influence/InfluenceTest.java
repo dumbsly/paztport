@@ -79,4 +79,25 @@ class InfluenceTest {
         assertThrows(IllegalArgumentException.class,
                 () -> new InfluenceEntry(InfluenceClass.PUBLIC, "s", "h", "\udc00", null));
     }
+
+    @Test
+    void aLabelListHasExactlyTheLabelMembersInJcsOrder() {
+        assertEquals(1, ContentLabel.parseAll("[{\"cid\":\"c\",\"cls\":\"public\"}]").size());
+        for (String bad : new String[] {"[{\"cid\":\"c\",\"cls\":\"public\",\"extra\":1}]",
+                "[{\"cls\":\"public\",\"cid\":\"c\"}]", "[{\"cid\":\"c\"}]", "[{\"cid\":\"c\",\"cls\":\"bogus\"}]",
+                "[ {\"cid\":\"c\",\"cls\":\"public\"}]", "{}", "[1]"}) {
+            assertThrows(IllegalArgumentException.class, () -> ContentLabel.parseAll(bad), bad);
+        }
+    }
+
+    @Test
+    void labelsRoundTripAndRefuseEmptyOwner() {
+        ContentLabel fresh = ContentLabel.fresh(InfluenceClass.PRIVATE, "alice");
+        assertEquals(List.of(fresh), ContentLabel.parseAll(ContentLabel.toJson(List.of(fresh))));
+        assertEquals(22, ContentLabel.fresh(InfluenceClass.PUBLIC, null).cid().length());
+        assertEquals(new InfluenceEntry(InfluenceClass.PRIVATE, "http:x", "h", fresh.cid(), "alice"),
+                fresh.toEntry("http:x", "h"));
+        String bad = "[{\"cid\":\"c\",\"cls\":\"private\",\"owner\":\"\"}]";
+        assertThrows(IllegalArgumentException.class, () -> ContentLabel.parseAll(bad));
+    }
 }

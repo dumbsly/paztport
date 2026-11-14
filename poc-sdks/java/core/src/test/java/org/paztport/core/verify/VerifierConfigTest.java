@@ -44,7 +44,7 @@ class VerifierConfigTest {
 
     private static VerifierConfig pinned(List<KeyringFile> keyrings, List<SignedRoot> roots, long now) {
         return VerifierConfig.pinned(keyrings, roots, PIN, now, Set.of("session"), "s",
-                new InMemoryNonceCache(), () -> now, 5000, 5000);
+                new InMemoryNonceCache(), () -> now, 5000, 5000, ExtensionSettings.NONE);
     }
 
     private static VerifierConfig pinned(KeyringFile keyring, SignedRoot root, long now) {
@@ -77,13 +77,13 @@ class VerifierConfigTest {
     void membersAreJudgedAtTheGivenTimeAndTheConfigKeepsTheLiveClock() {
         long[] clock = {NOW + 5000};
         VerifierConfig cfg = VerifierConfig.pinned(List.of(ring(NOW + 1000)), List.of(root(NOW + 1000)), PIN, NOW,
-                Set.of("session"), "s", new InMemoryNonceCache(), () -> clock[0], 5000, 5000);
+                Set.of("session"), "s", new InMemoryNonceCache(), () -> clock[0], 5000, 5000, ExtensionSettings.NONE);
         assertEquals(NOW + 5000, cfg.clock().getAsLong(), "judging at NOW did not read the clock");
         clock[0] = NOW + 6000;
         assertEquals(NOW + 6000, cfg.clock().getAsLong(), "the config's clock is the live one");
         assertThrows(IllegalArgumentException.class, () -> VerifierConfig.pinned(List.of(ring(NOW + 1000)),
                 List.of(root(NOW + 1000)), PIN, NOW + 1001, Set.of("session"), "s", new InMemoryNonceCache(),
-                () -> NOW, 5000, 5000));
+                () -> NOW, 5000, 5000, ExtensionSettings.NONE));
     }
 
     @Test
@@ -175,7 +175,26 @@ class VerifierConfigTest {
 
     private static VerifierConfig config(List<PinnedKeyring> keyrings, List<PinnedRoot> roots) {
         return new VerifierConfig(keyrings, roots, NOW, Set.of("session"), "s", new InMemoryNonceCache(), () -> NOW,
-                5000, 5000);
+                5000, 5000, ExtensionSettings.NONE);
+    }
+
+    /** A config always holds settings, built and checked by {@link ExtensionSettings#of}; none is refused. */
+    @Test
+    void aConfigRefusesNullSettings() {
+        List<PinnedKeyring> rings = List.of(new PinnedKeyring(Keyring.of(Map.of()), NOW));
+        List<PinnedRoot> roots = List.of(new PinnedRoot(ROOT, "v1", NOW));
+        assertThrows(NullPointerException.class, () -> new VerifierConfig(rings, roots, NOW, Set.of("session"), "s",
+                new InMemoryNonceCache(), () -> NOW, 5000, 5000, null));
+        assertThrows(NullPointerException.class, () -> VerifierConfig.pinned(List.of(ring(NOW + 1000)),
+                List.of(root(NOW + 1000)), PIN, NOW, Set.of("session"), "s", new InMemoryNonceCache(), () -> NOW,
+                5000, 5000, null));
+        ExtensionSettings example = ExtensionSettings.of(Set.of("example"), null);
+        assertEquals(example, pinnedWith(example).extensions());
+    }
+
+    private static VerifierConfig pinnedWith(ExtensionSettings settings) {
+        return VerifierConfig.pinned(List.of(ring(NOW + 1000)), List.of(root(NOW + 1000)), PIN, NOW,
+                Set.of("session"), "s", new InMemoryNonceCache(), () -> NOW, 5000, 5000, settings);
     }
 
     @Test

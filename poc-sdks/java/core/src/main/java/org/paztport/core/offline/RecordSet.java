@@ -10,7 +10,7 @@ import org.paztport.core.verify.NonceCache;
 import org.paztport.core.verify.ReasonCode;
 
 /**
- * One record set's replay state (verification.md &sect;Offline verification, check 10), and the limit a recorded
+ * One record set's replay state (verification.md &sect;Offline verification, check 11), and the limit a recorded
  * session sets on the calls made in it. The nonce keys its calls spend are one set for the whole record set, passed
  * as {@link OfflineConfig#seen} to every call checked in it, and its responses share one nonce cache that never
  * forgets: a live cache forgets a key after its window, which offline would let a copy pass once a later record is
