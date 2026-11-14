@@ -609,9 +609,13 @@ class InboundFilterTest {
         filterLog.addAppender(warnings);
         filterLog.setLevel(Level.WARN);
         filterLog.setAdditive(false);
+        // Closed in the finally whatever happens: if the filter's leak handling regressed, a scope left open would
+        // fail every later test with "already open" and bury this one's failure. Closing an ended scope does nothing.
+        RequestContext.Scope firstLeak = null;
+        RequestContext.Scope secondLeak = null;
         try {
             // Code outside the filter opened a scope on this pooled thread, recorded something, and never closed it.
-            RequestContext.open();
+            firstLeak = RequestContext.open();
             RequestContext.addInfluence(WEB);
 
             Seen first = new Seen();
@@ -645,7 +649,7 @@ class InboundFilterTest {
             assertEquals(1, warnings.list.size(), "the thread is clean again");
 
             // A request that is refused ends a leaked scope as well, so no stale scope outlives any request.
-            RequestContext.open();
+            secondLeak = RequestContext.open();
             RequestContext.addInfluence(WEB);
             MockHttpServletRequest unstamped = new MockHttpServletRequest("POST", "/pay");
             unstamped.setContent(TO_PAYMENT);
@@ -657,6 +661,12 @@ class InboundFilterTest {
             assertEquals(List.of(), RequestContext.added());
             assertEquals(2, warnings.list.size());
         } finally {
+            if (secondLeak != null) {
+                secondLeak.close();
+            }
+            if (firstLeak != null) {
+                firstLeak.close();
+            }
             filterLog.detachAppender(warnings);
             filterLog.setLevel(null);
             filterLog.setAdditive(true);
