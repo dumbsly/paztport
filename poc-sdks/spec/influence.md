@@ -281,10 +281,10 @@ stamp names `influence` and the entries are `private` and `public` ones with own
 someone else's; and it may not be written where the entries are all trusted but the origin's block does not name
 `influence` or is a pass-along block, where the chain holds `third-party` content, or after a `local-untrusted` read.
 A chain that failed in audit mode, a hop that is off, a service with no verifier, an origin and work outside any
-request never qualify. It pins the rule at
-the boundary in `partnerTrustedRecord`: an attested call qualifies with `private` and `public` content with owners,
-and with a boundary block that names `influence` with nothing, and not with `third-party` or `local-untrusted`
-content, in the stamp or read afterwards, nor with a boundary block that does not name `influence`.
+request never qualify. It pins the rule at the boundary in `partnerTrustedRecord`: an attested call qualifies with
+`private` and `public` content with owners, and with a boundary block that names `influence` with nothing, and not
+with `third-party` or `local-untrusted` content, in the stamp or read afterwards, nor with a boundary block that does
+not name `influence`.
 
 ### What the rules read
 
