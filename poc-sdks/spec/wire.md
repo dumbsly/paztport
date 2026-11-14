@@ -500,7 +500,7 @@ Rules:
 
 `v4.json` pins the prompt, `tools/call`, result and response bindings in `bindPrompt`, `bindMcpCall`, `bindResult`
 and `bindResponse`, and the local-tool binding through `recordedLocalStep`, whose check computes it from each step's
-tool, input and decision. `http-v3.json` pins the HTTP binding with and without a query in `requestBinding`, and the
+tool, input and decision. `http-v4.json` pins the HTTP binding with and without a query in `requestBinding`, and the
 HTTP result hash in `resultHash`. `json.json` pins the refusals in `bindings`: a lone surrogate in one string a
 binding hashes, for each binding but the HTTP result, which hashes no string it is given. Its two `response` cases
 also carry a `labels` input, from version 3's response binding, which a replay of version 4 ignores.
@@ -553,7 +553,7 @@ A request carries Paztport in three headers, each a token, the base64url of the 
 |---|---|
 | `X-Path-Chain` | The chain, as a JSON array of stamps, origin first. The last stamp's `rcv` is the receiving service, or the operation it is sent to as `<service>#<operation>`, and its `bind` the [HTTP binding](#bindings) of the request sent. |
 | `X-Path-Proof` | The [proof object](#proof-object) for the full route, receiving service included. |
-| `X-Path-Extensions` | The request's [blocks](#blocks), as a JSON array of blocks, one per stamp of the chain, in chain order. An absent header means every block is empty. |
+| `X-Path-Extensions` | The token of the request's [blocks](#blocks): a JSON array of blocks, one per stamp of the chain, in chain order. An absent header means every block is empty. |
 | `X-Path-Session` | The [session id](sessions.md#the-session-id), as plain text, on a call made in a session opened by [the handshake over HTTP](sessions.md#over-http). Inside a mesh, which has no handshake, it is absent. An absent header means no session; one that names no live session opened by the peer is refused `SESSION_UNKNOWN`. |
 
 **Paztport's headers.** Every header whose name begins with `X-Path-` is Paztport's: the four above,
@@ -568,7 +568,7 @@ Why: setting only the headers it stamped would leave the rest as the client sent
 signed: the client's own `X-Path-Proof` on a route this origin holds no proof for, its `X-Path-Extensions`
 holding claims no stamp of the chain made, and its `X-Path-Session` on every call. A response's `X-Path-Response`
 names the services that answered and carries what they attached, which the client has no need to know. The rule
-names a prefix, not a list, so a header added later is covered. `http-v3.json` pins it in `headerNames`.
+names a prefix, not a list, so a header added later is covered. `http-v4.json` pins it in `headerNames`.
 
 A refusal carries no Paztport header. Its body is `{"reason":"<code>"}` and nothing else, so it never names the
 suspect to the caller ([verification.md](verification.md#modes-and-refusals)).
@@ -598,7 +598,9 @@ a service attests only a chain that verified there, and an origin never attests
 | `prev` | The request's last `sig`. |
 | `sig` | The answering service's signature over the stamp's [signed bytes](#fields-and-signed-bytes), as for any stamp. |
 
-[verification.md](verification.md#http-requests-and-responses) says how each side checks these.
+[verification.md](verification.md#http-requests-and-responses) says how each side checks these. The Java SDK
+speaks version 4 over HTTP, and `http-v4.json` pins it; the Go SDK speaks version 3, and `http-v3.json` pins that,
+until it moves.
 
 ## The Merkle tree
 

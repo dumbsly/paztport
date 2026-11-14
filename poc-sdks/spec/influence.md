@@ -92,7 +92,12 @@ an `owner` or both, and an empty `cid`, which read; and a string, an array, `nul
 `cls`, no `h`, a number as `src`, `h` or `cid`, an empty and a `null` `owner`, and a label, which do not. It pins the
 offline reading in `influence.recordedCall`: a record set whose calls hold an item that does not read, within their
 session's limits and past them, both `INFLUENCE_MISMATCH`, beside a call that reads at each, `OK` within them and
-`OUTSIDE_SESSION` past them.
+`OUTSIDE_SESSION` past them. `http-v4.json` pins the refusal over HTTP in `rules.influenceItems`. An item that is not
+an entry is `400 {"reason":"INFLUENCE_MISMATCH"}` in enforce mode on a chain that verifies, in audit mode on a chain
+that verifies otherwise and on one that fails with its blocks matching, at a service that verifies only to attest, at
+one with no verifier and at a hop that is off; so, in audit mode, are an item that is an array of entries and an entry
+with an empty `owner`. Where verification refuses first in enforce mode, the refusal is `403` with that check's code.
+An origin carries no item, and a service that does not act on `influence` reads none: each serves the request.
 
 ## The every-stamp rule
 
@@ -192,6 +197,16 @@ no label, which adds nothing; and, adding one `local-untrusted` entry each, one 
 a label in one block or in another, a silent one, one refused at check 9c, one whose signature fails, and a result
 no check ran on, as in an unsafe session.
 
+`http-v4.json` pins the response's block over HTTP in `responses`: a block naming `influence` with a label, which
+verifies, and the same block altered, `EXTENSION_MISMATCH`; and a last block requiring `influence`,
+`EXTENSION_REQUIRED` at a caller that does not act on it and `OK` at one that does. It pins what a response adds over
+HTTP in `rules.callerInfluence`, with `src` `http:payment` and `h` the result hash: a response that verifies with two
+labels, also where the caller maps the receiver's host to its policy name and where the stamp names an operation,
+whose name the `src` leaves out, and one naming `influence` with no label, which adds nothing; and, adding one
+`local-untrusted` entry each, a silent response, one with a label beside an entry, one refused at check 9c, one not
+attested, also where the stamp names an operation, one whose attestation is for another status, a refusal, and a
+response to a caller with no verifier, which checks nothing.
+
 Some responses are never attested, so their callers always count them `local-untrusted`:
 
 - A response to a request that failed verification in audit mode: it is served, but not attested
@@ -260,6 +275,16 @@ steered it. A request that fails the rule MAY still be served, but the record MU
 | no | either | not written |
 | yes | yes | not written |
 | yes | no (no entries, or only `private` and `public` ones, with any owners) | may be written |
+
+`http-v4.json`'s `rules` pins this rule in `trustedRecord`. On a verified chain, a record may be written where every
+stamp names `influence` and the entries are `private` and `public` ones with owners, also after a `private` read of
+someone else's; and it may not be written where the entries are all trusted but the origin's block does not name
+`influence` or is a pass-along block, where the chain holds `third-party` content, or after a `local-untrusted` read.
+A chain that failed in audit mode, a hop that is off, a service with no verifier, an origin and work outside any
+request never qualify. It pins the rule at
+the boundary in `partnerTrustedRecord`: an attested call qualifies with `private` and `public` content with owners,
+and with a boundary block that names `influence` with nothing, and not with `third-party` or `local-untrusted`
+content, in the stamp or read afterwards, nor with a boundary block that does not name `influence`.
 
 ### What the rules read
 
@@ -400,9 +425,12 @@ the key makes earlier entries unopenable. The originals of one call are kept und
 names one call, because a second call from the egress with the same `rid` is `REPLAY` at the partner within the
 nonce window. A sender that may call the same partner again later in one request, after the window, keeps
 every call's originals, not only the last. Those calls derive the same salts, so opening one call's entry also
-reveals the salt of the same group's entry in the others. The Java SDK's `BoundaryClient` hands each attested
-call's originals and sent list to a listener before the request is sent, and sends nothing if the listener
-fails, so no entry leaves that the sender could not open.
+reveals the salt of the same group's entry in the others. The Java SDK's `BoundaryClient` hands the originals and
+the sent list of each call whose boundary block names `influence`, `[]` included, to a listener before the request
+is sent, and sends nothing if the listener fails, so no entry leaves that the sender could not open.
 
-`http-v3.json`'s `boundaryInfluence` pins the salts, the sent entries, and an opening that opens and one with an extra
-original that does not, each with its JCS bytes in `body`.
+`http-v4.json`'s `boundaryInfluence` pins the salts, the sent entries, and an opening that opens and one with an extra
+original that does not, each with its JCS bytes in `body`. Its `rules.egress` pins what the boundary block names: the
+blinded entries of an attested call; `influence` with `[]` where every internal stamp names it and the request holds
+no influence; and nothing where an internal stamp's block does not name `influence`, or the egress does not act on
+it.

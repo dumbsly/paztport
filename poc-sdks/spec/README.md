@@ -67,9 +67,10 @@ Design choices:
 ## Conformance
 
 The spec describes version 4. The TypeScript SDK speaks it over MCP, and `v4.json` records it. Java's `paztport-core`
-speaks it too, with no transport. The Go SDK speaks version 3 over HTTP, whose stamps carry `"v": 3`, and Java's HTTP
-modules still do while they move to version 4; `v3.json` and `http-v3.json` record that version: where those two files
-differ from the four spec files above, they describe version 3, and the spec files give version 4.
+speaks it too, and Java's `paztport-http` speaks it over HTTP, which `http-v4.json` records. The Go SDK speaks version
+3 over HTTP, whose stamps carry `"v": 3`, until it moves to version 4; `v3.json` and `http-v3.json` record that
+version: where those two files differ from the four spec files above, they describe version 3, and the spec files give
+version 4.
 
 `vectors/` holds language-neutral vectors, so every implementation of a version is held to one set of recorded
 answers.
@@ -78,9 +79,10 @@ answers.
 |---|---|---|
 | [`v4.json`](#v4json) | Version 4: stamps and blocks, the live and offline verifiers and sessions, the [MCP profile](#the-mcp-profile), and the extension `influence` in its member `influence` | Written and replayed by TypeScript (`@paztport/core` for the session id, the prompt and response bindings, the block commitment and the Merkle tree, and `@paztport/mcp` for the rest). Replayed by Java (`paztport-core`) for every section but the MCP profile's, `influence.response` and the `influence.request` cases whose `served` is not empty. |
 | [`v3.json`](#v3json) | Version 3: stamps, the live and offline verifiers, influence and sessions | Go (`poc-sdks/go`) alone, for every section but `recordedLocalStep`, `responseAttestation`, `sessionParams`, `sessionResult`, `bindMcpCall` and `bindResult`, which belong to the [MCP profile](#the-mcp-profile). TypeScript does not replay it; its replay of `v4.json` reads it only to compare the sections version 4 left as they were ([below](#v4json)). |
-| [`http-v3.json`](#http-v3json) | Version 3 over HTTP | Go (`poc-sdks/go`), every section, and Java's `paztport-http`, in its own tests, which do not build against the version 4 core until its move. The TypeScript SDK does not speak HTTP and does not replay it. |
+| [`http-v4.json`](#http-v4json) | Version 4 over HTTP | Written and replayed by Java (`paztport-http`), every section. Go replays `http-v3.json` until it moves to version 4. The TypeScript SDK does not speak HTTP and does not replay it. |
+| [`http-v3.json`](#http-v3json) | Version 3 over HTTP | Go (`poc-sdks/go`), every section, until it moves to version 4. Java does not replay it, and the TypeScript SDK does not speak HTTP. |
 | [`events.json`](#eventsjson) | Responder events | Written and replayed by Java (`paztport-core`), and replayed by TypeScript (`@paztport/core`) and Go (`poc-sdks/go`). |
-| [`json.json`](#jsonjson) | Reading and writing JSON ([wire.md](wire.md#json)) | TypeScript (`@paztport/core`, and `@paztport/mcp` for `toolsCall`), every section but the `http` cases of `bindings`, and Java (`paztport-core`, and `paztport-http` for `http`, in tests that do not build against the version 4 core until its move) and Go (`poc-sdks/go`) for every section but `jcs` and the MCP profile's `bindings` (`toolsCall`, `result`, `localTool`), which belong to the [MCP profile](#the-mcp-profile). |
+| [`json.json`](#jsonjson) | Reading and writing JSON ([wire.md](wire.md#json)) | TypeScript (`@paztport/core`, and `@paztport/mcp` for `toolsCall`), every section but the `http` cases of `bindings`, and Java (`paztport-core`, and `paztport-http` for `http`) and Go (`poc-sdks/go`) for every section but `jcs` and the MCP profile's `bindings` (`toolsCall`, `result`, `localTool`), which belong to the [MCP profile](#the-mcp-profile). |
 | [`ed25519.json`](#ed25519json) | The [signature rule](wire.md#signatures) | Written by a generator in `@paztport/core`'s tests, and replayed in full by TypeScript (`@paztport/core`), Java (`paztport-core`) and Go (`poc-sdks/go`). |
 
 | Part | Java SDK | TypeScript SDK | Go SDK |
@@ -90,9 +92,10 @@ answers.
 | Local steps ([the MCP profile](#the-mcp-profile)) | no | yes | no |
 | The extension `influence` in v4 (`v4.json`'s `influence`) | core | yes | no |
 | v3: stamps, the live and offline verifiers, influence and sessions | no | no | yes |
-| v3 over HTTP | yes (version 3 until its move) | no | yes |
-| Operations over HTTP: reading tables, naming operations and their keys | yes (version 3 until its move) | no | yes |
-| Operations over HTTP: confirming them from the receiver's routing | yes (version 3 until its move) | no | no |
+| v4 over HTTP | yes | no | no |
+| v3 over HTTP | no | no | yes |
+| Operations over HTTP: reading tables, naming operations and their keys | yes | no | yes |
+| Operations over HTTP: confirming them from the receiver's routing | yes | no | no |
 | Responder events | yes | yes | yes |
 | Reading and writing JSON (`json.json`) | yes | yes | yes |
 | The signature rule (`ed25519.json`) | yes | yes | yes |
@@ -112,8 +115,8 @@ session. They belong to the MCP profile as well as to the extension, and an impl
 `influence` and implements the MCP profile. One that implements the MCP profile acts on `influence`, since its local
 steps do: a recorded local step's check reads the entries in its blocks, and derives the gate's verdict again under
 their classes ([verification.md](verification.md#offline-verification), [influence.md](influence.md#over-mcp)). So it
-passes all of `influence`. It MUST pass `events.json` if it sends or receives responder events. No vector file records
-version 4 over HTTP.
+passes all of `influence`. It MUST pass `events.json` if it sends or receives responder events, and `http-v4.json` if it
+speaks version 4 over HTTP, less `operations` if it does not name operations.
 
 An implementation of version 3, as the Go SDK is, MUST pass `ed25519.json`, and `v3.json` and `json.json`
 less their sections that belong to the MCP profile if it does not implement it: `recordedLocalStep`,
@@ -358,7 +361,56 @@ TypeScript SDK moved to version 4.
   request or reply token alone and with `_meta`, a member they do not have, the request or reply itself in place of
   its token, none, and a request token and a reply token that do not read).
 
+### http-v4.json
+
+`http-v4.json` records version 4 over HTTP. It is written by Java's exporter,
+`poc-sdks/java/http/src/test/java/org/paztport/http/VectorsHttpV4Export.java`, and Java's replay checks that the
+committed file is byte for byte what the exporter writes.
+
+- `resultHash`: the HTTP result hash.
+- `requestBinding`: the request binding with and without a query.
+- `headerNames`: Paztport's header names (a name and whether it begins with `X-Path-`, ASCII letters in any case,
+  lookalikes refused; `X-Path-Extensions` among them, and `X-Path-Influence`, which version 3 used, still Paztport's
+  by its prefix).
+- `responses`: response checks (a good response, one sent to the wrong receiver, a block other than the one its stamp
+  commits to, an altered status, a replay and one past the verifier's `policyNotAfter`; a block naming `influence`
+  with a label, and that block altered; a header without `block`, one in version 3's shape and one with a member
+  beside `block` and `stamp`, each `CHAIN_MISSING`; a last block requiring `influence`, at a caller that does not act
+  on it and at one that does; a response on a route through operations, which another operation's spent response key
+  does not refuse and its own does; and responses from a keyed operation, which another item's spent response key
+  does not refuse and its own does).
+- `boundaryInfluence`: blinded boundary influence (the salts, the sent entries, and an opening that opens and one
+  with an extra original that does not).
+- `rules`: the HTTP rules a receiver, a caller, a partner and an egress follow
+  ([below](#the-http-rules-in-http-v4json)).
+- `operations`:
+  - `table`: an operation table with its hash and route.
+  - `shared`: an entrance with two operations told apart by a query condition.
+  - `keyed`: a table whose operations declare keys.
+  - `refused`: tables a reader refuses.
+  - `match`: matching cases.
+  - `keys`: cases giving a call's operation in `keyed` and its key value, null for none: a segment key, a query
+    key, a key of 128 characters, and one of 200 under `maxLength` 256; no key value for a percent-encoded segment
+    or query value, a dot or dot-dot segment, a key of 129 characters, a query key absent, repeated, with no value
+    or repeated under an encoded name, a query holding a semicolon, or an operation with no key.
+  - `receive`: how a receiver confirms the operation it dispatches to, and that it spends that operation's request
+    key alone, one for each key value for an operation with a key.
+
+It reuses `v4.json`'s keys and its `mesh` and `ops` policies by name, and adds a `payment` key derived by `v4.json`'s
+rule; `rules` adds keys and material of its own, derived the same way. Its seed strings are `http-v3.json`'s, so its
+keys, its `boundaryInfluence`, and the keys, material, handshakes and peers of `rules` are `http-v3.json`'s value for
+value, and so are `resultHash`, `requestBinding` and `operations` but `receive`, whose rules did not change;
+`headerNames` holds each of `http-v3.json`'s cases. Its `about` says so. To regenerate the file:
+
+```bash
+cd poc-sdks/java && mvn -q -pl core,http test -Dtest=VectorsHttpV4Export -Dpaztport.exportHttpVectors=true \
+  -Dvectors.out="$PWD/../spec/vectors/http-v4.json" -Dsurefire.failIfNoSpecifiedTests=false
+```
+
 ### http-v3.json
+
+`http-v3.json` records version 3 over HTTP, which the Go SDK replays until it moves to version 4. Its exporter left
+the repository when Java's `paztport-http` moved to version 4; its `about` still names Java as its writer.
 
 - `resultHash`: the HTTP result hash.
 - `requestBinding`: the request binding with and without a query.
@@ -370,8 +422,9 @@ TypeScript SDK moved to version 4.
   another item's spent response key does not refuse and its own does).
 - `boundaryInfluence`: blinded boundary influence (the salts, the sent entries, and an opening that opens and one
   with an extra original that does not).
-- `rules`: the HTTP rules a receiver, a caller, a partner and an egress follow
-  ([below](#the-http-rules-in-http-v3json)).
+- `rules`: the HTTP rules of version 3, in the kinds of `http-v4.json`'s `rules`
+  ([below](#the-http-rules-in-http-v4json)) but with `unreadableInfluence` in place of `influenceItems` and no
+  `servedUnverified`, each case in version 3's shape; `http-v4.json`'s `rules.about` says what changed.
 - `operations`:
   - `table`: an operation table with its hash and route.
   - `shared`: an entrance with two operations told apart by a query condition.
@@ -492,87 +545,104 @@ implementation, since a route and a receiver are opaque strings there. Three off
 (`PROOF_MISMATCH`, `RULES_MISMATCH` and `VERDICT_MISMATCH`, [verification.md](verification.md#reason-codes)). Each
 passage of the spec that belongs to it says so and links here.
 
-### The HTTP rules in http-v3.json
+### The HTTP rules in http-v4.json
 
-`http-v3.json`'s `rules` holds the rules the spec sets for v3 over HTTP that the rest of the file does not reach:
-how a receiver reads a request, who attests, the peer a certificate names, the partner's sessions and handshake
-endpoint, the egress, what a response adds to the caller's influence, refusals and trusted records. Each case is
-replayed through functions that take a request as it arrived, with no web framework, so nothing in the file is a
-framework's choice. Its `about` says how its keys, material, trees and handshake nonces are derived, so the file
-can be rebuilt byte for byte. Bodies and certificates are hex, headers are their values as sent, and every
-expected refusal's `body` is its exact bytes, `{"reason":"<code>"}`. The functions that answer return the status and
-the body only, so the file does not carry the header: every refusal, and every `refusals` and `boundaryRefusals` case
-among them, is sent with `Content-Type: application/json` and no parameters
-([verification.md](verification.md#modes-and-refusals)).
+`http-v4.json`'s `rules` holds the rules the spec sets for version 4 over HTTP that the rest of the file does not
+reach: how a receiver reads a request and the items it is handed, check 9a at a service about to serve a request it
+did not verify, who attests, the peer a certificate names, the partner's sessions and handshake endpoint, the egress,
+what a response adds to the caller's influence, refusals and trusted records. Each case is replayed through functions
+that take a request as it arrived, with no web framework, so nothing in the file is a framework's choice. Its `about`
+says how its keys, material, trees and handshake nonces are derived, so the file can be rebuilt byte for byte. Bodies
+and certificates are hex, headers are their values as sent, and every expected refusal's `body` is its exact bytes,
+`{"reason":"<code>"}`. The functions that answer return the status and the body only, so the file does not carry the
+header: every refusal, and every `refusals` and `boundaryRefusals` case among them, is sent with
+`Content-Type: application/json` and no parameters ([verification.md](verification.md#modes-and-refusals)).
 
 | Kind | Shape | What it pins |
 |---|---|---|
-| `requests` | receiver | A request at the receiver ([verification.md](verification.md#http-requests-and-responses)): the nonce key `<rid>\|<last svc>\|<last rcv>\|req`, which other directions', hops' and operations' keys do not spend, and each unreadable header: a chain (`CHAIN_MISSING`), a proof (no proof, so `PATH_NOT_ALLOWED`) and influence (`INFLUENCE_MISMATCH`). |
-| `unreadableInfluence` | receiver | Influence that does not read is never dropped: `403` where verification refuses first, otherwise `400 INFLUENCE_MISMATCH`, in audit mode too, at a service that verifies only to attest and at one with no verifier; an origin carries none, so has none to drop ([verification.md](verification.md#modes-and-refusals)). |
-| `attestation` | receiver | Who attests: only a chain that passed the live order at that service, whether or not it verifies requests under a mode; never a refusal, an audit failure, a forged or unsigned chain, a service with no verifier, a hop that is off, or an origin; and, where the receiver confirms its operation again at dispatch, only an answer whose handler it confirmed. |
+| `requests` | receiver | A request at the receiver ([verification.md](verification.md#http-requests-and-responses)): the nonce key `[rid, last svc, last rcv, "req"]`, which other directions', hops' and operations' keys do not spend, and each unreadable header: a chain (`CHAIN_MISSING`), a proof (no proof, so `PATH_NOT_ALLOWED`) and blocks (`EXTENSION_MISMATCH`), and no `X-Path-Extensions` where a stamp's `ext` is not `""` (`EXTENSION_MISMATCH`). |
+| `influenceItems` | receiver | An item on a request's block that does not read as an entry, at a service that acts on `influence` ([influence.md](influence.md#entries)): `400 INFLUENCE_MISMATCH` in either mode, verified or not, at a service that verifies only to attest, at one with no verifier and at a hop that is off; `403` where verification refuses first; an origin carries none, so has none to read; and a service that does not act on `influence` reads no item and serves the request. |
+| `servedUnverified` | receiver | Check 9a at a service about to serve a request it did not verify ([verification.md](verification.md#http-requests-and-responses)): in audit mode after a failure, blocks that do not match their stamps, none where a stamp's `ext` is not `""`, and blocks that do not decode or are JSON `null`, each `400 EXTENSION_MISMATCH`, and a block altered refused the same way at a service that verifies only to attest, at one with no verifier and at a hop that is off; blocks that match, served with their items handed on as not verified; where the chain did not read, blocks that read as an array served with nothing handed on, and an object refused; check 9c following the mode; and an origin, which carries no blocks. |
+| `attestation` | receiver | Who attests: only a chain that passed the live order at that service, whether or not it verifies requests under a mode; never a refusal, an audit failure, a forged or unsigned chain, a service with no verifier or an origin. `trustedRecord`'s cases add a hop that is off. |
 | `peerCertificates` | table | The peer under mTLS: `svc` is the subject's one common name, a UTF8String or PrintableString, read as encoded and compared as it is, else `""`; `inst` is the address the connection came from. |
-| `sessionHeader` | partner | `X-Path-Session` ([sessions.md](sessions.md#over-http)): no header is an unsafe session that believes nothing; an id is the call's only when the same issuer and name opened it, so an unknown id, another peer's, the same name under another issuer, no certificate, one naming no single service and a stamp made in another session are `SESSION_UNKNOWN`. |
+| `sessionHeader` | partner | `X-Path-Session` ([sessions.md](sessions.md#over-http)): no header is an unsafe session that believes nothing; an unsafe session applies no check to the blocks a call carries; an id is the call's only when the same issuer and name opened it, so an unknown id, another peer's, the same name under another issuer, no certificate, one naming no single service and a stamp made in another session are `SESSION_UNKNOWN`. |
 | `sessionRegistry` | partner | Sessions by id: a handshake replaces none, a peer holds at most N and loses its least recently used, replicas sharing a certificate are one peer, another peer's handshakes evict none, a session idle for the idle period expires and a call starts that period again, and a handshake that opens no session changes none. |
 | `unsafeEndpoints` | table | An endpoint is `<METHOD> <path pattern>` by the dispatched handler's pattern, and a `HEAD` is refused wherever its `GET` is. |
-| `handshakeErrors` | partner | The handshake endpoint: `INVALID_PARAMS` for a body that is not JSON or not a readable request (a `null` or missing keyring window, a client root with no window, a keyring naming a service that is not a route node and a missing `clientKeyringSig` included, each body otherwise in JCS member order), `NO_SESSION` for one that opens none (a 15-byte nonce, a 63-byte root signature) and for no client certificate or one naming no single service; and a request that opens an attested and an unsafe session. |
-| `egress` | egress | The egress's steps 1 to 7 ([sessions.md](sessions.md#between-organisations)): nothing sent, the handshake included, unless the chain passed the live order there; one boundary stamp and no internal one; blinded influence and the boundary route's proof; nothing but the session id in an unsafe session; the replacement after a 404 or a reply under another key, unsafe whatever it says, and a call that fails when the replacement is answered 404 too; each reply recorded as one `local-untrusted` entry; and a session dropped after `SESSION_UNKNOWN`. |
-| `callerInfluence` | caller | A response at the caller: each label of a response that verifies becomes an entry with `src` `http:<target>` and `h` the result hash, the target the receiver's policy name without any operation, also when the caller holds the receiver's table (the case's `operations`) and its stamp names one; any other response adds exactly one `local-untrusted` entry. The cases with a table run on the `shop-operations` material, whose root covers `gateway/orders/payment#pay` and payment's table. |
+| `handshakeErrors` | partner | The handshake endpoint: `INVALID_PARAMS` for a body that is not JSON or not a readable request (a `null` or missing keyring window, a client root with no window, a keyring naming a service that is not a route node and a missing `clientKeyringSig` included, each body otherwise in JCS member order), `NO_SESSION` for one that opens none (a 15-byte nonce, a 63-byte root signature) and for no client certificate or one naming no single service; a request that opens an attested and an unsafe session; and the reply's `extensions`, empty from a partner that acts on none. |
+| `egress` | egress | The egress's steps 1 to 7 ([sessions.md](sessions.md#between-organisations)): nothing sent, the handshake included, unless the chain passed the live order there; one boundary stamp and no internal one; blinded influence and the boundary route's proof; nothing but the session id in an unsafe session; the replacement after a 404 or a reply under another key, unsafe whatever it says, and a call that fails when the replacement is answered 404 too; each reply recorded as one `local-untrusted` entry; a session dropped after `SESSION_UNKNOWN`; the requirement: calls in an attested session whose reply lists every required name, each boundary block requiring them, and none after a reply that does not list one, which is not followed by the replacement, nor in an unsafe session or the replacement's; with the switch, calls after a reply that lists one of two required names, requiring that one, and in an unsafe session with nothing but the session id; and what the boundary block names ([influence.md](influence.md#blinded-influence)): `influence` with `[]` where every internal stamp names it and no influence is held, and nothing where one does not or the egress does not act on it. |
+| `callerInfluence` | caller | A response at the caller ([influence.md](influence.md#content-labels)): each label of a response that verifies and names `influence` becomes an entry with `src` `http:<target>` and `h` the result hash, the target the receiver's policy name without any operation, also when the caller holds the receiver's table (the case's `operations`) and its stamp names one; a response that names `influence` with no label adds nothing; any other response adds exactly one `local-untrusted` entry, and one refused at check 9c is also `refused`. The cases with a table run on the `shop-operations` material, whose root covers `gateway/orders/payment#pay` and payment's table. |
 | `sessionExpiry` | partner | A session's calls are `POLICY_EXPIRED` once the client's root or keyring passes its `notAfter`, and verify at it; a handshake after it is unsafe; and a partner whose own material lapses opens new sessions unsafe and keeps verifying the earlier ones ([sessions.md](sessions.md#status)). |
 | `refusals` | receiver | What a refusal carries, in a mesh: the code alone, even where the result names a suspect. |
-| `boundaryRefusals` | partner | The same at the boundary: the partner's refusals, unreadable influence included (a partner has no audit mode), and an unsafe session's switched-off endpoints refused `UNSAFE_SESSION`, with no session header too. |
-| `trustedRecord` | receiver | Trusted records ([influence.md](influence.md#trusted-records)): a verified chain and no `third-party` or `local-untrusted` content, counting what the handler reads; `private`, `public` and owners do not count. The partner kinds' `trustedRecord` covers a call in an unsafe session, and `partnerTrustedRecord` the same rule at the boundary. |
-| `partnerTrustedRecord` | partner | The same rule at the boundary: an attested call qualifies only with no `third-party` or `local-untrusted` content, counting what the handler reads; `private`, `public` and owners do not count. |
+| `boundaryRefusals` | partner | The same at the boundary: the partner's refusals, a block other than its stamp commits to and blocks that cannot be read included (`EXTENSION_MISMATCH`: a partner has no audit mode), an item that is not an entry (`400 INFLUENCE_MISMATCH`), and an unsafe session's switched-off endpoints refused `UNSAFE_SESSION`, with no session header too. |
+| `trustedRecord` | receiver | Trusted records ([influence.md](influence.md#trusted-records)): a verified chain every stamp of which names `influence`, and no `third-party` or `local-untrusted` content, counting what the handler reads; `private`, `public` and owners do not count. A guarded public write on a verified chain whose origin's block does not name `influence`, or is a pass-along block, is `INFLUENCE_DENIED` whatever the entries say ([influence.md](influence.md#the-every-stamp-rule)). The partner kinds' `trustedRecord` covers a call in an unsafe session, and `partnerTrustedRecord` the same rule at the boundary. |
+| `partnerTrustedRecord` | partner | The same rule at the boundary: an attested call qualifies only with no `third-party` or `local-untrusted` content, counting what the handler reads, and a boundary block that names `influence`, with nothing included; `private`, `public` and owners do not count. |
 
 A **receiver** case enters `request` (`method`, `target`, `headers`, `body`) `uses` times at `service`: its `svc`
 and `inst`, whether it is an `origin`, and whether it has a `verifier`, pinned to `material`. Every service holds
-its stamp key. `mode` is the [mode](verification.md#modes-and-refusals) it verifies requests under, `enforce` or
-`audit`; or `off`, which is no mode but a hop its deployment has switched Paztport off on; or null, a service that
-verifies no requests and may still verify a chain to decide whether to attest. Each entry has `peer`, or none,
-and one nonce cache that already holds the keys in `spent`; then the handler reads `read`. `expected` is the last
-entry's answer: the `refusal`, or null; whether the chain `verified` at this hop; the `influence` the handler
-starts from; whether the answer `attests`; and whether a `trustedRecord` may be written from it. A null `request`
-is work outside any request.
+its stamp key, acts on the extensions in `actsOn` and carries the names in `allowedExtensions` (null for unset,
+which carries any name). `mode` is the [mode](verification.md#modes-and-refusals) it verifies requests under,
+`enforce` or `audit`; or `off`, which is no mode but a hop its deployment has switched Paztport off on; or null, a
+service that verifies no requests and may still verify a chain to decide whether to attest. Each entry has `peer`,
+or none, and one nonce cache that already holds the keys in `spent`; then the handler reads `read`. `expected` is the
+last entry's answer: the `refusal`, or null; whether the chain `verified` at this hop (false for every refusal);
+`handedOn`, what the service is handed, null for nothing, else one member per name in `actsOn`, each an array of
+`{svc, items}`, one per stamp, `items` null where the stamp's block does not name the extension; whether the answer
+`attests`; and, at a service that acts on `influence`, the reason a guarded public write to a destination whose owner
+is `destinationOwner` gets (`publicWrite`) and whether a `trustedRecord` may be written from it. Both are null for a
+refusal and at a service that does not act on `influence`. A null `request` is work outside any request, which asks
+only for the trusted record.
 
 A **partner** case runs `steps` against one partner (`partner`: its `material`, the client policy keys it has
 `pinned`, `clientOrigins`, the endpoints it has switched off for unsafe sessions, `maxSessionsPerPeer`,
-`sessionIdleMs`, its windows and the clock's `start`), its clock at each step's `at`. A peer is one of `peers`, a
-client `certificate` and the `remoteAddr` it connected from, read as `peerCertificates` reads one, with its issuer
-for the session's binding; null is no client certificate. A `handshake` posts the request `handshakes` names, as its
-JCS bytes in `handshakeBodies`, or `body`; `as` names the session it opens, since the partner chooses the id. It
-expects the `status`, the `error` of a `400`, and the reply's `sessionStatus` and `disabled` of a `200`. A `call`
-names its session as `{"of": <as>}`, `{"id": <literal id>}`, or null for no `X-Path-Session`. Its `stamp`, when
-present, is a boundary stamp signed with `key` as the step runs, in the session its `sess` names, binding the call's
-method, its target and the stamp's own `body`, and committing to the stamp's `influence`; `proofHeader` and
-`influenceHeader` go as given. `routePattern` is the pattern of the handler the call reaches, which an unsafe
-session's switched-off endpoints are matched against. It expects the `refusal`, whether the call is `attested`, the
-`influence` the handler starts from, and `trustedRecord`. A `call` may carry `read`, what the handler reads after
-the call is accepted, in a receiver case's form; `trustedRecord` counts it after the call's influence, and no `read`
-is the empty list.
+`sessionIdleMs`, its windows, its `actsOn` and `allowedExtensions` as a receiver's, and the clock's `start`), its
+clock at each step's `at`. A peer is one of `peers`, a client `certificate` and the `remoteAddr` it connected from,
+read as `peerCertificates` reads one, with its issuer for the session's binding; null is no client certificate. A
+`handshake` posts the request `handshakes` names, as its JCS bytes in `handshakeBodies`, or `body`; `as` names the
+session it opens, since the partner chooses the id. It expects the `status`, the `error` of a `400`, and the reply's
+`sessionStatus`, `disabled` and `extensions` of a `200`. A `call` names its session as `{"of": <as>}`,
+`{"id": <literal id>}`, or null for no `X-Path-Session`. Its `stamp`, when present, is a boundary stamp signed with
+`key` as the step runs, in the session its `sess` names, binding the call's method, its target and the stamp's own
+`body`, and committing to the stamp's `block`; `proofHeader` and `extensionsHeader` go as given. `routePattern` is
+the pattern of the handler the call reaches, which an unsafe session's switched-off endpoints are matched against.
+It expects the `refusal`, whether the call is `attested`, what the handler is `handedOn`, as a receiver case records
+it, and `trustedRecord`, null for a refusal. A `call` may carry `read`, what the handler reads after the call is
+accepted, in a receiver case's form; `trustedRecord` counts it after what the call hands on, and no `read` is the
+empty list.
 
-An **egress** case enters `inbound`, a receiver case's inputs, at the egress (null: no request at all), then
-sends each of `posts` to a scripted partner. Each handshake that carries a client root takes the next of
-`partnerScript.handshakes`: `attested` or `unsafe`, a genuine reply in the entry-key form from the `psp`
-material; `notFound`, a `404`; `wrongKey`, a reply in the policy-key form signed by and naming `stranger-policy`.
-One with no client root gets a genuine reply whose status is `replacement`, and each call takes the next of
-`calls`. A handshake or call the script has no answer for fails the replay, so a case whose script is empty
-expects nothing to be sent. It expects each post's `outcome` (`answered`, with the partner's `status` and whether
-the call went out `attested`; `refused`, the egress declining before anything is sent; or `failed`, no session
-could be opened, so the call itself is not sent), everything the partner `received` in order, and the influence
-the request holds afterwards, normalised. A received `handshake` says whether it carried a `clientRoot`. A
-received `call` gives its `session` and `stampSession`, the position in `received` of the handshake whose reply
-issued the id in its `X-Path-Session` and in its stamps' `sess`, then its `stamps` with `sess` and `sig` left out
-(the partner chose the id, and `sig` covers it), and its `proof` and `influence` as decoded; each is null when the
-header is absent. The replay also verifies every received stamp's `sig` under the key the egress's keyring (its
-`material`'s) holds for the stamp's `svc`, over its fields as received, `sess` included; a stamp that does not
-verify fails the case.
+An **egress** case enters `inbound`, a receiver case's inputs, at the egress `egress` (null: no request at all),
+which acts on its `actsOn` and carries its `allowedExtensions` as a receiver does, requires `requires` of the
+partner and goes on without them when `continueWithout` is true; then it sends each of `posts` to a scripted
+partner. Each handshake that carries a client root takes the next of `partnerScript.handshakes`: `attested` or
+`unsafe`, a genuine reply in the entry-key form from the `psp` material; `notFound`, a `404`; `wrongKey`, a reply in
+the policy-key form signed by and naming `stranger-policy`. One with no client root gets a genuine reply whose status
+is `replacement`, every reply lists `partnerScript.extensions`, and each call takes the next of `calls`. A handshake
+or call the script has no answer for fails the replay, so a case whose script is empty expects nothing to be sent.
+It expects each post's `outcome` (`answered`, with the partner's `status` and whether the call went out `attested`;
+`refused`, the egress declining before anything is sent; `withheld`, no call made in a session that does not meet the
+requirement, at most its handshake sent; or `failed`, no session could be opened, so the call itself is not sent),
+everything the partner `received` in order, and the entries the request `added` at the egress. A received
+`handshake` says whether it carried a `clientRoot`. A received `call` gives its `session` and `stampSession`, the
+position in `received` of the handshake whose reply issued the id in its `X-Path-Session` and in its stamps' `sess`,
+then its `stamps` with `sess` and `sig` left out (the partner chose the id, and `sig` covers it), and its `proof` and
+`blocks` as decoded; each is null when the header is absent. The replay also verifies every received stamp's `sig`
+under the key the egress's keyring (its `material`'s) holds for the stamp's `svc`, over its fields as received,
+`sess` included; a stamp that does not verify fails the case.
 
-A **caller** case is a call by `caller` after the chain `inbound`, with `influence` so far, and the `response`
-to it (`status`, `header`, `body`). It expects the sent stamp's `rcv`, the response check's `reason` (null when
-the caller has no verifier and checks nothing) and the `influence` the response adds.
+A **caller** case is a call by `caller` after the chain `inbound`, which came with the blocks `inboundBlocks`, its
+own block holding the entries in `added`, as a caller that acts on `actsOn` and carries `allowedExtensions`, and the
+`response` to it (`status`, `header`, `body`), whose header is `{block, stamp}`. It expects the sent stamp's `rcv`,
+the response check's `reason` (null when the caller has no verifier and checks nothing), whether the caller
+`refused` the response, and the `influence` entries the response adds.
 
 Some rules are not pinned by vectors and are tested in each HTTP SDK (`paztport-http`, `paztporthttp`): the startup
 checks of a partner's and an egress's own material, the [wire limit](wire.md#limits), 256 KiB, on a handshake body,
 clearing a session after `POLICY_EXPIRED`, the egress's own idle period, and the egress labelling its own response to
-its caller `local-untrusted`, since a handler may relay what the partner said.
+its caller `local-untrusted`, since a handler may relay what the partner said. `paztport-http` also tests the
+[writer's limit](wire.md#writing) on the blocks it sends: a caller whose blocks token would pass 256 KiB signs and
+sends nothing, and a responder whose `X-Path-Response` would pass it leaves the answer unattested, which its caller
+counts as one `local-untrusted` entry ([influence.md](influence.md#content-labels)). It tests too that a service's
+`actsOn` and `allowedExtensions` are one configuration, whether or not it has a verifier
+([verification.md](verification.md#the-live-order)): a builder given settings that differ from its verifier's is
+refused.
 
 Cases may be added at any time. A recorded answer changes only with a protocol change.
