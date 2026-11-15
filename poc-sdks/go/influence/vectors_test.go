@@ -240,19 +240,28 @@ func TestBoundaryInfluence(t *testing.T) {
 	})
 }
 
-// entries reads vector node n, an entry or a list of them, from its wire bytes, failing t if
-// ParseEntries refuses them.
+// entries reads vector node n, an entry or a list of them, each entry from its canonical text, failing t if
+// ParseEntry refuses one.
 func entries(t *testing.T, n vectors.Node) []influence.Entry {
 	t.Helper()
-	v := build(n)
 	if n.Kind() == vectors.Object {
-		v = json.Arr(v)
+		return []influence.Entry{entry(t, n)}
 	}
-	es, err := influence.ParseEntries(canonical(t, v))
-	if err != nil {
-		t.Fatalf("ParseEntries: %v", err)
+	es := make([]influence.Entry, n.Len())
+	for i := range es {
+		es[i] = entry(t, n.Index(i))
 	}
 	return es
+}
+
+// entry reads vector node n, one entry, from its canonical text, failing t if ParseEntry refuses it.
+func entry(t *testing.T, n vectors.Node) influence.Entry {
+	t.Helper()
+	e, err := influence.ParseEntry(string(canonical(t, build(n))))
+	if err != nil {
+		t.Fatalf("ParseEntry: %v", err)
+	}
+	return e
 }
 
 // class returns the class whose wire name is s, failing t if there is none.

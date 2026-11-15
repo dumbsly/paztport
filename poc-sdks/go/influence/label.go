@@ -6,7 +6,6 @@ package influence
 import (
 	"crypto/rand"
 	"errors"
-	"fmt"
 
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/b64"
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/json"
@@ -58,29 +57,6 @@ func ParseLabel(item string) (Label, error) {
 	return parseWire([]byte(item), "label", labelFromValue)
 }
 
-// ParseLabels reads a list of labels from its wire bytes, its canonical bytes. The bytes hold an array
-// whose every item is an object of exactly a label's members: cls, one of the four classes; the string
-// cid; and, when present, owner, a non-empty string. The labels keep the order they were read in.
-func ParseLabels(wire []byte) ([]Label, error) {
-	return parseWire(wire, "labels", labelsFromValue)
-}
-
-func labelsFromValue(v json.Value) ([]Label, error) {
-	if v.Kind() != json.KindArray {
-		return nil, errors.New("the value is not an array")
-	}
-	items := v.Items()
-	ls := make([]Label, len(items))
-	for i, item := range items {
-		l, err := labelFromValue(item)
-		if err != nil {
-			return nil, fmt.Errorf("label %d: %w", i, err)
-		}
-		ls[i] = l
-	}
-	return ls, nil
-}
-
 func labelFromValue(o json.Value) (Label, error) {
 	if err := json.Exactly(o, labelRequired, labelOptional); err != nil {
 		return Label{}, err
@@ -98,22 +74,6 @@ func labelFromValue(o json.Value) (Label, error) {
 		return Label{}, err
 	}
 	return Label{Class: c, CID: cid, Owner: owner}, nil
-}
-
-// LabelsWire returns the wire bytes of ls, in the order given, each label as the object {cls, cid,
-// owner} with an absent owner left out: the list form. A response's block holds each label as an item of
-// its own (ResponseBlock). It refuses a label whose Class is not one of the four, and text that a reader
-// would refuse, as EntriesWire does.
-func LabelsWire(ls []Label) ([]byte, error) {
-	items := make([]json.Value, len(ls))
-	for i, l := range ls {
-		v, err := l.value()
-		if err != nil {
-			return nil, fmt.Errorf("paztport influence: the labels can't be written: label %d: %w", i, err)
-		}
-		items[i] = v
-	}
-	return wire("labels", json.Arr(items...))
 }
 
 // value is l as the object {cls, cid, owner}, an absent owner left out. It refuses a Class that is not one of the

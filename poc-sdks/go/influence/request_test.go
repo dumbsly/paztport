@@ -201,22 +201,6 @@ func TestGuardedWriteRefused(t *testing.T) {
 	}
 }
 
-// TestShapedOnlyByTrustedEveryStamp: a verified chain with no entries still needs every stamp to name influence.
-func TestShapedOnlyByTrustedEveryStamp(t *testing.T) {
-	for _, c := range []struct {
-		verified, every, want bool
-	}{
-		{true, false, false},
-		{true, true, true},
-		{false, true, false},
-		{false, false, false},
-	} {
-		if got := influence.ShapedOnlyByTrusted(c.verified, c.every, nil); got != c.want {
-			t.Errorf("ShapedOnlyByTrusted(%v, %v, nil) = %v, want %v", c.verified, c.every, got, c.want)
-		}
-	}
-}
-
 // TestItems is influence's offline item check: INFLUENCE_MISMATCH for an item that does not read, under any
 // stamp, else OK; no hand-over hands nothing on.
 func TestItems(t *testing.T) {

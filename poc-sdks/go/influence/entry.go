@@ -43,27 +43,6 @@ func ParseEntry(item string) (Entry, error) {
 	return parseWire([]byte(item), "influence entry", entryFromValue)
 }
 
-// ReadEntries reads a list of entries from its token, the base64url of its wire bytes, as ParseEntries
-// reads the bytes.
-func ReadEntries(tok string) ([]Entry, error) {
-	v, err := json.ReadToken(tok)
-	if err == nil {
-		var es []Entry
-		if es, err = entriesFromValue(v); err == nil {
-			return es, nil
-		}
-	}
-	return nil, malformed("influence", err)
-}
-
-// ParseEntries reads a list of entries from its wire bytes, its canonical bytes. The bytes hold an array
-// whose every item is an object of exactly an entry's members: cls, one of the four classes; the strings
-// src and h; and, when present, the string cid and owner, a non-empty string. The entries keep the order
-// they were read in. An item handed on under influence is one entry, which ParseEntry reads.
-func ParseEntries(wire []byte) ([]Entry, error) {
-	return parseWire(wire, "influence", entriesFromValue)
-}
-
 func entriesFromValue(v json.Value) ([]Entry, error) {
 	if v.Kind() != json.KindArray {
 		return nil, errors.New("the value is not an array")

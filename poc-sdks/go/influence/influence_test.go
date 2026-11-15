@@ -128,16 +128,17 @@ func TestNormaliseInvalidText(t *testing.T) {
 // TestEmptyCID keeps a present, empty cid through reading, normalising and writing: it is not an absent
 // one, alone or in a block.
 func TestEmptyCID(t *testing.T) {
-	wire := []byte(`[{"cid":"","cls":"public","h":"h","src":"s"}]`)
-	es, err := influence.ParseEntries(wire)
+	item := `{"cid":"","cls":"public","h":"h","src":"s"}`
+	e, err := influence.ParseEntry(item)
 	if err != nil {
-		t.Fatalf("ParseEntries: %v", err)
+		t.Fatalf("ParseEntry: %v", err)
 	}
-	if !es[0].HasCID || es[0].CID != "" {
-		t.Fatalf("read %+v, want a present empty cid", es[0])
+	if !e.HasCID || e.CID != "" {
+		t.Fatalf("read %+v, want a present empty cid", e)
 	}
+	es := []influence.Entry{e}
 	got, err := influence.EntriesWire(influence.Normalise(es))
-	equalBytes(t, "the entries", got, err, wire)
+	equalBytes(t, "the entries", got, err, []byte(`[`+item+`]`))
 
 	absent := es[0]
 	absent.HasCID = false
@@ -154,59 +155,32 @@ func TestEmptyCID(t *testing.T) {
 	}
 }
 
-func TestReadEntries(t *testing.T) {
-	wire := []byte(`[{"cls":"private","h":"h","owner":"alice","src":"s"},{"cls":"public","h":"g","src":"t"}]`)
-	es, err := influence.ReadEntries(b64.Encode(wire))
-	if err != nil {
-		t.Fatalf("ReadEntries: %v", err)
-	}
-	want := []influence.Entry{
-		{Class: influence.Private, Src: "s", H: "h", Owner: "alice"},
-		{Class: influence.Public, Src: "t", H: "g"},
-	}
-	if !slices.Equal(es, want) {
-		t.Fatalf("ReadEntries = %+v, want %+v in the order read", es, want)
-	}
-	unknown := b64.Encode([]byte(`[{"cls":"secret","h":"h","src":"s"}]`))
-	for _, tok := range []string{"", b64.Encode([]byte(`[ ]`)), unknown, "W10="} {
-		if _, err := influence.ReadEntries(tok); err == nil {
-			t.Errorf("ReadEntries(%q) read it", tok)
-		}
-	}
-	if es, err := influence.ReadEntries(b64.Encode([]byte(`[]`))); err != nil || len(es) != 0 {
-		t.Errorf("ReadEntries of [] = %v, %v", es, err)
-	}
-}
-
-// TestParseEntriesRefuses refuses each way a list can break the entry's schema, naming the member and
-// never quoting the input.
-func TestParseEntriesRefuses(t *testing.T) {
-	for _, c := range []struct{ name, wire, says string }{
-		{"not an array", `{"cls":"public","h":"h","src":"s"}`, "not an array"},
-		{"an entry that is not an object", `["secret"]`, "entry 0: "},
-		{"no h", `[{"cls":"public","src":"s"}]`, `"h" is missing`},
-		{"no cls", `[{"h":"h","src":"s"}]`, `"cls" is missing`},
-		{"no src", `[{"cls":"public","h":"h"}]`, `"src" is missing`},
-		{"another member", `[{"cls":"public","h":"h","secret":"s","src":"s"}]`, "member 2 is not one"},
-		{"an unknown class", `[{"cls":"secret","h":"h","src":"s"}]`, `"cls" is not an influence class`},
-		{"a class that is not a string", `[{"cls":1,"h":"h","src":"s"}]`, `"cls" is not a string`},
-		{"src not a string", `[{"cls":"public","h":"h","src":null}]`, `"src" is not a string`},
-		{"h not a string", `[{"cls":"public","h":["secret"],"src":"s"}]`, `"h" is not a string`},
-		{"cid not a string", `[{"cid":null,"cls":"public","h":"h","src":"s"}]`, `"cid" is not a string`},
-		{"an empty owner", `[{"cls":"private","h":"h","owner":"","src":"s"}]`, `"owner" is empty`},
-		{"owner not a string", `[{"cls":"private","h":"h","owner":7,"src":"s"}]`, `"owner" is not a string`},
-		{"the second entry", `[{"cls":"public","h":"h","src":"s"},{"cls":"secret","h":"h","src":"s"}]`, "entry 1: "},
-		{"whitespace", `[ ]`, "canonical"},
-		{"members out of order", `[{"src":"s","cls":"public","h":"h"}]`, "canonical"},
-		{"empty bytes", ``, "parse"},
+// TestParseEntryRefusesNamingTheMember refuses each way an item can break the entry's schema, naming the member
+// and never quoting the input.
+func TestParseEntryRefusesNamingTheMember(t *testing.T) {
+	for _, c := range []struct{ name, item, says string }{
+		{"no h", `{"cls":"public","src":"s"}`, `"h" is missing`},
+		{"no cls", `{"h":"h","src":"s"}`, `"cls" is missing`},
+		{"no src", `{"cls":"public","h":"h"}`, `"src" is missing`},
+		{"another member", `{"cls":"public","h":"h","secret":"s","src":"s"}`, "member 2 is not one"},
+		{"an unknown class", `{"cls":"secret","h":"h","src":"s"}`, `"cls" is not an influence class`},
+		{"a class that is not a string", `{"cls":1,"h":"h","src":"s"}`, `"cls" is not a string`},
+		{"src not a string", `{"cls":"public","h":"h","src":null}`, `"src" is not a string`},
+		{"h not a string", `{"cls":"public","h":["secret"],"src":"s"}`, `"h" is not a string`},
+		{"cid not a string", `{"cid":null,"cls":"public","h":"h","src":"s"}`, `"cid" is not a string`},
+		{"an empty owner", `{"cls":"private","h":"h","owner":"","src":"s"}`, `"owner" is empty`},
+		{"owner not a string", `{"cls":"private","h":"h","owner":7,"src":"s"}`, `"owner" is not a string`},
+		{"members out of order", `{"src":"s","cls":"public","h":"h"}`, "canonical"},
+		{"empty text", ``, "parse"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			_, err := influence.ParseEntries([]byte(c.wire))
+			_, err := influence.ParseEntry(c.item)
 			if err == nil {
-				t.Fatal("ParseEntries read it")
+				t.Fatal("ParseEntry read it")
 			}
 			msg := err.Error()
-			if !strings.HasPrefix(msg, "paztport influence: malformed influence: ") || !strings.Contains(msg, c.says) {
+			const prefix = "paztport influence: malformed influence entry: "
+			if !strings.HasPrefix(msg, prefix) || !strings.Contains(msg, c.says) {
 				t.Fatalf("the refusal %q does not say %q", msg, c.says)
 			}
 			if strings.Contains(msg, "secret") {
@@ -247,50 +221,6 @@ func TestEntriesWire(t *testing.T) {
 				t.Fatalf("RequestBlock wrote %s", b.Wire())
 			}
 		})
-	}
-}
-
-func TestLabels(t *testing.T) {
-	wire := []byte(`[{"cid":"c2","cls":"public"},{"cid":"c1","cls":"private","owner":"alice"},` +
-		`{"cid":"","cls":"third-party"}]`)
-	ls, err := influence.ParseLabels(wire)
-	if err != nil {
-		t.Fatalf("ParseLabels: %v", err)
-	}
-	want := []influence.Label{
-		{Class: influence.Public, CID: "c2"},
-		{Class: influence.Private, CID: "c1", Owner: "alice"},
-		{Class: influence.ThirdParty},
-	}
-	if !slices.Equal(ls, want) {
-		t.Fatalf("ParseLabels = %+v, want %+v in the order read", ls, want)
-	}
-	got, err := influence.LabelsWire(ls)
-	equalBytes(t, "the labels", got, err, wire)
-
-	for _, c := range []struct{ name, wire, says string }{
-		{"not an array", `{"cid":"c","cls":"public"}`, "not an array"},
-		{"no cid", `[{"cls":"public"}]`, `"cid" is missing`},
-		{"an entry's member", `[{"cid":"c","cls":"public","src":"secret"}]`, "member 2 is not one"},
-		{"an unknown class", `[{"cid":"c","cls":"secret"}]`, `"cls" is not an influence class`},
-		{"an empty owner", `[{"cid":"c","cls":"private","owner":""}]`, `"owner" is empty`},
-		{"cid not a string", `[{"cid":1,"cls":"private"}]`, `"cid" is not a string`},
-		{"the second label", `[{"cid":"c","cls":"public"},{"cls":"public"}]`, "label 1: "},
-	} {
-		t.Run(c.name, func(t *testing.T) {
-			_, err := influence.ParseLabels([]byte(c.wire))
-			if err == nil {
-				t.Fatal("ParseLabels read it")
-			}
-			if msg := err.Error(); !strings.Contains(msg, c.says) || strings.Contains(msg, "secret") {
-				t.Fatalf("the refusal %q does not say %q, or quotes the input", msg, c.says)
-			}
-		})
-	}
-	for _, l := range []influence.Label{{Class: "secret", CID: "c"}, {Class: influence.Public, CID: notUTF8}} {
-		if b, err := influence.LabelsWire([]influence.Label{l}); err == nil {
-			t.Errorf("LabelsWire(%+q) wrote %s", l, b)
-		}
 	}
 }
 
@@ -348,8 +278,10 @@ func TestShapedOnlyByTrusted(t *testing.T) {
 		want            bool
 	}{
 		{"not verified, no entries", false, true, nil, false},
+		{"not verified, a stamp not naming influence, no entries", false, false, nil, false},
 		{"not verified, only private", false, true, []influence.Entry{private}, false},
 		{"not verified, third-party", false, true, []influence.Entry{{Class: influence.ThirdParty}}, false},
+		{"a stamp not naming influence, no entries", true, false, nil, false},
 		{"a stamp not naming influence, only private", true, false, []influence.Entry{private, public}, false},
 		{"third-party", true, true, []influence.Entry{public, {Class: influence.ThirdParty}}, false},
 		{"local-untrusted", true, true, []influence.Entry{{Class: influence.LocalUntrusted}, private}, false},
@@ -426,8 +358,11 @@ func TestResponseBlock(t *testing.T) {
 			}
 		})
 	}
-	if _, err := influence.ResponseBlock([]influence.Label{{Class: "secret", CID: "c"}}, nil); err == nil {
-		t.Fatal("ResponseBlock wrote a label whose class is not one of the four")
+	for _, l := range []influence.Label{{Class: "secret", CID: "c"}, {Class: influence.Public, CID: notUTF8},
+		{Class: influence.Public, CID: "c", Owner: nonCharacter}} {
+		if b, err := influence.ResponseBlock([]influence.Label{l}, nil); err == nil {
+			t.Errorf("ResponseBlock(%+q) wrote %s", l, b.Wire())
+		}
 	}
 }
 
@@ -458,7 +393,7 @@ func TestParseEntry(t *testing.T) {
 }
 
 // TestParseLabel reads one item's text as a label, and refuses text that is not canonical as well as an item
-// that is not a label.
+// that is not a label, naming the member where the schema breaks and never quoting the input.
 func TestParseLabel(t *testing.T) {
 	l, err := influence.ParseLabel(aLabel)
 	if want := (influence.Label{Class: influence.Private, CID: "cid-1", Owner: "alice"}); err != nil || l != want {
@@ -474,6 +409,23 @@ func TestParseLabel(t *testing.T) {
 		if l, err := influence.ParseLabel(item); err == nil {
 			t.Errorf("ParseLabel(%q) = %+v", item, l)
 		}
+	}
+	for _, c := range []struct{ name, item, says string }{
+		{"no cid", `{"cls":"public"}`, `"cid" is missing`},
+		{"an entry's member", `{"cid":"c","cls":"public","src":"secret"}`, "member 2 is not one"},
+		{"an unknown class", `{"cid":"c","cls":"secret"}`, `"cls" is not an influence class`},
+		{"an empty owner", `{"cid":"c","cls":"private","owner":""}`, `"owner" is empty`},
+		{"cid not a string", `{"cid":1,"cls":"private"}`, `"cid" is not a string`},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			_, err := influence.ParseLabel(c.item)
+			if err == nil {
+				t.Fatal("ParseLabel read it")
+			}
+			if msg := err.Error(); !strings.Contains(msg, c.says) || strings.Contains(msg, "secret") {
+				t.Fatalf("the refusal %q does not say %q, or quotes the input", msg, c.says)
+			}
+		})
 	}
 }
 

@@ -15,7 +15,8 @@ import (
 // as its canonical text, in the order given, and with [] when there is none, since such a responder names it on
 // every response it attests. When there is a label, requires holds influence, added here if left out, so a caller
 // that does not act on influence refuses the response at check 9c instead of dropping the labels (influence.md,
-// Content labels). It refuses a label LabelsWire refuses, and what stamp.NewBlock refuses of requires.
+// Content labels). It refuses a label whose Class is not one of the four, and text that a reader would refuse, as
+// EntriesWire refuses such an entry, and what stamp.NewBlock refuses of requires.
 func ResponseBlock(labels []Label, requires []string) (stamp.Block, error) {
 	items, err := texts("label", labels)
 	if err != nil {
