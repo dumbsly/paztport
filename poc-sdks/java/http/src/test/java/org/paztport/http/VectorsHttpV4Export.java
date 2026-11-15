@@ -128,8 +128,8 @@ class VectorsHttpV4Export {
             + " as an opaque name and needs none, nor do the rest of the file and the `rules` cases whose `actsOn` is"
             + " empty, but for the entry the egress that acts on nothing records for the partner's reply, in its"
             + " `added`. Ed25519 is deterministic, so the file is reproduced byte for byte."
-            + " Java writes and replays this file; Go replays http-v3.json until it moves; the TypeScript SDK has no"
-            + " HTTP binding, so it does not replay it.";
+            + " Java writes and replays this file, and Go replays it; the TypeScript SDK has no HTTP binding, so it"
+            + " does not replay it.";
 
     private static final long GATEWAY_TS = 1_767_225_598_500L;
     private static final long ORDERS_TS = 1_767_225_599_500L;

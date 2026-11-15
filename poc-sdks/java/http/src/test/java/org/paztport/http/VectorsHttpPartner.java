@@ -293,6 +293,17 @@ final class VectorsHttpPartner {
         return e;
     }
 
+    /** As {@link #attested(List, boolean)}, for a call that also asks about a guarded public write: its reason. */
+    static ObjectNode attested(List<InfluenceEntry> items, ReasonCode publicWrite, boolean trusted) {
+        ObjectNode e = obj();
+        e.putNull("refusal");
+        e.put("attested", true);
+        e.set("handedOn", VectorsHttpRules.handed(VectorsHttpRules.stamp("payment", items)));
+        e.put("publicWrite", publicWrite.name());
+        e.put("trustedRecord", trusted);
+        return e;
+    }
+
     /** A call served in an unsafe session: nothing handed on, and no trusted record. */
     static ObjectNode unsafe() {
         ObjectNode e = obj();
@@ -536,7 +547,27 @@ final class VectorsHttpPartner {
         a.add(trustedScript("influence named with nothing, and a public read", shop, List.of(), publicRead, true));
         a.add(trustedScript("a boundary block that does not name influence, and a public read", shop, null,
                 publicRead, false));
+        a.add(ownerAwareScript(shop));
         return a;
+    }
+
+    /**
+     * influence.md, Blinded influence, at the partner: it applies the owner-aware rule to the entries the boundary
+     * block holds, the destination owner from its own records. Two calls carry third-party content beside alice's
+     * private data; a guarded public write to bob's destination is denied, and to alice's allowed, so the rule reads
+     * the owner rather than refusing any untrusted content. Neither may write a trusted record.
+     */
+    private static ObjectNode ownerAwareScript(Material shop) {
+        Script s = new Script("third-party content beside alice's private data, written publicly to bob's"
+                + " destination, then to alice's", partner(), shop).handshake(NOW, "shop", "shop", "s1",
+                        opened("attested"));
+        Block steered = Influence.block(STEERED, List.of());
+        ObjectNode toBob = s.charge(NOW + 1_000, "shop", of("s1"), steered);
+        toBob.put("destinationOwner", VectorsHttpRules.DESTINATION_OWNER);
+        s.call(NOW + 1_000, toBob, attested(STEERED, ReasonCode.INFLUENCE_DENIED, false));
+        ObjectNode toAlice = s.charge(NOW + 2_000, "shop", of("s1"), steered);
+        toAlice.put("destinationOwner", "alice");
+        return s.call(NOW + 2_000, toAlice, attested(STEERED, ReasonCode.OK, false)).c;
     }
 
     /**
@@ -727,12 +758,21 @@ final class VectorsHttpPartner {
             }
             e.put("attested", refusal == null && a.attested());
             e.set("handedOn", handOverJson(refusal == null ? a.handOver() : null));
+            // A call that names a destination owner asks about a guarded public write too.
+            boolean asksWrite = call.has("destinationOwner");
             if (refusal == null) {
                 if (call.has("read")) {
                     RequestContext.addInfluence(entries(call.get("read")).toArray(InfluenceEntry[]::new));
                 }
-                e.put("trustedRecord", new PublicWrites(entry).shapedOnlyByTrusted());
+                PublicWrites writes = new PublicWrites(entry);
+                if (asksWrite) {
+                    e.put("publicWrite", writes.decide(call.get("destinationOwner").asText()).name());
+                }
+                e.put("trustedRecord", writes.shapedOnlyByTrusted());
             } else {
+                if (asksWrite) {
+                    e.putNull("publicWrite");
+                }
                 e.putNull("trustedRecord");
             }
         }

@@ -168,9 +168,11 @@ final class VectorsHttpRules {
             + " `extensionsHeader` as given; its `stamp`, when there is one, is a boundary stamp with the fields"
             + " given, signed as the step runs with the key `key`, in the session its `sess` names, over the binding"
             + " of the call's method and target with the stamp's own `body`, and committing to `block`. A call may"
-            + " carry `read`, what the handler reads once it is accepted. It expects the `refusal` (an unsafe"
-            + " session's switched-off endpoint, by `routePattern`, included), whether it is served `attested`,"
-            + " `handedOn` as a receiver case records it, and `trustedRecord`, null for a refusal. An egress case"
+            + " carry `read`, what the handler reads once it is accepted, and `destinationOwner`, which has the"
+            + " handler ask about a guarded public write as a receiver case's does. It expects the `refusal` (an"
+            + " unsafe session's switched-off endpoint, by `routePattern`, included), whether it is served"
+            + " `attested`, `handedOn` as a receiver case records it, `publicWrite` where the call carries"
+            + " `destinationOwner`, and `trustedRecord`, both null for a refusal. An egress case"
             + " enters `inbound`, a receiver case's inputs (null for work outside any request), at the egress"
             + " `egress`, which acts on `actsOn` and carries `allowedExtensions` as a receiver does, requires"
             + " `requires` of the partner and goes on without them when `continueWithout` is true, and posts each of"
@@ -189,7 +191,9 @@ final class VectorsHttpRules {
             + " `destinationOwner`; its answer holds `handedOn` in place of `influence` (null where v3 recorded `[]`"
             + " for nothing), and gains `publicWrite`; a refusal's `trustedRecord` is null, not false."
             + " `unreadableInfluence` is `influenceItems`, an item on a request's block that does not read as an"
-            + " entry; `servedUnverified` is new, check 9a at a service about to serve a request it did not verify."
+            + " entry; `servedUnverified` is new, check 9a at a service about to serve a request it did not verify;"
+            + " and `requests`, `servedUnverified`, `attestation` and `refusals` gain cases at a service that acts"
+            + " on no extension, each named so."
             + " `callerInfluence` follows the HTTP rule for what a response adds: its response header is {block,"
             + " stamp}, the caller's input `influence` is `added`, the entries its own block holds, it gains the"
             + " inputs `actsOn`, `allowedExtensions` and `inboundBlocks`, and its answer gains `refused`. Six cases of"
@@ -207,8 +211,9 @@ final class VectorsHttpRules {
             + " commits to\" and its \"influence that cannot be read\" is \"blocks that cannot be read\", both"
             + " EXTENSION_MISMATCH, and \"an item that is not an entry\" is new; sessionHeader gains an unsafe call"
             + " whose blocks differ from what its stamp commits to, and handshakeErrors a partner that acts on no"
-            + " extension; partnerTrustedRecord gains a stamp whose block names influence with nothing and one whose"
-            + " block does not name it. An egress gains `actsOn`, `allowedExtensions`, `requires` and"
+            + " extension; partnerTrustedRecord gains a stamp whose block names influence with nothing, one whose"
+            + " block does not name it, and calls that ask about a guarded public write to two owners' destinations."
+            + " An egress gains `actsOn`, `allowedExtensions`, `requires` and"
             + " `continueWithout`, its partner script `extensions`, a post the outcome `withheld`; a call received"
             + " holds `blocks` in place of `influence`, and the answer `added`, what the egress added, in place of"
             + " `influence`; the cases on the requirement and on what the boundary block names are new. No partner or"
@@ -515,6 +520,8 @@ final class VectorsHttpRules {
         final Sent unreadOwner;
         /** orders' block naming influence with nothing added, and requiring {@link #EXAMPLE} of payment. */
         final Sent requiring;
+        /** orders' block naming influence with nothing added, and requiring influence of payment. */
+        final Sent requiringInfluence;
         /** {@link #clean} with orders' stamp signed with the gateway's key. */
         final Sent forged;
         /** {@link #owned}, forged as {@link #forged} is. */
@@ -550,6 +557,8 @@ final class VectorsHttpRules {
                     items("{\"cls\":\"private\",\"h\":\"h-order-1\",\"owner\":\"\",\"src\":\"http:orders\"}"),
                     ordersKey);
             this.requiring = orders(toOrders, NAMED, Influence.block(List.of(), List.of(EXAMPLE)), ordersKey);
+            this.requiringInfluence = orders(toOrders, NAMED, Influence.block(List.of(), List.of(Influence.NAME)),
+                    ordersKey);
             this.forged = orders(toOrders, NAMED, Influence.block(List.of(), List.of()), gatewayKey);
             this.forgedOwned = orders(toOrders, NAMED, Influence.block(OWNED, List.of()), gatewayKey);
             this.forgedSteered = orders(toOrders, NAMED, Influence.block(STEERED, List.of()), gatewayKey);
@@ -647,6 +656,17 @@ final class VectorsHttpRules {
         c.put("uses", 1);
         c.set("read", arr());
         c.put("destinationOwner", DESTINATION_OWNER);
+        return c;
+    }
+
+    /**
+     * A receiver case's inputs at a service that acts on no extension and carries any name: the core's rules alone,
+     * every block's names opaque to it, so it is handed nothing under any of them and its handler asks no influence
+     * question.
+     */
+    private static ObjectNode actingOnNothing(String name, Service service, String mode, JsonNode request) {
+        ObjectNode c = receiverCase(name + ", at a service that acts on no extension", service, mode, request);
+        putSettings(c, ExtensionSettings.NONE);
         return c;
     }
 
@@ -787,6 +807,16 @@ final class VectorsHttpRules {
         a.add(expect(receiverCase("no extensions header where the stamps commit to blocks", Service.PAYMENT,
                 "enforce", Chains.request(headers(HttpWire.encodeChain(ch.owned.chain()), proof, null), PAY)),
                 refused(403, ReasonCode.EXTENSION_MISMATCH)));
+        // The same rules at a service that acts on no extension: blocks naming influence verify, the name opaque
+        // to it, and the blocks header is read and matched whatever the service acts on.
+        a.add(expect(actingOnNothing("verified", Service.PAYMENT, "enforce", ch.request(ch.clean)),
+                served(true, obj(), true, null, null)));
+        a.add(expect(actingOnNothing("an extensions header that is not base64url", Service.PAYMENT, "enforce",
+                Chains.request(headers(chain, proof, "not*base64url"), PAY)),
+                refused(403, ReasonCode.EXTENSION_MISMATCH)));
+        a.add(expect(actingOnNothing("no extensions header where the stamps commit to blocks", Service.PAYMENT,
+                "enforce", Chains.request(headers(HttpWire.encodeChain(ch.owned.chain()), proof, null), PAY)),
+                refused(403, ReasonCode.EXTENSION_MISMATCH)));
         return a;
     }
 
@@ -884,6 +914,17 @@ final class VectorsHttpRules {
         a.add(expect(receiverCase("an origin sent blocks that are an object", Service.ORIGIN, null,
                 Chains.request(headers(HttpWire.encodeChain(ch.clean.chain()), proof, b64("{}")), PAY)),
                 served(false, nothing(), false, ReasonCode.OK, false)));
+        // Check 9a at a service that acts on no extension: it serves matching blocks, handing on nothing under a
+        // name it does not act on, and refuses altered ones as any service does. Check 9c reads its own actsOn, so
+        // a last block requiring influence, which every case above acts on, is refused here in enforce mode.
+        a.add(expect(actingOnNothing("audit after a bad signature, its blocks matching", Service.PAYMENT, "audit",
+                ch.request(ch.forgedOwned)), served(false, obj(), false, null, null)));
+        a.add(expect(actingOnNothing("audit after a bad signature, orders' block altered", Service.PAYMENT, "audit",
+                ch.request(ch.forgedOwned.altered(NAMED))), refused(400, ReasonCode.EXTENSION_MISMATCH)));
+        a.add(expect(actingOnNothing("no verifier, orders' block altered", Service.NO_VERIFIER, null,
+                ch.request(hidden)), refused(400, ReasonCode.EXTENSION_MISMATCH)));
+        a.add(expect(actingOnNothing("enforce, a last block requiring influence", Service.PAYMENT, "enforce",
+                ch.request(ch.requiringInfluence)), refused(403, ReasonCode.EXTENSION_REQUIRED)));
         return a;
     }
 
@@ -908,6 +949,9 @@ final class VectorsHttpRules {
                 ch.request(ch.owned)), served(false, handed(OWNED), false, ReasonCode.OK, false)));
         a.add(expect(receiverCase("an origin never attests", Service.ORIGIN, null, ch.request(ch.owned)),
                 served(false, nothing(), false, ReasonCode.OK, false)));
+        // Who attests is the core's rule, whatever the service acts on.
+        a.add(expect(actingOnNothing("no mode, verified for attestation alone", Service.PAYMENT, null,
+                ch.request(ch.owned)), served(true, obj(), true, null, null)));
         return a;
     }
 
@@ -930,6 +974,9 @@ final class VectorsHttpRules {
                 ch.shop.proofHeader(MESH_ROUTE), HttpWire.encodeBlocks(ch.clean.blocks())), utf8("{\"amount\":999}"));
         a.add(expect(receiverCase("a body altered in transit", Service.PAYMENT, "enforce", altered),
                 refused(403, ReasonCode.BINDING_MISMATCH)));
+        a.add(expect(actingOnNothing("a route not allowed names its last signer, but not to the caller",
+                Service.PAYMENT, "enforce", Chains.request(headers(HttpWire.encodeChain(ch.direct.chain()), null,
+                        HttpWire.encodeBlocks(ch.direct.blocks())), PAY)), refused(403, ReasonCode.PATH_NOT_ALLOWED)));
         return a;
     }
 
