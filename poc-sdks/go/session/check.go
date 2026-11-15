@@ -65,17 +65,26 @@ const (
 // client takes its replacement path; and an unsafe reply is bound to req as an attested one is. CheckReply
 // never panics.
 func CheckReply(reply []byte, req Request, pin, serverEntry string, now int64, need Requirement) Check {
+	check, _ := CheckAndReadReply(reply, req, pin, serverEntry, now, need)
+	return check
+}
+
+// CheckAndReadReply is CheckReply, also returning the reply it read: the zero Reply where step 1 refused it, and
+// otherwise the reply as ParseReply reads it, whatever the outcome. A client that goes on to read the reply, its
+// session id and the extensions it lists, reads them from here, so that the reply it reads is the reply it
+// checked. CheckAndReadReply never panics.
+func CheckAndReadReply(reply []byte, req Request, pin, serverEntry string, now int64, need Requirement) (Check, Reply) {
 	r, check := checkSteps(reply, req, pin, serverEntry, now)
 	if check != Attested {
-		return check
+		return check, r
 	}
 	// Step 5 (sessions.md, The client's check of the reply).
 	for _, name := range need.extensions {
 		if !slices.Contains(r.Extensions, name) {
-			return ExtensionRequired
+			return ExtensionRequired, r
 		}
 	}
-	return Attested
+	return Attested, r
 }
 
 // checkSteps is steps 1 to 4 of the client's check (see CheckReply), with the reply read where step 1

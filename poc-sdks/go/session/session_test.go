@@ -6,6 +6,7 @@ package session_test
 import (
 	"bytes"
 	"crypto/ed25519"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -654,6 +655,58 @@ func TestReplyExtensions(t *testing.T) {
 		t.Fatalf("ParseReply read %q, %v", read.Extensions, err)
 	}
 	roundTrip(t, read, several)
+}
+
+// TestCheckAndReadReplyGivesTheReplyItChecked checks that CheckAndReadReply gives CheckReply's outcome and the
+// reply it read: the reply as ParseReply reads it whatever the outcome once step 1 has read it, so a client reads
+// a sound reply's listing, and an ExtensionRequired reply's, from the reply it checked; and the zero Reply where
+// step 1 refused it.
+func TestCheckAndReadReplyGivesTheReplyItChecked(t *testing.T) {
+	h := attestedHandshake(t)
+	listing := func(status string, ns ...string) []byte {
+		reply := h.reply
+		reply.Status = status
+		reply.Extensions = ns
+		return h.sign(t, h.req, reply, h.signer)
+	}
+	two := requirement(t, []string{"example", "influence"}, false)
+	for _, c := range []struct {
+		name  string
+		reply []byte
+		pin   string
+		need  session.Requirement
+		want  session.Check
+		read  bool // whether the reply read at step 1
+	}{
+		{"attested", listing(session.StatusAttested, "example", "influence"), h.pin, two, session.Attested, true},
+		{"unsafe", listing(session.StatusUnsafe, "influence"), h.pin, two, session.Unsafe, true},
+		{"failing step 5", listing(session.StatusAttested, "influence"), h.pin, two, session.ExtensionRequired, true},
+		{"under another pin", listing(session.StatusAttested, "influence"), h.req.ClientPolicyKey, two,
+			session.PinMismatch, true},
+		{"followed by a newline", append(listing(session.StatusAttested, "influence"), '\n'), h.pin, two,
+			session.MalformedReply, false},
+		{"no reply", nil, h.pin, two, session.MalformedReply, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			check, reply := session.CheckAndReadReply(c.reply, h.req, c.pin, h.entry, h.now, c.need)
+			if check != c.want {
+				t.Fatalf("CheckAndReadReply's check = %s, want %s", check, c.want)
+			}
+			if got := session.CheckReply(c.reply, h.req, c.pin, h.entry, h.now, c.need); got != check {
+				t.Fatalf("CheckReply = %s, CheckAndReadReply %s", got, check)
+			}
+			want := session.Reply{}
+			if c.read {
+				var err error
+				if want, err = session.ParseReply(c.reply); err != nil {
+					t.Fatalf("ParseReply: %v", err)
+				}
+			}
+			if !reflect.DeepEqual(reply, want) {
+				t.Fatalf("CheckAndReadReply's reply = %+v, want %+v", reply, want)
+			}
+		})
+	}
 }
 
 // TestNilExtensions checks that a reply built with no extensions is written as listing none, and reads back
