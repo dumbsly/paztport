@@ -7,9 +7,9 @@
 // Each code's text is the spec's, so it can be sent, logged and compared as it is.
 //
 // The codes come from three places. A live verifier gives [OK], the codes from [ChainMissing] to [PolicyExpired]
-// and those of checks 9a to 9c. An offline verifier gives the same but [PeerMismatch], and also [TimeMismatch],
-// [PromptMismatch] and [OutsideSession], which are never sent live: a client must not take them for a
-// server's verdict. A server deciding on a call may also answer [InfluenceDenied] or [UnsafeSession].
+// and those of checks 9a to 9c. An offline verifier gives the same but [PeerMismatch] and [ExtensionRequired], and
+// also [TimeMismatch], [PromptMismatch] and [OutsideSession], which are never sent live: a client must not take them
+// for a server's verdict. A server deciding on a call may also answer [InfluenceDenied] or [UnsafeSession].
 // [ExtensionMismatch], [ExtensionNotAllowed] and [ExtensionRequired] are the codes of the spec's checks 9a to 9c.
 // [InfluenceMismatch] is an extension's code, not a check of the live order: the influence extension gives it, live
 // and offline, for an item that does not read.
