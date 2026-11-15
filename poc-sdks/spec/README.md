@@ -125,17 +125,19 @@ In `http-v4.json` the extension's cases are `boundaryInfluence` and every case o
 `influence`, a partner's or an egress's own for those kinds: a service that acts on `influence` reads each item it is
 handed under that name ([influence.md](influence.md#entries)), and its answers hold what the extension decides,
 `publicWrite`, `trustedRecord` and influence entries. They are all of `callerInfluence`, `trustedRecord` and
-`partnerTrustedRecord`, every `influenceItems` case but one, and every case of the other receiver, partner and egress
-kinds but two. `responses` names `influence` only as an opaque name, in its blocks and in the verifier's `actsOn`, as
-`v4.json`'s `verify` does, so an implementation with no extension's rules passes it, since the core never reads an item.
+`partnerTrustedRecord`, every `influenceItems` case but one, every case of the partner and egress kinds but two, and
+every case of `requests`, `servedUnverified`, `attestation` and `refusals` but nine. `responses` names `influence` only
+as an opaque name, in its blocks and in the verifier's `actsOn`, as `v4.json`'s `verify` does, so an implementation with
+no extension's rules passes it, since the core never reads an item.
 So an implementation that does not act on `influence` is held today to `resultHash`, `requestBinding`, `headerNames`,
 `responses`, `operations`, whose `receive` cases act on nothing, `rules`' `peerCertificates` and `unsafeEndpoints`,
-which hold no extension, and the three cases of `rules` whose `actsOn` is empty: `influenceItems`' "enforce, at a
-service that does not act on influence", `handshakeErrors`' "a partner that acts on no extension lists none", and
+which hold no extension, and the twelve cases of `rules` whose `actsOn` is empty: `influenceItems`' "enforce, at a
+service that does not act on influence", `handshakeErrors`' "a partner that acts on no extension lists none",
 `egress`' "an egress that does not act on influence: the block names nothing", less its `added`, the influence entry
-that egress records for the partner's reply. The file has no case yet that acts on nothing for the receiver's rules in
-`requests`, `servedUnverified`, `attestation` and `refusals`, or for a partner's calls. An implementation that acts on
-`influence` MUST pass the extension's cases too.
+that egress records for the partner's reply, and the nine receiver cases whose names end "at a service that acts on no
+extension", three of `requests`, four of `servedUnverified`, one of `attestation` and one of `refusals`, which hold
+the core's receiver rules at a service that acts on nothing. The file has no case yet that acts on nothing for a
+partner's calls. An implementation that acts on `influence` MUST pass the extension's cases too.
 
 An implementation of version 3 MUST pass `ed25519.json`, and `v3.json` and `json.json`
 less their sections that belong to the MCP profile if it does not implement it: `recordedLocalStep`,
@@ -594,7 +596,7 @@ header: every refusal, and every `refusals` and `boundaryRefusals` case among th
 | `refusals` | receiver | What a refusal carries, in a mesh: the code alone, even where the result names a suspect. |
 | `boundaryRefusals` | partner | The same at the boundary: the partner's refusals, a block other than its stamp commits to and blocks that cannot be read included (`EXTENSION_MISMATCH`: a partner has no audit mode), an item that is not an entry (`400 INFLUENCE_MISMATCH`), and an unsafe session's switched-off endpoints refused `UNSAFE_SESSION`, with no session header too. |
 | `trustedRecord` | receiver | Trusted records ([influence.md](influence.md#trusted-records)): a verified chain every stamp of which names `influence`, and no `third-party` or `local-untrusted` content, counting what the handler reads; `private`, `public` and owners do not count. A guarded public write on a verified chain whose origin's block does not name `influence`, or is a pass-along block, is `INFLUENCE_DENIED` whatever the entries say ([influence.md](influence.md#the-every-stamp-rule)). The partner kinds' `trustedRecord` covers a call in an unsafe session, and `partnerTrustedRecord` the same rule at the boundary. |
-| `partnerTrustedRecord` | partner | The same rule at the boundary: an attested call qualifies only with no `third-party` or `local-untrusted` content, counting what the handler reads, and a boundary block that names `influence`, with nothing included; `private`, `public` and owners do not count. |
+| `partnerTrustedRecord` | partner | The same rule at the boundary: an attested call qualifies only with no `third-party` or `local-untrusted` content, counting what the handler reads, and a boundary block that names `influence`, with nothing included; `private`, `public` and owners do not count. And the owner-aware rule over the boundary block's entries ([influence.md](influence.md#blinded-influence)): a guarded public write from a call holding `third-party` content beside alice's private data is `INFLUENCE_DENIED` to bob's destination and `OK` to alice's. |
 
 A **receiver** case enters `request` (`method`, `target`, `headers`, `body`) `uses` times at `service`: its `svc`
 and `inst`, whether it is an `origin`, and whether it has a `verifier`, pinned to `material`. Every service holds
@@ -626,7 +628,9 @@ the pattern of the handler the call reaches, which an unsafe session's switched-
 It expects the `refusal`, whether the call is `attested`, what the handler is `handedOn`, as a receiver case records
 it, and `trustedRecord`, null for a refusal. A `call` may carry `read`, what the handler reads after the call is
 accepted, in a receiver case's form; `trustedRecord` counts it after what the call hands on, and no `read` is the
-empty list.
+empty list. A `call` may also carry `destinationOwner`, the owner, from the partner's own records, of a destination the
+handler asks about a guarded public write to; it then expects `publicWrite` too, as a receiver case records it, null
+for a refusal.
 
 An **egress** case enters `inbound`, a receiver case's inputs, at the egress `egress` (null: no request at all),
 which acts on its `actsOn` and carries its `allowedExtensions` as a receiver does, requires `requires` of the
