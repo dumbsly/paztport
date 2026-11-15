@@ -1438,7 +1438,8 @@ class PaztportAutoConfigurationTest {
     }
 
     // What a call requires of its receiver goes in its own block's requires (wire.md, Blocks: Requiring), per
-    // receiver policy name.
+    // receiver policy name. Without proofs-path the starter cannot know which receivers the service calls, so a key
+    // is not checked against them: payment is the name of no route here.
     @Test
     void requiresPerReceiverReachesTheCaller(@TempDir Path dir) throws Exception {
         writeWorld(dir);
@@ -1456,6 +1457,57 @@ class PaztportAutoConfigurationTest {
                     assertThat(context).hasFailed();
                     assertThat(context.getStartupFailure())
                             .hasStackTraceContaining("paztport.extensions.requires.payment is refused");
+                });
+    }
+
+    /** The refusal of a {@code requires} key that names no receiver the service's proofs reach. */
+    private static String noSuchReceiver(String receiver) {
+        return "paztport.extensions.requires." + receiver + " names no receiver this service's proofs reach "
+                + "(paztport.proofs-path), so it would require nothing of any call: the key is the receiver's policy "
+                + "name, the service a route in the bundle ends at";
+    }
+
+    // With proofs, a requires key must be a receiver they reach. The gateway's one route is gateway/orders, so a
+    // misspelt orders is refused, and so are two valid service names it does not end at: gateway, a node of that
+    // route, and payment, on none.
+    @Test
+    void withProofsARequiresKeyMustBeAReceiverTheyReach(@TempDir Path dir) throws Exception {
+        writeWorld(dir);
+        String[] caller = {
+            "paztport.service-name=gateway", "paztport.origin=true", "paztport.key-path=" + dir.resolve("gateway.key"),
+            "paztport.proofs-path=" + dir.resolve("proofs-gateway.json")};
+        runner.withPropertyValues(caller).withPropertyValues("paztport.extensions.requires.orders=influence")
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    assertThat(ownBlock(interceptor(context), "https://orders/o").requires())
+                            .containsExactly("influence");
+                });
+        for (String receiver : List.of("ordrs", "gateway", "payment")) {
+            runner.withPropertyValues(caller)
+                    .withPropertyValues("paztport.extensions.requires." + receiver + "=influence")
+                    .run(context -> {
+                        assertThat(context).hasFailed();
+                        assertThat(context.getStartupFailure()).rootCause().hasMessage(noSuchReceiver(receiver));
+                    });
+        }
+    }
+
+    // A route that names an operation ends at the operation's service, which is the key: the receiver's policy name.
+    @Test
+    void aRouteEndingAtAnOperationIsReachedByItsService(@TempDir Path dir) throws Exception {
+        writeWorld(dir);
+        PolicyBuilder.Result built = PolicyBuilder.build(List.of(List.of("gateway", "orders#place")), 4,
+                NOT_AFTER, policy.getPrivate());
+        JSON.writeValue(dir.resolve("proofs-ops.json").toFile(), built.bundles().get("gateway"));
+        String[] caller = {
+            "paztport.service-name=gateway", "paztport.origin=true", "paztport.key-path=" + dir.resolve("gateway.key"),
+            "paztport.proofs-path=" + dir.resolve("proofs-ops.json")};
+        runner.withPropertyValues(caller).withPropertyValues("paztport.extensions.requires.orders=influence")
+                .run(context -> assertThat(context).hasNotFailed());
+        runner.withPropertyValues(caller).withPropertyValues("paztport.extensions.requires.gateway=influence")
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure()).rootCause().hasMessage(noSuchReceiver("gateway"));
                 });
     }
 

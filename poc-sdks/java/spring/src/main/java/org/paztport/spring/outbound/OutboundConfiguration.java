@@ -6,7 +6,10 @@ package org.paztport.spring.outbound;
 import io.micrometer.observation.ObservationRegistry;
 import java.time.Clock;
 import java.time.Duration;
+import java.util.HashSet;
+import java.util.Set;
 import org.paztport.core.policy.ProofBundle;
+import org.paztport.core.policy.Routes;
 import org.paztport.core.stamp.Stamper;
 import org.paztport.core.verify.ExtensionSettings;
 import org.paztport.core.verify.Verifier;
@@ -42,7 +45,10 @@ public class OutboundConfiguration {
     /**
      * The stamping customizer. The extension settings go to the caller even beside a verifier, which holds the same
      * instance: a service with a stamp key and no trust paths has no verifier, and its own blocks would otherwise
-     * act on nothing whatever {@code paztport.extensions.acts-on} says.
+     * act on nothing whatever {@code paztport.extensions.acts-on} says. Where the service holds proofs, each
+     * {@code paztport.extensions.requires} key must be a receiver they reach ({@link #receiversReached}): a key that
+     * names none is a requirement of no call, and the calls it was meant for would require nothing. Without proofs
+     * the starter cannot know the receivers, and the key is taken as given.
      */
     @Bean
     @ConditionalOnProperty("paztport.key-path")
@@ -56,6 +62,7 @@ public class OutboundConfiguration {
         HttpCaller.Builder caller = HttpCaller.builder(props.getServiceName(), stamper)
                 .bundle(proofs).verifier(verifier).receivers(props.getReceiverNames())
                 .operations(OperationConfiguration.receiverTables(props, proofs, checks)).extensions(extensions);
+        Set<String> reached = proofs != null ? receiversReached(proofs) : null;
         props.getExtensions().getRequires().forEach((receiver, names) -> {
             try {
                 caller.requires(receiver, names);
@@ -63,11 +70,28 @@ public class OutboundConfiguration {
                 throw new IllegalStateException("paztport.extensions.requires." + receiver + " is refused: "
                         + refused.getMessage(), refused);
             }
+            if (reached != null && !reached.contains(receiver)) {
+                throw new IllegalStateException("paztport.extensions.requires." + receiver + " names no receiver "
+                        + "this service's proofs reach (paztport.proofs-path), so it would require nothing of any "
+                        + "call: the key is the receiver's policy name, the service a route in the bundle ends at");
+            }
         });
         OutboundInterceptor interceptor = new OutboundInterceptor(caller.build(),
                 observations.getIfAvailable(() -> ObservationRegistry.NOOP),
                 unconnectedRetry(props));
         return builder -> builder.requestInterceptor(interceptor);
+    }
+
+    /**
+     * The receivers {@code proofs} reach: the service of each route's last node. A call's route ends at its receiver,
+     * and no route node holds {@code /} (wire.md, Routes), so the last node is the text after the last {@code /}.
+     */
+    private static Set<String> receiversReached(ProofBundle proofs) {
+        Set<String> reached = new HashSet<>();
+        for (String route : proofs.proofs().keySet()) {
+            reached.add(Routes.service(route.substring(route.lastIndexOf('/') + 1)));
+        }
+        return reached;
     }
 
     /**
