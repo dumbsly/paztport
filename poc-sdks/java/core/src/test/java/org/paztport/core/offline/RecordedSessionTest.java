@@ -303,7 +303,7 @@ class RecordedSessionTest {
         assertEquals(OptionalLong.empty(), RecordedSession.of(null, null, null, null).responseNotAfter());
     }
 
-    // J10: a recorded session gives the config the calls recorded in it are checked with.
+    // A recorded session gives the config the calls recorded in it are checked with.
     @Test
     void callConfigHoldsTheClientsKeyringAndRootAndTheRepliesSession() {
         Handshake h = Handshake.attested();

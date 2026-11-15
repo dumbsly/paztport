@@ -321,14 +321,14 @@ class VerifierTest {
         assertSame(ExtensionSettings.NONE, with(ExtensionSettings.NONE).extensions());
     }
 
-    /** Review Focus 1: no blocks received is one empty block per stamp. */
+    /** No blocks received is one empty block per stamp. */
     @Test
     void blocksAbsentAndEveryExtEmptyIsOk() {
         assertEquals(ReasonCode.OK, verify(new Case(), null, EXAMPLE));
         assertEquals(ReasonCode.OK, verify(new Case(), new Case().blocksText(), EXAMPLE));
     }
 
-    /** Review Focus 1: text that reads as JSON null is not an array of blocks, unlike no text at all. */
+    /** Text that reads as JSON null is not an array of blocks, unlike no text at all. */
     @Test
     void blocksThatAreJsonNullAreExtensionMismatch() {
         assertEquals(ReasonCode.EXTENSION_MISMATCH, verify(new Case(), "null", EXAMPLE));
@@ -372,7 +372,7 @@ class VerifierTest {
     }
 
     /**
-     * Review Focus 2: ext is compared as text and never decoded, so a stamp whose ext is not base64url reads (check
+     * A stamp's ext is compared as text and never decoded, so one whose ext is not base64url reads (check
      * 1) and is refused at check 9a. A reader that decoded ext, as it decodes sig, would give CHAIN_MISSING.
      */
     @Test
@@ -423,7 +423,7 @@ class VerifierTest {
     }
 
     /**
-     * Review Focus 4: every name the last block requires must be acted on. An implementation that asked whether any
+     * Every name the last block requires must be acted on. An implementation that asked whether any
      * required name is acted on would pass this call.
      */
     @Test

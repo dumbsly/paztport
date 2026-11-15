@@ -576,7 +576,7 @@ class HttpReceiverTest {
         assertNull(accepted.handOver());
     }
 
-    /** K1: a receiver states its extension settings once, so a builder given others beside a verifier refuses. */
+    /** A receiver states its extension settings once, so a builder given others beside a verifier refuses. */
     @Test
     void builderSettingsThatDifferFromTheVerifiersAreRefused() {
         HttpReceiver.Builder differing = HttpReceiver.builder("payment").verifier(paymentVerifier())
@@ -1104,7 +1104,7 @@ class HttpReceiverTest {
         assertFalse(logged.get(0).contains("not an entry"), "the item is never logged");
     }
 
-    // R7: the receiver's settings reach the rule through the scope, so a receiver that does not act on influence
+    // The receiver's settings reach the rule through the scope, so a receiver that does not act on influence
     // never answers a guarded write OK, however clean the request.
     @Test
     void aReceiverThatDoesNotActOnInfluenceRefusesAGuardedWrite() {
@@ -1311,7 +1311,7 @@ class HttpReceiverTest {
         assertEquals(Block.EMPTY, responseBlock(accepted.attest(201, PAID, List.of())));
     }
 
-    // K10: a label this service cannot sign as a block is not dropped quietly; the caller counts the answer untrusted.
+    // A label this service cannot sign as a block is not dropped quietly; the caller counts the answer untrusted.
     @Test
     void labelsAtAResponderThatDoesNotActOnInfluenceLeaveTheAnswerUnattested() {
         Accepted accepted = attesting(paymentVerifier(new InMemoryNonceCache(), ExtensionSettings.NONE)).accept(
@@ -1327,7 +1327,7 @@ class HttpReceiverTest {
         assertFalse(logged.get(0).contains("alice"), "the label is not logged");
     }
 
-    // K5: influence has no summarising form, so a block past the wire limit is not sent in part.
+    // Influence has no summarising form, so a block past the wire limit is not sent in part.
     @Test
     void aResponseBlockPastTheWireLimitLeavesTheAnswerUnattested() {
         Accepted accepted = attesting(paymentVerifier()).accept(paymentRequest(validHeaders(), TO_PAYMENT), null,

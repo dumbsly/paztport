@@ -77,7 +77,7 @@ class StampTest {
     }
 
     /**
-     * J1: the stamp version is written once, as {@link Stamp#VERSION}. No other main source writes {@code "v"}
+     * The stamp version is written once, as {@link Stamp#VERSION}. No other main source writes {@code "v"}
      * beside a 3 or a 4, or builds the integer 3 or 4 as a JSON value; in Stamp.java, the only code line holding a
      * 3 or a 4 is the constant.
      */

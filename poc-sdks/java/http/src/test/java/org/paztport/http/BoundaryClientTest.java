@@ -474,7 +474,7 @@ class BoundaryClientTest {
     }
 
     /**
-     * Review Focus 5: as the case above, entries handed on and added, but with orders' block, the internal chain's
+     * As the case above, entries handed on and added, but with orders' block, the internal chain's
      * last, not naming influence, so the handed-on entry is in gateway's. The partner's every-stamp rule cannot see
      * the silent hop, so the block names nothing and sends no entries, though the request holds some, and there is
      * nothing for the listener to keep.

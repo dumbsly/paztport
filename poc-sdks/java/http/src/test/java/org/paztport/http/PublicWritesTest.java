@@ -225,7 +225,7 @@ class PublicWritesTest {
         }
     }
 
-    // Review Focus 3: the origin's block does not name influence, so the stamp may have read anything.
+    // The origin's block does not name influence, so the stamp may have read anything.
     @Test
     void aWriteWhoseOriginBlockDoesNotNameInfluenceIsDeniedWhateverItsEntries() {
         assertEquals(ReasonCode.INFLUENCE_DENIED, writeHandedOn(ACTS, List.of(NAMES_NOTHING), true, "alice", MINE));

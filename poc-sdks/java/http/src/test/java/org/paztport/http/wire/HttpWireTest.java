@@ -146,7 +146,7 @@ class HttpWireTest {
     }
 
     /**
-     * Review Focus 1: a header that is present but does not decode is left to check 9a, never taken for an absent
+     * A header that is present but does not decode is left to check 9a, never taken for an absent
      * one, which on this chain (every ext empty) would verify.
      */
     @Test

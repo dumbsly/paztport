@@ -21,7 +21,8 @@ public enum ReplyCheck {
     BAD_SIGNATURE,
     /**
      * The reply is genuine and attested, and does not list an extension the client requires of the server. The
-     * client makes no call in the session, and does not replace it.
+     * client does not replace the session, and makes no call in it unless its requirement's switch lets it continue
+     * ({@link Requirement#callsAfter}).
      */
     EXTENSION_REQUIRED
 }

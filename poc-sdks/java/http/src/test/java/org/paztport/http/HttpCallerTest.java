@@ -237,7 +237,7 @@ class HttpCallerTest {
                 List.copyOf(gatewayCaller().stampFromContext("GET", ORDERS, NO_BODY).headers().keySet()));
     }
 
-    /** K3: the blocks always travel, the empty ones of an origin's call that adds nothing included. */
+    /** The blocks always travel, the empty ones of an origin's call that adds nothing included. */
     @Test
     void theBlocksAlwaysTravel() {
         HttpCaller.Outbound sent = gatewayCaller().stampFromContext("POST", ORDERS, utf8("{}"));
@@ -329,7 +329,7 @@ class HttpCallerTest {
         }
     }
 
-    /** K5: nothing is dropped to fit the wire limit; a call whose blocks would pass it is not signed or sent. */
+    /** Nothing is dropped to fit the wire limit; a call whose blocks would pass it is not signed or sent. */
     @Test
     void aCallWhoseBlocksPassTheWireLimitIsNotSent() {
         List<Stamp> inbound = gatewayStamper().next(null, "orders", "b", Block.EMPTY, policy.bundles().get("gateway"))
@@ -415,7 +415,7 @@ class HttpCallerTest {
         });
     }
 
-    /** K1: a caller states its extension settings once, so a builder given others beside a verifier refuses. */
+    /** A caller states its extension settings once, so a builder given others beside a verifier refuses. */
     @Test
     void builderSettingsThatDifferFromTheVerifiersAreRefused() {
         HttpCaller.Builder differing = HttpCaller.builder("gateway", gatewayStamper()).verifier(gatewayVerifier())
@@ -839,7 +839,7 @@ class HttpCallerTest {
         assertFalse(received.refused());
     }
 
-    // Review Focus 4: a label beside an entry is not a label the rule reads, so it is not believed at all.
+    // A label beside an entry is not a label the rule reads, so it is not believed at all.
     @Test
     void aResponseWithALabelAndAnEntryAddsOneLocalUntrusted() {
         ContentLabel mine = ContentLabel.fresh(InfluenceClass.PRIVATE, "alice");
@@ -855,7 +855,7 @@ class HttpCallerTest {
         assertFalse(received.refused());
     }
 
-    // L1: the interceptor reads what the caller refuses from the record's own answer, not from a reason it restates.
+    // The interceptor reads what the caller refuses from the record's own answer, not from a reason it restates.
     @Test
     void recordToContextGivesWhatCheckGives() {
         HttpCaller blind = HttpCaller.builder("gateway", gatewayStamper()).bundle(policy.bundles().get("gateway"))
@@ -887,7 +887,7 @@ class HttpCallerTest {
                 acceptedEntries, "the label's entry is recorded");
     }
 
-    // K9: a caller that does not act on influence cannot read the labels, and the response says it requires them.
+    // A caller that does not act on influence cannot read the labels, and the response says it requires them.
     @Test
     void aResponseRefusedAtCheck9cIsRefusedAndAddsOneLocalUntrusted() {
         HttpCaller caller = HttpCaller.builder("gateway", gatewayStamper()).bundle(policy.bundles().get("gateway"))
@@ -986,10 +986,10 @@ class HttpCallerTest {
     }
 
     /**
-     * R4: what the interim dropped. The scope has read third-party content; a response labels its answer private to
-     * alice; a guarded public write to bob must then be denied, which the owner-aware rule needs the label for. Run
-     * through the real verifier and caller with a hand-built responder (a receiver cannot be wired into this test's
-     * scope), so this is the caller half of the case.
+     * A response's labels reach the write rule. The scope has read third-party content; a response labels its answer
+     * private to alice; a guarded public write to bob must then be denied, which the owner-aware rule needs the label
+     * for. Run through the real verifier and caller with a hand-built responder (a receiver cannot be wired into this
+     * test's scope), so this is the caller half of the case.
      */
     @Test
     void aPrivateLabelOfAnotherOwnerReachesTheWriteRule() {

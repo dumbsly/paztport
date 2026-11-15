@@ -34,7 +34,7 @@ class TestScopesTest {
     void actOnMakesAnOwnerWriteAnswerWhereABareScopeDenies() {
         PublicWrites writes = new PublicWrites("orders");
         try (RequestContext.Scope scope = RequestContext.open()) {
-            assertEquals(ReasonCode.INFLUENCE_DENIED, writes.decide("alice"), "R7: a bare scope has no settings");
+            assertEquals(ReasonCode.INFLUENCE_DENIED, writes.decide("alice"), "a bare scope has no settings");
             TestScopes.actOn(ExtensionSettings.of(Set.of(Influence.NAME), null));
             assertEquals(ReasonCode.OK, writes.decide("alice"));
         }

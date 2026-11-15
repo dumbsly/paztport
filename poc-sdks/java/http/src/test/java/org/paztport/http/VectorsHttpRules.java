@@ -780,7 +780,7 @@ final class VectorsHttpRules {
                 refused(403, ReasonCode.PATH_NOT_ALLOWED)));
         a.add(expect(receiverCase("a proof header that is not JSON is no proof", Service.PAYMENT, "enforce",
                 Chains.request(headers(chain, b64("{"), blocks), PAY)), refused(403, ReasonCode.PATH_NOT_ALLOWED)));
-        // Review Focus 1: a header that is present but does not decode is not an absent one.
+        // A header that is present but does not decode is not an absent one.
         a.add(expect(receiverCase("an extensions header that is not base64url", Service.PAYMENT, "enforce",
                 Chains.request(headers(chain, proof, "not*base64url"), PAY)),
                 refused(403, ReasonCode.EXTENSION_MISMATCH)));
@@ -848,7 +848,7 @@ final class VectorsHttpRules {
         a.add(expect(receiverCase("audit after a bad signature, no extensions header, one ext not empty",
                 Service.PAYMENT, "audit", Chains.request(headers(HttpWire.encodeChain(ch.forgedOneExt.chain()),
                         proof, null), PAY)), refused(400, ReasonCode.EXTENSION_MISMATCH)));
-        // Review Focus 1: present but not decoding, beside the absent header two cases up.
+        // Present but not decoding, beside the absent header two cases up.
         a.add(expect(receiverCase("audit after a bad signature, an extensions header that is not base64url",
                 Service.PAYMENT, "audit", Chains.request(headers(bare, proof, "not*base64url"), PAY)),
                 refused(400, ReasonCode.EXTENSION_MISMATCH)));
@@ -942,7 +942,7 @@ final class VectorsHttpRules {
         ArrayNode a = arr();
         a.add(expect(receiverCase("verified, private and public with owners", Service.PAYMENT, "enforce",
                 ch.request(ch.owned)), served(true, handed(OWNED), true, ReasonCode.OK, true)));
-        // Review Focus 3: the case above with only gateway's block changed, to one that does not name influence.
+        // The case above with only gateway's block changed, to one that does not name influence.
         a.add(expect(receiverCase("verified, only trusted entries, the origin's block not naming influence",
                 Service.PAYMENT, "enforce", ch.request(ch.unnamedOrigin)),
                 served(true, handed(stamp("gateway", null), stamp("orders", OWNED)), true,
@@ -1391,7 +1391,7 @@ final class VectorsHttpRules {
         a.add(callerCase("silent: verified, its block not naming influence", true, Map.of(), uri, 200,
                 attestation(ch, 200, PAID, Block.EMPTY), PAID, ch)
                 .set("expected", callerExpected("OK", false, untrusted)));
-        // Review Focus 4: an item that is not a label beside one that is; none of them is believed.
+        // An item that is not a label beside one that is; none of them is believed.
         Block mixed = Block.of(Map.of(Influence.NAME, List.of(labels.get(0).toJson(), fromLabels.get(1).toJson())),
                 List.of(Influence.NAME));
         a.add(callerCase("verified, a label beside an entry", true, Map.of(), uri, 200,

@@ -233,7 +233,7 @@ class StamperTest {
         assertFalse(read[0], "the clock was not read, so no stamp was made");
     }
 
-    /** J11: the stamper commits to a block and reads no extension. */
+    /** The stamper commits to a block and reads no extension. */
     @Test
     void theStamperImportsNoExtension() throws IOException {
         Path source = Path.of("src/main/java/org/paztport/core/stamp/Stamper.java");
