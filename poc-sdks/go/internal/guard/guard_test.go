@@ -103,6 +103,7 @@ func TestRefused(t *testing.T) {
 		{module + "/policy", "encoding/json", true},
 		{module + "/policy", "encoding/json/v2", true},
 		{module + "/keys", harness, true},
+		{module + "/paztporthttp", harness + "/handover", true},
 		{harness, "encoding/json", false},
 		{module + "/keys", "crypto/ed25519", false},
 		{module + "/keys", "network", false},
@@ -120,7 +121,7 @@ func refused(pkg, imp string) string {
 	switch {
 	case within(imp, "encoding/json") && pkg != harness:
 		return "the SDK reads and writes JSON with its own reader and writer"
-	case imp == harness:
+	case within(imp, harness):
 		return "the vector harness is for tests only"
 	case within(imp, "net"):
 		return "the SDK does no network I/O; the code that embeds it sends the bytes"

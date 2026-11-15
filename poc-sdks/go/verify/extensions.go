@@ -95,3 +95,10 @@ func (e Extensions) Carries(name string) bool {
 	_, found := slices.BinarySearch(e.allowed, name)
 	return found
 }
+
+// Equal reports whether e and o are the same settings: they act on the same names, and either both carry any name
+// or both carry the same list. Settings hold slices, so == cannot compare them. NewExtensions(nil) equals the zero
+// value; a list of nothing does not, since it carries no name where the zero value carries any.
+func (e Extensions) Equal(o Extensions) bool {
+	return slices.Equal(e.actsOn, o.actsOn) && e.listed == o.listed && slices.Equal(e.allowed, o.allowed)
+}

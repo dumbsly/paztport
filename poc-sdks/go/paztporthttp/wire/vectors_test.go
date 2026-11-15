@@ -131,6 +131,9 @@ func TestResponseVectors(t *testing.T) {
 				t.Errorf("Result = %+v, want %+v", plain(got.Result), want)
 			}
 			handover.Match(t, "the response's hand-over", got.Result.HandOver, handover.Expected(t, e.Get("handOver").Raw()))
+			if h := got.Result.HandOver; h != nil && !h.Verified() {
+				t.Error("the response's hand-over is not verified")
+			}
 			if wantHash := e.Get("resultHash").Str(); got.ResultHash != wantHash {
 				t.Errorf("ResultHash = %s, want %s", got.ResultHash, wantHash)
 			}
@@ -266,7 +269,7 @@ func readResponseCase(t testing.TB, c vectors.Node) responseCase {
 			CallMaxAgeMs:   c.Get("callMaxAgeMs").Int(),
 			RunMaxAgeMs:    c.Get("runMaxAgeMs").Int(),
 			Nonces:         nonces,
-			Extensions:     extensions(t, c),
+			Extensions:     handover.Settings(t, c.Get("actsOn").Raw(), c.Get("allowedExtensions").Raw()),
 		},
 		nonceTTL:   c.Get("nonceTtlMs").Int(),
 		sent:       sent,
@@ -287,23 +290,6 @@ func (rc responseCase) verifier() *verify.Verifier {
 		cfg.Nonces = verify.NewMemoryNonceCache(rc.nonceTTL)
 	}
 	return verify.New(cfg)
-}
-
-// extensions returns the settings case c gives: acting on actsOn and carrying any name, or, where
-// allowedExtensions is not null, only the names it lists.
-func extensions(t testing.TB, c vectors.Node) verify.Extensions {
-	t.Helper()
-	var e verify.Extensions
-	var err error
-	if allowed := c.Get("allowedExtensions"); allowed.IsNull() {
-		e, err = verify.NewExtensions(c.Get("actsOn").Strs())
-	} else {
-		e, err = verify.NewExtensionsAllowing(c.Get("actsOn").Strs(), allowed.Strs())
-	}
-	if err != nil {
-		t.Fatalf("the case's extension settings: %v", err)
-	}
-	return e
 }
 
 // blocks returns the blocks array n holds, read by the SDK's own reader from its canonical text.

@@ -28,9 +28,7 @@ func TestExpectedReadsTheVectorForm(t *testing.T) {
 		{Svc: "gateway"}, {Svc: "orders"},
 		{Svc: "payment", Named: true, Items: []string{`{"cid":"cid-receipt-1","cls":"private","owner":"alice"}`}},
 	}
-	if len(got) != 1 || !slices.EqualFunc(got["influence"], want, func(a, b verify.StampItems) bool {
-		return a.Svc == b.Svc && a.Named == b.Named && slices.Equal(a.Items, b.Items)
-	}) {
+	if len(got) != 1 || !slices.EqualFunc(got["influence"], want, handover.Same) {
 		t.Fatalf("Expected = %+v, want influence: %+v", got, want)
 	}
 	for _, none := range []string{"null", ""} {
@@ -87,6 +85,32 @@ func TestMatchReportsEveryDifference(t *testing.T) {
 				t.Fatalf("Match reported %q, want %d errors", r.errs, c.errs)
 			}
 		})
+	}
+}
+
+// TestSettingsReadsTheVectorForm reads allowedExtensions null as settings that carry any name, and an array, the
+// empty one included, as the only names carried.
+func TestSettingsReadsTheVectorForm(t *testing.T) {
+	must := func(e verify.Extensions, err error) verify.Extensions {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return e
+	}
+	for _, c := range []struct {
+		actsOn, allowed string
+		want            verify.Extensions
+	}{
+		{`[]`, `null`, verify.Extensions{}},
+		{`["influence"]`, `null`, must(verify.NewExtensions([]string{"influence"}))},
+		{`[]`, `[]`, must(verify.NewExtensionsAllowing(nil, []string{}))},
+		{`["influence"]`, `["example","influence"]`,
+			must(verify.NewExtensionsAllowing([]string{"influence"}, []string{"example", "influence"}))},
+	} {
+		if got := handover.Settings(t, []byte(c.actsOn), []byte(c.allowed)); !got.Equal(c.want) {
+			t.Errorf("Settings(%s, %s) = %+v, want %+v", c.actsOn, c.allowed, got, c.want)
+		}
 	}
 }
 

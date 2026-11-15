@@ -17,6 +17,7 @@ import (
 
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/json"
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/vectors"
+	"github.com/dumbsly/paztport/poc-sdks/go/internal/vectors/handover"
 	"github.com/dumbsly/paztport/poc-sdks/go/paztporthttp/wire"
 	"github.com/dumbsly/paztport/poc-sdks/go/policy"
 	"github.com/dumbsly/paztport/poc-sdks/go/reason"
@@ -538,12 +539,12 @@ func TestCheckResponseChecksTheSentBlocks(t *testing.T) {
 		t.Fatalf("Result = %+v, want %+v", plain(got.Result), okSigner)
 	}
 	want := verify.StampItems{Svc: "payment", Named: true, Items: []string{"8"}}
-	if r := got.Response("example"); r == nil || !sameItems(*r, want) {
+	if r := got.Response("example"); r == nil || !handover.Same(*r, want) {
 		t.Fatalf(`Response("example") = %+v, want %+v`, r, want)
 	}
 	under, ok := got.Result.HandOver.Under("example")
 	wantUnder := []verify.StampItems{{Svc: "gateway"}, {Svc: "orders", Named: true, Items: []string{"7"}}, want}
-	if !ok || !slices.EqualFunc(under, wantUnder, sameItems) {
+	if !ok || !slices.EqualFunc(under, wantUnder, handover.Same) {
 		t.Fatalf(`Under("example") = %+v, %t, want %+v`, under, ok, wantUnder)
 	}
 
@@ -769,7 +770,7 @@ func wantOK(t *testing.T, got wire.ResponseCheck) {
 	if plain(got.Result) != okSigner {
 		t.Fatalf("Result = %+v, want %+v", plain(got.Result), okSigner)
 	}
-	if r := got.Response(influence); r == nil || !sameItems(*r, okResponse) {
+	if r := got.Response(influence); r == nil || !handover.Same(*r, okResponse) {
 		t.Fatalf("Response = %+v, want %+v", r, okResponse)
 	}
 }
@@ -793,11 +794,6 @@ func refused(t *testing.T, got wire.ResponseCheck, rc responseCase, code reason.
 func plain(r verify.Result) verify.Result {
 	r.HandOver = nil
 	return r
-}
-
-// sameItems reports whether two hand-over entries are equal.
-func sameItems(a, b verify.StampItems) bool {
-	return a.Svc == b.Svc && a.Named == b.Named && slices.Equal(a.Items, b.Items)
 }
 
 // attestation returns the block and stamp the response header holds.

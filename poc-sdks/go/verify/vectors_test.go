@@ -230,7 +230,7 @@ func replay(t *testing.T, v4, c vectors.Node) verify.Result {
 		Now:            func() int64 { return now },
 		CallMaxAgeMs:   c.Get("callMaxAgeMs").Int(),
 		RunMaxAgeMs:    c.Get("runMaxAgeMs").Int(),
-		Extensions:     extensions(t, c),
+		Extensions:     handover.Settings(t, c.Get("actsOn").Raw(), c.Get("allowedExtensions").Raw()),
 	}
 	in := verify.Input{
 		Chain:           optional(c.Get("chainToken")),
@@ -270,23 +270,6 @@ func replay(t *testing.T, v4, c vectors.Node) verify.Result {
 		}
 	}
 	return got
-}
-
-// extensions returns the settings case c gives: acting on actsOn and carrying any name, or, where
-// allowedExtensions is not null, only the names it lists.
-func extensions(t testing.TB, c vectors.Node) verify.Extensions {
-	t.Helper()
-	var e verify.Extensions
-	var err error
-	if allowed := c.Get("allowedExtensions"); allowed.IsNull() {
-		e, err = verify.NewExtensions(c.Get("actsOn").Strs())
-	} else {
-		e, err = verify.NewExtensionsAllowing(c.Get("actsOn").Strs(), allowed.Strs())
-	}
-	if err != nil {
-		t.Fatalf("the case's extension settings: %v", err)
-	}
-	return e
 }
 
 // expected returns the result case c expects.

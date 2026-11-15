@@ -102,3 +102,44 @@ func TestExtensionsHoldCopies(t *testing.T) {
 		t.Error("the settings changed")
 	}
 }
+
+// TestExtensionsEqual checks that settings are equal exactly when they act on the same names and carry the same
+// ones: no list and an empty list differ, since the first carries any name and the second none.
+func TestExtensionsEqual(t *testing.T) {
+	must := func(e verify.Extensions, err error) verify.Extensions {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return e
+	}
+	zero := verify.Extensions{}
+	none := must(verify.NewExtensions(nil))
+	carriesNothing := must(verify.NewExtensionsAllowing(nil, []string{}))
+	influence := must(verify.NewExtensions([]string{"influence"}))
+	influenceAgain := must(verify.NewExtensions([]string{"influence", "influence"}))
+	onlyInfluence := must(verify.NewExtensionsAllowing([]string{"influence"}, []string{"influence"}))
+	influenceAndMore := must(verify.NewExtensionsAllowing([]string{"influence"}, []string{"example", "influence"}))
+	for _, tc := range []struct {
+		name string
+		a, b verify.Extensions
+		want bool
+	}{
+		{"zero and zero", zero, zero, true},
+		{"zero and NewExtensions(nil)", zero, none, true},
+		{"zero and a list of nothing", zero, carriesNothing, false},
+		{"the same actsOn, one with no list", influence, onlyInfluence, false},
+		{"the same actsOn, different lists", onlyInfluence, influenceAndMore, false},
+		{"actsOn given twice", influence, influenceAgain, true},
+		{"different actsOn", zero, influence, false},
+		{"the same list", influenceAndMore, must(verify.NewExtensionsAllowing([]string{"influence"},
+			[]string{"influence", "example"})), true},
+	} {
+		if got := tc.a.Equal(tc.b); got != tc.want {
+			t.Errorf("%s: a.Equal(b) = %v, want %v", tc.name, got, tc.want)
+		}
+		if got := tc.b.Equal(tc.a); got != tc.want {
+			t.Errorf("%s: b.Equal(a) = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}

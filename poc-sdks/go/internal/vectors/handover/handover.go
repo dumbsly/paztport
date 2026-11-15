@@ -1,8 +1,8 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-// Package handover compares a hand-over with the one a vector case expects, for the module's tests. Only tests
-// import it. It is a package of its own because it reads verify's types, which package vectors may not, since
+// Package handover compares a hand-over with the one a vector case expects, and reads a case's extension
+// settings, for the module's tests. Only tests import it. It is a package of its own because it reads verify's types, which package vectors may not, since
 // the tests of packages verify imports use vectors. It reads the expected hand-over from its text in the vector
 // file, with the SDK's own reader, and not through vectors, because only tests may import that harness.
 package handover
@@ -95,14 +95,57 @@ func Match(t testing.TB, label string, h *verify.HandOver, want map[string][]ver
 	}
 	for _, name := range slices.Sorted(maps.Keys(want)) {
 		under, ok := h.Under(name)
-		if !ok || !slices.EqualFunc(under, want[name], same) {
+		if !ok || !slices.EqualFunc(under, want[name], Same) {
 			t.Errorf("%s: Under(%s) = %+v, %t, want %+v", label, name, under, ok, want[name])
 		}
 	}
 }
 
-// same reports whether two entries are equal; an empty and a nil Items are the same list, Named telling them
+// Same reports whether two entries are equal; an empty and a nil Items are the same list, Named telling them
 // apart.
-func same(a, b verify.StampItems) bool {
+func Same(a, b verify.StampItems) bool {
 	return a.Svc == b.Svc && a.Named == b.Named && slices.Equal(a.Items, b.Items)
+}
+
+// Settings returns the extension settings a vector case gives, from the texts of its actsOn and allowedExtensions
+// members (a vector Node's Raw): actsOn an array of names, and allowedExtensions null for settings that carry any
+// name, or the array of the only names carried. It fails t on text of any other shape, and on settings the SDK
+// refuses.
+func Settings(t testing.TB, actsOn, allowed []byte) verify.Extensions {
+	t.Helper()
+	acts, listed := names(t, "actsOn", actsOn), names(t, "allowedExtensions", allowed)
+	var e verify.Extensions
+	var err error
+	if listed == nil {
+		e, err = verify.NewExtensions(acts)
+	} else {
+		e, err = verify.NewExtensionsAllowing(acts, listed)
+	}
+	if err != nil {
+		t.Fatalf("handover: the case's extension settings: %v", err)
+	}
+	return e
+}
+
+// names reads an array of names from text, or nil for null; what names the member, for a failure.
+func names(t testing.TB, what string, text []byte) []string {
+	t.Helper()
+	v, err := json.ReadFile(text)
+	if err != nil {
+		t.Fatalf("handover: %s: %v", what, err)
+	}
+	if v.Kind() == json.KindNull {
+		return nil
+	}
+	if v.Kind() != json.KindArray {
+		t.Fatalf("handover: %s is %v, not an array or null", what, v.Kind())
+	}
+	out := []string{}
+	for _, n := range v.Items() {
+		if n.Kind() != json.KindString {
+			t.Fatalf("handover: %s holds %v, not a name", what, n.Kind())
+		}
+		out = append(out, n.Str())
+	}
+	return out
 }

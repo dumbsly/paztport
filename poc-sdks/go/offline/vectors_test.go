@@ -58,23 +58,6 @@ func matches(t *testing.T, got verify.Result, c vectors.Node) {
 	handover.Match(t, "Verify", got.HandOver, want)
 }
 
-// extensions returns the settings case c gives: acting on actsOn and carrying any name, or, where
-// allowedExtensions is not null, only the names it lists.
-func extensions(t *testing.T, c vectors.Node) verify.Extensions {
-	t.Helper()
-	var e verify.Extensions
-	var err error
-	if allowed := c.Get("allowedExtensions"); allowed.IsNull() {
-		e, err = verify.NewExtensions(c.Get("actsOn").Strs())
-	} else {
-		e, err = verify.NewExtensionsAllowing(c.Get("actsOn").Strs(), allowed.Strs())
-	}
-	if err != nil {
-		t.Fatalf("the case's extension settings: %v", err)
-	}
-	return e
-}
-
 // TestVectorsReadTheOptionalArrays checks that the replay reads the keyrings and roots a case may carry,
 // beside the committed cases that carry them: every offline case written in the single form, its keyring and its
 // policy's root written as the arrays with no window, gives its recorded answer, with its keyring whole or split one
@@ -131,7 +114,7 @@ func replay(t *testing.T, v4, c vectors.Node) verify.Result {
 		Sess:           c.Get("sess").Str(),
 		RunMaxAgeMs:    optionalInt(c.Get("runMaxAgeMs")),
 		CallMaxAgeMs:   optionalInt(c.Get("callMaxAgeMs")),
-		Extensions:     extensions(t, c),
+		Extensions:     handover.Settings(t, c.Get("actsOn").Raw(), c.Get("allowedExtensions").Raw()),
 	}
 	p := v4.Get("policies").Get(c.Get("policy").Str())
 	return offline.NewRecordSet(c.Get("seen").Strs()...).Verify(input(t, c, p), cfg)
@@ -312,7 +295,7 @@ func TestInfluenceRecordedCallVectors(t *testing.T) {
 	cases.Each(func(name string, c vectors.Node) {
 		t.Run(name, func(t *testing.T) {
 			c := c.With(t)
-			if !extensions(t, c).ActsOnName(influence.Name) {
+			if !handover.Settings(t, c.Get("actsOn").Raw(), c.Get("allowedExtensions").Raw()).ActsOnName(influence.Name) {
 				t.Fatal("the case's settings do not act on influence")
 			}
 			// The case this replay is written for: calls that read and calls that do not, within the session's
@@ -353,7 +336,7 @@ func replayCalls(t *testing.T, v4, c vectors.Node, items offline.ItemCheck) []re
 		call := c.Get("calls").Index(i)
 		s := sessions[call.Get("handshake").Int()]
 		cfg, ok := s.CallConfig(c.Get("allowedOrigins").Strs(), optionalInt(c.Get("runMaxAgeMs")),
-			optionalInt(c.Get("callMaxAgeMs")), extensions(t, c))
+			optionalInt(c.Get("callMaxAgeMs")), handover.Settings(t, c.Get("actsOn").Raw(), c.Get("allowedExtensions").Raw()))
 		if !ok {
 			t.Fatalf("call %d: no config, though every handshake here is attested", i)
 		}
