@@ -27,8 +27,27 @@ const (
 // import encoding/json, and only tests may import the harness. The SDK sends nothing and logs nothing: the
 // code that embeds it does both.
 func TestNoJSONLibrary(t *testing.T) {
-	root := moduleRoot(t)
 	harnessReadsJSON := false
+	eachImport(t, func(rel, pkg, imp string) {
+		if pkg == harness && imp == "encoding/json" {
+			harnessReadsJSON = true
+		}
+		if why := refused(pkg, imp); why != "" {
+			t.Errorf("%s imports %s: %s", rel, imp, why)
+		}
+	})
+	// The harness is the one importer of encoding/json, so not seeing it means the walk read nothing.
+	if !harnessReadsJSON {
+		t.Fatal("the walk did not see internal/vectors import encoding/json, so it did not read the module")
+	}
+}
+
+// eachImport calls f with every import of every non-test file in the module: the file's path from the module
+// root, its package and the path it imports. It returns the number of files it read.
+func eachImport(t *testing.T, f func(rel, pkg, imp string)) int {
+	t.Helper()
+	root := moduleRoot(t)
+	files := 0
 	err := filepath.WalkDir(root, func(file string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -42,36 +61,29 @@ func TestNoJSONLibrary(t *testing.T) {
 		if !strings.HasSuffix(d.Name(), ".go") || strings.HasSuffix(d.Name(), "_test.go") {
 			return nil
 		}
-		f, err := parser.ParseFile(token.NewFileSet(), file, nil, parser.ImportsOnly)
+		parsed, err := parser.ParseFile(token.NewFileSet(), file, nil, parser.ImportsOnly)
 		if err != nil {
 			return err
 		}
+		files++
 		rel, err := filepath.Rel(root, file)
 		if err != nil {
 			return err
 		}
 		pkg := path.Join(module, filepath.ToSlash(filepath.Dir(rel)))
-		for _, spec := range f.Imports {
+		for _, spec := range parsed.Imports {
 			imp, err := strconv.Unquote(spec.Path.Value)
 			if err != nil {
 				return err
 			}
-			if pkg == harness && imp == "encoding/json" {
-				harnessReadsJSON = true
-			}
-			if why := refused(pkg, imp); why != "" {
-				t.Errorf("%s imports %s: %s", filepath.ToSlash(rel), imp, why)
-			}
+			f(filepath.ToSlash(rel), pkg, imp)
 		}
 		return nil
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The harness is the one importer of encoding/json, so not seeing it means the walk read nothing.
-	if !harnessReadsJSON {
-		t.Fatal("the walk did not see internal/vectors import encoding/json, so it did not read the module")
-	}
+	return files
 }
 
 // TestRefused names each refusal, so that a case taken out of refused fails here, though the module

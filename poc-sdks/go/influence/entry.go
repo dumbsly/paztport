@@ -6,7 +6,6 @@ package influence
 import (
 	"errors"
 	"fmt"
-	"strconv"
 
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/json"
 )
@@ -36,6 +35,14 @@ var (
 	entryOptional = []string{"cid", "owner"}
 )
 
+// ParseEntry reads one item handed on under influence, its JCS text, as an entry (influence.md, Entries): an
+// object of exactly an entry's members, cls one of the four classes, the strings src and h, and, when present,
+// the string cid and owner, a non-empty string. It refuses text that is not exactly the canonical text of one
+// value. A service reports a request holding an item refused here as INFLUENCE_MISMATCH (ReadRequest).
+func ParseEntry(item string) (Entry, error) {
+	return parseWire([]byte(item), "influence entry", entryFromValue)
+}
+
 // ReadEntries reads a list of entries from its token, the base64url of its wire bytes, as ParseEntries
 // reads the bytes.
 func ReadEntries(tok string) ([]Entry, error) {
@@ -52,9 +59,7 @@ func ReadEntries(tok string) ([]Entry, error) {
 // ParseEntries reads a list of entries from its wire bytes, its canonical bytes. The bytes hold an array
 // whose every item is an object of exactly an entry's members: cls, one of the four classes; the strings
 // src and h; and, when present, the string cid and owner, a non-empty string. The entries keep the order
-// they were read in.
-//
-// A verifier reports a list that is refused here, or bytes that do not read, as INFLUENCE_MISMATCH.
+// they were read in. An item handed on under influence is one entry, which ParseEntry reads.
 func ParseEntries(wire []byte) ([]Entry, error) {
 	return parseWire(wire, "influence", entriesFromValue)
 }
@@ -120,23 +125,33 @@ func EntriesWire(es []Entry) ([]byte, error) {
 func entriesValue(es []Entry) (json.Value, error) {
 	items := make([]json.Value, len(es))
 	for i, e := range es {
-		if !e.Class.known() {
-			return json.Value{}, errors.New("entry " + strconv.Itoa(i) + " has a class that is not one of the four")
+		v, err := e.value()
+		if err != nil {
+			return json.Value{}, fmt.Errorf("entry %d: %w", i, err)
 		}
-		members := []json.Member{
-			{Name: "cls", Value: json.S(string(e.Class))},
-			{Name: "src", Value: json.S(e.Src)},
-			{Name: "h", Value: json.S(e.H)},
-		}
-		if e.HasCID {
-			members = append(members, json.Member{Name: "cid", Value: json.S(e.CID)})
-		}
-		if e.Owner != "" {
-			members = append(members, json.Member{Name: "owner", Value: json.S(e.Owner)})
-		}
-		items[i] = json.Obj(members...)
+		items[i] = v
 	}
 	return json.Arr(items...), nil
+}
+
+// value is e as the object {cls, src, h, cid, owner}, an absent cid or owner left out. It refuses a Class that
+// is not one of the four.
+func (e Entry) value() (json.Value, error) {
+	if !e.Class.known() {
+		return json.Value{}, errors.New("the class is not one of the four")
+	}
+	members := []json.Member{
+		{Name: "cls", Value: json.S(string(e.Class))},
+		{Name: "src", Value: json.S(e.Src)},
+		{Name: "h", Value: json.S(e.H)},
+	}
+	if e.HasCID {
+		members = append(members, json.Member{Name: "cid", Value: json.S(e.CID)})
+	}
+	if e.Owner != "" {
+		members = append(members, json.Member{Name: "owner", Value: json.S(e.Owner)})
+	}
+	return json.Obj(members...), nil
 }
 
 // readClass returns object o's member cls, refusing o unless it is a string naming one of the four

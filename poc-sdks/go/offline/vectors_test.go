@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/dumbsly/paztport/poc-sdks/go/influence"
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/b64"
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/json"
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/vectors"
@@ -331,41 +332,94 @@ func TestRecordedCallVectors(t *testing.T) {
 	if calls != 9 || outside == 0 {
 		t.Fatalf("the section has %d calls, %d of them OUTSIDE_SESSION; want 9, and at least one", calls, outside)
 	}
-	policies := v4.Get("policies")
 	cases.Each(func(name string, c vectors.Node) {
 		t.Run(name, func(t *testing.T) {
 			c := c.With(t)
-			var sessions []offline.RecordedSession
-			c.Get("handshakes").Each(func(_ string, h vectors.Node) {
-				sessions = append(sessions, record(t, v4, h.With(t)))
-			})
-			records := offline.NewRecordSet()
-			want := c.Get("expected")
-			if c.Get("calls").Len() != want.Len() {
-				t.Fatalf("the case gives %d calls and %d answers", c.Get("calls").Len(), want.Len())
-			}
-			for i := range c.Get("calls").Len() {
-				call := c.Get("calls").Index(i)
-				s := sessions[call.Get("handshake").Int()]
-				cfg, ok := s.CallConfig(c.Get("allowedOrigins").Strs(), optionalInt(c.Get("runMaxAgeMs")),
-					optionalInt(c.Get("callMaxAgeMs")), extensions(t, c))
-				if !ok {
-					t.Fatalf("call %d: no config, though every handshake here is attested", i)
-				}
-				in := input(t, call, policies.With(t).Get(call.Get("policy").Str()))
-				got, ok := records.Call(in, cfg, s, nil)
-				if !ok {
-					t.Fatalf("call %d: no result, though every handshake here is attested", i)
-				}
-				if w := reason.Code(want.Index(i).Get("reason").Str()); got.Reason != w {
-					t.Errorf("call %d = %s, want %s", i, got.Reason, w)
-				}
-				if (got.HandOver != nil) != got.OK() {
-					t.Errorf("call %d: a %s result has the hand-over %v", i, got.Reason, got.HandOver)
-				}
+			if got, want := replayCalls(t, v4, c, nil), answers(c); !slices.Equal(got, want) {
+				t.Fatalf("the calls give %v, want %v", got, want)
 			}
 		})
 	})
+}
+
+// TestInfluenceRecordedCallVectors replays v4.json's influence.recordedCall as TestRecordedCallVectors replays
+// recordedCall, at a verifier that acts on influence, whose item check is influence.Items: the items are read once
+// the offline order gives OK, before the call is held to its session's limits (verification.md, Offline
+// verification), so a call past the limits whose items do not read is INFLUENCE_MISMATCH, not OUTSIDE_SESSION.
+func TestInfluenceRecordedCallVectors(t *testing.T) {
+	v4 := vectors.Load(t, "v4.json")
+	cases := v4.Get("influence").Get("recordedCall")
+	if cases.Len() != 1 {
+		t.Fatalf("v4.json has %d influence.recordedCall cases, want 1", cases.Len())
+	}
+	cases.Each(func(name string, c vectors.Node) {
+		t.Run(name, func(t *testing.T) {
+			c := c.With(t)
+			if !extensions(t, c).ActsOnName(influence.Name) {
+				t.Fatal("the case's settings do not act on influence")
+			}
+			// The case this replay is written for: calls that read and calls that do not, within the session's
+			// limits and past them.
+			want := answers(c)
+			if !slices.Equal(want, []reason.Code{reason.OK, reason.InfluenceMismatch, reason.InfluenceMismatch,
+				reason.OutsideSession}) {
+				t.Fatalf("the case expects %v", want)
+			}
+			if got := replayCalls(t, v4, c, influence.Items); !slices.Equal(got, want) {
+				t.Fatalf("the calls give %v, want %v", got, want)
+			}
+			// With no item check the same calls are judged by the core alone, so the session's limits decide: the
+			// third call, whose items do not read and which is past them, is OUTSIDE_SESSION.
+			core := []reason.Code{reason.OK, reason.OK, reason.OutsideSession, reason.OutsideSession}
+			if got := replayCalls(t, v4, c, nil); !slices.Equal(got, core) {
+				t.Fatalf("with no item check, the calls give %v, want %v", got, core)
+			}
+		})
+	})
+}
+
+// replayCalls checks case c's calls in order against one fresh set of spent keys, each by Call with items in the
+// session of the handshake it names, with the config that session gives, and returns each call's reason.
+func replayCalls(t *testing.T, v4, c vectors.Node, items offline.ItemCheck) []reason.Code {
+	t.Helper()
+	var sessions []offline.RecordedSession
+	c.Get("handshakes").Each(func(_ string, h vectors.Node) {
+		sessions = append(sessions, record(t, v4, h.With(t)))
+	})
+	records := offline.NewRecordSet()
+	if c.Get("calls").Len() != c.Get("expected").Len() {
+		t.Fatalf("the case gives %d calls and %d answers", c.Get("calls").Len(), c.Get("expected").Len())
+	}
+	var got []reason.Code
+	policies := v4.With(t).Get("policies")
+	for i := range c.Get("calls").Len() {
+		call := c.Get("calls").Index(i)
+		s := sessions[call.Get("handshake").Int()]
+		cfg, ok := s.CallConfig(c.Get("allowedOrigins").Strs(), optionalInt(c.Get("runMaxAgeMs")),
+			optionalInt(c.Get("callMaxAgeMs")), extensions(t, c))
+		if !ok {
+			t.Fatalf("call %d: no config, though every handshake here is attested", i)
+		}
+		in := input(t, call, policies.Get(call.Get("policy").Str()))
+		r, ok := records.Call(in, cfg, s, items)
+		if !ok {
+			t.Fatalf("call %d: no result, though every handshake here is attested", i)
+		}
+		if (r.HandOver != nil) != r.OK() {
+			t.Errorf("call %d: a %s result has the hand-over %v", i, r.Reason, r.HandOver)
+		}
+		got = append(got, r.Reason)
+	}
+	return got
+}
+
+// answers returns the reasons case c expects of its calls, in order.
+func answers(c vectors.Node) []reason.Code {
+	var want []reason.Code
+	c.Get("expected").Each(func(_ string, e vectors.Node) {
+		want = append(want, reason.Code(e.Get("reason").Str()))
+	})
+	return want
 }
 
 // record reads h, a handshake in the recordedHandshake shape, from its tokens, its pin named in file's keys.
