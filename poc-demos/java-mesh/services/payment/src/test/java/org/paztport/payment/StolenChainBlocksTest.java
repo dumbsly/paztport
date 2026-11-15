@@ -5,6 +5,8 @@ package org.paztport.payment;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
@@ -39,7 +41,7 @@ import org.paztport.http.wire.HttpWire;
 import org.paztport.http.wire.PaztportHeaders;
 import org.paztport.http.wire.RequestBinding;
 
-// Payment's side of rows 4 and 4b, over a real receiver and verifier set up as payment's are: it verifies, acts on
+// Payment's side of rows 4, 4b and 8c, over a real receiver and verifier set up as payment's are: it verifies, acts on
 // influence, and trusts the routes the demo's policy holds, none of which goes from search to payment. A gateway
 // that acts on influence commits its stamp to a block that is not the empty one, so a chain search stole reaches the
 // route check only with the blocks it came with; without them, or with one altered, check 9a refuses it first.
@@ -91,10 +93,15 @@ class StolenChainBlocksTest {
         return headers;
     }
 
-    /** Payment's decision on {@code headers}, sent from search over mutual TLS to the handler of pay. */
+    /** Payment's decision on {@code headers} under {@code enforce}, as {@link #fromSearch(Map, VerificationMode)}. */
     private Accepted fromSearch(Map<String, String> headers) {
+        return fromSearch(headers, VerificationMode.ENFORCE);
+    }
+
+    /** Payment's decision on {@code headers} in {@code mode}, sent from search over mutual TLS to pay's handler. */
+    private Accepted fromSearch(Map<String, String> headers, VerificationMode mode) {
         return payment.accept(new InboundRequest("POST", "/pay", headers, BODY, "pay"), new Peer("search", "search-1"),
-                VerificationMode.ENFORCE);
+                mode);
     }
 
     private void assertRefused(Accepted accepted, String reason) {
@@ -127,5 +134,26 @@ class StolenChainBlocksTest {
                 HttpWire.encodeBlocks(List.of(Influence.block(List.of(added), List.of()), Block.EMPTY)));
 
         assertRefused(fromSearch(headers), "EXTENSION_MISMATCH");
+    }
+
+    // Row 8c: under audit the stolen chain with its blocks fails the route check and is served, unverified, with an
+    // audit event; without them it is not served even under audit, since no hop serves a request whose blocks fail
+    // check 9a (verification.md, Modes and refusals).
+    @Test
+    void underAuditTheStolenChainIsServedOnlyWithItsBlocks() {
+        Accepted served = fromSearch(stolenAndForwarded(), VerificationMode.AUDIT);
+        assertNull(served.refusal(), "served");
+        assertNull(served.verifiedChain(), "and not verified");
+        AttestationEvent event = events.get(events.size() - 1);
+        assertEquals("PATH_NOT_ALLOWED", event.reason());
+        assertTrue(event.audit(), "the event says it was audit's");
+
+        Map<String, String> headers = stolenAndForwarded();
+        headers.remove(PaztportHeaders.EXTENSIONS);
+        Accepted refused = fromSearch(headers, VerificationMode.AUDIT);
+        assertNotNull(refused.refusal(), "refused");
+        assertEquals(400, refused.refusal().status());
+        assertEquals("{\"reason\":\"EXTENSION_MISMATCH\"}",
+                new String(refused.refusal().json(), StandardCharsets.UTF_8));
     }
 }

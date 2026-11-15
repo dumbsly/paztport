@@ -109,15 +109,18 @@ class AttackControllerTest {
         }
     }
 
-    // Two stolen stamps, the second's block holding an entry, so altering every block, or the last stolen one,
-    // is told apart from altering the gateway's alone.
+    // Two stolen stamps, each block holding an entry, so altering every block, or the last stolen one, is told apart
+    // from altering the gateway's alone, and an alteration that drops or reorders the gateway's entry is seen. The
+    // live gateway's block holds none.
     @Test
     void forwardAlteredAltersOneBlockAndOnlyOne() {
+        InfluenceEntry page = new InfluenceEntry(InfluenceClass.PUBLIC, "http:docs", "h0", null, null);
+        Block gatewayPageBlock = Influence.block(List.of(page), List.of());
         InfluenceEntry ticket = new InfluenceEntry(InfluenceClass.THIRD_PARTY, "ticket:t-1", "h1", null, null);
         Block ticketsBlock = Influence.block(List.of(ticket), List.of());
-        List<Stamp> fromGateway = gateway.next(null, "tickets", "bind", gatewayBlock, null).chain();
+        List<Stamp> fromGateway = gateway.next(null, "tickets", "bind", gatewayPageBlock, null).chain();
         List<Stamp> stolen = tickets.next(fromGateway, "search", "bind", ticketsBlock, null).chain();
-        store.record(stolen, List.of(gatewayBlock, ticketsBlock));
+        store.record(stolen, List.of(gatewayPageBlock, ticketsBlock));
         MockRestServiceServer[] payment = new MockRestServiceServer[1];
         AttackController attacker = attacker(payment);
 
@@ -135,12 +138,12 @@ class AttackControllerTest {
         assertEquals(3, blocks.size(), "one block per stamp");
 
         Block altered = blocks.get(0);
-        assertEquals(gatewayBlock.names(), altered.names(), "the gateway's block names what it named");
-        assertEquals(gatewayBlock.requires(), altered.requires(), "and requires what it required");
+        assertEquals(gatewayPageBlock.names(), altered.names(), "the gateway's block names what it named");
+        assertEquals(gatewayPageBlock.requires(), altered.requires(), "and requires what it required");
         List<String> added = new ArrayList<>(altered.itemsUnder(Influence.NAME));
-        assertEquals(gatewayBlock.itemsUnder(Influence.NAME), added.subList(0, added.size() - 1),
+        assertEquals(gatewayPageBlock.itemsUnder(Influence.NAME), added.subList(0, added.size() - 1),
                 "the gateway's own items are kept, in order");
-        assertEquals(gatewayBlock.itemsUnder(Influence.NAME).size() + 1, added.size(), "one influence entry added");
+        assertEquals(gatewayPageBlock.itemsUnder(Influence.NAME).size() + 1, added.size(), "one influence entry added");
         InfluenceEntry.parse(added.get(added.size() - 1));
         assertNotEquals(chain.get(0).ext(), altered.commit(), "the gateway's stamp no longer commits to its block");
 

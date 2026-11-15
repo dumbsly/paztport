@@ -16,6 +16,8 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 import org.paztport.core.crypto.Crypto;
 import org.paztport.core.influence.Influence;
+import org.paztport.core.influence.InfluenceClass;
+import org.paztport.core.influence.InfluenceEntry;
 import org.paztport.core.policy.PolicyBuilder;
 import org.paztport.core.stamp.Block;
 import org.paztport.core.stamp.Chains;
@@ -74,8 +76,10 @@ class AttackControllerTest {
                 () -> UUID.randomUUID().toString(), System::currentTimeMillis);
         Stamper orders = new Stamper("orders", "orders-1", Crypto.generateEd25519KeyPair().getPrivate(), false,
                 () -> "unused", System::currentTimeMillis);
-        // The gateway acts on influence, so its block names it with nothing added: not the empty block.
-        Block gatewayBlock = Influence.block(List.of(), List.of());
+        // The gateway's block holds an entry, where the live gateway's holds none, so a steer that sent orders' own
+        // block in its place, or a copy of it as orders' own, is told apart from one that sends each where it belongs.
+        InfluenceEntry ticket = new InfluenceEntry(InfluenceClass.THIRD_PARTY, "ticket:t-1", "aGFzaA", null, null);
+        Block gatewayBlock = Influence.block(List.of(ticket), List.of());
         List<Stamp> stolen = gateway.next(null, "orders#getOrder", "bind", gatewayBlock, null).chain();
 
         StolenChainStore store = new StolenChainStore();
