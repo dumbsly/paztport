@@ -12,8 +12,8 @@ import (
 
 	"github.com/dumbsly/paztport/poc-sdks/go/influence"
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/b64"
-	"github.com/dumbsly/paztport/poc-sdks/go/internal/json"
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/vectors"
+	"github.com/dumbsly/paztport/poc-sdks/go/internal/vectors/handover"
 	"github.com/dumbsly/paztport/poc-sdks/go/offline"
 	"github.com/dumbsly/paztport/poc-sdks/go/policy"
 	"github.com/dumbsly/paztport/poc-sdks/go/reason"
@@ -42,9 +42,8 @@ func TestVectors(t *testing.T) {
 	})
 }
 
-// matches checks got against what case c expects: its reason and suspect, and its hand-over, which is absent or
-// null for none, and otherwise holds, for each name the case acts on, one entry per stamp, items null where the
-// stamp's block does not name the extension. Each item is compared as the canonical text of its JSON value.
+// matches checks got against what case c expects: its reason and suspect, and its hand-over, which is null for
+// none, and otherwise verified and as handover.Expected reads it.
 func matches(t *testing.T, got verify.Result, c vectors.Node) {
 	t.Helper()
 	plain := got
@@ -52,53 +51,11 @@ func matches(t *testing.T, got verify.Result, c vectors.Node) {
 	if want := expected(c); plain != want {
 		t.Fatalf("Verify = %+v, want %+v", plain, want)
 	}
-	e := c.Get("expected")
-	if !e.Has("handOver") || e.Get("handOver").IsNull() {
-		if got.HandOver != nil {
-			t.Fatalf("Verify handed over %q, want nothing", got.HandOver.Names())
-		}
-		return
-	}
-	if got.HandOver == nil || !got.HandOver.Verified() {
+	want := handover.Expected(t, c.Get("expected").Get("handOver").Raw())
+	if want != nil && (got.HandOver == nil || !got.HandOver.Verified()) {
 		t.Fatalf("Verify handed over %v, want a verified hand-over", got.HandOver)
 	}
-	want := e.Get("handOver")
-	names := slices.Clone(want.Names())
-	slices.Sort(names)
-	if !slices.Equal(got.HandOver.Names(), names) {
-		t.Fatalf("the hand-over holds %q, want %q", got.HandOver.Names(), names)
-	}
-	for _, name := range names {
-		var entries []verify.StampItems
-		want.Get(name).Each(func(_ string, n vectors.Node) {
-			entry := verify.StampItems{Svc: n.Get("svc").Str()}
-			if items := n.Get("items"); !items.IsNull() {
-				entry.Named, entry.Items = true, []string{}
-				items.Each(func(_ string, item vectors.Node) { entry.Items = append(entry.Items, canonical(t, item)) })
-			}
-			entries = append(entries, entry)
-		})
-		under, ok := got.HandOver.Under(name)
-		if !ok || !slices.EqualFunc(under, entries, func(a, b verify.StampItems) bool {
-			return a.Svc == b.Svc && a.Named == b.Named && slices.Equal(a.Items, b.Items)
-		}) {
-			t.Fatalf("Under(%s) = %+v, %t, want %+v", name, under, ok, entries)
-		}
-	}
-}
-
-// canonical returns the JCS text of the JSON value n holds.
-func canonical(t *testing.T, n vectors.Node) string {
-	t.Helper()
-	v, err := json.ReadFile(n.Raw())
-	if err != nil {
-		t.Fatalf("an item: %v", err)
-	}
-	b, err := json.Wire(v)
-	if err != nil {
-		t.Fatalf("an item has no canonical text: %v", err)
-	}
-	return string(b)
+	handover.Match(t, "Verify", got.HandOver, want)
 }
 
 // extensions returns the settings case c gives: acting on actsOn and carrying any name, or, where
