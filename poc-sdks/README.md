@@ -13,16 +13,19 @@ policy, verification, influence and sessions. The demos in
   protocol's packages, and `paztporthttp` with its `wire` and `boundary` packages.
 - [spec](spec/README.md): the written protocol spec and the shared conformance vectors. The TypeScript SDK
   replays `v4.json`. Java replays `v4.json` in `paztport-core`, but for what belongs to the MCP profile, and
-  `http-v4.json` in `paztport-http`. The Go SDK replays `v3.json`, but for its MCP profile sections, and
-  `http-v3.json`, until it moves to version 4. All three replay `events.json`, `json.json` and `ed25519.json`.
+  `http-v4.json` in `paztport-http`. The Go SDK's core replays `v4.json`, but for its MCP profile sections and
+  the MCP-only parts of `influence`, and `http-v4.json`'s `operations` and `boundaryInfluence`; its `paztporthttp`
+  packages replay `http-v3.json` until the next plan moves them to version 4. `v3.json` is replayed by no SDK and
+  stays, frozen, until the close. All three replay `events.json`, `json.json` and `ed25519.json`.
 - `scripts/`: the link, import and jar checks that `./run test` runs, the tests for `./run`,
   and `third-party.sh`, which regenerates `THIRD-PARTY.txt` from both Java trees.
 
 ## On the wire
 
 The full format is in the [protocol spec](spec/README.md): every byte layout, binding, check and code. This is
-a summary of version 4, which the TypeScript SDK and Java's `paztport-core` and `paztport-http` speak. The Go SDK
-speaks version 3, which `v3.json` and `http-v3.json` record, until it moves to version 4.
+a summary of version 4, which the TypeScript SDK and Java's `paztport-core` and `paztport-http` speak. The Go SDK's core
+speaks version 4 too; its `paztporthttp` packages speak version 3, which `http-v3.json` records, until the next plan
+moves them to version 4.
 
 A stamp is a JSON object, and a chain is an array of them, origin first:
 
