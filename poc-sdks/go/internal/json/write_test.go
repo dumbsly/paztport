@@ -305,7 +305,7 @@ func fileLength(v json.Value) (int, error) {
 // TestHashedText checks the string form for hashed content: RFC 8785's escapes as Wire writes them, a
 // noncharacter as itself, and no text that is not valid UTF-8.
 func TestHashedText(t *testing.T) {
-	for _, s := range []string{"plain", "a\"b\\c\n\t\x01", "\x7f", " ", "\U0001F600"} {
+	for _, s := range []string{"plain", "a\"b\\c\n\t\x01", "\x7f", "\u2028", "\U0001F600"} {
 		want, err := json.Wire(json.S(s))
 		if err != nil {
 			t.Fatal(err)

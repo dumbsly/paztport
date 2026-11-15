@@ -159,16 +159,16 @@ func (w *writer) string(s string) error {
 // hashed is not text a reader reads back. It refuses s unless it is valid UTF-8, since a lone surrogate has
 // no text to hash.
 func HashedText(s string) (string, error) {
-	if !text.Valid(s) {
-		return "", refuse(StepWrite, "a string that is not valid UTF-8, such as the bytes of a lone surrogate")
+	if err := checkValid(s); err != nil {
+		return "", err
 	}
 	w := writer{}
 	w.escaped(s)
 	return string(w.out), nil
 }
 
-// escaped appends s, which must be valid UTF-8, quoted and escaped as RFC 8785 §3.2.2.2 says. Wire and
-// HashedText share it, so the rule is written once.
+// escaped appends s, which must be valid UTF-8, quoted and escaped as RFC 8785 §3.2.2.2 says. Its callers are
+// the writer's string method, which Wire, Token and File use, and HashedText, so the rule is written once.
 func (w *writer) escaped(s string) {
 	const hex = "0123456789abcdef"
 	w.out = append(w.out, '"')
@@ -218,11 +218,19 @@ func canonicalOrder(members []Member) ([]Member, error) {
 
 // checkText refuses s unless it is text a reader reads: valid UTF-8, and no noncharacter.
 func checkText(s string) error {
-	if !text.Valid(s) {
-		return refuse(StepWrite, "a string that is not valid UTF-8, such as the bytes of a lone surrogate")
+	if err := checkValid(s); err != nil {
+		return err
 	}
 	if text.HasNoncharacter(s) {
 		return refuse(StepWrite, "a string holding a noncharacter")
+	}
+	return nil
+}
+
+// checkValid refuses s unless it is valid UTF-8, since a lone surrogate has no text to write or to hash.
+func checkValid(s string) error {
+	if !text.Valid(s) {
+		return refuse(StepWrite, "a string that is not valid UTF-8, such as the bytes of a lone surrogate")
 	}
 	return nil
 }
