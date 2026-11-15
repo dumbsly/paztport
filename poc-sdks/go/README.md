@@ -80,17 +80,23 @@ replace github.com/dumbsly/paztport/poc-sdks/go => ../path/to/poc-sdks/go
   their sessions, whose `CallConfig` gives the settings a call is checked under.
 - `event`: responder events, their signed envelope, and the `Responder`'s checks.
 - `reason`: the reason codes.
-- `paztporthttp`: between versions until the next plan, version 3 behaviour over HTTP at a service: the `Receiver`, the `Caller`, peers
-  from client certificates, and a partner's `Sessions` and handshake endpoint.
+- `paztporthttp` (between versions until the next plan): Paztport over HTTP at a
+  service, with the `Receiver`, the `Caller`, peers from client certificates, and
+  a partner's `Sessions` and handshake endpoint.
 - `paztporthttp/wire`: the headers, the request binding, the result hash and the
   caller's check of a response.
 - `paztporthttp/boundary`: the egress, which opens a session with a partner and
-  sends each call across with its boundary stamp and blinded influence.
+  sends each call across with its boundary stamp. Until the next plan the stamp
+  attaches the empty block and no blinded influence is sent.
 - `internal/`: the JSON reader and writer, base64url, the checks the verifiers
   share, exact time arithmetic, string checks, and, for tests only, the vector
   reader and an import guard.
 
 ## What the embedder does
+
+`paztporthttp` and its two packages, `wire` and `boundary`, are between versions
+until the next plan: the bullets below describe their behaviour as it was at
+version 3, except where a bullet says otherwise.
 
 The packages decide; the code that embeds them carries out what they decide:
 
