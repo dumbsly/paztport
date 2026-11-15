@@ -18,6 +18,7 @@ import (
 	"github.com/dumbsly/paztport/poc-sdks/go/influence"
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/b64"
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/vectors"
+	"github.com/dumbsly/paztport/poc-sdks/go/internal/vectors/handover"
 	"github.com/dumbsly/paztport/poc-sdks/go/paztporthttp"
 	"github.com/dumbsly/paztport/poc-sdks/go/paztporthttp/boundary"
 	"github.com/dumbsly/paztport/poc-sdks/go/paztporthttp/wire"
@@ -25,17 +26,26 @@ import (
 	"github.com/dumbsly/paztport/poc-sdks/go/reason"
 	"github.com/dumbsly/paztport/poc-sdks/go/session"
 	"github.com/dumbsly/paztport/poc-sdks/go/stamp"
+	"github.com/dumbsly/paztport/poc-sdks/go/verify"
 )
 
-// A call's body, and the refusal that drops a session.
+// A call's body, and the refusals that drop a session.
 var (
 	charge         = []byte(`{"charge":100}`)
 	sessionUnknown = []byte(`{"reason":"SESSION_UNKNOWN"}`)
+	policyExpired  = []byte(`{"reason":"POLICY_EXPIRED"}`)
 	ok200          = scriptedAnswer{status: 200, body: []byte(`{"ok":true}`)}
 )
 
-// fixture is the first egress case's egress and the request its receiver accepted, with a clock the test
-// moves and a partner scripted by the test.
+// The egress cases whose inbound request the unit tests take, beside the first case's: in one an internal
+// stamp's block does not name influence, and in the other every stamp's block names it and holds nothing.
+const (
+	unnamedCase = "an internal stamp whose block does not name influence: the boundary block names nothing"
+	emptyCase   = "every internal stamp naming influence, with none held: the block names it with []"
+)
+
+// fixture is an egress case's egress and the request its receiver accepted, with a clock the test moves and
+// a partner scripted by the test.
 type fixture struct {
 	cfg     boundary.Config
 	e       *boundary.Egress
@@ -44,10 +54,37 @@ type fixture struct {
 	partner *scriptedPartner
 }
 
-// newFixture returns the fixture with a partner scripted with handshakes, replacement and calls.
+// newFixture returns the first egress case's fixture, its partner scripted with handshakes, replacement and
+// calls.
 func newFixture(t testing.TB, handshakes []string, replacement string, calls ...scriptedAnswer) *fixture {
 	t.Helper()
-	c := vectors.Rules(t).Get("egress").Index(0)
+	return caseFixture(t, vectors.Rules(t).Get("egress").Index(0), handshakes, replacement, calls...)
+}
+
+// namedFixture returns the fixture of the egress case called name.
+func namedFixture(t testing.TB, name string, handshakes []string, replacement string,
+	calls ...scriptedAnswer,
+) *fixture {
+	t.Helper()
+	var found *vectors.Node
+	vectors.Rules(t).Get("egress").Each(func(n string, c vectors.Node) {
+		if n == name {
+			found = &c
+		}
+	})
+	if found == nil {
+		t.Fatalf("no egress case is called %q", name)
+	}
+	return caseFixture(t, *found, handshakes, replacement, calls...)
+}
+
+// caseFixture returns egress case c's fixture: its egress, under its own settings and requirement, and the
+// request its receiver accepted under the inbound's settings.
+func caseFixture(t testing.TB, c vectors.Node, handshakes []string, replacement string,
+	calls ...scriptedAnswer,
+) *fixture {
+	t.Helper()
+	c = c.With(t)
 	in := c.Get("inbound")
 	clock := &atomic.Int64{}
 	clock.Store(in.Get("now").Int())
@@ -56,11 +93,34 @@ func newFixture(t testing.TB, handshakes []string, replacement string, calls ...
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
+	a := acceptInbound(t, in, handover.Settings(t, in.Get("actsOn").Raw(), in.Get("allowedExtensions").Raw()))
 	return &fixture{
-		cfg: cfg, e: e, a: acceptInbound(t, in), clock: clock,
+		cfg: cfg, e: e, a: a, clock: clock,
 		partner: newScriptedPartner(t, c.Get("egress").Get("material").Str(), clock.Load(), handshakes, replacement,
 			calls...),
 	}
+}
+
+// remake remakes the fixture's egress with its configuration changed by change.
+func (f *fixture) remake(t testing.TB, change func(*boundary.Config)) {
+	t.Helper()
+	change(&f.cfg)
+	e, err := boundary.New(f.cfg)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	f.e = e
+}
+
+// require remakes the fixture's egress requiring names of the partner, going on without them when
+// continueWithout is true.
+func (f *fixture) require(t testing.TB, names []string, continueWithout bool) {
+	t.Helper()
+	need, err := session.NewRequirement(names, continueWithout)
+	if err != nil {
+		t.Fatalf("NewRequirement: %v", err)
+	}
+	f.remake(t, func(c *boundary.Config) { c.Requirement = need })
 }
 
 // run drives the exchange x, whose first step is step, answering each step from the partner, and returns
@@ -82,24 +142,54 @@ func (f *fixture) run(t testing.TB, x *boundary.Exchange, step boundary.Step) bo
 	return out
 }
 
-// post begins a call of charge to /charge under infl and runs it to its end.
-func (f *fixture) post(t testing.TB, infl []influence.Entry) boundary.Outcome {
+// post begins a call of charge to /charge with what the request added at the egress, added, and runs it to
+// its end.
+func (f *fixture) post(t testing.TB, added []influence.Entry) boundary.Outcome {
 	t.Helper()
-	x, step, err := f.e.Begin(f.a, infl, "/charge", charge)
+	x, step, err := f.e.Begin(f.a, added, "/charge", charge)
 	if err != nil {
 		t.Fatalf("Begin: %v", err)
 	}
 	return f.run(t, x, step)
 }
 
-// begin begins a call of charge to /charge under the request's own influence.
+// begin begins a call of charge to /charge, the request having added nothing at the egress.
 func (f *fixture) begin(t testing.TB) (*boundary.Exchange, boundary.Step) {
 	t.Helper()
-	x, step, err := f.e.Begin(f.a, f.a.Influence, "/charge", charge)
+	x, step, err := f.e.Begin(f.a, nil, "/charge", charge)
 	if err != nil {
 		t.Fatalf("Begin: %v", err)
 	}
 	return x, step
+}
+
+// call begins a call of charge to /charge with added, answers the handshake from the partner, and returns the
+// exchange and the call's step.
+func (f *fixture) call(t testing.TB, added []influence.Entry) (*boundary.Exchange, boundary.Step) {
+	t.Helper()
+	x, step, err := f.e.Begin(f.a, added, "/charge", charge)
+	if err != nil {
+		t.Fatalf("Begin: %v", err)
+	}
+	if !step.Handshake {
+		t.Fatalf("Begin gave the call %+v, want the handshake first", step)
+	}
+	step, more, err := x.Answer(f.partner.serve(t, step))
+	if err != nil || !more || step.Handshake {
+		t.Fatalf("Answer = %+v, %v, %v; want the call", step, more, err)
+	}
+	return x, step
+}
+
+// handedOn returns the entries the fixture's request was handed on under influence, read as the egress reads
+// them.
+func (f *fixture) handedOn(t testing.TB) []influence.Entry {
+	t.Helper()
+	stamps, ok := f.a.HandOver.Under(influence.Name)
+	if !ok {
+		t.Fatal("the fixture's receiver does not act on influence")
+	}
+	return influence.ReadRequest(stamps).Entries
 }
 
 // fixStamperClock remakes the fixture's egress with a stamper whose clock stays at the fixture's start, so
@@ -109,12 +199,7 @@ func (f *fixture) fixStamperClock(t testing.TB) {
 	start := f.clock.Load()
 	s := *f.cfg.Stamper
 	s.Now = func() int64 { return start }
-	f.cfg.Stamper = &s
-	e, err := boundary.New(f.cfg)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-	f.e = e
+	f.remake(t, func(c *boundary.Config) { c.Stamper = &s })
 }
 
 // header returns the value of step's header called name, or "" when it has none.
@@ -127,20 +212,62 @@ func header(step boundary.Step, name string) string {
 	return ""
 }
 
+// headerNames returns the names of step's headers, in order.
+func headerNames(step boundary.Step) []string {
+	names := make([]string, len(step.Headers))
+	for i, h := range step.Headers {
+		names[i] = h.Name
+	}
+	return names
+}
+
+// stampedCall reads an attested call's step: its one boundary stamp and its one block, failing t unless the
+// step carries both, the stamp in the call's session and committing to the block.
+func stampedCall(t testing.TB, step boundary.Step) (stamp.Stamp, stamp.Block) {
+	t.Helper()
+	want := []string{"Content-Type", wire.Session, wire.Chain, wire.Proof, wire.Extensions}
+	if got := headerNames(step); !slices.Equal(got, want) {
+		t.Fatalf("an attested call's headers are %q, want %q", got, want)
+	}
+	chain, code := stamp.ReadChain(header(step, wire.Chain))
+	if code != reason.OK || len(chain) != 1 {
+		t.Fatalf("the call's chain is %+v (%s), want one boundary stamp", chain, code)
+	}
+	bs, err := stamp.ReadBlocks(header(step, wire.Extensions))
+	if err != nil || len(bs) != 1 {
+		t.Fatalf("the call's blocks are %d, %v; want one", len(bs), err)
+	}
+	if chain[0].Ext != bs[0].Commit() || chain[0].Sess != header(step, wire.Session) {
+		t.Fatalf("the boundary stamp %+v does not commit to its block in the call's session", chain[0])
+	}
+	return chain[0], bs[0]
+}
+
+// namesNothing fails t unless block names no extension and requires nothing, and step keeps no entries.
+func namesNothing(t testing.TB, block stamp.Block, step boundary.Step) {
+	t.Helper()
+	if len(block.Names()) != 0 || len(block.Requires()) != 0 || block.Commit() != "" {
+		t.Fatalf("the boundary block is %s, want one naming nothing", block.Wire())
+	}
+	if step.Originals != nil || step.Sent != nil {
+		t.Fatalf("the step keeps %+v and %+v, want no entries", step.Originals, step.Sent)
+	}
+}
+
 // TestBeginRefusesWithoutAVerifiedChain: a request whose chain did not pass the live order at this hop
 // makes the egress sign and send nothing, the handshake included.
 func TestBeginRefusesWithoutAVerifiedChain(t *testing.T) {
 	f := newFixture(t, []string{"attested"}, "unsafe", ok200)
-	if !f.a.Verified || len(f.a.Inbound) == 0 {
+	if !f.a.Verified || len(f.a.Inbound.Chain) == 0 {
 		t.Fatal("the fixture's request did not verify")
 	}
 	for name, a := range map[string]paztporthttp.Accepted{
 		"the zero Accepted":            {},
-		"a chain that did not verify":  {Inbound: f.a.Inbound, Influence: f.a.Influence},
-		"verified with no chain":       {Verified: true, Influence: f.a.Influence},
-		"verified with an empty chain": {Verified: true, Inbound: stamp.Chain{}, Influence: f.a.Influence},
+		"a chain that did not verify":  {Inbound: f.a.Inbound, HandOver: f.a.HandOver},
+		"verified with no chain":       {Verified: true, HandOver: f.a.HandOver},
+		"verified with an empty chain": {Verified: true, Inbound: paztporthttp.Inbound{Chain: stamp.Chain{}}},
 	} {
-		x, step, err := f.e.Begin(a, a.Influence, "/charge", charge)
+		x, step, err := f.e.Begin(a, nil, "/charge", charge)
 		if !errors.Is(err, boundary.ErrNotVerified) || x != nil || !reflect.DeepEqual(step, boundary.Step{}) {
 			t.Errorf("Begin with %s = %v, %+v, %v; want ErrNotVerified and nothing to send", name, x, step, err)
 		}
@@ -199,75 +326,304 @@ func TestHandshakeRequests(t *testing.T) {
 	}
 }
 
-// TestAttestedCallStep: in an attested session the call's step carries the originals, normalised, and the
-// blinded entries sent, so the embedder can keep them before it sends; the stamp commits to the entries
-// sent. In an unsafe session it carries neither.
-func TestAttestedCallStep(t *testing.T) {
+// TestTheBoundaryBlockHoldsTheBlindedEntries: where the egress acts on influence and every internal stamp
+// names it, the boundary block names influence with the blinded entries of what the request holds, the entries
+// handed on and those the service added, and the step keeps the originals, normalised, and the entries sent, so
+// the embedder can keep them before it sends.
+func TestTheBoundaryBlockHoldsTheBlindedEntries(t *testing.T) {
 	f := newFixture(t, []string{"attested"}, "unsafe", ok200)
-	// Out of order and with a duplicate, so that normalising changes it.
+	handed := f.handedOn(t)
+	if len(handed) != 2 {
+		t.Fatalf("the fixture's request was handed on %+v, want two entries", handed)
+	}
+	// Of a class nothing handed on holds, out of order and with a duplicate, so that each source of the
+	// entries shows in what is sent, and normalising changes the originals.
 	page := influence.Entry{Class: influence.ThirdParty, Src: "web:example.com", H: "h-page"}
-	infl := slices.Concat([]influence.Entry{
-		{Class: influence.ThirdParty, Src: "web:example.org", H: "h-page-2"}, page,
-	}, f.a.Influence, []influence.Entry{page})
-	x, step, err := f.e.Begin(f.a, infl, "/charge", charge)
-	if err != nil {
-		t.Fatalf("Begin: %v", err)
+	added := []influence.Entry{{Class: influence.ThirdParty, Src: "web:example.org", H: "h-page-2"}, page, page}
+	x, step := f.call(t, added)
+	held := slices.Concat(handed, added)
+	if want := influence.Normalise(held); len(want) != 4 || !slices.Equal(step.Originals, want) {
+		t.Fatalf("Originals = %+v, want %+v", step.Originals, want)
 	}
-	step, more, err := x.Answer(f.partner.serve(t, step))
-	if err != nil || !more {
-		t.Fatalf("Answer = %v, %v; want the call", more, err)
-	}
-	if normalised := influence.Normalise(infl); len(normalised) != 4 || !slices.Equal(step.Originals, normalised) {
-		t.Fatalf("Originals = %+v, want the influence normalised", step.Originals)
-	}
-	want, err := influence.Reduce(infl, f.cfg.BoundaryKey, f.a.Inbound[0].RID, "psp", "payment")
+	want, err := influence.Reduce(held, f.cfg.BoundaryKey, f.a.Inbound.Chain[0].RID, "psp", "payment")
 	if err != nil {
 		t.Fatalf("Reduce: %v", err)
 	}
 	if len(want) != 3 || !slices.Equal(step.Sent, want) {
 		t.Fatalf("Sent = %+v, want %+v", step.Sent, want)
 	}
-	sent, err := influence.ReadEntries(header(step, wire.Influence))
-	if err != nil || !slices.Equal(sent, step.Sent) {
-		t.Fatalf("the influence header holds %+v, %v; want the entries sent", sent, err)
+	_, block := stampedCall(t, step)
+	wantBlock, err := influence.RequestBlock(want, nil)
+	if err != nil {
+		t.Fatalf("RequestBlock: %v", err)
 	}
-	chain, code := stamp.ReadChain(header(step, wire.Chain))
-	commit, err := influence.Commit(step.Sent)
-	if code != reason.OK || err != nil || len(chain) != 1 || chain[0].Infl != commit ||
-		chain[0].Sess != header(step, wire.Session) {
-		t.Fatalf("the boundary stamp is %+v, want one committing to the entries sent in the session", chain)
+	if !bytes.Equal(block.Wire(), wantBlock.Wire()) {
+		t.Fatalf("the boundary block is %s, want %s", block.Wire(), wantBlock.Wire())
 	}
 	if out := f.run(t, x, step); !out.Attested {
 		t.Fatal("the call was not attested")
 	}
+}
 
-	// With no influence the stamp commits to none, infl "", and the call carries no influence header.
-	n := newFixture(t, []string{"attested"}, "unsafe", ok200)
-	x, step, err = n.e.Begin(n.a, nil, "/charge", charge)
+// TestTheBoundaryBlockNamesInfluenceWithNothingHeld: where every internal stamp names influence and the
+// request holds nothing, the boundary block names influence with [], and the step keeps empty lists, not
+// none, since a block that names influence is one whose entries the sender may be asked to open.
+func TestTheBoundaryBlockNamesInfluenceWithNothingHeld(t *testing.T) {
+	f := namedFixture(t, emptyCase, []string{"attested"}, "unsafe", ok200)
+	if handed := f.handedOn(t); len(handed) != 0 {
+		t.Fatalf("the case's request was handed on %+v, want nothing", handed)
+	}
+	_, step := f.call(t, nil)
+	_, block := stampedCall(t, step)
+	items, named := block.Items(influence.Name)
+	if !named || len(items) != 0 || !slices.Equal(block.Names(), []string{influence.Name}) {
+		t.Fatalf("the boundary block is %s, want influence named with []", block.Wire())
+	}
+	if step.Originals == nil || len(step.Originals) != 0 || step.Sent == nil || len(step.Sent) != 0 {
+		t.Fatalf("the step keeps %#v and %#v, want two empty lists", step.Originals, step.Sent)
+	}
+}
+
+// TestTheBoundaryBlockNamesNothingWhenAnInternalStampDoesNot: one internal stamp whose block does not name
+// influence makes the boundary block name nothing, {items: {}, requires}, whatever the request holds: no entry
+// is blinded or kept, so an added entry the boundary key could not blind does not stop the call.
+func TestTheBoundaryBlockNamesNothingWhenAnInternalStampDoesNot(t *testing.T) {
+	f := namedFixture(t, unnamedCase, []string{"attested"}, "unsafe", ok200)
+	if handed := f.handedOn(t); len(handed) != 2 {
+		t.Fatalf("the case's request was handed on %+v, want two entries", handed)
+	}
+	unblindable := influence.Entry{Class: influence.ThirdParty, Src: "web:" + string([]byte{0xFF}), H: "h"}
+	added := []influence.Entry{{Class: influence.ThirdParty, Src: "web:example.com", H: "h-page"}, unblindable}
+	x, step := f.call(t, added)
+	_, block := stampedCall(t, step)
+	namesNothing(t, block, step)
+	if out := f.run(t, x, step); !out.Attested || out.Status != 200 {
+		t.Fatalf("the call ended %+v, want answered attested", out)
+	}
+}
+
+// TestAnEgressNotActingOnInfluenceNamesNothing: an egress whose own settings do not act on influence names
+// nothing in the boundary block, though its receiver acts on influence and every internal stamp names it.
+func TestAnEgressNotActingOnInfluenceNamesNothing(t *testing.T) {
+	f := newFixture(t, []string{"attested"}, "unsafe", ok200)
+	f.remake(t, func(c *boundary.Config) { c.Extensions = verify.Extensions{} })
+	if len(f.handedOn(t)) == 0 {
+		t.Fatal("the fixture's request was handed on nothing")
+	}
+	_, step := f.call(t, []influence.Entry{{Class: influence.ThirdParty, Src: "web:example.com", H: "h-page"}})
+	_, block := stampedCall(t, step)
+	namesNothing(t, block, step)
+}
+
+// TestAReceiverNotActingOnInfluenceGivesABlockNamingNothing: behind a receiver whose settings do not act on
+// influence, nothing says what the internal stamps' blocks name, so an egress that acts on it names nothing.
+func TestAReceiverNotActingOnInfluenceGivesABlockNamingNothing(t *testing.T) {
+	f := newFixture(t, []string{"attested"}, "unsafe", ok200)
+	f.a = acceptInbound(t, vectors.Rules(t).Get("egress").Index(0).Get("inbound"), verify.Extensions{})
+	if !f.a.Verified || f.a.HandOver == nil {
+		t.Fatal("the receiver did not verify the request")
+	}
+	if _, ok := f.a.HandOver.Under(influence.Name); ok {
+		t.Fatal("a receiver that does not act on influence handed it over")
+	}
+	_, step := f.call(t, nil)
+	_, block := stampedCall(t, step)
+	namesNothing(t, block, step)
+}
+
+// TestAnUnverifiedHandOverNamesNothing: the boundary block reads what the internal stamps name only from a
+// verified hand-over, so an Accepted not made by Receiver.Accept, verified but carrying a hand-over that is not,
+// gives a block naming nothing.
+func TestAnUnverifiedHandOverNamesNothing(t *testing.T) {
+	f := newFixture(t, []string{"attested"}, "unsafe", ok200)
+	acts, err := verify.NewExtensions([]string{influence.Name})
 	if err != nil {
-		t.Fatalf("Begin: %v", err)
+		t.Fatalf("NewExtensions: %v", err)
 	}
-	step, _, err = x.Answer(n.partner.serve(t, step))
-	if err != nil || step.Handshake {
-		t.Fatalf("Answer = %+v, %v; want the call", step, err)
+	h := verify.NewHandOver(false, f.a.Inbound.Chain, f.a.Inbound.Blocks, acts)
+	if stamps, ok := h.Under(influence.Name); !ok || !influence.ReadRequest(stamps).EveryStampNames {
+		t.Fatal("the unverified hand-over does not show every stamp naming influence")
 	}
-	chain, code = stamp.ReadChain(header(step, wire.Chain))
-	if code != reason.OK || len(chain) != 1 || chain[0].Infl != "" ||
-		len(step.Sent) != 0 || len(step.Originals) != 0 {
-		t.Fatalf("the boundary stamp is %+v (%s) and the step sends %+v; want infl \"\" and no entries",
-			chain, code, step.Sent)
-	}
-	for _, h := range step.Headers {
-		if h.Name == wire.Influence {
-			t.Fatalf("a call with no influence carries the header %+v", h)
-		}
-	}
+	f.a = paztporthttp.Accepted{Verified: true, Inbound: f.a.Inbound, HandOver: h}
+	_, step := f.call(t, nil)
+	_, block := stampedCall(t, step)
+	namesNothing(t, block, step)
+}
 
-	u := newFixture(t, []string{"unsafe"}, "unsafe", ok200)
-	x, step = u.begin(t)
-	step, _, err = x.Answer(u.partner.serve(t, step))
-	if err != nil || step.Originals != nil || step.Sent != nil || header(step, wire.Session) == "" {
-		t.Fatalf("an unsafe call's step is %+v, %v; want the session id and no entries", step, err)
+// TestAnUnsafeSessionSendsNoStampAndNoBlock: in an unsafe session the call carries the session id alone: no
+// stamp, no proof, no block, and the step keeps no entries.
+func TestAnUnsafeSessionSendsNoStampAndNoBlock(t *testing.T) {
+	f := newFixture(t, []string{"unsafe"}, "unsafe", ok200)
+	x, step := f.call(t, []influence.Entry{{Class: influence.ThirdParty, Src: "web:example.com", H: "h-page"}})
+	if got := headerNames(step); !slices.Equal(got, []string{"Content-Type", wire.Session}) {
+		t.Fatalf("an unsafe call's headers are %q, want the session id alone", got)
+	}
+	if step.Originals != nil || step.Sent != nil {
+		t.Fatalf("an unsafe call's step keeps %+v and %+v", step.Originals, step.Sent)
+	}
+	if out := f.run(t, x, step); out.Attested || out.Status != 200 {
+		t.Fatalf("the call ended %+v, want answered unsafe", out)
+	}
+}
+
+// TestAnUnmetRequirementMakesNoCall: an egress that requires influence of the partner, without its switch,
+// makes no call after a reply that does not list it, after an unsafe reply, or in the replacement's session,
+// whether no reply could be checked or the reply failed the check: Answer gives ErrRequirementUnmet with
+// nothing more to send, the exchange ends Failed with what Begin was given, and the partner receives the
+// handshakes alone. A reply that fails step 5 is not followed by the replacement.
+func TestAnUnmetRequirementMakesNoCall(t *testing.T) {
+	for _, c := range []struct {
+		name       string
+		handshakes []string
+		answer500  bool // the full handshake is answered 500, so no reply is checked
+		received   []string
+	}{
+		{"EXTENSION_REQUIRED", []string{"attested"}, false, []string{"handshake clientRoot=true"}},
+		{"UNSAFE", []string{"unsafe"}, false, []string{"handshake clientRoot=true"}},
+		{"no reply checked", nil, true, []string{"handshake clientRoot=false"}},
+		{"PIN_MISMATCH", []string{"wrongKey"}, false,
+			[]string{"handshake clientRoot=true", "handshake clientRoot=false"}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			f := newFixture(t, c.handshakes, "unsafe")
+			f.require(t, []string{influence.Name}, false)
+			added := []influence.Entry{{Class: influence.ThirdParty, Src: "web:example.com", H: "h-page"}}
+			x, step, err := f.e.Begin(f.a, added, "/charge", charge)
+			if err != nil {
+				t.Fatalf("Begin: %v", err)
+			}
+			if c.answer500 {
+				if step, _, err = x.Answer(500, nil); err != nil || !step.Handshake {
+					t.Fatalf("Answer(500) = %+v, %v; want the replacement", step, err)
+				}
+			}
+			if c.name == "PIN_MISMATCH" {
+				if step, _, err = x.Answer(f.partner.serve(t, step)); err != nil || !step.Handshake {
+					t.Fatalf("Answer to a reply under another key = %+v, %v; want the replacement", step, err)
+				}
+			}
+			next, more, err := x.Answer(f.partner.serve(t, step))
+			if !errors.Is(err, boundary.ErrRequirementUnmet) || more || !reflect.DeepEqual(next, boundary.Step{}) {
+				t.Fatalf("Answer = %+v, %v, %v; want ErrRequirementUnmet and nothing to send", next, more, err)
+			}
+			out, done := x.Result()
+			if !done || !out.Failed || !slices.Equal(out.Influence, added) {
+				t.Fatalf("Result = %+v, %v; want failed with what Begin was given", out, done)
+			}
+			if got := f.partner.render(t); !slices.Equal(got, c.received) {
+				t.Fatalf("the partner received %q, want %q", got, c.received)
+			}
+		})
+	}
+}
+
+// TestAReplyFailingStepFiveIsNotFollowedByTheReplacement: a reply that is attested but does not list what the
+// egress requires is sound, so with the switch set the call goes in the attested session it opened, stamped,
+// its block requiring nothing the reply did not list; no replacement is sent.
+func TestAReplyFailingStepFiveIsNotFollowedByTheReplacement(t *testing.T) {
+	f := newFixture(t, []string{"attested"}, "unsafe", ok200)
+	f.require(t, []string{influence.Name}, true)
+	x, step := f.call(t, nil)
+	_, block := stampedCall(t, step)
+	if len(block.Requires()) != 0 {
+		t.Fatalf("the boundary block requires %q, which the reply did not list", block.Requires())
+	}
+	if out := f.run(t, x, step); !out.Attested || out.Status != 200 {
+		t.Fatalf("the call ended %+v, want answered attested", out)
+	}
+	if got := f.partner.render(t); len(got) != 2 || got[0] != "handshake clientRoot=true" ||
+		!strings.HasPrefix(got[1], "call ") {
+		t.Fatalf("the partner received %q, want the full handshake and the call", got)
+	}
+}
+
+// TestContinueWithoutCallsInAnUnsafeSessionWithNoRequires: with its switch set, an egress with a requirement
+// makes its call in an unsafe session, whether the reply said unsafe or the session is the replacement's, as
+// an egress with no requirement does: the session id alone.
+func TestContinueWithoutCallsInAnUnsafeSessionWithNoRequires(t *testing.T) {
+	for _, c := range []struct {
+		name       string
+		handshakes []string
+		sent       int // the handshakes the partner receives before the call
+	}{
+		{"an unsafe reply", []string{"unsafe"}, 1},
+		{"the replacement", []string{"notFound"}, 2},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			f := newFixture(t, c.handshakes, "unsafe", ok200)
+			f.require(t, []string{influence.Name}, true)
+			out := f.post(t, nil)
+			if out.Failed || out.Attested || out.Status != 200 {
+				t.Fatalf("the call ended %+v, want answered unsafe", out)
+			}
+			got := f.partner.render(t)
+			if len(got) != c.sent+1 || !strings.Contains(got[c.sent], "stamps=null") ||
+				!strings.Contains(got[c.sent], "blocks=null") {
+				t.Fatalf("the partner received %q, want the call with the session id alone", got)
+			}
+		})
+	}
+}
+
+// TestASessionWithNoCallIsNeverMarkedUsed: a session in which no call may be made is not marked used by a call
+// that finds it, so the call after it within the idle period is refused with ErrRequirementUnmet, nothing
+// sent, and the call after the idle period, counted from the handshake, opens a new session, whose reply may
+// by then meet the requirement.
+func TestASessionWithNoCallIsNeverMarkedUsed(t *testing.T) {
+	f := newFixture(t, []string{"attested", "attested"}, "unsafe", ok200)
+	f.require(t, []string{influence.Name}, false)
+	start := f.clock.Load()
+	x, step := f.begin(t)
+	if _, _, err := x.Answer(f.partner.serve(t, step)); !errors.Is(err, boundary.ErrRequirementUnmet) {
+		t.Fatalf("Answer: %v, want ErrRequirementUnmet", err)
+	}
+	f.clock.Store(start + f.cfg.IdleMs - 1)
+	if x, step, err := f.e.Begin(f.a, nil, "/charge", charge); !errors.Is(err, boundary.ErrRequirementUnmet) ||
+		x != nil || !reflect.DeepEqual(step, boundary.Step{}) {
+		t.Fatalf("Begin in the open session = %v, %+v, %v; want ErrRequirementUnmet and nothing to send", x, step, err)
+	}
+	if got := f.partner.render(t); len(got) != 1 {
+		t.Fatalf("the partner received %q, want the one handshake", got)
+	}
+	// The partner now lists what the egress requires: the session's idle period, from the handshake, is over.
+	f.partner.extensions = []string{influence.Name}
+	f.clock.Store(start + f.cfg.IdleMs)
+	if out := f.post(t, nil); out.Failed || !out.Attested || out.Status != 200 {
+		t.Fatalf("the call after the idle period ended %+v, want answered attested", out)
+	}
+	if got := f.partner.render(t); len(got) != 3 || got[1] != "handshake clientRoot=true" {
+		t.Fatalf("the partner received %q, want a second handshake and the call", got)
+	}
+}
+
+// TestTheRequiresTheReplyListedTravelInTheBlock: the boundary block requires what the session lets the egress
+// require: every required name after a reply that lists them all, and, with the switch, only the required names
+// a reply that fails step 5 lists; an egress that requires nothing requires nothing.
+func TestTheRequiresTheReplyListedTravelInTheBlock(t *testing.T) {
+	two := []string{"example", influence.Name}
+	for _, c := range []struct {
+		name     string
+		require  []string
+		listed   []string
+		requires []string
+	}{
+		{"every required name listed", two, two, two},
+		{"one of two listed, with the switch", two, []string{influence.Name}, []string{influence.Name}},
+		{"no requirement, the reply listing influence", nil, []string{influence.Name}, nil},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			f := newFixture(t, []string{"attested"}, "unsafe", ok200)
+			f.require(t, c.require, true)
+			f.partner.extensions = c.listed
+			_, step := f.call(t, nil)
+			_, block := stampedCall(t, step)
+			if got := block.Requires(); !slices.Equal(got, c.requires) {
+				t.Fatalf("the boundary block requires %q, want %q", got, c.requires)
+			}
+			if items, named := block.Items(influence.Name); !named || len(items) != 2 {
+				t.Fatalf("the boundary block is %s, want the blinded entries beside its requires", block.Wire())
+			}
+		})
 	}
 }
 
@@ -291,9 +647,9 @@ func TestReplySessionIDForm(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			f := newFixture(t, []string{"unsafe"}, "unsafe", ok200)
 			f.partner.sessFor = func(string) string { return sess }
-			out := f.post(t, f.a.Influence)
-			if !out.Failed || !slices.Equal(out.Influence, f.a.Influence) {
-				t.Fatalf("the exchange ended %+v, want failed with the influence unchanged", out)
+			out := f.post(t, nil)
+			if !out.Failed || len(out.Influence) != 0 {
+				t.Fatalf("the exchange ended %+v, want failed with nothing added", out)
 			}
 			want := []string{"handshake clientRoot=true", "handshake clientRoot=false"}
 			if got := f.partner.render(t); !slices.Equal(got, want) {
@@ -311,7 +667,7 @@ func TestReplySessionIDForm(t *testing.T) {
 		issued = issued[1:]
 		return sess
 	}
-	if out := f.post(t, f.a.Influence); out.Failed || out.Status != 200 || out.Attested {
+	if out := f.post(t, nil); out.Failed || out.Status != 200 || out.Attested {
 		t.Fatalf("the exchange ended %+v, want answered unsafe", out)
 	}
 	if got := f.partner.render(t); len(got) != 3 || !strings.Contains(got[2], "session=1 ") {
@@ -324,7 +680,7 @@ func TestReplySessionIDForm(t *testing.T) {
 func TestIdleSession(t *testing.T) {
 	f := newFixture(t, []string{"attested", "attested"}, "unsafe", ok200, ok200, ok200)
 	start := f.clock.Load()
-	f.post(t, f.a.Influence)
+	f.post(t, nil)
 	f.clock.Store(start + f.cfg.IdleMs - 1)
 	if _, step := f.begin(t); step.Path != "/charge" {
 		t.Fatalf("a call 1 ms inside the idle period opened a session: %q", step.Path)
@@ -348,7 +704,7 @@ func TestIdleSessionClockExtremes(t *testing.T) {
 	// A clock gone far back has not aged the session: now - lastUsed is below every limit.
 	f := newFixture(t, []string{"attested"}, "unsafe", ok200, ok200)
 	f.fixStamperClock(t)
-	f.post(t, f.a.Influence)
+	f.post(t, nil)
 	f.clock.Store(math.MinInt64)
 	if _, step := f.begin(t); step.Path != "/charge" {
 		t.Fatalf("a clock gone back dropped the session: %q", step.Path)
@@ -358,7 +714,7 @@ func TestIdleSessionClockExtremes(t *testing.T) {
 	g := newFixture(t, []string{"attested", "attested"}, "unsafe", ok200)
 	g.fixStamperClock(t)
 	g.clock.Store(math.MinInt64 + 1)
-	g.post(t, g.a.Influence)
+	g.post(t, nil)
 	g.clock.Store(math.MaxInt64)
 	if _, step := g.begin(t); step.Path != wire.SessionPath {
 		t.Fatalf("a session idle for the whole range was kept: %q", step.Path)
@@ -383,7 +739,6 @@ func TestSessionUnknown(t *testing.T) {
 		"403 as an array":             {scriptedAnswer{403, []byte(`{"reason":["SESSION_UNKNOWN"]}`)}, false},
 		"403 as a bare string":        {scriptedAnswer{403, []byte(`"SESSION_UNKNOWN"`)}, false},
 		"403 with no body":            {scriptedAnswer{403, nil}, false},
-		"403 POLICY_EXPIRED":          {scriptedAnswer{403, []byte(`{"reason":"POLICY_EXPIRED"}`)}, false},
 		"200 with SESSION_UNKNOWN":    {scriptedAnswer{200, sessionUnknown}, false},
 		"401 with SESSION_UNKNOWN":    {scriptedAnswer{401, sessionUnknown}, false},
 		"404 with SESSION_UNKNOWN":    {scriptedAnswer{404, sessionUnknown}, false},
@@ -393,13 +748,40 @@ func TestSessionUnknown(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			f := newFixture(t, []string{"attested"}, "unsafe", c.answer)
-			out := f.post(t, f.a.Influence)
+			out := f.post(t, nil)
 			if out.Status != c.answer.status || !bytes.Equal(out.Body, c.answer.body) || !out.Attested {
 				t.Fatalf("the exchange ended %+v, want the partner's answer, attested", out)
 			}
 			_, step := f.begin(t)
 			if dropped := step.Path == wire.SessionPath; dropped != c.drops {
 				t.Fatalf("the next call's step goes to %q; want the session dropped: %v", step.Path, c.drops)
+			}
+		})
+	}
+}
+
+// TestPolicyExpiredDropsTheSession: a 403 whose body is exactly the refusal POLICY_EXPIRED drops the session
+// the call was made in, as SESSION_UNKNOWN does, since the partner refuses every call in it once the egress's
+// own material has expired; the next call handshakes. A body that is not exactly that refusal keeps it.
+func TestPolicyExpiredDropsTheSession(t *testing.T) {
+	for name, c := range map[string]struct {
+		answer scriptedAnswer
+		drops  bool
+	}{
+		"403 POLICY_EXPIRED":         {scriptedAnswer{403, policyExpired}, true},
+		"403 with a newline after":   {scriptedAnswer{403, append(bytes.Clone(policyExpired), '\n')}, false},
+		"200 with POLICY_EXPIRED":    {scriptedAnswer{200, policyExpired}, false},
+		"401 with POLICY_EXPIRED":    {scriptedAnswer{401, policyExpired}, false},
+		"403 POLICY_EXPIRED, padded": {scriptedAnswer{403, []byte(`{"reason":"POLICY_EXPIRED "}`)}, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newFixture(t, []string{"attested"}, "unsafe", c.answer)
+			if out := f.post(t, nil); out.Status != c.answer.status || !out.Attested {
+				t.Fatalf("the exchange ended %+v, want the partner's answer, attested", out)
+			}
+			_, step := f.begin(t)
+			if dropped := step.Handshake; dropped != c.drops {
+				t.Fatalf("the next call's step is %+v; want the session dropped: %v", step, c.drops)
 			}
 		})
 	}
@@ -417,7 +799,7 @@ func TestSessionUnknownDropsOnlyItsOwnSession(t *testing.T) {
 		t.Fatalf("A's call: %+v, %v", aCall, err)
 	}
 	// B's call in it is refused, which drops it; C opens the second.
-	if out := f.post(t, f.a.Influence); out.Status != 403 {
+	if out := f.post(t, nil); out.Status != 403 {
 		t.Fatalf("B ended %+v", out)
 	}
 	c, step := f.begin(t)
@@ -497,11 +879,12 @@ func TestHandshakeStatus(t *testing.T) {
 	}
 }
 
-// TestBeginRefusesUnstampable: a call whose influence cannot be blinded, or that cannot be stamped, is
-// refused by Begin with nothing to send, whether no session, an attested one or an unsafe one is open.
+// TestBeginRefusesUnstampable: a call whose entries the boundary block would carry and the boundary key cannot
+// blind, or that cannot be stamped, is refused by Begin with nothing to send, whether no session, an attested
+// one or an unsafe one is open.
 func TestBeginRefusesUnstampable(t *testing.T) {
 	notUTF8 := string([]byte{0xFF})
-	badInfl := []influence.Entry{{Class: influence.ThirdParty, Src: "web:" + notUTF8, H: "h"}}
+	badAdded := []influence.Entry{{Class: influence.ThirdParty, Src: "web:" + notUTF8, H: "h"}}
 	for _, open := range []string{"", "attested", "unsafe"} {
 		handshakes := []string{"attested"}
 		if open != "" {
@@ -513,27 +896,22 @@ func TestBeginRefusesUnstampable(t *testing.T) {
 		stampClock.Store(f.clock.Load())
 		st := *f.cfg.Stamper
 		st.Now = stampClock.Load
-		f.cfg.Stamper = &st
-		e, err := boundary.New(f.cfg)
-		if err != nil {
-			t.Fatalf("New: %v", err)
-		}
-		f.e = e
+		f.remake(t, func(c *boundary.Config) { c.Stamper = &st })
 		if open != "" {
-			if out := f.post(t, f.a.Influence); out.Attested != (open == "attested") {
+			if out := f.post(t, nil); out.Attested != (open == "attested") {
 				t.Fatalf("session %q: the first call went out Attested %v", open, out.Attested)
 			}
 		}
 		before := len(f.partner.render(t))
-		x, step, err := f.e.Begin(f.a, badInfl, "/charge", charge)
+		x, step, err := f.e.Begin(f.a, badAdded, "/charge", charge)
 		if err == nil || x != nil || !reflect.DeepEqual(step, boundary.Step{}) {
-			t.Errorf("session %q: Begin with influence that cannot be blinded = %v, %+v, %v; want a refusal",
+			t.Errorf("session %q: Begin with entries that cannot be blinded = %v, %+v, %v; want a refusal",
 				open, x, step, err)
 		}
-		// A stamper that cannot sign: a request id holding "|", which no stamp may carry.
+		// A stamper that cannot sign: a request id holding a noncharacter, which no stamp may carry.
 		a := f.a
-		a.Inbound = slices.Clone(a.Inbound)
-		a.Inbound[0].RID = "rid|1"
+		a.Inbound.Chain = slices.Clone(a.Inbound.Chain)
+		a.Inbound.Chain[0].RID = "rid\uffff1"
 		x, step, err = f.e.Begin(a, nil, "/charge", charge)
 		if err == nil || x != nil || !reflect.DeepEqual(step, boundary.Step{}) {
 			t.Errorf("session %q: Begin with a call that cannot be stamped = %v, %+v, %v; want a refusal",
@@ -541,7 +919,7 @@ func TestBeginRefusesUnstampable(t *testing.T) {
 		}
 		// A stamper whose clock has left the range a stamp's time may hold.
 		stampClock.Store(math.MaxInt64)
-		x, step, err = f.e.Begin(f.a, f.a.Influence, "/charge", charge)
+		x, step, err = f.e.Begin(f.a, nil, "/charge", charge)
 		if err == nil || x != nil || !reflect.DeepEqual(step, boundary.Step{}) {
 			t.Errorf("session %q: Begin with a stamper's clock out of range = %v, %+v, %v; want a refusal",
 				open, x, step, err)
@@ -549,6 +927,30 @@ func TestBeginRefusesUnstampable(t *testing.T) {
 		if got := f.partner.render(t); len(got) != before {
 			t.Errorf("session %q: the partner received %q", open, got[before:])
 		}
+	}
+}
+
+// TestBeginRefusesABoundaryBlockPastTheWireLimit: a call whose boundary block would pass the wire limit is
+// refused by Begin with nothing to send, before any handshake; the same entries in a block that names nothing
+// are never blinded, so they stop nothing.
+func TestBeginRefusesABoundaryBlockPastTheWireLimit(t *testing.T) {
+	// Three owners of 100 KiB each: three groups, so three blinded entries, each carrying its owner.
+	var added []influence.Entry
+	for _, c := range "abc" {
+		owner := strings.Repeat(string(c), 100<<10)
+		added = append(added, influence.Entry{Class: influence.Private, Src: "http:orders", H: "h", Owner: owner})
+	}
+	f := newFixture(t, []string{"attested"}, "unsafe", ok200)
+	x, step, err := f.e.Begin(f.a, added, "/charge", charge)
+	if err == nil || x != nil || !reflect.DeepEqual(step, boundary.Step{}) {
+		t.Fatalf("Begin with a block past the wire limit = %v, %+v, %v; want a refusal", x, step, err)
+	}
+	if got := f.partner.render(t); len(got) != 0 {
+		t.Fatalf("the partner received %q", got)
+	}
+	g := namedFixture(t, unnamedCase, []string{"attested"}, "unsafe", ok200)
+	if out := g.post(t, added); out.Failed || !out.Attested {
+		t.Fatalf("the call with a block naming nothing ended %+v, want answered attested", out)
 	}
 }
 
@@ -562,12 +964,12 @@ func TestBeginRefusesAnEmptyPath(t *testing.T) {
 		}
 		f := newFixture(t, handshakes, "unsafe", ok200)
 		if open != "" {
-			if out := f.post(t, f.a.Influence); out.Attested != (open == "attested") {
+			if out := f.post(t, nil); out.Attested != (open == "attested") {
 				t.Fatalf("session %q: the first call went out Attested %v", open, out.Attested)
 			}
 		}
 		before := len(f.partner.render(t))
-		x, step, err := f.e.Begin(f.a, f.a.Influence, "", charge)
+		x, step, err := f.e.Begin(f.a, nil, "", charge)
 		if err == nil || x != nil || !reflect.DeepEqual(step, boundary.Step{}) {
 			t.Errorf("session %q: Begin with an empty path = %v, %+v, %v; want a refusal", open, x, step, err)
 		}
@@ -581,7 +983,7 @@ func TestBeginRefusesAnEmptyPath(t *testing.T) {
 // says so.
 func TestCallToTheSessionPath(t *testing.T) {
 	f := newFixture(t, []string{"attested"}, "unsafe", ok200)
-	x, step, err := f.e.Begin(f.a, f.a.Influence, wire.SessionPath, charge)
+	x, step, err := f.e.Begin(f.a, nil, wire.SessionPath, charge)
 	if err != nil || !step.Handshake {
 		t.Fatalf("Begin = %+v, %v; want the handshake", step, err)
 	}
@@ -606,8 +1008,8 @@ func TestNoAnswer(t *testing.T) {
 	if step, more, err := x.NoAnswer(); err != nil || more || step.Path != "" {
 		t.Fatalf("NoAnswer to the replacement = %+v, %v, %v; want the exchange ended", step, more, err)
 	}
-	if out, done := x.Result(); !done || !out.Failed || !slices.Equal(out.Influence, f.a.Influence) {
-		t.Fatalf("Result = %+v, %v; want failed with the influence unchanged", out, done)
+	if out, done := x.Result(); !done || !out.Failed || len(out.Influence) != 0 {
+		t.Fatalf("Result = %+v, %v; want failed with nothing added", out, done)
 	}
 
 	g := newFixture(t, nil, "unsafe", ok200, ok200)
@@ -663,18 +1065,19 @@ func TestFinishedExchange(t *testing.T) {
 	}
 }
 
-// TestOutcomeInfluence: the outcome's influence is the request's, the partner's answer joined as one
-// local-untrusted entry, and the caller's slice is never written, its spare capacity included.
+// TestOutcomeInfluence: the outcome's influence is what the request added at the egress, the partner's answer
+// joined as one local-untrusted entry, and the caller's slice is never written, its spare capacity included.
 func TestOutcomeInfluence(t *testing.T) {
 	f := newFixture(t, []string{"attested"}, "unsafe", ok200)
+	page := influence.Entry{Class: influence.ThirdParty, Src: "web:example.com", H: "h-page"}
 	spare := influence.Entry{Class: influence.Public, Src: "spare", H: "spare"}
-	backing := slices.Repeat([]influence.Entry{spare}, len(f.a.Influence)+4)
-	infl := backing[:copy(backing, f.a.Influence)]
+	backing := []influence.Entry{page, spare, spare, spare}
+	added := backing[:1]
 	before := slices.Clone(backing)
-	out := f.post(t, infl)
-	want := slices.Concat(f.a.Influence, []influence.Entry{{
+	out := f.post(t, added)
+	want := []influence.Entry{page, {
 		Class: influence.LocalUntrusted, Src: "http:psp", H: wire.ResultHash(ok200.status, ok200.body),
-	}})
+	}}
 	if !slices.Equal(out.Influence, want) {
 		t.Fatalf("Influence = %+v, want %+v", out.Influence, want)
 	}
@@ -682,23 +1085,23 @@ func TestOutcomeInfluence(t *testing.T) {
 		t.Fatal("the exchange wrote to the caller's slice")
 	}
 	out.Influence[0].H = "changed"
-	if infl[0].H == "changed" {
+	if added[0].H == "changed" {
 		t.Fatal("the outcome's influence shares the caller's array")
 	}
 }
 
-// TestOutcomeInfluenceAsGiven keeps the influence Begin was given as it was given, out of normalised order and
-// with a duplicate, and joins the partner's answer after it.
+// TestOutcomeInfluenceAsGiven keeps what Begin was given as it was given, out of normalised order and with a
+// duplicate, and joins the partner's answer after it.
 func TestOutcomeInfluenceAsGiven(t *testing.T) {
 	f := newFixture(t, []string{"attested"}, "unsafe", ok200)
 	web := influence.Entry{Class: influence.ThirdParty, Src: "web:z", H: "h-2"}
 	catalogue := influence.Entry{Class: influence.Public, Src: "http:catalogue", H: "h-1"}
-	infl := []influence.Entry{web, catalogue, web}
-	if slices.Equal(influence.Normalise(infl), infl) {
-		t.Fatal("the influence is already normalised")
+	added := []influence.Entry{web, catalogue, web}
+	if slices.Equal(influence.Normalise(added), added) {
+		t.Fatal("the entries are already normalised")
 	}
-	out := f.post(t, infl)
-	want := slices.Concat(infl, []influence.Entry{{
+	out := f.post(t, added)
+	want := slices.Concat(added, []influence.Entry{{
 		Class: influence.LocalUntrusted, Src: "http:psp", H: wire.ResultHash(ok200.status, ok200.body),
 	}})
 	if !slices.Equal(out.Influence, want) {
@@ -725,17 +1128,17 @@ func TestOwnMaterialExpired(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Bytes: %v", err)
 			}
-			if f.cfg.Root, err = policy.SignRoot(b, f.cfg.Root.RootID, rootAt, policyKey); err != nil {
+			root, err := policy.SignRoot(b, f.cfg.Root.RootID, rootAt, policyKey)
+			if err != nil {
 				t.Fatalf("SignRoot: %v", err)
 			}
 			kf := f.cfg.Keyring
-			if f.cfg.Keyring, err = policy.SignKeyring(kf.Services, kf.Policy, ringAt, policyKey); err != nil {
+			ring, err := policy.SignKeyring(kf.Services, kf.Policy, ringAt, policyKey)
+			if err != nil {
 				t.Fatalf("SignKeyring: %v", err)
 			}
-			if f.e, err = boundary.New(f.cfg); err != nil {
-				t.Fatalf("New: %v", err)
-			}
-			if out := f.post(t, f.a.Influence); !out.Attested {
+			f.remake(t, func(c *boundary.Config) { c.Root, c.Keyring = root, ring })
+			if out := f.post(t, nil); !out.Attested {
 				t.Fatal("the first call did not go out attested")
 			}
 			f.clock.Store(soon)
@@ -766,7 +1169,7 @@ func TestOwnMaterialExpired(t *testing.T) {
 // sends.
 func TestConfigCopied(t *testing.T) {
 	f := newFixture(t, []string{"attested"}, "unsafe", ok200)
-	want, err := influence.Reduce(f.a.Influence, f.cfg.BoundaryKey, f.a.Inbound[0].RID, "psp", "payment")
+	want, err := influence.Reduce(f.handedOn(t), f.cfg.BoundaryKey, f.a.Inbound.Chain[0].RID, "psp", "payment")
 	if err != nil {
 		t.Fatalf("Reduce: %v", err)
 	}
@@ -794,7 +1197,7 @@ func TestConfigCopied(t *testing.T) {
 		t.Fatalf("the handshake presents %+v, %v; want the keyring New was given", req.KeyringFile(), err)
 	}
 	step, _, err = x.Answer(f.partner.serve(t, step))
-	if err != nil || !slices.Equal(step.Sent, want) {
+	if err != nil || len(want) == 0 || !slices.Equal(step.Sent, want) {
 		t.Fatalf("the entries sent are %+v, %v; want those under the key New was given", step.Sent, err)
 	}
 	if got := header(step, wire.Proof); got != wantProof {
@@ -861,7 +1264,7 @@ func TestConcurrentExchanges(t *testing.T) {
 	outs := make([]boundary.Outcome, n)
 	for i := range n {
 		wg.Go(func() {
-			x, step, err := f.e.Begin(f.a, f.a.Influence, "/charge", charge)
+			x, step, err := f.e.Begin(f.a, nil, "/charge", charge)
 			if err != nil {
 				t.Errorf("Begin: %v", err)
 				return
