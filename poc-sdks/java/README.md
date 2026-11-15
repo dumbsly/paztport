@@ -556,7 +556,7 @@ binds to nothing, fails the start naming the variable.
 | `paztport.receiver-names.<host>` | none | No | The policy name of the receiver at a host that is not its name ([Outbound calls and response checks](#outbound-calls-and-response-checks)). |
 | `paztport.extensions.acts-on` | none | No; a name that is not an extension name stops the start | The extensions this service acts on, such as `influence`; unset, it acts on none ([Extensions](#extensions)). |
 | `paztport.extensions.allowed` | absent, so any name | No; a name that is not an extension name, or a list that does not hold every `acts-on` name (an empty one beside any), stops the start | The extension names the service carries, check 9b's `allowedExtensions`: absent, any name; present and empty, none. |
-| `paztport.extensions.requires.<receiver>` | none | No; read where `key-path` is set, and a `<receiver>` that is not a service name, or a name that is not an extension name, then stops the start | What the service's calls to `<receiver>`, by its policy name, require of it in their own block; a receiver that does not act on each fails the call at check 9c (`EXTENSION_REQUIRED`), refusing it under `enforce` and serving it under `audit`, as any failure. Empty requires nothing. |
+| `paztport.extensions.requires.<receiver>` | none | No; read where `key-path` is set, and a `<receiver>` that is not a service name, or a name that is not an extension name, then stops the start. Where `proofs-path` is set, so does a `<receiver>` that no route in the bundle ends at; without proofs the starter cannot know the receivers, so the key is not checked against them and must be the receiver's policy name | What the service's calls to `<receiver>`, by its policy name, require of it in their own block; a receiver that does not act on each fails the call at check 9c (`EXTENSION_REQUIRED`), refusing it under `enforce` and serving it under `audit`, as any failure. Empty requires nothing. |
 | `paztport.tls-bundle` | none | No | The SSL bundle the service presents on its calls and its events; `false` is the same as unset ([Mutual TLS](#mutual-tls)). |
 | `paztport.read-timeout-ms` | `30000` | Positive, in a service that uses it | How long a call through the starter's TLS client, or the egress's to the partner, may wait for its answer ([Timeouts](#timeouts)). |
 | `paztport.connect-timeout-ms` | `1000` | Positive, in a service that uses it | How long opening a connection may take on the starter's TLS client, the one for calls inside the mesh and for events; the partner client keeps 5 s ([Timeouts](#timeouts)). The startup check on it is skipped when the retry is not built: no `paztport.tls-bundle`, `paztport.retry-unconnected=false`, or the JDK's all-method retry on ([Retries](#retries)). |
@@ -615,10 +615,10 @@ set), or it refuses to start. Besides the `503` of a nonce cache that cannot ans
 refusal is one of three answers, each `{"reason":"<code>"}`:
 - `403` with the code of the first check that failed, where verification refuses the
   request under `enforce`;
-- `400 {"reason":"EXTENSION_MISMATCH"}` where the filter would serve a request it did not
-  verify (under `audit` after a failure, in `off`, or on a service that verifies only to
-  decide attestation, or not at all) and its blocks fail check 9a, since no hop serves a
-  request whose blocks it could not forward unchanged;
+- `400 {"reason":"EXTENSION_MISMATCH"}` where a service other than an origin would serve a
+  request it did not verify (under `audit` after a failure, in `off`, or on a service that
+  verifies only to decide attestation, or not at all) and its blocks fail check 9a, since no
+  hop serves a request whose blocks it could not forward unchanged;
 - `400 {"reason":"INFLUENCE_MISMATCH"}` where the service acts on `influence` and an item it
   is handed, verified or not, does not read.
 
@@ -630,7 +630,13 @@ the wire's own: Tomcat's default is 8 KB, while the chain, proof and blocks toke
 be 256 KiB decoded, about 342 KiB encoded, and the blocks grow with the influence a request
 carries. A request past the container's limit is refused by the container before the
 filter sees it, so a deployment sets `server.max-http-request-header-size`. `2MB` admits
-the three tokens together at their largest, as the mesh demo sets it.
+the three tokens together at their largest, as the mesh demo sets it. A labelled answer's
+`X-Path-Response` grows the same way, with each label it carries, and Tomcat limits a
+response's headers to 8 KB by default too: an answer past that limit does not reach the
+caller as the handler wrote it, after the handler has run. A service whose answers carry
+many labels sets `server.tomcat.max-http-response-header-size` as well. The mesh demo
+leaves it at the default: orders, the one service whose answers it labels, labels each
+with the few customers it names.
 
 A limit of the starter: each request body is held whole in memory, with no cap on its
 size. The filter reads it before the receiver runs, since the request binding covers
