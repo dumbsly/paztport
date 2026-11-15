@@ -16,6 +16,7 @@ import (
 	"github.com/dumbsly/paztport/poc-sdks/go/keys"
 	"github.com/dumbsly/paztport/poc-sdks/go/paztporthttp"
 	"github.com/dumbsly/paztport/poc-sdks/go/policy"
+	"github.com/dumbsly/paztport/poc-sdks/go/reason"
 	"github.com/dumbsly/paztport/poc-sdks/go/stamp"
 	"github.com/dumbsly/paztport/poc-sdks/go/verify"
 )
@@ -23,10 +24,12 @@ import (
 // TestReceiverRulesVectors replays the receiver kinds of http-v4.json's rules: each case enters its request uses
 // times at its service, under the case's extension settings, against one nonce cache already holding spent, and
 // the last entry's answer is compared with expected: the refusal, whether the chain verified and the answer is
-// attested, and the items handed on, by name acted on. Whether a public write or a trusted record is allowed is
-// not compared here.
+// attested, the items handed on, by name acted on, and, where the case asks them, whether a guarded public write
+// to destinationOwner and a trusted record are allowed once the service has read the case's read.
 func TestReceiverRulesVectors(t *testing.T) {
 	refusals := map[string]bool{}
+	writes := map[reason.Code]bool{}
+	records := map[bool]bool{}
 	for _, kind := range []string{"requests", "influenceItems", "servedUnverified", "attestation", "refusals",
 		"trustedRecord"} {
 		t.Run(kind, func(t *testing.T) {
@@ -49,6 +52,20 @@ func TestReceiverRulesVectors(t *testing.T) {
 						t.Errorf("the hand-over's Verified is %v, the request's %v", a.HandOver.Verified(), a.Verified)
 					}
 					refusals[want.refusal] = true
+					read := entries(c.Get("read"))
+					if w := e.Get("publicWrite"); !w.IsNull() {
+						owner := c.Get("destinationOwner").Str()
+						if got := a.PublicWrite(read, owner); got != reason.Code(w.Str()) {
+							t.Errorf("PublicWrite(%v, %q) = %s, want %s", read, owner, got, w.Str())
+						}
+						writes[reason.Code(w.Str())] = true
+					}
+					if r := e.Get("trustedRecord"); !r.IsNull() {
+						if got := a.TrustedRecord(read); got != r.Bool() {
+							t.Errorf("TrustedRecord(%v) = %v, want %v", read, got, r.Bool())
+						}
+						records[r.Bool()] = true
+					}
 				})
 			})
 		})
@@ -60,6 +77,15 @@ func TestReceiverRulesVectors(t *testing.T) {
 		if !refusals[want] {
 			t.Errorf("no receiver case is refused %s", want)
 		}
+	}
+	// The write rules deny as well as allow, and a trusted record is refused as well as granted.
+	for _, want := range []reason.Code{reason.OK, reason.InfluenceDenied} {
+		if !writes[want] {
+			t.Errorf("no receiver case's public write is %s", want)
+		}
+	}
+	if !records[true] || !records[false] {
+		t.Errorf("the receiver cases' trusted records are %v; want both granted and refused", records)
 	}
 }
 
@@ -168,6 +194,12 @@ func caseReceiver(t *testing.T, c vectors.Node) *paztporthttp.Receiver {
 // over a nonce cache that already holds the case's spent keys.
 func caseVerifier(t *testing.T, c vectors.Node) *verify.Verifier {
 	t.Helper()
+	return caseVerifierWith(t, c, caseSettings(t, c))
+}
+
+// caseVerifierWith returns caseVerifier's verifier under the extension settings ext in place of the case's.
+func caseVerifierWith(t *testing.T, c vectors.Node, ext verify.Extensions) *verify.Verifier {
+	t.Helper()
 	now := c.Get("now").Int()
 	nonces := verify.NewMemoryNonceCache(c.Get("nonceTtlMs").Int())
 	for _, k := range c.Get("spent").Strs() {
@@ -181,7 +213,7 @@ func caseVerifier(t *testing.T, c vectors.Node) *verify.Verifier {
 		Now:            func() int64 { return now },
 		CallMaxAgeMs:   c.Get("callMaxAgeMs").Int(),
 		RunMaxAgeMs:    c.Get("runMaxAgeMs").Int(),
-		Extensions:     caseSettings(t, c),
+		Extensions:     ext,
 	})
 }
 

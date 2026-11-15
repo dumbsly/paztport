@@ -15,7 +15,8 @@ import (
 // in place of the handler's answer, or a call served in an unsafe session, where nothing the request
 // carries is believed, or in an attested one, where it verified in that session.
 //
-// A trusted record may be written from a call only when [PartnerAccepted.TrustedRecord] says so.
+// [PartnerAccepted.PublicWrite] decides a guarded public write from a call, and a trusted record may be written
+// from it only when [PartnerAccepted.TrustedRecord] says so.
 type PartnerAccepted struct {
 	// Refusal is the answer to send in place of the handler's, or nil when the call is served.
 	Refusal *Answer

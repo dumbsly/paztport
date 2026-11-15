@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/dumbsly/paztport/poc-sdks/go/influence"
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/vectors"
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/vectors/handover"
 	"github.com/dumbsly/paztport/poc-sdks/go/keys"
@@ -21,8 +22,9 @@ import (
 // TestPartnerRulesVectors replays the partner kinds of http-v4.json's rules: each case runs its steps against
 // one partner, its clock set to each step's at and its settings the case's. A handshake is served by
 // Sessions.ServeHandshake; a call is decided by Sessions.Accept, and then, as an adapter does, an unsafe
-// session's switched-off endpoints are refused before the handler runs. Each step's outcome is compared but for
-// whether a trusted record may be written, and the items a call hands on are compared with handedOn.
+// session's switched-off endpoints are refused before the handler runs. Each step's outcome is compared, the items
+// a call hands on with handedOn, and, where a step asks it, whether a trusted record may be written once the
+// handler has read the call's read.
 func TestPartnerRulesVectors(t *testing.T) {
 	kinds := []struct {
 		name  string
@@ -32,6 +34,7 @@ func TestPartnerRulesVectors(t *testing.T) {
 		{"boundaryRefusals", 7}, {"partnerTrustedRecord", 7},
 	}
 	refusals := map[string]bool{}
+	records := map[bool]bool{}
 	for _, kind := range kinds {
 		t.Run(kind.name, func(t *testing.T) {
 			cases := vectors.Rules(t).Get(kind.name)
@@ -40,8 +43,12 @@ func TestPartnerRulesVectors(t *testing.T) {
 			}
 			cases.Each(func(name string, c vectors.Node) {
 				t.Run(name, func(t *testing.T) {
-					for _, refusal := range runPartnerScript(t, c.With(t)) {
+					got := runPartnerScript(t, c.With(t))
+					for _, refusal := range got.refusals {
 						refusals[refusal] = true
+					}
+					for _, record := range got.records {
+						records[record] = true
 					}
 				})
 			})
@@ -54,6 +61,9 @@ func TestPartnerRulesVectors(t *testing.T) {
 			t.Errorf("no partner call is refused %s", want)
 		}
 	}
+	if !records[true] || !records[false] {
+		t.Errorf("the partner calls' trusted records are %v; want both granted and refused", records)
+	}
 }
 
 // partnerScript is one partner case running: the partner, its clock and the sessions its handshakes
@@ -65,9 +75,16 @@ type partnerScript struct {
 	opened   map[string]string
 }
 
+// scriptRun is what a partner case's calls gave: the refusals they were answered with, and the trusted records
+// they were asked for, granted or not.
+type scriptRun struct {
+	refusals []string
+	records  []bool
+}
+
 // runPartnerScript runs partner case c's steps in order and fails t at the first whose outcome is not
-// its expected. It returns the refusals the calls were answered with.
-func runPartnerScript(t *testing.T, c vectors.Node) []string {
+// its expected.
+func runPartnerScript(t *testing.T, c vectors.Node) scriptRun {
 	t.Helper()
 	p := c.Get("partner")
 	sc := &partnerScript{now: p.Get("start").Int(), opened: map[string]string{}}
@@ -82,7 +99,7 @@ func runPartnerScript(t *testing.T, c vectors.Node) []string {
 	if steps.Len() == 0 {
 		t.Fatal("the case has no steps")
 	}
-	var refusals []string
+	var run scriptRun
 	for i := range steps.Len() {
 		step := steps.Index(i)
 		sc.now = step.Get("at").Int()
@@ -91,22 +108,41 @@ func runPartnerScript(t *testing.T, c vectors.Node) []string {
 			got = sc.handshake(t, step)
 			want = expectedHandshake(step.Get("expected"))
 		} else {
+			var served *paztporthttp.PartnerAccepted
+			got, served = sc.call(t, step.Get("call"))
+			e := step.Get("expected")
+			want = expectedCall(t, e)
 			var h *verify.HandOver
-			got, h = sc.call(t, step.Get("call"))
-			want = expectedCall(t, step.Get("expected"))
-			handover.Match(t, fmt.Sprintf("step %d", i), h, handover.Expected(t, step.Get("expected").Get("handedOn").Raw()))
+			if served != nil {
+				h = served.HandOver
+			}
+			handover.Match(t, fmt.Sprintf("step %d", i), h, handover.Expected(t, e.Get("handedOn").Raw()))
 			if h != nil && !h.Verified() {
 				t.Errorf("step %d: the hand-over is not verified", i)
 			}
-			if r := step.Get("expected").Get("refusal"); !r.IsNull() {
-				refusals = append(refusals, fmt.Sprintf("%d %s", r.Get("status").Int(), r.Get("body").With(t).Hex()))
+			if r := e.Get("refusal"); !r.IsNull() {
+				refusal := fmt.Sprintf("%d %s", r.Get("status").Int(), r.Get("body").With(t).Hex())
+				run.refusals = append(run.refusals, refusal)
+			}
+			if r := e.Get("trustedRecord"); !r.IsNull() {
+				if served == nil {
+					t.Fatalf("step %d: a refused call is asked for a trusted record", i)
+				}
+				var read []influence.Entry
+				if n := step.Get("call"); n.Has("read") {
+					read = entries(n.Get("read"))
+				}
+				if got := served.TrustedRecord(read); got != r.Bool() {
+					t.Errorf("step %d: TrustedRecord(%v) = %v, want %v", i, read, got, r.Bool())
+				}
+				run.records = append(run.records, r.Bool())
 			}
 		}
 		if got != want {
 			t.Fatalf("step %d: got %s\nwant %s", i, got, want)
 		}
 	}
-	return refusals
+	return run
 }
 
 // partnerConfig returns the configuration partner p describes, its material read from its files' text by
@@ -203,8 +239,9 @@ func handshakeOutcome(status int, body, sessionStatus, disabled, extensions stri
 }
 
 // call makes a call step's request as the peer it names, its boundary stamp signed now in the session the
-// stamp names, and returns its outcome in the shape of expectedCall, with what it hands on.
-func (sc *partnerScript) call(t *testing.T, c vectors.Node) (string, *verify.HandOver) {
+// stamp names, and returns its outcome in the shape of expectedCall, with what Accept decided for a call that is
+// served, or nil for one refused.
+func (sc *partnerScript) call(t *testing.T, c vectors.Node) (string, *paztporthttp.PartnerAccepted) {
 	t.Helper()
 	req := paztporthttp.InboundRequest{
 		Method: c.Get("method").Str(),
@@ -240,7 +277,7 @@ func (sc *partnerScript) call(t *testing.T, c vectors.Node) (string, *verify.Han
 	if a.Attested != (a.Inbound.Chain != nil) || len(a.Inbound.Blocks) != len(a.Inbound.Chain) {
 		t.Fatalf("Attested is %v with Inbound %+v", a.Attested, a.Inbound)
 	}
-	return callOutcome("null", a.Attested), a.HandOver
+	return callOutcome("null", a.Attested), &a
 }
 
 // expectedCall returns a call step's expected, in the shape of callOutcome.

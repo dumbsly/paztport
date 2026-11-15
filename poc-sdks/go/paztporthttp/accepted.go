@@ -12,7 +12,8 @@ import (
 
 // Accepted is what [Receiver.Accept] decided about one request: a refusal to send in place of the
 // handler's answer, or what the handler starts from, and whether its answer may be attested. The
-// embedder carries it for the handler's own calls and decisions.
+// embedder carries it for the handler's own calls and decisions: [Accepted.PublicWrite] decides a guarded public
+// write, and [Accepted.TrustedRecord] whether a trusted record may be written.
 //
 // The zero Accepted serves nothing as verified and attests nothing: it is work outside any request.
 type Accepted struct {

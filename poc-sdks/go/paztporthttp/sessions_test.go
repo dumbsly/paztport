@@ -15,6 +15,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/dumbsly/paztport/poc-sdks/go/influence"
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/json"
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/vectors"
 	"github.com/dumbsly/paztport/poc-sdks/go/keys"
@@ -768,6 +769,138 @@ func TestAnUnreadItemAtAPartnerActingOnInfluenceIsFourHundred(t *testing.T) {
 			t.Errorf("acting on nothing: the call is %+v; want Attested, nothing handed on", a)
 		}
 	}
+}
+
+// attestedCall returns what a fresh partner with cfg decides for one call from shop, in an attested session,
+// whose boundary stamp commits to block and carries it: a fresh partner and nonce cache each time, since every
+// such call has one nonce key.
+func attestedCall(t *testing.T, cfg SessionsConfig, block stamp.Block) PartnerAccepted {
+	t.Helper()
+	cfg.Nonces = verify.NewMemoryNonceCache(15000)
+	s := newSessions(t, cfg)
+	peer := rulesPeer(t, "shop")
+	id := opened(t, s.ServeHandshake(vectors.RulesHandshakeBody(t, "shop"), peer)).Sess
+	a, err := s.Accept(t.Context(), boundaryCallCarrying(t, id, vectorNow, block, true), peer)
+	if err != nil {
+		t.Fatalf("Accept: %v", err)
+	}
+	if a.Refusal != nil {
+		t.Fatalf("the call is refused %d %s, want Attested", a.Refusal.Status, a.Refusal.Body)
+	}
+	if !a.Attested {
+		t.Fatalf("the call is %+v, want Attested", a)
+	}
+	return a
+}
+
+// wantPartnerWrite fails t unless p's guarded public write to owner, having read read, is want.
+func wantPartnerWrite(t *testing.T, p PartnerAccepted, read []influence.Entry, owner string, want reason.Code) {
+	t.Helper()
+	if got := p.PublicWrite(read, owner); got != want {
+		t.Errorf("PublicWrite(%v, %q) = %s, want %s", read, owner, got, want)
+	}
+}
+
+// wantPartnerRecord fails t unless whether a trusted record may be written from p, having read read, is want.
+func wantPartnerRecord(t *testing.T, p PartnerAccepted, read []influence.Entry, want bool) {
+	t.Helper()
+	if got := p.TrustedRecord(read); got != want {
+		t.Errorf("TrustedRecord(%v) = %v, want %v", read, got, want)
+	}
+}
+
+// The entries a partner's handler reads in these tests: a third-party ticket, and private data by owner.
+var partnerThirdParty = influence.Entry{Class: influence.ThirdParty, Src: "ticket:t-1", H: "h-ticket", CID: "c-1",
+	HasCID: true}
+
+func partnerPrivate(owner string) influence.Entry {
+	return influence.Entry{Class: influence.Private, Src: "http:cards", H: "h-" + owner, Owner: owner}
+}
+
+// TestAPartnerDecidesOverTheBoundaryBlock: a partner acting on influence reads the one boundary stamp. Blinded
+// third-party content beside alice's private data denies a write to bob and allows one to alice, and bars a
+// trusted record; a boundary block that names nothing denies every write and bars the record, whatever was read,
+// where the same call naming influence with nothing is allowed both. A partner not acting on influence is denied
+// both for that call.
+func TestAPartnerDecidesOverTheBoundaryBlock(t *testing.T) {
+	now := int64(vectorNow)
+	base := pspConfig(t, &now, 16, 60000)
+	acting := actingOnInfluence(t, base)
+
+	blinded := attestedCall(t, acting, influenceBlock(t,
+		`{"cls":"private","h":"h-sent-1","owner":"alice","src":"boundary:payment"}`,
+		`{"cls":"third-party","h":"h-sent-2","src":"boundary:payment"}`))
+	wantPartnerWrite(t, blinded, nil, "bob", reason.InfluenceDenied)
+	wantPartnerWrite(t, blinded, nil, "", reason.InfluenceDenied)
+	wantPartnerWrite(t, blinded, nil, "alice", reason.OK)
+	wantPartnerRecord(t, blinded, nil, false)
+
+	silent := attestedCall(t, acting, stamp.EmptyBlock)
+	wantPartnerWrite(t, silent, nil, "bob", reason.InfluenceDenied)
+	wantPartnerWrite(t, silent, []influence.Entry{partnerPrivate("bob")}, "bob", reason.InfluenceDenied)
+	wantPartnerRecord(t, silent, nil, false)
+
+	named := attestedCall(t, acting, influenceBlock(t))
+	wantPartnerWrite(t, named, nil, "bob", reason.OK)
+	wantPartnerWrite(t, named, []influence.Entry{partnerThirdParty, partnerPrivate("alice")}, "bob",
+		reason.InfluenceDenied)
+	wantPartnerRecord(t, named, nil, true)
+	wantPartnerRecord(t, named, []influence.Entry{partnerThirdParty}, false)
+
+	notActing := attestedCall(t, base, influenceBlock(t))
+	wantPartnerWrite(t, notActing, nil, "bob", reason.InfluenceDenied)
+	wantPartnerRecord(t, notActing, nil, false)
+}
+
+// TestAnUnsafePartnerCallDecidesOnWhatWasAdded: in an unsafe session, and with no session header, nothing is
+// handed on, so a guarded write is decided on what the handler read alone, the every-stamp rule having no stamp
+// to read, whatever block the call carries; no trusted record is written. A partner keeps its public writes from
+// unsafe calls by switching them off (UnsafeEndpoints).
+func TestAnUnsafePartnerCallDecidesOnWhatWasAdded(t *testing.T) {
+	now := int64(vectorNow)
+	cfg := actingOnInfluence(t, pspConfig(t, &now, 16, 60000))
+	cfg.Pinned = []string{policyPin(t, "stranger-policy")}
+	s := newSessions(t, cfg)
+	peer := rulesPeer(t, "shop")
+	id := opened(t, s.ServeHandshake(vectors.RulesHandshakeBody(t, "shop"), peer)).Sess
+	carried := influenceBlock(t, `{"cls":"private","h":"h-sent-1","owner":"alice","src":"boundary:payment"}`,
+		`{"cls":"third-party","h":"h-sent-2","src":"boundary:payment"}`)
+	unsafe := boundaryCallCarrying(t, id, now, carried, true)
+	noHeader := unsafe
+	noHeader.Session = ""
+	for name, req := range map[string]InboundRequest{"an unsafe session": unsafe, "no session header": noHeader} {
+		t.Run(name, func(t *testing.T) {
+			a, err := s.Accept(t.Context(), req, peer)
+			if err != nil {
+				t.Fatalf("Accept: %v", err)
+			}
+			if a.Refusal != nil || a.Attested || a.HandOver != nil {
+				t.Fatalf("the call is %+v; want served unsafe, nothing handed on", a)
+			}
+			wantPartnerWrite(t, a, nil, "bob", reason.OK)
+			wantPartnerWrite(t, a, []influence.Entry{partnerThirdParty, partnerPrivate("alice")}, "bob",
+				reason.InfluenceDenied)
+			wantPartnerWrite(t, a, []influence.Entry{partnerThirdParty, partnerPrivate("bob")}, "bob", reason.OK)
+			wantPartnerRecord(t, a, nil, false)
+		})
+	}
+}
+
+// TestARefusedCallIsDeniedEveryWrite: a call Accept refused is not served, so no guarded write and no trusted
+// record is allowed from it.
+func TestARefusedCallIsDeniedEveryWrite(t *testing.T) {
+	now := int64(vectorNow)
+	s := newSessions(t, actingOnInfluence(t, pspConfig(t, &now, 16, 60000)))
+	a, err := s.Accept(t.Context(), boundaryCallCarrying(t, "bm8tc3VjaC1zZXNzaW9u", now, influenceBlock(t), true),
+		rulesPeer(t, "shop"))
+	if err != nil {
+		t.Fatalf("Accept: %v", err)
+	}
+	if a.Refusal == nil || string(a.Refusal.Body) != `{"reason":"SESSION_UNKNOWN"}` {
+		t.Fatalf("the call is %+v, want refused SESSION_UNKNOWN", a)
+	}
+	wantPartnerWrite(t, a, nil, "bob", reason.InfluenceDenied)
+	wantPartnerRecord(t, a, nil, false)
 }
 
 // failingCache is a nonce cache whose store is down.

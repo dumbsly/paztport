@@ -1019,15 +1019,238 @@ func TestAcceptOrigin(t *testing.T) {
 	})
 }
 
-// TestTrustedRecordIsFalse grants no trusted record from any request or call, a verified one with only trusted
-// entries handed on included: never looser than the rule that reads the hand-over.
-func TestTrustedRecordIsFalse(t *testing.T) {
-	c := ruleCase(t, "trustedRecord", "verified, only trusted entries, the origin's block a pass-along block")
-	a := accept(t, c, caseRequest(t, c.Get("request")), paztporthttp.ModeEnforce)
-	wantServed(t, a, true)
-	if a.TrustedRecord(nil) || (paztporthttp.PartnerAccepted{Attested: true}).TrustedRecord(nil) {
-		t.Fatal("a trusted record is granted")
+// The entries the write-rule tests hand on or read: alice's private data, a third-party ticket, a local-untrusted
+// search result and a public page.
+const privateItem = `{"cls":"private","h":"h-card","owner":"alice","src":"http:cards"}`
+
+var (
+	thirdPartyRead = influence.Entry{
+		Class: influence.ThirdParty, Src: "ticket:t-1", H: "h-ticket", CID: "cid-1", HasCID: true,
 	}
+	localUntrustedRead = influence.Entry{Class: influence.LocalUntrusted, Src: "http:search", H: "h-search"}
+	publicRead         = influence.Entry{Class: influence.Public, Src: "http:catalogue", H: "h-page"}
+)
+
+// privateRead is a private entry whose owner is owner.
+func privateRead(owner string) influence.Entry {
+	return influence.Entry{Class: influence.Private, Src: "http:cards", H: "h-" + owner, Owner: owner}
+}
+
+// wantWrite fails t unless a's guarded public write to owner, having read read, is want.
+func wantWrite(t *testing.T, a paztporthttp.Accepted, read []influence.Entry, owner string, want reason.Code) {
+	t.Helper()
+	if got := a.PublicWrite(read, owner); got != want {
+		t.Errorf("PublicWrite(%v, %q) = %s, want %s", read, owner, got, want)
+	}
+}
+
+// wantRecord fails t unless whether a trusted record may be written from a, having read read, is want.
+func wantRecord(t *testing.T, a paztporthttp.Accepted, read []influence.Entry, want bool) {
+	t.Helper()
+	if got := a.TrustedRecord(read); got != want {
+		t.Errorf("TrustedRecord(%v) = %v, want %v", read, got, want)
+	}
+}
+
+// silentOrigin is a chain's blocks whose origin's, gateway's, does not name influence, and whose last, orders',
+// names it with one public entry: every entry trusted, and one hop that may have read anything.
+func silentOrigin(t *testing.T) stamp.Blocks {
+	return stamp.Blocks{stamp.EmptyBlock, itemsBlock(t, entryItem)}
+}
+
+// everyNaming is a chain's blocks whose origin's names influence with nothing and whose last names it with items.
+func everyNaming(t *testing.T, items ...string) stamp.Blocks {
+	return stamp.Blocks{itemsBlock(t), itemsBlock(t, items...)}
+}
+
+// TestAGuardedWriteWhoseOriginBlockDoesNotNameInfluenceIsDenied: a request whose chain verified, but whose origin
+// block does not name influence, is denied a guarded public write to any owner, and no trusted record is written
+// from it, though its only entry is public: that hop may have read anything. The same entries with every stamp
+// naming influence are allowed both.
+func TestAGuardedWriteWhoseOriginBlockDoesNotNameInfluenceIsDenied(t *testing.T) {
+	c := verifiedCase(t)
+	a := accept(t, c, minted(t, c, "rid-silent", silentOrigin(t), silentOrigin(t), false), paztporthttp.ModeEnforce)
+	wantServed(t, a, true)
+	wantWrite(t, a, nil, "", reason.InfluenceDenied)
+	wantWrite(t, a, nil, "bob", reason.InfluenceDenied)
+	wantWrite(t, a, []influence.Entry{publicRead}, "bob", reason.InfluenceDenied)
+	wantRecord(t, a, nil, false)
+
+	named := everyNaming(t, entryItem)
+	b := accept(t, c, minted(t, c, "rid-named", named, named, false), paztporthttp.ModeEnforce)
+	wantServed(t, b, true)
+	wantWrite(t, b, nil, "", reason.OK)
+	wantWrite(t, b, nil, "bob", reason.OK)
+	wantRecord(t, b, nil, true)
+}
+
+// TestTheSameRequestMayBeRead: the request denied a guarded write is served, verified and attested, since only a
+// write is refused for a silent hop; for a read the owner-aware rule alone decides, and allows it.
+func TestTheSameRequestMayBeRead(t *testing.T) {
+	c := verifiedCase(t)
+	a := accept(t, c, minted(t, c, "rid-silent", silentOrigin(t), silentOrigin(t), false), paztporthttp.ModeEnforce)
+	wantServed(t, a, true)
+	if !a.Attests() || a.HandOver == nil {
+		t.Fatalf("Attests %v, HandOver %v; want the request served whole", a.Attests(), a.HandOver)
+	}
+	stamps, ok := a.HandOver.Under(influence.Name)
+	if !ok {
+		t.Fatal("nothing is handed on under influence")
+	}
+	if d := influence.Decide(stamps, nil, false, "bob"); d.Reason != reason.OK || d.EveryStampNames {
+		t.Fatalf("a read is %+v; want OK, with a stamp not naming influence", d)
+	}
+}
+
+// TestAWriteAtAServiceNotActingOnInfluenceIsDenied: at a service whose settings do not act on influence, acting on
+// nothing or on another extension, a guarded public write is denied and no trusted record is written, from a
+// request whose chain verified with every stamp naming influence: a write-guarding service deployed without the
+// extension is the mistake the rules exist to catch. The same request at a service acting on influence is allowed
+// both.
+func TestAWriteAtAServiceNotActingOnInfluenceIsDenied(t *testing.T) {
+	c := verifiedCase(t)
+	named := everyNaming(t, entryItem)
+	other, err := verify.NewExtensions([]string{"example"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, ext := range map[string]verify.Extensions{"acting on nothing": {}, "acting on another": other} {
+		t.Run(name, func(t *testing.T) {
+			r := caseReceiver(t, c)
+			r.Extensions, r.Verifier = ext, caseVerifierWith(t, c, ext)
+			a := r.Accept(t.Context(), minted(t, c, "rid-named", named, named, false), nil, paztporthttp.ModeEnforce)
+			wantServed(t, a, true)
+			wantWrite(t, a, nil, "", reason.InfluenceDenied)
+			wantWrite(t, a, []influence.Entry{privateRead("bob")}, "bob", reason.InfluenceDenied)
+			wantRecord(t, a, nil, false)
+		})
+	}
+	a := accept(t, c, minted(t, c, "rid-named", named, named, false), paztporthttp.ModeEnforce)
+	wantServed(t, a, true)
+	wantWrite(t, a, nil, "", reason.OK)
+	wantRecord(t, a, nil, true)
+}
+
+// TestWhatTheServiceReadCountsAgainstTheWrite: what the service read since it accepted the request counts beside
+// what was handed on. Alice's private entry handed on is no bar to a write to bob alone, since nothing untrusted
+// is held; a third-party read beside it is, though the write to alice, her own data, is still allowed. The same
+// read bars a trusted record.
+func TestWhatTheServiceReadCountsAgainstTheWrite(t *testing.T) {
+	c := verifiedCase(t)
+	blocks := everyNaming(t, privateItem)
+	a := accept(t, c, minted(t, c, "rid-private", blocks, blocks, false), paztporthttp.ModeEnforce)
+	wantServed(t, a, true)
+	read := []influence.Entry{thirdPartyRead}
+	wantWrite(t, a, nil, "bob", reason.OK)
+	wantWrite(t, a, read, "bob", reason.InfluenceDenied)
+	wantWrite(t, a, read, "", reason.InfluenceDenied)
+	wantWrite(t, a, read, "alice", reason.OK)
+	wantRecord(t, a, nil, true)
+	wantRecord(t, a, read, false)
+}
+
+// TestNothingHandedOnIsDecidedOnWhatWasAdded: where nothing was handed on, at an origin or where the chain did not
+// read, the every-stamp rule has no stamp to read and holds, so a request whose origin block does not name
+// influence, denied at a hop, is allowed a guarded write here; the owner-aware rule reads what the service read.
+// No trusted record is written. The zero Accepted, work outside any request, has no settings, so it is denied.
+func TestNothingHandedOnIsDecidedOnWhatWasAdded(t *testing.T) {
+	c := ruleCase(t, "trustedRecord", "verified, only trusted entries, the origin's block not naming influence")
+	origin := caseReceiver(t, c)
+	origin.Origin, origin.Stamper.Origin = true, true
+	atOrigin := origin.Accept(t.Context(), caseRequest(t, c.Get("request")), nil, paztporthttp.ModeNone)
+	noChain := caseRequest(t, c.Get("request"))
+	noChain.Chain = ""
+	for name, a := range map[string]paztporthttp.Accepted{
+		"an origin":                 atOrigin,
+		"a chain that did not read": accept(t, c, noChain, paztporthttp.ModeAudit),
+	} {
+		t.Run(name, func(t *testing.T) {
+			wantServed(t, a, false)
+			if a.HandOver != nil {
+				t.Fatalf("HandOver %v, want nothing handed on", a.HandOver)
+			}
+			wantWrite(t, a, nil, "bob", reason.OK)
+			wantWrite(t, a, []influence.Entry{thirdPartyRead, privateRead("alice")}, "bob", reason.InfluenceDenied)
+			wantWrite(t, a, []influence.Entry{thirdPartyRead, privateRead("bob")}, "bob", reason.OK)
+			wantRecord(t, a, nil, false)
+		})
+	}
+	t.Run("work outside any request", func(t *testing.T) {
+		var a paztporthttp.Accepted
+		wantWrite(t, a, nil, "bob", reason.InfluenceDenied)
+		wantRecord(t, a, nil, false)
+	})
+}
+
+// TestATrustedRecordNeedsAVerifiedHandOverEveryStampNamingInfluenceAndNoUntrusted: a trusted record is written
+// from a request only when its chain verified here, every stamp names influence, and neither what was handed on
+// nor what the service read holds untrusted content. Served unverified on any path, an audit-mode failure among
+// them, it is not, though a guarded write reads the items shown and may be allowed; nor with a pass-along origin
+// block, nor after a local-untrusted read.
+func TestATrustedRecordNeedsAVerifiedHandOverEveryStampNamingInfluenceAndNoUntrusted(t *testing.T) {
+	c := verifiedCase(t)
+	named := everyNaming(t, entryItem, privateItem)
+	t.Run("verified", func(t *testing.T) {
+		a := accept(t, c, minted(t, c, "rid-named", named, named, false), paztporthttp.ModeEnforce)
+		wantServed(t, a, true)
+		wantRecord(t, a, nil, true)
+		wantRecord(t, a, []influence.Entry{publicRead, privateRead("bob")}, true)
+		wantRecord(t, a, []influence.Entry{localUntrustedRead}, false)
+		wantRecord(t, a, []influence.Entry{thirdPartyRead}, false)
+	})
+	for _, p := range unverifiedPaths {
+		t.Run(p.name, func(t *testing.T) {
+			a := p.receiver(t, c).Accept(t.Context(), minted(t, c, "rid-named", named, named, p.forged), nil, p.mode)
+			wantServed(t, a, false)
+			if a.HandOver == nil || a.HandOver.Verified() {
+				t.Fatalf("HandOver %v, want the items handed on, not verified", a.HandOver)
+			}
+			wantRecord(t, a, nil, false)
+			wantWrite(t, a, nil, "alice", reason.OK)
+			wantWrite(t, a, []influence.Entry{thirdPartyRead}, "bob", reason.InfluenceDenied)
+		})
+	}
+	t.Run("a pass-along origin block", func(t *testing.T) {
+		passAlong, err := stamp.NewBlock(nil, []string{influence.Name})
+		if err != nil {
+			t.Fatal(err)
+		}
+		blocks := stamp.Blocks{passAlong, itemsBlock(t, entryItem)}
+		a := accept(t, c, minted(t, c, "rid-pass-along", blocks, blocks, false), paztporthttp.ModeEnforce)
+		wantServed(t, a, true)
+		wantRecord(t, a, nil, false)
+		wantWrite(t, a, nil, "", reason.InfluenceDenied)
+	})
+}
+
+// TestAHandOverSetByHandIsReadOrDenied: HandOver is the embedder's to change, so the rules read whatever it holds.
+// One holding an item that does not read, which Accept would have refused, is denied a write and a record, never
+// allowed; one built under settings that do not act on influence holds nothing under it and is denied too, not
+// read as nothing handed on.
+func TestAHandOverSetByHandIsReadOrDenied(t *testing.T) {
+	c := verifiedCase(t)
+	named := everyNaming(t, entryItem)
+	a := accept(t, c, minted(t, c, "rid-named", named, named, false), paztporthttp.ModeEnforce)
+	wantServed(t, a, true)
+	unread := stamp.Blocks{itemsBlock(t), itemsBlock(t, `"not an entry"`)}
+	a.HandOver = verify.NewHandOver(true, a.Inbound.Chain, unread, actsOnInfluence(t))
+	wantWrite(t, a, nil, "", reason.InfluenceDenied)
+	wantRecord(t, a, nil, false)
+	a.HandOver = verify.NewHandOver(true, a.Inbound.Chain, named, verify.Extensions{})
+	wantWrite(t, a, nil, "", reason.InfluenceDenied)
+	wantRecord(t, a, nil, false)
+}
+
+// TestARefusedRequestIsDeniedEveryWrite: a request Accept refused is not served, so nothing a handler might still
+// decide from it is allowed: no guarded write and no trusted record, even where its chain would otherwise allow
+// both.
+func TestARefusedRequestIsDeniedEveryWrite(t *testing.T) {
+	c := verifiedCase(t)
+	named := everyNaming(t, entryItem)
+	a := accept(t, c, minted(t, c, "rid-forged", named, named, true), paztporthttp.ModeEnforce)
+	wantRefused(t, a, 403, reason.BadSignature)
+	wantWrite(t, a, nil, "", reason.InfluenceDenied)
+	wantRecord(t, a, nil, false)
 }
 
 // FuzzAccept never panics on any request, and its answers keep the receiver's rules: a refusal is 400 or 403 and
