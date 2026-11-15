@@ -248,11 +248,12 @@ func (c *Caller) Stamp(
 ) (Outbound, error) {
 	ext := settings(c.Verifier, c.Extensions, "caller")
 	// One block per inbound stamp (wire.md, Blocks): any other list would be signed into a call the next hop
-	// refuses at check 9a, so it is refused before anything is signed.
+	// refuses at check 9a, so it is refused before anything is signed. Blocks given with no chain, even none, are
+	// the embedder passing what belongs to no request, so they are refused too.
+	if inbound.Blocks != nil && len(inbound.Chain) == 0 {
+		return Outbound{}, errors.New("paztport http: blocks given with no inbound chain; nothing is sent")
+	}
 	if inbound.Blocks != nil && len(inbound.Blocks) != len(inbound.Chain) {
-		if len(inbound.Chain) == 0 {
-			return Outbound{}, errors.New("paztport http: blocks given with no inbound chain; nothing is sent")
-		}
 		return Outbound{}, errors.New("paztport http: the inbound blocks are not one per inbound stamp; nothing is sent")
 	}
 	if method == "" || target == "" {
@@ -280,7 +281,8 @@ func (c *Caller) Stamp(
 	// Written before anything is signed: blocks past the wire limit are refused here, and nothing is dropped.
 	blocksTok, err := wire.EncodeBlocks(blocks)
 	if err != nil {
-		return Outbound{}, err
+		return Outbound{}, fmt.Errorf("paztport http: the call to %s has no blocks header; nothing is sent: %w",
+			policy.Service(receiver), err)
 	}
 	chain, proof, err := c.Stamper.Next(inbound.Chain, receiver, bind, own, c.Bundle)
 	if err != nil {

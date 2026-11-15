@@ -35,8 +35,9 @@ const (
 	// does not read at a service acting on influence, are still refused with 400.
 	ModeOff
 	// ModeNone is a service that verifies no requests and has no mode to switch: it refuses no chain,
-	// but it is not off, so where it can attest, it verifies the chain once to decide whether it does. Its
-	// blocks and items are refused as under ModeOff.
+	// but it is not off, so where it can attest, it verifies the chain once to decide whether it does. As under
+	// ModeOff, blocks that do not match their stamps are refused, and so, at a service acting on influence, is an
+	// influence item that does not read.
 	ModeNone
 )
 

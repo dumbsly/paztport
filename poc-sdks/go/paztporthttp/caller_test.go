@@ -466,37 +466,66 @@ func TestInboundBlocksNotOnePerStampAreRefused(t *testing.T) {
 	}
 }
 
-// TestBlocksBesideNoChainAreRefused signs nothing for inbound blocks with no chain, at a hop and at an origin
-// alike.
+// TestBlocksBesideNoChainAreRefused signs nothing for inbound blocks with no chain, an empty list of them
+// included, at a hop and at an origin alike.
 func TestBlocksBesideNoChainAreRefused(t *testing.T) {
-	signed := 0
-	bad := paztporthttp.Inbound{Blocks: stamp.Blocks{stamp.EmptyBlock}}
-	o, err := hopCaller(t, actsOnInfluence(t), &signed).Stamp("POST", "/pay", "payment", nil, bad, nil)
-	wantNothingSigned(t, o, err, signed)
-	origin, _, _ := originCaller(t)
-	origin.Stamper.Now = func() int64 {
-		signed++
-		return 1767225600000
+	for name, blocks := range map[string]stamp.Blocks{"one": {stamp.EmptyBlock}, "an empty list": {}} {
+		t.Run(name, func(t *testing.T) {
+			signed := 0
+			bad := paztporthttp.Inbound{Blocks: blocks}
+			o, err := hopCaller(t, actsOnInfluence(t), &signed).Stamp("POST", "/pay", "payment", nil, bad, nil)
+			wantNothingSigned(t, o, err, signed)
+			origin, _, _ := originCaller(t)
+			origin.Stamper.Now = func() int64 {
+				signed++
+				return 1767225600000
+			}
+			o, err = origin.Stamp("POST", "/orders", "orders", nil, bad, nil)
+			wantNothingSigned(t, o, err, signed)
+		})
 	}
-	o, err = origin.Stamp("POST", "/orders", "orders", nil, bad, nil)
-	wantNothingSigned(t, o, err, signed)
+}
+
+// bigEntries returns n entries of about 1 KB each.
+func bigEntries(n int) []influence.Entry {
+	es := make([]influence.Entry, n)
+	for i := range es {
+		es[i] = influence.Entry{Class: influence.Public, Src: "http:catalogue", H: strings.Repeat("h", 1000)}
+	}
+	return es
 }
 
 // TestBlocksPastTheWireLimitAreRefusedBeforeSigning refuses a call whose blocks header would pass the wire limit,
-// 256 KiB, before anything is signed: nothing is dropped to make room.
+// 256 KiB, before anything is signed: nothing is dropped to make room. Each block here is under the limit, the
+// one received and the caller's own alike; only the header holding both passes it, so the call is refused only
+// because the header is written before the stamp is signed.
 func TestBlocksPastTheWireLimitAreRefusedBeforeSigning(t *testing.T) {
-	big := make([]influence.Entry, 300)
-	for i := range big {
-		big[i] = influence.Entry{Class: influence.Public, Src: "http:catalogue", H: strings.Repeat("h", 1000)}
+	received, err := influence.RequestBlock(bigEntries(200), nil)
+	if err != nil {
+		t.Fatalf("the block received is past the limit alone: %v", err)
 	}
+	if _, err := influence.RequestBlock(bigEntries(100), nil); err != nil {
+		t.Fatalf("the caller's own block is past the limit alone: %v", err)
+	}
+	in := forwarded(t)
+	in.Blocks = stamp.Blocks{received}
 	signed := 0
-	o, err := hopCaller(t, actsOnInfluence(t), &signed).Stamp("POST", "/pay", "payment", nil, forwarded(t), big)
+	o, err := hopCaller(t, actsOnInfluence(t), &signed).Stamp("POST", "/pay", "payment", nil, in, bigEntries(100))
 	wantNothingSigned(t, o, err, signed)
-	// Under the limit, the same call is signed.
+	// With the empty block received, the same call is under the limit, and signed.
 	if _, err := hopCaller(t, actsOnInfluence(t), &signed).Stamp("POST", "/pay", "payment", nil, forwarded(t),
-		big[:200]); err != nil || signed != 1 {
+		bigEntries(100)); err != nil || signed != 1 {
 		t.Fatalf("a call under the limit: %v, signed %d", err, signed)
 	}
+}
+
+// TestAnOwnBlockPastTheWireLimitIsRefusedBeforeSigning refuses a call whose own block alone would pass the wire
+// limit, signing nothing.
+func TestAnOwnBlockPastTheWireLimitIsRefusedBeforeSigning(t *testing.T) {
+	signed := 0
+	o, err := hopCaller(t, actsOnInfluence(t), &signed).Stamp("POST", "/pay", "payment", nil, forwarded(t),
+		bigEntries(300))
+	wantNothingSigned(t, o, err, signed)
 }
 
 // TestARequiresNameThatIsNotAnExtensionNameIsRefused signs nothing for a call to a receiver whose requirement
