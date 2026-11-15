@@ -8,70 +8,38 @@ import (
 	"testing"
 
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/b64"
+	"github.com/dumbsly/paztport/poc-sdks/go/reason"
 	"github.com/dumbsly/paztport/poc-sdks/go/stamp"
 	"github.com/dumbsly/paztport/poc-sdks/go/verify"
 )
 
-// servedChain returns the token of a chain of gateway then orders, each stamp committing to the block at its
-// place; no stamp is signed, since ServedUnverified needs no key.
-func servedChain(t *testing.T, bs stamp.Blocks) *string {
+// servedChain returns the token of the mesh fixture's chain, gateway then orders, signed, each stamp committing
+// to the block at its place, and the token of those blocks. A setup is given so a test can break it first.
+func servedChain(t *testing.T, s *setup, bs ...stamp.Block) (chain, blocks *string) {
 	t.Helper()
-	c := stamp.Chain{
-		{Svc: "gateway", RID: "r", Rcv: "orders", Ext: bs[0].Commit()},
-		{Svc: "orders", RID: "r", Rcv: "inventory", Ext: bs[1].Commit(), Prev: ""},
-	}
-	tok, err := c.Token()
-	if err != nil {
-		t.Fatal(err)
-	}
-	return &tok
+	s.attach(t, bs...)
+	return ptr(s.token(t)), s.in.Blocks
 }
-
-func servedBlocks(t *testing.T, bs stamp.Blocks) *string {
-	t.Helper()
-	tok, err := bs.Token()
-	if err != nil {
-		t.Fatal(err)
-	}
-	return &tok
-}
-
-func exampleBlock(t *testing.T, item string, name string) stamp.Block {
-	t.Helper()
-	b, err := stamp.NewBlock(map[string][]string{name: {item}}, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return b
-}
-
-func actingOn(t *testing.T, actsOn ...string) verify.Extensions {
-	t.Helper()
-	ext, err := verify.NewExtensions(actsOn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return ext
-}
-
-func strp(s string) *string { return &s }
 
 func TestAChainThatReadsWithMatchingBlocksHandsThemOnAsNotVerified(t *testing.T) {
-	bs := stamp.Blocks{stamp.EmptyBlock, exampleBlock(t, `{"n":1}`, "example")}
-	h, serve := verify.ServedUnverified(servedChain(t, bs), servedBlocks(t, bs), actingOn(t, "example"))
+	b := example(t)
+	chain, blocks := servedChain(t, mesh(t), stamp.EmptyBlock, b)
+	h, serve := verify.ServedUnverified(chain, blocks, settings(t, "example"))
 	if !serve || h == nil || h.Verified() {
 		t.Fatalf("serve=%v h=%v", serve, h)
 	}
 	got, _ := h.Under("example")
-	want := []verify.StampItems{{Svc: "gateway"}, {Svc: "orders", Named: true, Items: []string{`{"n":1}`}}}
+	want := []verify.StampItems{
+		{Svc: "gateway"}, {Svc: "orders", Named: true, Items: []string{`{"note":"n1"}`, "7"}},
+	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Under = %+v; want %+v", got, want)
 	}
 }
 
 func TestNoBlocksAndEveryExtEmptyHandsOnEntriesThatNameNothing(t *testing.T) {
-	bs := stamp.Blocks{stamp.EmptyBlock, stamp.EmptyBlock}
-	h, serve := verify.ServedUnverified(servedChain(t, bs), nil, actingOn(t, "example"))
+	chain, _ := servedChain(t, mesh(t), stamp.EmptyBlock, stamp.EmptyBlock)
+	h, serve := verify.ServedUnverified(chain, nil, settings(t, "example"))
 	if !serve || h == nil {
 		t.Fatalf("serve=%v h=%v", serve, h)
 	}
@@ -82,35 +50,35 @@ func TestNoBlocksAndEveryExtEmptyHandsOnEntriesThatNameNothing(t *testing.T) {
 }
 
 func TestNoBlocksWhereAStampCommitsToOneIsNotServed(t *testing.T) {
-	bs := stamp.Blocks{stamp.EmptyBlock, exampleBlock(t, "1", "example")}
-	h, serve := verify.ServedUnverified(servedChain(t, bs), nil, actingOn(t, "example"))
+	chain, _ := servedChain(t, mesh(t), stamp.EmptyBlock, example(t))
+	h, serve := verify.ServedUnverified(chain, nil, settings(t, "example"))
 	if serve || h != nil {
 		t.Errorf("serve=%v h=%v", serve, h)
 	}
 }
 
 func TestABlockAlteredIsNotServed(t *testing.T) {
-	bs := stamp.Blocks{stamp.EmptyBlock, exampleBlock(t, "1", "example")}
-	other := stamp.Blocks{stamp.EmptyBlock, exampleBlock(t, "2", "example")}
-	h, serve := verify.ServedUnverified(servedChain(t, bs), servedBlocks(t, other), actingOn(t, "example"))
+	chain, _ := servedChain(t, mesh(t), stamp.EmptyBlock, block(t, map[string][]string{"example": {"1"}}))
+	altered := blocksToken(t, stamp.EmptyBlock, block(t, map[string][]string{"example": {"2"}}))
+	h, serve := verify.ServedUnverified(chain, altered, settings(t, "example"))
 	if serve || h != nil {
 		t.Errorf("serve=%v h=%v", serve, h)
 	}
 }
 
 func TestOneBlockTooFewIsNotServed(t *testing.T) {
-	bs := stamp.Blocks{stamp.EmptyBlock, stamp.EmptyBlock}
-	h, serve := verify.ServedUnverified(servedChain(t, bs), servedBlocks(t, bs[:1]), actingOn(t, "example"))
+	chain, _ := servedChain(t, mesh(t), stamp.EmptyBlock, stamp.EmptyBlock)
+	h, serve := verify.ServedUnverified(chain, blocksToken(t, stamp.EmptyBlock), settings(t, "example"))
 	if serve || h != nil {
 		t.Errorf("serve=%v h=%v", serve, h)
 	}
 }
 
 func TestBlocksThatAreJSONNullAreNotServed(t *testing.T) {
-	bs := stamp.Blocks{stamp.EmptyBlock, stamp.EmptyBlock}
+	chain, _ := servedChain(t, mesh(t), stamp.EmptyBlock, stamp.EmptyBlock)
 	null := b64.Encode([]byte("null"))
-	for name, chain := range map[string]*string{"chain reads": servedChain(t, bs), "no chain": nil} {
-		h, serve := verify.ServedUnverified(chain, &null, actingOn(t, "example"))
+	for name, c := range map[string]*string{"chain reads": chain, "no chain": nil} {
+		h, serve := verify.ServedUnverified(c, &null, settings(t, "example"))
 		if serve || h != nil {
 			t.Errorf("%s: serve=%v h=%v", name, serve, h)
 		}
@@ -118,8 +86,7 @@ func TestBlocksThatAreJSONNullAreNotServed(t *testing.T) {
 }
 
 func TestAChainThatDoesNotReadWithBlocksThatReadIsServedWithNothingHandedOn(t *testing.T) {
-	bs := stamp.Blocks{stamp.EmptyBlock}
-	h, serve := verify.ServedUnverified(strp("!not a chain"), servedBlocks(t, bs), actingOn(t, "example"))
+	h, serve := verify.ServedUnverified(ptr("!not a chain"), blocksToken(t, stamp.EmptyBlock), settings(t, "example"))
 	if !serve || h != nil {
 		t.Errorf("serve=%v h=%v", serve, h)
 	}
@@ -127,23 +94,32 @@ func TestAChainThatDoesNotReadWithBlocksThatReadIsServedWithNothingHandedOn(t *t
 
 func TestAChainThatDoesNotReadWithBlocksThatAreAnObjectIsNotServed(t *testing.T) {
 	obj := b64.Encode([]byte("{}"))
-	h, serve := verify.ServedUnverified(strp("!not a chain"), &obj, actingOn(t, "example"))
+	h, serve := verify.ServedUnverified(ptr("!not a chain"), &obj, settings(t, "example"))
 	if serve || h != nil {
 		t.Errorf("serve=%v h=%v", serve, h)
 	}
 }
 
 func TestNoChainAndNoBlocksIsServedWithNothingHandedOn(t *testing.T) {
-	h, serve := verify.ServedUnverified(nil, nil, actingOn(t, "example"))
+	h, serve := verify.ServedUnverified(nil, nil, settings(t, "example"))
 	if !serve || h != nil {
 		t.Errorf("serve=%v h=%v", serve, h)
 	}
 }
 
+// TestABadSignatureDoesNotMatter breaks the last stamp's signature, so that is the chain's only fault: the
+// verifier refuses it at check 3, and a service serving it unverified still hands its items on.
 func TestABadSignatureDoesNotMatter(t *testing.T) {
-	bs := stamp.Blocks{stamp.EmptyBlock, exampleBlock(t, "1", "example")}
-	// The stamps carry no signature that verifies, and no key is offered: only check 9a applies.
-	h, serve := verify.ServedUnverified(servedChain(t, bs), servedBlocks(t, bs), actingOn(t, "example"))
+	s := mesh(t)
+	s.tamper(1, func(st *stamp.Stamp) { st.Sig = b64.Encode(make([]byte, 64)) })
+	chain, blocks := servedChain(t, s, stamp.EmptyBlock, example(t))
+	in := s.in
+	in.Chain = chain
+	r, err := verify.New(s.cfg).Verify(t.Context(), in)
+	if err != nil || r.Reason != reason.BadSignature {
+		t.Fatalf("the verifier gave %v, %v; the chain's only fault should be BAD_SIGNATURE", r.Reason, err)
+	}
+	h, serve := verify.ServedUnverified(chain, blocks, settings(t, "example"))
 	if !serve || h == nil {
 		t.Fatalf("serve=%v h=%v", serve, h)
 	}
@@ -153,16 +129,9 @@ func TestABadSignatureDoesNotMatter(t *testing.T) {
 }
 
 func TestANameOutsideTheAllowedListIsNeverHandedOn(t *testing.T) {
-	b, err := stamp.NewBlock(map[string][]string{"example": {"1"}, "other": {"2"}}, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	bs := stamp.Blocks{stamp.EmptyBlock, b}
-	ext, err := verify.NewExtensionsAllowing([]string{"example"}, []string{"example"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	h, serve := verify.ServedUnverified(servedChain(t, bs), servedBlocks(t, bs), ext)
+	b := block(t, map[string][]string{"example": {"1"}, "other": {"2"}})
+	chain, blocks := servedChain(t, mesh(t), stamp.EmptyBlock, b)
+	h, serve := verify.ServedUnverified(chain, blocks, allowing(t, []string{"example"}, []string{"example"}))
 	if !serve || h == nil {
 		t.Fatalf("serve=%v h=%v", serve, h)
 	}
@@ -175,12 +144,8 @@ func TestANameOutsideTheAllowedListIsNeverHandedOn(t *testing.T) {
 }
 
 func TestALastBlockRequiringAnExtensionNotActedOnIsStillServed(t *testing.T) {
-	b, err := stamp.NewBlock(nil, []string{"influence"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	bs := stamp.Blocks{stamp.EmptyBlock, b}
-	h, serve := verify.ServedUnverified(servedChain(t, bs), servedBlocks(t, bs), actingOn(t, "example"))
+	chain, blocks := servedChain(t, mesh(t), stamp.EmptyBlock, block(t, nil, "influence"))
+	h, serve := verify.ServedUnverified(chain, blocks, settings(t, "example"))
 	if !serve || h == nil {
 		t.Errorf("serve=%v h=%v", serve, h)
 	}
