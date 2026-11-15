@@ -5,11 +5,13 @@ package offline_test
 
 import (
 	"math"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/b64"
+	"github.com/dumbsly/paztport/poc-sdks/go/internal/json"
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/vectors"
 	"github.com/dumbsly/paztport/poc-sdks/go/offline"
 	"github.com/dumbsly/paztport/poc-sdks/go/policy"
@@ -17,23 +19,102 @@ import (
 	"github.com/dumbsly/paztport/poc-sdks/go/verify"
 )
 
-// TestVectors replays v3.json's offline cases: each runs the offline verifier once, in a record set that
-// has already spent the case's seen keys, and expects its result. A case reads only its tokens, never the
-// readable values beside them.
+// TestVectors replays v4.json's offline cases: each runs the offline verifier once, with the case's extension
+// settings, in a record set that has already spent the case's seen keys, and expects its result, its hand-over
+// included. A case reads only its tokens, never the readable values beside them.
 func TestVectors(t *testing.T) {
-	v3 := vectors.Load(t, "v3.json")
-	cases := v3.Get("offline")
-	if cases.Len() == 0 {
-		t.Fatal("v3.json has no offline case")
+	v4 := vectors.Load(t, "v4.json")
+	cases := v4.Get("offline")
+	if cases.Len() != 21 {
+		t.Fatalf("v4.json has %d offline cases, want 21", cases.Len())
+	}
+	occur := map[reason.Code]bool{}
+	cases.Each(func(_ string, c vectors.Node) { occur[reason.Code(c.Get("expected").Get("reason").Str())] = true })
+	if !occur[reason.ExtensionMismatch] || !occur[reason.ExtensionNotAllowed] {
+		t.Fatal("no offline case expects EXTENSION_MISMATCH, or none EXTENSION_NOT_ALLOWED")
 	}
 	cases.Each(func(name string, c vectors.Node) {
 		t.Run(name, func(t *testing.T) {
 			c := c.With(t)
-			if got, want := replay(t, v3.With(t), c), expected(c); got != want {
-				t.Fatalf("Verify = %+v, want %+v", got, want)
-			}
+			matches(t, replay(t, v4.With(t), c), c)
 		})
 	})
+}
+
+// matches checks got against what case c expects: its reason and suspect, and its hand-over, which is absent or
+// null for none, and otherwise holds, for each name the case acts on, one entry per stamp, items null where the
+// stamp's block does not name the extension. Each item is compared as the canonical text of its JSON value.
+func matches(t *testing.T, got verify.Result, c vectors.Node) {
+	t.Helper()
+	plain := got
+	plain.HandOver = nil
+	if want := expected(c); plain != want {
+		t.Fatalf("Verify = %+v, want %+v", plain, want)
+	}
+	e := c.Get("expected")
+	if !e.Has("handOver") || e.Get("handOver").IsNull() {
+		if got.HandOver != nil {
+			t.Fatalf("Verify handed over %q, want nothing", got.HandOver.Names())
+		}
+		return
+	}
+	if got.HandOver == nil || !got.HandOver.Verified() {
+		t.Fatalf("Verify handed over %v, want a verified hand-over", got.HandOver)
+	}
+	want := e.Get("handOver")
+	names := slices.Clone(want.Names())
+	slices.Sort(names)
+	if !slices.Equal(got.HandOver.Names(), names) {
+		t.Fatalf("the hand-over holds %q, want %q", got.HandOver.Names(), names)
+	}
+	for _, name := range names {
+		var entries []verify.StampItems
+		want.Get(name).Each(func(_ string, n vectors.Node) {
+			entry := verify.StampItems{Svc: n.Get("svc").Str()}
+			if items := n.Get("items"); !items.IsNull() {
+				entry.Named, entry.Items = true, []string{}
+				items.Each(func(_ string, item vectors.Node) { entry.Items = append(entry.Items, canonical(t, item)) })
+			}
+			entries = append(entries, entry)
+		})
+		under, ok := got.HandOver.Under(name)
+		if !ok || !slices.EqualFunc(under, entries, func(a, b verify.StampItems) bool {
+			return a.Svc == b.Svc && a.Named == b.Named && slices.Equal(a.Items, b.Items)
+		}) {
+			t.Fatalf("Under(%s) = %+v, %t, want %+v", name, under, ok, entries)
+		}
+	}
+}
+
+// canonical returns the JCS text of the JSON value n holds.
+func canonical(t *testing.T, n vectors.Node) string {
+	t.Helper()
+	v, err := json.ReadFile(n.Raw())
+	if err != nil {
+		t.Fatalf("an item: %v", err)
+	}
+	b, err := json.Wire(v)
+	if err != nil {
+		t.Fatalf("an item has no canonical text: %v", err)
+	}
+	return string(b)
+}
+
+// extensions returns the settings case c gives: acting on actsOn and carrying any name, or, where
+// allowedExtensions is not null, only the names it lists.
+func extensions(t *testing.T, c vectors.Node) verify.Extensions {
+	t.Helper()
+	var e verify.Extensions
+	var err error
+	if allowed := c.Get("allowedExtensions"); allowed.IsNull() {
+		e, err = verify.NewExtensions(c.Get("actsOn").Strs())
+	} else {
+		e, err = verify.NewExtensionsAllowing(c.Get("actsOn").Strs(), allowed.Strs())
+	}
+	if err != nil {
+		t.Fatalf("the case's extension settings: %v", err)
+	}
+	return e
 }
 
 // TestVectorsReadTheOptionalArrays checks that the replay reads the keyrings and roots a case may carry,
@@ -42,60 +123,59 @@ func TestVectors(t *testing.T) {
 // service to a keyring. And each member's window is the one it gives: a record later than every keyring's
 // or every root's notAfter is POLICY_EXPIRED, and one at it is not.
 func TestVectorsReadTheOptionalArrays(t *testing.T) {
-	v3 := vectors.Load(t, "v3.json")
-	v3.Get("offline").Each(func(name string, c vectors.Node) {
+	v4 := vectors.Load(t, "v4.json")
+	v4.Get("offline").Each(func(name string, c vectors.Node) {
 		if c.Has("keyrings") || c.Has("roots") {
 			return // already written as arrays: TestVectors replays it
 		}
 		for _, split := range []bool{false, true} {
 			t.Run(name+", split "+strconv.FormatBool(split), func(t *testing.T) {
 				c := c.With(t)
-				if got, want := replay(t, v3.With(t), asArrays(c, "", split)), expected(c); got != want {
-					t.Fatalf("Verify = %+v, want %+v", got, want)
-				}
+				matches(t, replay(t, v4.With(t), asArrays(c, "", split)), c)
 			})
 		}
 	})
 	var recorded vectors.Node
-	v3.Get("offline").Each(func(name string, c vectors.Node) {
+	v4.Get("offline").Each(func(name string, c vectors.Node) {
 		if name == "recorded call" {
 			recorded = c
 		}
 	})
 	last := recorded.Get("recordedTs").Get("last").Int()
 	at, before := strconv.FormatInt(last, 10), strconv.FormatInt(last-1, 10)
-	if got := replay(t, v3, asArrays(recorded, at, true)); got.Reason != reason.OK {
+	if got := replay(t, v4, asArrays(recorded, at, true)); got.Reason != reason.OK {
 		t.Errorf("under members until the record's time: Verify = %+v, want OK", got)
 	}
-	if got := replay(t, v3, asArrays(recorded, before, false)); got.Reason != reason.PolicyExpired {
+	if got := replay(t, v4, asArrays(recorded, before, false)); got.Reason != reason.PolicyExpired {
 		t.Errorf("under members until before the record: Verify = %+v, want POLICY_EXPIRED", got)
 	}
 	lapsed := asArrays(recorded, "", false).Rewrite([]string{"roots"},
 		vectors.Member{Name: "roots", Text: `[{"policy": ` + string(recorded.Get("policy").Raw()) + `, "notAfter": ` +
 			before + `}]`})
-	if got := replay(t, v3, lapsed); got.Reason != reason.PolicyExpired {
+	if got := replay(t, v4, lapsed); got.Reason != reason.PolicyExpired {
 		t.Errorf("under a root until before the record: Verify = %+v, want POLICY_EXPIRED", got)
 	}
 	elsewhere := asArrays(recorded, "", false).Rewrite([]string{"roots"},
 		vectors.Member{Name: "roots", Text: `[{"policy": "server"}]`})
-	if got := replay(t, v3, elsewhere); got.Reason != reason.PathNotAllowed {
+	if got := replay(t, v4, elsewhere); got.Reason != reason.PathNotAllowed {
 		t.Errorf("under another policy's root: Verify = %+v, want PATH_NOT_ALLOWED", got)
 	}
 }
 
-// replay runs case c of v3.json's offline section once, in a record set that has already spent the case's
+// replay runs case c of v4.json's offline section once, in a record set that has already spent the case's
 // seen keys. A member a case gives with no window counts for every record.
-func replay(t *testing.T, v3, c vectors.Node) verify.Result {
+func replay(t *testing.T, v4, c vectors.Node) verify.Result {
 	t.Helper()
 	cfg := offline.Config{
 		Keyrings:       keyrings(t, c),
-		Roots:          roots(t, v3, c),
+		Roots:          roots(t, v4, c),
 		AllowedOrigins: c.Get("allowedOrigins").Strs(),
 		Sess:           c.Get("sess").Str(),
 		RunMaxAgeMs:    optionalInt(c.Get("runMaxAgeMs")),
 		CallMaxAgeMs:   optionalInt(c.Get("callMaxAgeMs")),
+		Extensions:     extensions(t, c),
 	}
-	p := v3.Get("policies").Get(c.Get("policy").Str())
+	p := v4.Get("policies").Get(c.Get("policy").Str())
 	return offline.NewRecordSet(c.Get("seen").Strs()...).Verify(input(t, c, p), cfg)
 }
 
@@ -129,14 +209,14 @@ func keyrings(t *testing.T, c vectors.Node) []verify.PinnedKeyring {
 // roots returns the roots case c pins: its roots, each a policy's root until its own notAfter or with no
 // window when it gives none; otherwise its policy's root, with no window. With roots, policy names only
 // where the case's proof comes from.
-func roots(t *testing.T, v3, c vectors.Node) []verify.PinnedRoot {
+func roots(t *testing.T, v4, c vectors.Node) []verify.PinnedRoot {
 	t.Helper()
 	if !c.Has("roots") {
-		return []verify.PinnedRoot{pinnedRoot(t, v3, c.Get("policy").Str(), math.MaxInt64)}
+		return []verify.PinnedRoot{pinnedRoot(t, v4, c.Get("policy").Str(), math.MaxInt64)}
 	}
 	var out []verify.PinnedRoot
 	c.Get("roots").Each(func(_ string, r vectors.Node) {
-		out = append(out, pinnedRoot(t, v3, r.Get("policy").Str(), window(r)))
+		out = append(out, pinnedRoot(t, v4, r.Get("policy").Str(), window(r)))
 	})
 	return out
 }
@@ -146,16 +226,16 @@ func keyring(t *testing.T, ring vectors.Node) policy.Keyring {
 	t.Helper()
 	k := policy.Keyring{}
 	for _, svc := range ring.Names() {
-		_, pub := vectors.V3Key(t, ring.Get(svc).Str())
+		_, pub := vectors.VectorKey(t, ring.Get(svc).Str())
 		k[svc] = pub
 	}
 	return k
 }
 
-// pinnedRoot returns the root of v3.json's policy name, until notAfter.
-func pinnedRoot(t *testing.T, v3 vectors.Node, name string, notAfter int64) verify.PinnedRoot {
+// pinnedRoot returns the root of v4.json's policy name, until notAfter.
+func pinnedRoot(t *testing.T, v4 vectors.Node, name string, notAfter int64) verify.PinnedRoot {
 	t.Helper()
-	p := v3.Get("policies").Get(name)
+	p := v4.Get("policies").Get(name)
 	return verify.PinnedRoot{Root: decode(t, p.Get("root").Str()), RootID: p.Get("rootId").Str(), NotAfter: notAfter}
 }
 
@@ -226,6 +306,68 @@ func TestRecordedHandshakeVectors(t *testing.T) {
 	})
 }
 
+// TestRecordedCallVectors replays v4.json's recordedCall cases. Each case is one record set: its calls are
+// checked in order against one set of spent keys, each by Call in the session of the handshake it names, with the
+// config that session gives (CallConfig: that request's client keyring and root, that reply's session id), which
+// holds a call that verifies to that session's limits at its last stamp's ts. No extension's items are read.
+func TestRecordedCallVectors(t *testing.T) {
+	v4 := vectors.Load(t, "v4.json")
+	cases := v4.Get("recordedCall")
+	if cases.Len() != 6 {
+		t.Fatalf("v4.json has %d recordedCall cases, want 6", cases.Len())
+	}
+	// The section's shape, from its data, so that a filtered run still checks it: nine calls, and at least
+	// one that is OUTSIDE_SESSION.
+	calls, outside := 0, 0
+	cases.Each(func(_ string, c vectors.Node) {
+		want := c.Get("expected")
+		calls += want.Len()
+		want.Each(func(_ string, e vectors.Node) {
+			if e.Get("reason").Str() == string(reason.OutsideSession) {
+				outside++
+			}
+		})
+	})
+	if calls != 9 || outside == 0 {
+		t.Fatalf("the section has %d calls, %d of them OUTSIDE_SESSION; want 9, and at least one", calls, outside)
+	}
+	policies := v4.Get("policies")
+	cases.Each(func(name string, c vectors.Node) {
+		t.Run(name, func(t *testing.T) {
+			c := c.With(t)
+			var sessions []offline.RecordedSession
+			c.Get("handshakes").Each(func(_ string, h vectors.Node) {
+				sessions = append(sessions, record(t, v4, h.With(t)))
+			})
+			records := offline.NewRecordSet()
+			want := c.Get("expected")
+			if c.Get("calls").Len() != want.Len() {
+				t.Fatalf("the case gives %d calls and %d answers", c.Get("calls").Len(), want.Len())
+			}
+			for i := range c.Get("calls").Len() {
+				call := c.Get("calls").Index(i)
+				s := sessions[call.Get("handshake").Int()]
+				cfg, ok := s.CallConfig(c.Get("allowedOrigins").Strs(), optionalInt(c.Get("runMaxAgeMs")),
+					optionalInt(c.Get("callMaxAgeMs")), extensions(t, c))
+				if !ok {
+					t.Fatalf("call %d: no config, though every handshake here is attested", i)
+				}
+				in := input(t, call, policies.With(t).Get(call.Get("policy").Str()))
+				got, ok := records.Call(in, cfg, s, nil)
+				if !ok {
+					t.Fatalf("call %d: no result, though every handshake here is attested", i)
+				}
+				if w := reason.Code(want.Index(i).Get("reason").Str()); got.Reason != w {
+					t.Errorf("call %d = %s, want %s", i, got.Reason, w)
+				}
+				if (got.HandOver != nil) != got.OK() {
+					t.Errorf("call %d: a %s result has the hand-over %v", i, got.Reason, got.HandOver)
+				}
+			}
+		})
+	})
+}
+
 // record reads h, a handshake in the recordedHandshake shape, from its tokens, its pin named in file's keys.
 func record(t *testing.T, file, h vectors.Node) offline.RecordedSession {
 	t.Helper()
@@ -240,7 +382,7 @@ func input(t *testing.T, c, p vectors.Node) offline.Input {
 	in := offline.Input{
 		Chain:           optional(c.Get("chainToken")),
 		ExpectedBind:    optional(c.Get("expectedBind")),
-		Influence:       optional(c.Get("influenceToken")),
+		Blocks:          optional(c.Get("blocksToken")),
 		Receiver:        c.Get("receiver").Str(),
 		ReceiverInRoute: c.Get("receiverInRoute").Bool(),
 		NonceKey:        optional(c.Get("nonceKey")),

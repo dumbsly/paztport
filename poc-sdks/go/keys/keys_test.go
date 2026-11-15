@@ -18,13 +18,13 @@ import (
 	"github.com/dumbsly/paztport/poc-sdks/go/keys"
 )
 
-// TestVectorKeys reads every key v3.json lists, which V3Key derives from its name, and writes each back as
+// TestVectorKeys reads every key v4.json lists, which VectorKey derives from its name, and writes each back as
 // the same text.
 func TestVectorKeys(t *testing.T) {
-	vectors.Load(t, "v3.json").Get("keys").Each(func(name string, k vectors.Node) {
+	vectors.Load(t, "v4.json").Get("keys").Each(func(name string, k vectors.Node) {
 		t.Run(name, func(t *testing.T) {
 			k := k.With(t)
-			priv, pub := vectors.V3Key(t, name)
+			priv, pub := vectors.VectorKey(t, name)
 			pubText, privText := k.Get("pub").Str(), k.Get("priv").Str()
 
 			gotPub, err := keys.ParsePublic(pubText)
@@ -55,7 +55,7 @@ func TestVectorKeys(t *testing.T) {
 // TestParseRefuses holds the readers to the spec's exact layouts: a 44-byte SPKI and a 48-byte PKCS#8, each
 // opening with its fixed prefix, as canonical base64url.
 func TestParseRefuses(t *testing.T) {
-	k := vectors.Load(t, "v3.json").Get("keys").Get("pi")
+	k := vectors.Load(t, "v4.json").Get("keys").Get("pi")
 	spki := decode(t, k.Get("pub").Str())
 	pkcs8 := decode(t, k.Get("priv").Str())
 
@@ -119,8 +119,8 @@ func TestRefusalNamesNoKey(t *testing.T) {
 
 // TestLoad reads key files, trimming the whitespace around the one value each holds.
 func TestLoad(t *testing.T) {
-	k := vectors.Load(t, "v3.json").Get("keys").Get("pi")
-	priv, _ := vectors.V3Key(t, "pi")
+	k := vectors.Load(t, "v4.json").Get("keys").Get("pi")
+	priv, _ := vectors.VectorKey(t, "pi")
 	dir := t.TempDir()
 	keyFile := write(t, dir, "pi.key", "\r\n\t "+k.Get("priv").Str()+"\r\n\t ")
 	pinFile := write(t, dir, "policy.pub", " "+k.Get("pub").Str()+"\n")
@@ -185,7 +185,7 @@ func TestLoad(t *testing.T) {
 // TestSignVerify signs and verifies, and refuses keys and signatures of the wrong length, where ed25519's own
 // functions would panic, without panicking.
 func TestSignVerify(t *testing.T) {
-	priv, pub := vectors.V3Key(t, "pi")
+	priv, pub := vectors.VectorKey(t, "pi")
 	msg := []byte("paztport")
 	sig, err := keys.Sign(priv, msg)
 	if err != nil {
@@ -219,7 +219,7 @@ func TestSignVerify(t *testing.T) {
 
 // TestVerifyEmptySignature checks that a nil, empty or short signature, and a nil key, are false and no panic.
 func TestVerifyEmptySignature(t *testing.T) {
-	_, pub := vectors.V3Key(t, "pi")
+	_, pub := vectors.VectorKey(t, "pi")
 	for _, sig := range [][]byte{nil, {}, make([]byte, 63)} {
 		if keys.Verify(pub, []byte("paztport"), sig) {
 			t.Errorf("Verify accepted a %d-byte signature", len(sig))

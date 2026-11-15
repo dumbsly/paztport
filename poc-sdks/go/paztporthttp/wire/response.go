@@ -23,7 +23,8 @@ type ResponseCheck struct {
 	// Result is the verdict on the response's attestation. It is OK only when the whole response
 	// verified.
 	Result verify.Result
-	// Labels are the labels the attestation carries, in its order, when Result is OK, and nil otherwise.
+	// Labels is always nil: a header whose labels are not empty does not read.
+	// Plan 4b: the response stamp's block, handed over, replaces Labels.
 	Labels []influence.Label
 	// ResultHash is the response's [ResultHash], whatever the verdict, so that a caller can record an
 	// unattested response by it.
@@ -38,9 +39,9 @@ type ResponseCheck struct {
 //
 //  1. CHAIN_MISSING, unless sent has a stamp and the header, without its optional whitespace (see
 //     [HeaderValue]), reads from its token as an object of exactly labels and stamp, whose labels are
-//     well formed;
+//     the empty array: a label is never believed;
 //  2. BINDING_MISMATCH, unless the response binding (stamp.ResponseBinding) of the [ResultHash] of status
-//     and body, the rid of sent's origin as the call id, and the labels can be computed;
+//     and body and the rid of sent's origin as the call id can be computed;
 //  3. the live order, run by v on the chain sent then the response stamp, as received by caller, with no
 //     influence, the proof sent, no peer, that binding as the one expected and the nonce key
 //     <rid>|<last rcv>|resp, where last rcv is sent's last rcv whole, with the operation when it names
@@ -49,10 +50,11 @@ type ResponseCheck struct {
 //     sent proves it, and the response stamp must be by the service that rcv names, signed for the caller.
 //
 // The response stamp is read only by the verifier, so its live order answers for it, from its policy
-// check on. A sent chain that has no wire form, so that no request carried it, reaches the verifier as
-// no chain, and a proof with no wire form as no proof.
+// check on, and its block is the empty one: no blocks token is sent to the verifier, so a response stamp whose
+// ext is not "" is EXTENSION_MISMATCH. A sent chain that has no wire form, so that no request carried it,
+// reaches the verifier as no chain, and a proof with no wire form as no proof.
 //
-// Labels are returned only when the whole response verifies. CheckResponse never panics on any header,
+// CheckResponse never panics on any header,
 // status or body, and leaves sent as it was. The error is the nonce cache's, when it could not answer,
 // ctx's cancellation or deadline included; ctx reaches only the cache, and the check then is not OK. v
 // must not be nil.
@@ -65,12 +67,12 @@ func CheckResponse(ctx context.Context, v *verify.Verifier, sent stamp.Chain, se
 	if len(sent) == 0 {
 		return refused(reason.ChainMissing)
 	}
-	labels, resp, ok := readAttestation(header)
+	resp, ok := readAttestation(header)
 	if !ok {
 		return refused(reason.ChainMissing)
 	}
 	rid := sent[0].RID
-	bind, err := stamp.ResponseBinding(hash, rid, labels)
+	bind, err := stamp.ResponseBinding(hash, rid)
 	if err != nil {
 		return refused(reason.BindingMismatch)
 	}
@@ -94,36 +96,28 @@ func CheckResponse(ctx context.Context, v *verify.Verifier, sent stamp.Chain, se
 	if err != nil {
 		return ResponseCheck{ResultHash: hash}, err
 	}
-	check := ResponseCheck{Result: result, ResultHash: hash}
-	if result.OK() {
-		check.Labels = labels
-	}
-	return check, nil
+	return ResponseCheck{Result: result, ResultHash: hash}, nil
 }
 
-// readAttestation reads a response header: the labels and the stamp, unread, of an object of exactly
-// labels and stamp, from its token. It reports false for a header that is absent or does not read as
-// that, or whose labels are not well formed.
-func readAttestation(header string) ([]influence.Label, json.Value, bool) {
+// readAttestation reads a response header: the stamp, unread, of an object of exactly labels and stamp, from its
+// token, whose labels are the empty array. It reports false for a header that is absent or does not read as
+// that.
+func readAttestation(header string) (json.Value, bool) {
 	tok, present := HeaderValue(header)
 	if !present {
-		return nil, json.Value{}, false
+		return json.Value{}, false
 	}
 	o, err := json.ReadToken(tok)
 	if err != nil || json.Exactly(o, attestationMembers, nil) != nil {
-		return nil, json.Value{}, false
+		return json.Value{}, false
 	}
 	lv, _ := json.Field(o, "labels")
 	resp, _ := json.Field(o, "stamp")
-	lb, err := json.Wire(lv)
-	if err != nil {
-		return nil, json.Value{}, false
+	// Plan 4b: the header becomes {block, stamp}; until then a label, which no binding covers, is refused.
+	if lv.Kind() != json.KindArray || len(lv.Items()) != 0 {
+		return json.Value{}, false
 	}
-	labels, err := influence.ParseLabels(lb)
-	if err != nil {
-		return nil, json.Value{}, false
-	}
-	return labels, resp, true
+	return resp, true
 }
 
 // responseChain returns the token of the chain a response is checked on: the stamps of sent, then resp

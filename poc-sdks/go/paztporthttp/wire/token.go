@@ -4,6 +4,7 @@
 package wire
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/dumbsly/paztport/poc-sdks/go/influence"
@@ -41,12 +42,15 @@ func EncodeInfluence(es []influence.Entry) (string, error) {
 }
 
 // EncodeResponse returns the value of a response's [Response] header: the token of the object {labels,
-// stamp}, with exactly those members, s the response stamp and labels in the order its binding covers
-// them. No labels are written as []. It refuses a stamp that stamp.Stamp.Wire refuses, labels that
-// influence.LabelsWire refuses, and an object over the wire limit.
+// stamp}, with exactly those members, s the response stamp and labels written as []. It refuses any label,
+// since no binding covers one and no caller believes it, a stamp that stamp.Stamp.Wire refuses, and an object
+// over the wire limit.
 func EncodeResponse(s stamp.Stamp, labels []influence.Label) (string, error) {
 	unwritable := func(err error) error {
 		return fmt.Errorf("paztport wire: the response header can't be written: %w", err)
+	}
+	if len(labels) > 0 { // Plan 4b: a label becomes an item on the response stamp's block.
+		return "", unwritable(errors.New("a label is not written until the response carries its block"))
 	}
 	sb, err := s.Wire()
 	if err != nil {

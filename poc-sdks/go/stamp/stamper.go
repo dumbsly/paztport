@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/dumbsly/paztport/poc-sdks/go/influence"
 	"github.com/dumbsly/paztport/poc-sdks/go/policy"
 )
 
@@ -39,18 +38,20 @@ type Stamper struct {
 	Now func() int64
 }
 
-// Next stamps an outbound call to receiver, committing the influence infl that shaped it, and returns the
-// chain to send and the bundle's proof for the route it completes: the chain's route from its rcv values
-// ([RouteOf]), so that a receiver of the form svc#operation selects the proof for that operation's route.
+// Next stamps an outbound call to receiver, committing to block, the claims this service attaches to it (its
+// stamp's ext is block.Commit()), and returns the chain to send and the bundle's proof for the route it
+// completes: the chain's route from its rcv values ([RouteOf]), so that a receiver of the form svc#operation
+// selects the proof for that operation's route.
 // The proof is nil when the bundle holds none.
 //
 // An origin starts a chain of one stamp, with a new rid, sess "" and prev "", and ignores inbound. Any
 // other service appends a stamp to inbound with inbound's rid, its last stamp's sess and that stamp's sig
 // as prev; inbound itself is not changed, and without it there is nothing to stamp onto. Next also
-// refuses fields that Sign refuses, influence that influence.Commit refuses, and a Svc or receiver that is
-// not a route node ([policy.ValidNode]), since no verified chain holds a stamp by or to one.
+// refuses fields that Sign refuses, and a Svc or receiver that is not a route node ([policy.ValidNode]), since
+// no verified chain holds a stamp by or to one. The caller sends the blocks it received, then block, beside the
+// chain (wire.md, Blocks).
 func (s *Stamper) Next(
-	inbound Chain, receiver, bind string, infl []influence.Entry, bundle policy.ProofBundle,
+	inbound Chain, receiver, bind string, block Block, bundle policy.ProofBundle,
 ) (Chain, *policy.Proof, error) {
 	var before Chain // the stamps the new one follows: none at an origin
 	var rid, sess, prev string
@@ -67,7 +68,7 @@ func (s *Stamper) Next(
 		before = inbound
 		rid, sess, prev = inbound[0].RID, last.Sess, last.Sig
 	}
-	st, err := s.sign(rid, sess, receiver, bind, infl, prev)
+	st, err := s.sign(rid, sess, receiver, bind, block, prev)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -77,7 +78,7 @@ func (s *Stamper) Next(
 }
 
 // Boundary stamps the call that leaves this organisation for partnerEntry, the partner's entry service,
-// inside the session sess, committing the blinded influence sent. It returns a chain of that one stamp
+// inside the session sess, committing to block, the boundary block it sends. It returns a chain of that one stamp
 // and the bundle's proof for the route Svc/partnerEntry, or nil when the bundle holds none.
 //
 // The stamp stands alone: prev is "", because the partner holds only this service's key, not the keys of
@@ -88,7 +89,7 @@ func (s *Stamper) Next(
 // Boundary checks nothing about verified but that it has stamps. The boundary stamp vouches for the
 // request that led to it, so pass only a chain that passed the live order at this service.
 func (s *Stamper) Boundary(
-	verified Chain, sess, partnerEntry, bind string, sent []influence.Entry, bundle policy.ProofBundle,
+	verified Chain, sess, partnerEntry, bind string, block Block, bundle policy.ProofBundle,
 ) (Chain, *policy.Proof, error) {
 	if len(verified) == 0 {
 		return nil, nil, errNoInbound
@@ -96,7 +97,7 @@ func (s *Stamper) Boundary(
 	if sess == "" {
 		return nil, nil, errors.New("paztport stamp: a boundary stamp needs a session id")
 	}
-	st, err := s.sign(verified[0].RID, sess, partnerEntry, bind, sent, "")
+	st, err := s.sign(verified[0].RID, sess, partnerEntry, bind, block, "")
 	if err != nil {
 		return nil, nil, err
 	}
@@ -105,9 +106,9 @@ func (s *Stamper) Boundary(
 
 // Respond stamps the response to the request whose chain is inbound: one more stamp on that chain, which
 // the caller appends to the chain it sent. Its rcv is the caller, the last stamp's svc; its rid and sess
-// are the request's; its bind is ResponseBinding(resultHash, callID, labels); its infl is "", since the
-// labels are in the binding; and its prev is the last stamp's sig. Over HTTP, resultHash is the HTTP
-// result hash of the status and body sent, and callID the request's rid.
+// are the request's; its bind is ResponseBinding(resultHash, callID); its ext commits to block, the
+// responder's own claims about its answer; and its prev is the last stamp's sig. Over HTTP, resultHash is the
+// HTTP result hash of the status and body sent, and callID the request's rid.
 //
 // A response stamp is shaped like a request stamp, so on a chain nobody checked it would let anyone mint
 // stamps under this service's key: an origin's response to a forged one-stamp chain with an empty sig is
@@ -115,23 +116,23 @@ func (s *Stamper) Boundary(
 // only a chain that passed the live order here. Respond also refuses an empty chain, a binding that
 // ResponseBinding refuses, and a Svc that is not a route node ([policy.ValidNode]), or a last stamp whose
 // svc is not one.
-func (s *Stamper) Respond(inbound Chain, resultHash, callID string, labels []influence.Label) (Stamp, error) {
+func (s *Stamper) Respond(inbound Chain, resultHash, callID string, block Block) (Stamp, error) {
 	if s.Origin {
 		return Stamp{}, errors.New("paztport stamp: an origin never responds")
 	}
 	if len(inbound) == 0 {
 		return Stamp{}, errNoInbound
 	}
-	bind, err := ResponseBinding(resultHash, callID, labels)
+	bind, err := ResponseBinding(resultHash, callID)
 	if err != nil {
 		return Stamp{}, err
 	}
 	last := inbound[len(inbound)-1]
-	return s.sign(inbound[0].RID, last.Sess, last.Svc, bind, nil, last.Sig)
+	return s.sign(inbound[0].RID, last.Sess, last.Svc, bind, block, last.Sig)
 }
 
-// sign signs a stamp by this service at the time Now gives, committing infl.
-func (s *Stamper) sign(rid, sess, rcv, bind string, infl []influence.Entry, prev string) (Stamp, error) {
+// sign signs a stamp by this service at the time Now gives, committing to block.
+func (s *Stamper) sign(rid, sess, rcv, bind string, block Block, prev string) (Stamp, error) {
 	if s.Now == nil {
 		return Stamp{}, errors.New("paztport stamp: Stamper.Now must be a clock")
 	}
@@ -141,12 +142,9 @@ func (s *Stamper) sign(rid, sess, rcv, bind string, infl []influence.Entry, prev
 	if err := policy.ValidReceiver(rcv); err != nil {
 		return Stamp{}, fmt.Errorf("paztport stamp: can't sign: the rcv is not a receiver: %w", err)
 	}
-	commit, err := influence.Commit(infl)
-	if err != nil {
-		return Stamp{}, fmt.Errorf("paztport stamp: the influence can't be committed: %w", err)
-	}
 	return Sign(Stamp{
-		Svc: s.Svc, Inst: s.Inst, RID: rid, TS: s.Now(), Sess: sess, Rcv: rcv, Bind: bind, Infl: commit, Prev: prev,
+		Svc: s.Svc, Inst: s.Inst, RID: rid, TS: s.Now(), Sess: sess, Rcv: rcv, Bind: bind, Ext: block.Commit(),
+		Prev: prev,
 	}, s.Key)
 }
 

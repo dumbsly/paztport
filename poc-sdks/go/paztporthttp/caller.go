@@ -156,7 +156,8 @@ type Caller struct {
 // checks its response against.
 type Outbound struct {
 	// Headers are the headers to set on the call, in order: X-Path-Chain, then X-Path-Proof when the
-	// bundle holds a proof for the route, then X-Path-Influence when the call was made under influence.
+	// bundle holds a proof for the route. No blocks header is sent: every stamp this caller signs attaches the
+	// empty block.
 	// The adapter first removes every header the request carries that [wire.IsPaztport] names, all values,
 	// then sets each one of these, replacing and never appending. A gateway's external processor also
 	// removes every such header from the response it passes back.
@@ -177,23 +178,24 @@ type Received struct {
 	// Check is the check of the response's attestation, or nil when the caller has no verifier and
 	// nothing was checked.
 	Check *wire.ResponseCheck
-	// Entries are the influence entries the response adds: one for each label of a response that
-	// verified, so none for one that verified with no labels, and for any other response exactly one
-	// local-untrusted entry. The embedder adds them to its request's influence.
+	// Entries are the influence entries the response adds: exactly one local-untrusted entry, for every
+	// response, verified or not, since no label on a response is believed. The embedder adds them to its
+	// request's influence.
 	Entries []influence.Entry
 }
 
-// Stamp stamps a call to receiver, the receiver's policy name, after the chain inbound and committing
-// to the influence infl that shaped it, and returns the headers to send it with. An embedder that names
-// operations passes the name, '#' and the operation the call invokes: "payment#pay". method and target are
+// Stamp stamps a call to receiver, the receiver's policy name, after the chain inbound, attaching the empty
+// block, and returns the headers to send it with. An embedder that names operations passes the name, '#' and
+// the operation the call invokes: "payment#pay". method and target are
 // the request's as sent: target is the request target in origin form, the raw path, then "?" and the raw
 // query, exactly as the transport writes it on the wire (for net/http's client, req.URL.RequestURI(); for
 // a gateway's external processor, the :path header), never one received and then rebuilt from a parsed
 // URL. body is the body, whole.
 //
 // inbound is the chain the request being served carried, nil where there is none; an origin starts a new
-// chain and ignores it, and any other service needs it. infl is the influence so far, nil for none.
-// Neither is changed.
+// chain and ignores it, and any other service needs it. infl, the influence so far, is not sent: the call
+// carries no blocks, so a later hop refuses any chain in which a stamp before it attaches one. Neither is
+// changed.
 //
 // A gateway's external processor, an origin that stamps the requests it lets in, calls Stamp with
 // inbound and infl nil: the headers are then X-Path-Chain, holding the one origin stamp, and X-Path-Proof
@@ -233,7 +235,8 @@ func (c *Caller) Stamp(
 	if err != nil {
 		return Outbound{}, err
 	}
-	chain, proof, err := c.Stamper.Next(inbound, receiver, bind, infl, c.Bundle)
+	// Plan 4b: the blocks received, then this service's own, travel in X-Path-Extensions; until then none.
+	chain, proof, err := c.Stamper.Next(inbound, receiver, bind, stamp.EmptyBlock, c.Bundle)
 	if err != nil {
 		return Outbound{}, err
 	}
@@ -248,13 +251,6 @@ func (c *Caller) Stamp(
 			return Outbound{}, err
 		}
 		headers = append(headers, wire.Header{Name: wire.Proof, Value: proofTok})
-	}
-	inflTok, err := wire.EncodeInfluence(infl)
-	if err != nil {
-		return Outbound{}, err
-	}
-	if inflTok != "" {
-		headers = append(headers, wire.Header{Name: wire.Influence, Value: inflTok})
 	}
 	return Outbound{Headers: headers, Sent: chain, Proof: proof, Key: key}, nil
 }
@@ -292,13 +288,11 @@ func (c *Caller) operate(method, target, receiver string) (named, key string, er
 
 // Check checks the response to the call o, with responseHeader, the X-Path-Response header's first value
 // as received, "" when it is absent, status, and body whole, and returns what it contributes. With a
-// verifier it runs [wire.CheckResponse] on the chain and proof o sent, as received by this service: a
-// response that verifies adds one entry for each of its labels, with src "http:<target>" and h its result
-// hash. The target is the service the rcv of o's last stamp names, without any operation
-// ([policy.Service]): a call to "payment#pay" adds entries from "http:payment". Any other response,
-// unattested, failing or a refusal, and any response to a caller with no verifier, adds exactly one
-// local-untrusted entry with the same src and h, so content nobody vouched for still counts against later
-// calls.
+// verifier it runs [wire.CheckResponse] on the chain and proof o sent, as received by this service. Every
+// response, verified or not, and any response to a caller with no verifier, adds exactly one local-untrusted
+// entry with src "http:<target>" and h its result hash, so content nobody vouched for still counts against
+// later calls. The target is the service the rcv of o's last stamp names, without any operation
+// ([policy.Service]): a call to "payment#pay" adds an entry from "http:payment".
 //
 // The response's nonce key is <rid>|<last rcv>|resp, or <rid>|<last rcv>|<key>|resp where o has a key.
 //
@@ -320,14 +314,8 @@ func (c *Caller) Check(
 	if err != nil {
 		return Received{}, err
 	}
-	if !rc.Result.OK() {
-		return Received{Check: &rc, Entries: untrusted(src, rc.ResultHash)}, nil
-	}
-	es := make([]influence.Entry, len(rc.Labels))
-	for i, l := range rc.Labels {
-		es[i] = l.Entry(src, rc.ResultHash)
-	}
-	return Received{Check: &rc, Entries: es}, nil
+	// Plan 4b: a verified response adds what its block's labels say; until then every response is untrusted.
+	return Received{Check: &rc, Entries: untrusted(src, rc.ResultHash)}, nil
 }
 
 // untrusted returns the one entry a response nobody vouched for adds.

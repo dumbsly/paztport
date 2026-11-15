@@ -13,12 +13,12 @@ import (
 	"github.com/dumbsly/paztport/poc-sdks/go/stamp"
 )
 
-// FuzzReadChain reads any bytes as a chain. A read never panics and answers OK, CHAIN_MISSING or
-// BAD_SIGNATURE, as its token does. A chain it reads is not empty, has signing bytes for every stamp and
+// FuzzReadChain reads any bytes as a chain. A read never panics and answers OK or CHAIN_MISSING, as its token
+// does. A chain it reads is not empty, has signing bytes for every stamp and
 // writes back as the same bytes, since wire bytes are canonical.
 func FuzzReadChain(f *testing.F) {
 	f.Add([]byte("[]"))
-	f.Add([]byte(`[{"v":3}]`))
+	f.Add([]byte(`[{"v":4}]`))
 	for _, b := range seedChains(f) {
 		f.Add(b)
 	}
@@ -28,7 +28,7 @@ func FuzzReadChain(f *testing.F) {
 			t.Fatalf("ReadChain answered %s where ParseChain answered %s", tokCode, code)
 		}
 		switch code {
-		case reason.ChainMissing, reason.BadSignature:
+		case reason.ChainMissing:
 			if c != nil {
 				t.Fatalf("a chain refused as %s came with stamps", code)
 			}
@@ -55,10 +55,10 @@ func FuzzReadChain(f *testing.F) {
 	})
 }
 
-// seedChains returns the wire bytes of the chains v3.json's verify cases carry.
+// seedChains returns the wire bytes of the chains v4.json's verify cases carry.
 func seedChains(f *testing.F) [][]byte {
 	var out [][]byte
-	vectors.Load(f, "v3.json").Get("verify").Each(func(_ string, c vectors.Node) {
+	vectors.Load(f, "v4.json").Get("verify").Each(func(_ string, c vectors.Node) {
 		if b, err := b64.Decode(c.Get("chainToken").Str()); err == nil {
 			out = append(out, b)
 		}

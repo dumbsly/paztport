@@ -21,19 +21,19 @@ func Rules(t testing.TB) Node {
 	return Load(t, rulesFile).Get("rules")
 }
 
-// RulesKey returns the key called name as the rules section finds it: in its own keys, then in
-// http-v3.json's keys, then in v3.json's. Every one is derived by v3.json's rule, so it fails the test
-// unless the keys listed under name are the ones that rule derives.
+// RulesKey returns the key called name as the rules section finds it: in its own keys, then in the version 4
+// files' keys (VectorKey). Every one is derived by the vector files' rule, so it fails the test unless the keys
+// listed under name are the ones that rule derives.
 func RulesKey(t testing.TB, name string) (ed25519.PrivateKey, ed25519.PublicKey) {
 	t.Helper()
 	keys := Rules(t).Get("keys")
 	if !keys.Has(name) {
-		return V3Key(t, name)
+		return VectorKey(t, name)
 	}
 	priv, pub, wantPriv, wantPub := derivedKey(name)
 	key := keys.Get(name)
 	if key.Get("priv").Str() != wantPriv || key.Get("pub").Str() != wantPub {
-		t.Fatalf("vectors: the rules give key %q other than v3.json's rule derives", name)
+		t.Fatalf("vectors: the rules give key %q other than the vector files' rule derives", name)
 	}
 	return priv, pub
 }

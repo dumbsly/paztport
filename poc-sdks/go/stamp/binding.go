@@ -6,10 +6,8 @@ package stamp
 import (
 	"crypto/sha256"
 	"errors"
-	"fmt"
 	"strings"
 
-	"github.com/dumbsly/paztport/poc-sdks/go/influence"
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/b64"
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/text"
 )
@@ -31,17 +29,17 @@ func PromptBinding(prompt string) (string, error) {
 	return binding("prompt\n" + prompt), nil
 }
 
-// ResponseBinding returns the binding the last stamp of a response chain carries:
+// ResponseBinding returns the binding the last stamp of a response chain carries (wire.md, Bindings):
 //
-//	b64url(SHA-256(utf8(resultHash || "\n" || callID || "\n" || JCS(labels))))
+//	b64url(SHA-256(utf8(resultHash || "\n" || callID)))
 //
-// with labels in the order given, each written as influence.LabelsWire writes it. There is no prefix:
-// the bytes start with the result hash, itself a hash under a prefix of its own. Over HTTP, callID is
-// the request's rid.
+// There is no prefix: the bytes start with the result hash, itself a hash under a prefix of its own. Over
+// HTTP, callID is the request's rid. What the responder claims about its answer travels in its stamp's block,
+// not in the binding.
 //
-// It refuses a resultHash or callID that is not valid UTF-8, a callID holding "\n", which would let two
-// pairs of hash and id share bytes, and labels that influence.LabelsWire refuses.
-func ResponseBinding(resultHash, callID string, labels []influence.Label) (string, error) {
+// It refuses a resultHash or callID that is not valid UTF-8, and a callID holding "\n", which would let two
+// pairs of hash and id share bytes.
+func ResponseBinding(resultHash, callID string) (string, error) {
 	switch {
 	case !text.Valid(resultHash):
 		return "", errors.New("paztport stamp: the result hash is not valid UTF-8")
@@ -50,11 +48,7 @@ func ResponseBinding(resultHash, callID string, labels []influence.Label) (strin
 	case strings.Contains(callID, "\n"):
 		return "", errors.New("paztport stamp: the call id holds a newline")
 	}
-	ls, err := influence.LabelsWire(labels)
-	if err != nil {
-		return "", fmt.Errorf("paztport stamp: no response binding: %w", err)
-	}
-	return binding(resultHash + "\n" + callID + "\n" + string(ls)), nil
+	return binding(resultHash + "\n" + callID), nil
 }
 
 // binding returns b64url(SHA-256(b)).

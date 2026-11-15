@@ -36,8 +36,8 @@ type Input struct {
 	Chain *string
 	// ExpectedBind is the binding the receiver computed for what it received. A nil one never matches.
 	ExpectedBind *string
-	// Influence is the influence's token, as recorded. A nil one is the empty list.
-	Influence *string
+	// Blocks is the token of the chain's blocks, as recorded beside it. A nil one is one empty block per stamp.
+	Blocks *string
 	// Proof is the route proof's token, as recorded. A nil one proves nothing.
 	Proof *string
 	// Receiver is what the last stamp's rcv must equal, an operation included.
@@ -63,7 +63,7 @@ type Input struct {
 // It pins one or more keyrings and one or more roots, each with its own window. A member counts for a
 // record when the record's recorded time is at most its notAfter, and for every record when its notAfter is
 // math.MaxInt64, no window: a caller that judges the windows itself, as RecordSet.Call does a session's,
-// pins its members so. Checks 4 and 11 use only the members that count for the record.
+// pins its members so. Checks 3 and 12 use only the members that count for the record.
 //
 // The age limits need no clock: a chain the live verifier passed at its last stamp's time has its last
 // stamp at most RunMaxAgeMs after the origin, and its origin at most CallMaxAgeMs after its last stamp.
@@ -82,6 +82,10 @@ type Config struct {
 	RunMaxAgeMs *int64
 	// CallMaxAgeMs bounds how long after the last stamp the origin may be; nil is [verify.CallMaxAgeMs].
 	CallMaxAgeMs *int64
+	// Extensions is the offline verifier's extension settings: check 9b carries only the names its list allows,
+	// when one is set, and the hand-over holds the extensions it acts on. Check 9c never runs offline. The zero
+	// value acts on none and carries any name.
+	Extensions verify.Extensions
 }
 
 // RecordSet is one record set being verified again, such as a client's evidence file. It holds the nonce
@@ -111,12 +115,11 @@ func NewRecordSet(spent ...string) *RecordSet {
 //     earlier than its recorded time, Recorded.Last, or they have no window. For a record with no
 //     recorded time every member with a well-formed window counts, and check 7 refuses the record;
 //  1. CHAIN_MISSING, unless the chain reads from its token;
-//  2. BAD_SIGNATURE, if a signed field of any stamp holds "|";
-//  3. BAD_ORIGIN, unless the origin is an allowed origin;
-//  4. BAD_SIGNATURE, BROKEN_LINK, then BINDING_MISMATCH, unless each stamp in turn is signed under one
-//     of the keys the keyrings that count give its service and links to the one before, and then each
-//     stamp's rcv addresses the next stamp's svc, by name or as svc#operation, and the last's is the
-//     receiver exactly;
+//  2. BAD_ORIGIN, unless the origin is an allowed origin;
+//  3. BAD_SIGNATURE, then BROKEN_LINK, unless each stamp in turn is signed under one of the keys the keyrings
+//     that count give its service and links to the one before;
+//  4. BINDING_MISMATCH, unless each stamp's rcv addresses the next stamp's svc, by name or as svc#operation,
+//     and the last's is the receiver exactly;
 //  5. RID_MISMATCH, unless every stamp carries the record's rid, the origin's when it gives none;
 //  6. SESSION_UNKNOWN, unless every stamp carries the Config's session;
 //  7. TIME_MISMATCH, unless the record gives a time and the last stamp's ts is it and, when the run's
@@ -125,101 +128,127 @@ func NewRecordSet(spent ...string) *RecordSet {
 //     limit its live default when not set; then PROMPT_MISMATCH, unless there is a recorded prompt and the
 //     origin binds it;
 //  8. BINDING_MISMATCH, unless the last stamp binds the expected binding;
-//  9. INFLUENCE_MISMATCH, unless the influence reads and the last stamp commits to it;
-//  10. REPLAY, unless there is a nonce key and the record set has not spent it; only then does the record
+//  9. the blocks: 9a, EXTENSION_MISMATCH, unless they read, one per stamp, each committing to its stamp's
+//     ext; then 9b, EXTENSION_NOT_ALLOWED, if a block holds a name the Config's settings do not carry;
+//  11. REPLAY, unless there is a nonce key and the record set has not spent it; only then does the record
 //     set spend it;
-//  11. PATH_NOT_ALLOWED, unless the proof proves the route against a root that counts, with its rootId.
+//  12. PATH_NOT_ALLOWED, unless the proof proves the route against a root that counts, with its rootId.
 //
-// Check 0 runs against no clock: the record's own time stands in for one. There is no check 12, since a
-// record has no peer. OK and PATH_NOT_ALLOWED name the last stamp's svc and inst, as the live verifier's
-// do with no peer; every other result names no one, and POLICY_EXPIRED spends no key. Verify never panics,
-// and a malformed input is a result.
+// This is verification.md's offline order: check 0 runs against no clock, the record's own time standing in for
+// one; check 9c is live only, since a record does not hold the actsOn it was checked against live; and there is
+// no check 10, since a record has no peer. On OK the Result's HandOver holds, verified, one entry per stamp for
+// each extension the settings act on. OK and PATH_NOT_ALLOWED name the last stamp's svc and inst, as the live
+// verifier's do with no peer; every other result names no one, and POLICY_EXPIRED spends no key. Verify never
+// panics, and a malformed input is a result.
 func (rs *RecordSet) Verify(in Input, cfg Config) verify.Result {
 	return result(rs.check(in, cfg))
 }
+
+// ItemCheck is an extension's reading of the items a verified recorded call hands over (verification.md, Offline
+// verification): reason.OK when they read, and otherwise the extension's code, such as INFLUENCE_MISMATCH. The
+// core reads no item, so an extension that acts offline passes its own; nil reads none.
+type ItemCheck func(h *verify.HandOver) reason.Code
 
 // Call verifies in, a call recorded in the session s, as Verify does, and judges it in its session. A
 // session that is not attested at all gives no result and false, and the call is neither verified nor
 // spends its key: the spec gives a call relying on such a session no result, so the record set's reader
 // reports it. Otherwise Call runs the offline order once, spending the key as Verify does, and returns its
-// result and true, except that a call that verifies, OK, while the session is not attested at its last
-// stamp's ts, which the client signed, is OUTSIDE_SESSION, naming no one: the call was made past one of
-// the session's limits. Call judges the chain in the session s names, whatever cfg.Sess holds: it is cfg
-// with Sess set to s.Sess().
-func (rs *RecordSet) Call(in Input, cfg Config, s RecordedSession) (verify.Result, bool) {
+// result and true. Once the offline order gives OK, and before the call is held to the session's limits,
+// items reads the items the call hands over, as verification.md's Offline verification orders it: a code
+// other than OK it returns is the result, naming no one and handing nothing over, so a call past the limits
+// whose items do not read gets the extension's code; a nil items reads none. Then a call that verifies, OK,
+// while the session is not attested at its last stamp's ts, which the client signed, is OUTSIDE_SESSION,
+// naming no one: the call was made past one of the session's limits. Call judges the chain in the session s
+// names, whatever cfg.Sess holds: it is cfg with Sess set to s.Sess().
+func (rs *RecordSet) Call(in Input, cfg Config, s RecordedSession, items ItemCheck) (verify.Result, bool) {
 	if !s.Attested() {
 		return verify.Result{}, false
 	}
 	cfg.Sess = s.Sess()
-	code, last := rs.check(in, cfg)
+	code, last, h := rs.check(in, cfg)
+	if code == reason.OK && items != nil {
+		if read := items(h); read != reason.OK {
+			return verify.Result{Reason: read}, true
+		}
+	}
 	if code == reason.OK && !s.AttestedAt(last.TS) {
 		return verify.Result{Reason: reason.OutsideSession}, true
 	}
-	return result(code, last), true
+	return result(code, last, h), true
 }
 
 // result names the party the spec names for code: the last stamp for OK and PATH_NOT_ALLOWED, and no one
-// otherwise.
-func result(code reason.Code, last stamp.Stamp) verify.Result {
-	r := verify.Result{Reason: code}
+// otherwise; it carries h, the hand-over, which check gives only with OK.
+func result(code reason.Code, last stamp.Stamp, h *verify.HandOver) verify.Result {
+	r := verify.Result{Reason: code, HandOver: h}
 	if code == reason.OK || code == reason.PathNotAllowed {
 		r.SuspectSvc, r.SuspectInst = last.Svc, last.Inst
 	}
 	return r
 }
 
-// check runs checks 0 to 11 and returns the first code that fails, or OK, with the chain's last stamp
-// once the chain has read.
-func (rs *RecordSet) check(in Input, cfg Config) (reason.Code, stamp.Stamp) {
+// check runs the offline order, checks 0 to 12 less 9c and 10, and returns the first code that fails, or OK
+// with the hand-over, with the chain's last stamp once the chain has read.
+func (rs *RecordSet) check(in Input, cfg Config) (reason.Code, stamp.Stamp, *verify.HandOver) {
 	// 0. The keyrings and roots that count at the record's own time, judged once; none of either names no
 	// one and spends no key.
 	keyrings, roots := counting(cfg, in.Recorded)
 	if len(keyrings) == 0 || len(roots) == 0 {
-		return reason.PolicyExpired, stamp.Stamp{}
+		return reason.PolicyExpired, stamp.Stamp{}, nil
 	}
 
-	// 1-2. The chain reads, and no signed field holds the delimiter.
+	// 1. The chain reads.
 	if in.Chain == nil {
-		return reason.ChainMissing, stamp.Stamp{}
+		return reason.ChainMissing, stamp.Stamp{}, nil
 	}
 	c, code := stamp.ReadChain(*in.Chain)
 	if code != reason.OK {
-		return code, stamp.Stamp{}
+		return code, stamp.Stamp{}, nil
 	}
 	origin, last := c[0], c[len(c)-1]
 
-	// 3-6. The origin, signatures and links, receivers, rid and session.
+	// 2-6. The origin, signatures and links, receivers, rid and session.
 	if code := chaincheck.Stamps(c, keyrings, cfg.AllowedOrigins, cfg.Sess, in.Receiver, in.RID); code != reason.OK {
-		return code, last
+		return code, last, nil
 	}
 
 	// 7. In place of freshness: the recorded times, the age limits, then the prompt.
 	if !atRecordedTimes(in.Recorded, origin.TS, last.TS) {
-		return reason.TimeMismatch, last
+		return reason.TimeMismatch, last, nil
 	}
 	if !withinAge(origin.TS, last.TS, cfg.RunMaxAgeMs, cfg.CallMaxAgeMs) {
-		return reason.Expired, last
+		return reason.Expired, last, nil
 	}
 	if !bindsPrompt(origin, in.Prompt) {
-		return reason.PromptMismatch, last
+		return reason.PromptMismatch, last, nil
 	}
 
-	// 8-9. The binding and the influence commitment.
-	if code := chaincheck.Commitments(last, in.ExpectedBind, in.Influence); code != reason.OK {
-		return code, last
+	// 8. The binding.
+	if code := chaincheck.Binding(last, in.ExpectedBind); code != reason.OK {
+		return code, last, nil
 	}
 
-	// 10. Replay across the whole record set. A chain with no nonce key can't be shown unspent.
+	// 9a-9b. The blocks; 9c is live only.
+	ext := cfg.Extensions
+	bs, code := chaincheck.Blocks(c, in.Blocks, ext.Carries, ext.ActsOnName, false)
+	if code != reason.OK {
+		return code, last, nil
+	}
+
+	// 11. Replay across the whole record set. A chain with no nonce key can't be shown unspent.
 	if in.NonceKey == nil || rs.spent[*in.NonceKey] {
-		return reason.Replay, last
+		return reason.Replay, last, nil
 	}
 	if rs.spent == nil {
 		rs.spent = map[string]bool{}
 	}
 	rs.spent[*in.NonceKey] = true
 
-	// 11. The route, against the roots that count for the record.
-	return chaincheck.Route(c, in.ReceiverInRoute, in.Proof, roots), last
+	// 12. The route, against the roots that count for the record.
+	if code := chaincheck.Route(c, in.ReceiverInRoute, in.Proof, roots); code != reason.OK {
+		return code, last, nil
+	}
+	return reason.OK, last, verify.NewHandOver(true, c, bs, ext)
 }
 
 // counting returns the keys of cfg's keyrings and the roots that count for a record with the recorded

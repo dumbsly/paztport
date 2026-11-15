@@ -72,7 +72,7 @@ type value struct {
 	kids  []*value // an object's member values or an array's items, in file order
 }
 
-// Load returns the root of vector file file (such as "v3.json"), found in the poc-sdks/spec/vectors
+// Load returns the root of vector file file (such as "v4.json"), found in the poc-sdks/spec/vectors
 // directory at or above the working directory. It fails t if the file cannot be read, is not JSON, or
 // repeats a member name in an object.
 func Load(t testing.TB, file string) Node {
@@ -471,13 +471,14 @@ const (
 	spkiPrefix  = "\x30\x2a\x30\x05\x06\x03\x2b\x65\x70\x03\x21\x00"
 )
 
-// keyFiles are the vector files with a keys section.
-var keyFiles = []string{"v3.json", "events.json", "http-v3.json"}
+// keyFiles are the version 4 vector files with a keys section.
+var keyFiles = []string{"v4.json", "events.json", "http-v4.json"}
 
-// V3Key returns the vector key called name, derived by v3.json's rule: its seed is
-// SHA-256("paztport-v3-vector-key:" + name). It fails the test unless some vector file's keys lists name,
-// and every file that lists it gives this key's priv (PKCS#8) and pub (SPKI) as base64url.
-func V3Key(t testing.TB, name string) (ed25519.PrivateKey, ed25519.PublicKey) {
+// VectorKey returns the vector key called name, derived by the vector files' rule: its seed is
+// SHA-256("paztport-v3-vector-key:" + name), a seed string both version 4 files keep from version 3's, as their
+// about says. It fails the test unless some vector file's keys lists name, and every file that lists it gives
+// this key's priv (PKCS#8) and pub (SPKI) as base64url.
+func VectorKey(t testing.TB, name string) (ed25519.PrivateKey, ed25519.PublicKey) {
 	t.Helper()
 	priv, pub, wantPriv, wantPub := derivedKey(name)
 	listed := false
@@ -489,7 +490,7 @@ func V3Key(t testing.TB, name string) (ed25519.PrivateKey, ed25519.PublicKey) {
 		listed = true
 		key := keys.Get(name)
 		if key.Get("priv").Str() != wantPriv || key.Get("pub").Str() != wantPub {
-			t.Fatalf("vectors: %s gives key %q other than v3.json's rule derives", file, name)
+			t.Fatalf("vectors: %s gives key %q other than the vector files' rule derives", file, name)
 		}
 	}
 	if !listed {
@@ -498,7 +499,7 @@ func V3Key(t testing.TB, name string) (ed25519.PrivateKey, ed25519.PublicKey) {
 	return priv, pub
 }
 
-// derivedKey returns the vector key called name, derived by v3.json's rule, and its priv (PKCS#8) and pub
+// derivedKey returns the vector key called name, derived by the vector files' rule, and its priv (PKCS#8) and pub
 // (SPKI) as a keys section gives them, in base64url.
 func derivedKey(name string) (priv ed25519.PrivateKey, pub ed25519.PublicKey, privText, pubText string) {
 	seed := sha256.Sum256([]byte("paztport-v3-vector-key:" + name))

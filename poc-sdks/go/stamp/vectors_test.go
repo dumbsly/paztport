@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"testing"
 
-	"github.com/dumbsly/paztport/poc-sdks/go/influence"
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/b64"
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/json"
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/vectors"
@@ -15,17 +14,18 @@ import (
 	"github.com/dumbsly/paztport/poc-sdks/go/stamp"
 )
 
-// TestSigningBytes replays v3.json's signingBytes: each case's stamp signs exactly the bytes its hex gives.
+// TestSigningBytes replays v4.json's signingBytes: each case's stamp signs exactly the bytes its hex gives, which
+// are its text where the case gives one.
 func TestSigningBytes(t *testing.T) {
-	cases := vectors.Load(t, "v3.json").Get("signingBytes")
-	if cases.Len() == 0 {
-		t.Fatal("v3.json has no signingBytes case")
+	cases := vectors.Load(t, "v4.json").Get("signingBytes")
+	if cases.Len() != 3 {
+		t.Fatalf("v4.json has %d signingBytes cases, want 3", cases.Len())
 	}
 	cases.Each(func(name string, c vectors.Node) {
 		t.Run(name, func(t *testing.T) {
 			c := c.With(t)
 			n := c.Get("stamp")
-			if v := n.Get("v").Int(); v != 3 {
+			if v := n.Get("v").Int(); v != stamp.Version {
 				t.Fatalf("the case's stamp has v %d", v)
 			}
 			got, err := fields(n).SigningBytes()
@@ -35,21 +35,24 @@ func TestSigningBytes(t *testing.T) {
 			if want := c.Get("hex").Str(); hex.EncodeToString(got) != want {
 				t.Fatalf("SigningBytes = %x, want %s", got, want)
 			}
+			if c.Has("text") && string(got) != c.Get("text").Str() {
+				t.Fatalf("SigningBytes = %q, want %q", got, c.Get("text").Str())
+			}
 		})
 	})
 }
 
-// TestSignatures replays v3.json's signatures: each case's fields, signed with its key, give its sig, and
+// TestSignatures replays v4.json's signatures: each case's fields, signed with its key, give its sig, and
 // the sig verifies under the key's public half over the stamp's signing bytes.
 func TestSignatures(t *testing.T) {
-	cases := vectors.Load(t, "v3.json").Get("signatures")
-	if cases.Len() == 0 {
-		t.Fatal("v3.json has no signatures case")
+	cases := vectors.Load(t, "v4.json").Get("signatures")
+	if cases.Len() != 3 {
+		t.Fatalf("v4.json has %d signatures cases, want 3", cases.Len())
 	}
 	cases.Each(func(name string, c vectors.Node) {
 		t.Run(name, func(t *testing.T) {
 			c := c.With(t)
-			priv, pub := vectors.V3Key(t, c.Get("key").Str())
+			priv, pub := vectors.VectorKey(t, c.Get("key").Str())
 			f := fields(c.Get("fields"))
 			s, err := stamp.Sign(f, priv)
 			if err != nil {
@@ -73,9 +76,9 @@ func TestSignatures(t *testing.T) {
 	})
 }
 
-// TestBindPrompt replays v3.json's bindPrompt.
+// TestBindPrompt replays v4.json's bindPrompt.
 func TestBindPrompt(t *testing.T) {
-	c := vectors.Load(t, "v3.json").Get("bindPrompt")
+	c := vectors.Load(t, "v4.json").Get("bindPrompt")
 	got, err := stamp.PromptBinding(c.Get("prompt").Str())
 	if err != nil {
 		t.Fatalf("PromptBinding: %v", err)
@@ -85,10 +88,13 @@ func TestBindPrompt(t *testing.T) {
 	}
 }
 
-// TestBindResponse replays v3.json's bindResponse, its labels read from their wire bytes.
+// TestBindResponse replays v4.json's bindResponse, whose binding holds no labels.
 func TestBindResponse(t *testing.T) {
-	c := vectors.Load(t, "v3.json").Get("bindResponse")
-	got, err := stamp.ResponseBinding(c.Get("resultHash").Str(), c.Get("callId").Str(), labels(t, c.Get("labels")))
+	c := vectors.Load(t, "v4.json").Get("bindResponse")
+	if c.Has("labels") {
+		t.Fatal("the case gives labels, which version 4's response binding does not hold")
+	}
+	got, err := stamp.ResponseBinding(c.Get("resultHash").Str(), c.Get("callId").Str())
 	if err != nil {
 		t.Fatalf("ResponseBinding: %v", err)
 	}
@@ -99,7 +105,8 @@ func TestBindResponse(t *testing.T) {
 
 // TestBindingRefusals replays json.json's prompt and response bindings, each given a lone surrogate in one
 // string it hashes. The harness hands it over as the Go string that stands for it, which is not valid
-// UTF-8, and the binding refuses it.
+// UTF-8, and the binding refuses it. A response case's labels input is version 3's, which version 4's
+// response binding does not hold, so it is ignored, as spec/README.md's json.json section says.
 func TestBindingRefusals(t *testing.T) {
 	found := map[string]int{}
 	vectors.Load(t, "json.json").Get("bindings").Each(func(name string, c vectors.Node) {
@@ -119,8 +126,7 @@ func TestBindingRefusals(t *testing.T) {
 			if kind == "prompt" {
 				got, err = stamp.PromptBinding(in.Get("text").Str())
 			} else {
-				got, err = stamp.ResponseBinding(in.Get("resultHash").Str(), in.Get("toolCallId").Str(),
-					labels(t, in.Get("labels")))
+				got, err = stamp.ResponseBinding(in.Get("resultHash").Str(), in.Get("toolCallId").Str())
 			}
 			if err == nil {
 				t.Fatalf("the binding was computed as %s", got)
@@ -142,31 +148,9 @@ func fields(n vectors.Node) stamp.Stamp {
 		Sess: n.Get("sess").Str(),
 		Rcv:  n.Get("rcv").Str(),
 		Bind: n.Get("bind").Str(),
-		Infl: n.Get("infl").Str(),
+		Ext:  n.Get("ext").Str(),
 		Prev: n.Get("prev").Str(),
 	}
-}
-
-// labels reads the labels vector node n lists from their wire bytes, failing t if ParseLabels refuses them.
-func labels(t *testing.T, n vectors.Node) []influence.Label {
-	t.Helper()
-	var items []json.Value
-	n.Each(func(_ string, l vectors.Node) {
-		var members []json.Member
-		l.Each(func(name string, v vectors.Node) {
-			members = append(members, json.Member{Name: name, Value: json.S(v.Str())})
-		})
-		items = append(items, json.Obj(members...))
-	})
-	b, err := json.Wire(json.Arr(items...))
-	if err != nil {
-		t.Fatalf("the labels can't be written: %v", err)
-	}
-	ls, err := influence.ParseLabels(b)
-	if err != nil {
-		t.Fatalf("ParseLabels: %v", err)
-	}
-	return ls
 }
 
 // TestBlocksRead replays v4.json's blocks.read: each token reads as a request's blocks exactly when the case

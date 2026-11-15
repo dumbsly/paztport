@@ -22,13 +22,10 @@ type Accepted struct {
 	// when none came, it did not read, the request was refused, or this service is an origin, which
 	// starts a new request tree.
 	Inbound stamp.Chain
-	// Verified reports whether Inbound passed the live order at this hop, so that Influence is the one
-	// its caller committed to. A chain that failed in audit mode, was not checked (the hop is off, or has
-	// nothing to verify with), whose nonce cache could not answer or came to an origin is not verified.
+	// Verified reports whether Inbound passed the live order at this hop. A chain that failed in audit mode,
+	// was not checked (the hop is off, or has nothing to verify with), whose nonce cache could not answer or
+	// came to an origin is not verified. Plan 4b: the hand-over joins it; until then no item is carried.
 	Verified bool
-	// Influence is what the handler starts from: the entries the request carried, which are the ones its
-	// last stamp commits to when Verified. It is empty at an origin and for a refusal.
-	Influence []influence.Entry
 	// Result is the live order's result on the request, or nil when it did not run or its nonce cache
 	// could not answer. Under a mode it is the result to report; for a service with no mode it decided
 	// only whether to attest. The embedder may build an event from it; the caller is never told it.
@@ -38,8 +35,7 @@ type Accepted struct {
 	Audit bool
 	// CacheErr is the nonce cache's error, when it could not answer, for the embedder's own log; nil
 	// otherwise. The request is then undecided: it is refused with [Unavailable] under enforce, and
-	// otherwise served unverified and unattested, with no Result, carrying the chain and the influence as
-	// received; influence that does not read is still refused 400.
+	// otherwise served unverified and unattested, with no Result, carrying the chain as received.
 	CacheErr error
 
 	key    string    // the request's key value, "" for none
@@ -90,30 +86,30 @@ func (a Accepted) Attests() bool {
 	return a.attest != nil
 }
 
-// Attest returns the X-Path-Response header for the handler's complete answer, status and body,
-// labelled with labels in order, and true: one stamp on the chain the request carried, back to its
-// caller, binding the answer's result hash, the request's rid and the labels. It takes the answer whole,
-// so an adapter calls it only once nothing will change the body; an answer it cannot hold whole is one
-// to send unattested.
+// Attest returns the X-Path-Response header for the handler's complete answer, status and body, and true:
+// one stamp on the chain the request carried, back to its caller, binding the answer's result hash and the
+// request's rid, and attaching the empty block. It takes the answer whole, so an adapter calls it only once
+// nothing will change the body; an answer it cannot hold whole is one to send unattested.
 //
 // It returns false, and no header, when the answer is not attested: when [Accepted.Attests] is false,
-// or when the binding cannot carry the request's rid or a label, such as a rid holding a newline. The
-// caller then counts the answer untrusted, which is always safe. The error is for a stamper that cannot
-// sign, such as one with no key.
+// when labels holds any label, since none is carried, or when the binding cannot carry the request's rid,
+// such as a rid holding a newline. The caller then counts the answer untrusted, which is always safe. The
+// error is for a stamper that cannot sign, such as one with no key.
 func (a Accepted) Attest(status int, body []byte, labels []influence.Label) (string, bool, error) {
-	if a.attest == nil {
+	// Plan 4b: labels become items on the response stamp's block; until then a labelled answer is unattested.
+	if a.attest == nil || len(labels) > 0 {
 		return "", false, nil
 	}
 	hash := wire.ResultHash(status, body)
 	rid := a.attest.chain[0].RID
-	if _, err := stamp.ResponseBinding(hash, rid, labels); err != nil {
+	if _, err := stamp.ResponseBinding(hash, rid); err != nil {
 		return "", false, nil
 	}
-	s, err := a.attest.stamper.Respond(a.attest.chain, hash, rid, labels)
+	s, err := a.attest.stamper.Respond(a.attest.chain, hash, rid, stamp.EmptyBlock)
 	if err != nil {
 		return "", false, err
 	}
-	h, err := wire.EncodeResponse(s, labels)
+	h, err := wire.EncodeResponse(s, nil)
 	if err != nil {
 		return "", false, err
 	}

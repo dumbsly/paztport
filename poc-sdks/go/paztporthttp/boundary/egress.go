@@ -171,13 +171,12 @@ type Step struct {
 	// Body is the request's body, whole.
 	Body []byte
 	// Headers are the headers to send, in order: Content-Type, then for the call X-Path-Session, and in an
-	// attested session X-Path-Chain, X-Path-Proof, and X-Path-Influence when the call carries influence.
+	// attested session X-Path-Chain and X-Path-Proof. No influence travels: the boundary stamp attaches the
+	// empty block.
 	Headers []wire.Header
-	// Originals are the call's influence, normalised, and Sent the blinded entries it carries in their
-	// place, in an attested session's call only; both are nil otherwise. The embedder keeps them under the
-	// request's rid and the partner's entry service before it sends the call, so that it can later open
-	// any entry it sent (see influence.Opening and influence.Salt); if it cannot keep them, it must not
-	// send the call.
+	// Originals and Sent are always nil: the call carries no blinded entries, so there is nothing to keep
+	// for opening later. Plan 4b: they hold the call's influence and its blinded entries again, when the
+	// boundary block names influence.
 	Originals, Sent []influence.Entry
 }
 
@@ -187,8 +186,8 @@ type Outcome struct {
 	// the Outcome's own copy.
 	Status int
 	Body   []byte
-	// Attested reports whether the call went out in an attested session, stamped and carrying the blinded
-	// influence; an unsafe session's call carries only the session id.
+	// Attested reports whether the call went out in an attested session, stamped; an unsafe session's call
+	// carries only the session id.
 	Attested bool
 	// Influence is the request's influence after the exchange: the influence Begin was given, then one
 	// local-untrusted entry for the partner's answer, its src "http:<Partner>" and its h the answer's
@@ -220,15 +219,10 @@ type Exchange struct {
 	path    string
 	body    []byte
 	bind    string
-	// sent is the influence blinded and its token, which an attested call carries, and originals the
-	// influence normalised; all three are made by Begin, whatever session the call goes out in.
-	sent      []influence.Entry
-	sentTok   string
-	originals []influence.Entry
-	phase     phase
-	req       session.Request
-	sess      *partnerSession
-	outcome   Outcome
+	phase   phase
+	req     session.Request
+	sess    *partnerSession
+	outcome Outcome
 }
 
 // Begin begins the call that POSTs body to path at the partner, for the request a accepted, whose
@@ -240,10 +234,9 @@ type Exchange struct {
 // Begin refuses, with ErrNotVerified, a request whose chain did not pass the live order at this hop: the
 // boundary stamp vouches for the request that led to it, so a hop that did not verify it signs nothing,
 // and sends nothing, the handshake included. It also refuses an empty path, and a path that is not valid
-// UTF-8, which has no binding. It refuses, too, a call it cannot stamp, such as one whose influence the
-// boundary key cannot blind: it blinds the influence and checks that the call can be stamped before it
-// gives the first step, whether a session is open or not. A refusal comes with no exchange and nothing
-// to send.
+// UTF-8, which has no binding. It refuses, too, a call it cannot stamp, and one whose influence the boundary
+// key cannot blind, though no blinded entry is sent: it checks both before it gives the first step, whether a
+// session is open or not. A refusal comes with no exchange and nothing to send.
 //
 // A session no call has used for Config.IdleMs is dropped here, and so is an attested session once the
 // root or the keyring the egress presents has passed its notAfter; the call then opens a new session.
@@ -261,24 +254,21 @@ func (e *Egress) Begin(
 		return nil, Step{}, err
 	}
 	cfg := &e.cfg
-	sent, err := influence.Reduce(infl, cfg.BoundaryKey, a.Inbound[0].RID, cfg.Partner, cfg.Stamper.Svc)
-	if err != nil {
-		return nil, Step{}, err
-	}
-	sentTok, err := wire.EncodeInfluence(sent)
-	if err != nil {
+	// Plan 4b: the blinded entries travel in the boundary block; until then they are checked, not sent.
+	if _, err := influence.Reduce(infl, cfg.BoundaryKey, a.Inbound[0].RID, cfg.Partner, cfg.Stamper.Svc); err != nil {
 		return nil, Step{}, err
 	}
 	x := &Exchange{
 		e: e, inbound: slices.Clone(a.Inbound), infl: slices.Clone(infl), path: path, body: bytes.Clone(body),
-		bind: bind, sent: sent, sentTok: sentTok, originals: influence.Normalise(infl),
+		bind: bind,
 	}
 	s := e.take()
 	if s == nil || !s.attested {
 		// No attested session is open, so the call is not about to be stamped: it is stamped with a stand-in
 		// id, and the stamp dropped, so that a call that could not be stamped is refused whatever session
 		// is open, and before any handshake rather than after it.
-		if _, _, err := cfg.Stamper.Boundary(x.inbound, placeholderID, cfg.Partner, bind, sent, e.bundle); err != nil {
+		_, _, err := cfg.Stamper.Boundary(x.inbound, placeholderID, cfg.Partner, bind, stamp.EmptyBlock, e.bundle)
+		if err != nil {
 			return nil, Step{}, err
 		}
 	}
@@ -421,7 +411,7 @@ func (x *Exchange) open(body []byte, attested bool) (Step, bool, error) {
 }
 
 // call returns the call's step in the exchange's session. In an attested session it signs the boundary
-// stamp over the request and the blinded entries, and carries both with the route's proof; in an unsafe
+// stamp over the request, attaching the empty block, and carries it with the route's proof; in an unsafe
 // one it carries the session id alone.
 func (x *Exchange) call() (Step, error) {
 	cfg := &x.e.cfg
@@ -432,7 +422,8 @@ func (x *Exchange) call() (Step, error) {
 	if !x.sess.attested {
 		return step, nil
 	}
-	chain, proof, err := cfg.Stamper.Boundary(x.inbound, x.sess.id, cfg.Partner, x.bind, x.sent, x.e.bundle)
+	// Plan 4b: the boundary block names influence when every internal stamp does; until then it names nothing.
+	chain, proof, err := cfg.Stamper.Boundary(x.inbound, x.sess.id, cfg.Partner, x.bind, stamp.EmptyBlock, x.e.bundle)
 	if err != nil {
 		return Step{}, err
 	}
@@ -447,10 +438,6 @@ func (x *Exchange) call() (Step, error) {
 		}
 		step.Headers = append(step.Headers, wire.Header{Name: wire.Proof, Value: tok})
 	}
-	if x.sentTok != "" {
-		step.Headers = append(step.Headers, wire.Header{Name: wire.Influence, Value: x.sentTok})
-	}
-	step.Originals, step.Sent = slices.Clone(x.originals), slices.Clone(x.sent)
 	return step, nil
 }
 

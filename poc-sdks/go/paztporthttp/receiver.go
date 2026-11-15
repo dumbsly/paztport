@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"github.com/dumbsly/paztport/poc-sdks/go/policy"
-	"github.com/dumbsly/paztport/poc-sdks/go/reason"
 	"github.com/dumbsly/paztport/poc-sdks/go/stamp"
 	"github.com/dumbsly/paztport/poc-sdks/go/verify"
 )
@@ -29,7 +28,7 @@ type Receiver struct {
 	// holds none, which neither verifies nor attests.
 	Verifier *verify.Verifier
 	// Origin reports whether this service is an entry point, which starts every request tree afresh: it
-	// carries neither the chain nor the influence a request brings, never takes a chain as verified and
+	// carries nothing a request brings, never takes a chain as verified and
 	// never attests. Under a mode it still runs the live order on each request, and enforce refuses one
 	// that fails. It must agree with Stamper's Origin, when there is a Stamper: see [Receiver.Accept].
 	Origin bool
@@ -57,8 +56,8 @@ type Receiver struct {
 // Accepted.CacheErr is its error, for the embedder's own log, and the request is never verified,
 // attested or given a [Accepted.Delivery]. Under [ModeEnforce] it is refused with [Unavailable], 503 and
 // no body, as it cannot be shown to be no replay. Under [ModeAudit], and for a receiver with no mode,
-// which refuses nothing, it is served unverified and unattested, carrying the chain and the influence
-// as received, as a request that fails in audit mode is; influence that does not read is still refused.
+// which refuses nothing, it is served unverified and unattested, carrying the chain as received, as a
+// request that fails in audit mode is.
 //
 // Accept panics on a receiver with no Verifier that is given ModeEnforce, ModeAudit or a value that is no
 // mode: it is to verify requests with nothing to verify them with, which is a fault in the program, and
@@ -105,11 +104,7 @@ func (r *Receiver) Accept(ctx context.Context, req InboundRequest, peer *verify.
 		// request, vouches for nothing and never attests.
 		return Accepted{Result: a.Result, Audit: a.Audit, CacheErr: a.CacheErr}
 	}
-	es, ok := readInfluence(req.Influence)
-	if !ok {
-		return refused(Refusal(400, reason.InfluenceMismatch), a)
-	}
-	a.Influence = es
+	// Plan 4b: the hand-over and an extension's item check; until then no item reaches the service.
 	if mode == ModeOff || r.Verifier == nil || r.Stamper == nil || chain == nil {
 		return a
 	}

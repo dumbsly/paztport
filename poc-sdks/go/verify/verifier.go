@@ -17,7 +17,7 @@ import (
 
 // Peer is the sender a transport authenticated, such as by an mTLS certificate.
 type Peer struct {
-	// Svc is the sender's service name, which check 12 compares with the last signer's.
+	// Svc is the sender's service name, which check 10 compares with the last signer's.
 	Svc string
 	// Inst is the transport's address for the sender. It is not signed, and is never compared.
 	Inst string
@@ -30,6 +30,9 @@ type Result struct {
 	// SuspectSvc and SuspectInst name the party a responder may act against, or are both "" when the
 	// result names no one. They are for the verifier's own logs and events, never for the caller.
 	SuspectSvc, SuspectInst string
+	// HandOver is what the service is handed for the extensions it acts on, verified: non-nil exactly when
+	// Reason is OK. A refusal hands nothing over, so refusals still compare with ==.
+	HandOver *HandOver
 }
 
 // OK reports whether every check held.
@@ -44,8 +47,9 @@ type Input struct {
 	Chain *string
 	// ExpectedBind is the binding the receiver computed for what it received. A nil one never matches.
 	ExpectedBind *string
-	// Influence is the influence's token. A nil one is the empty list.
-	Influence *string
+	// Blocks is the token of the blocks received with the chain, one per stamp. A nil one, no token received, is
+	// one empty block per stamp; a token that reads as JSON null is not.
+	Blocks *string
 	// Proof is the route proof's token. A nil one proves nothing.
 	Proof *string
 	// Receiver is what the last stamp's rcv must equal: the receiver's own policy name, with the operation the
@@ -112,26 +116,37 @@ func (v *Verifier) current(now int64) ([]policy.Keyring, []chaincheck.Root) {
 	return keyrings, roots
 }
 
-// Verify runs the live order on in, and answers with the first check that fails, or OK:
+// Extensions returns the extension settings the verifier's Config holds: the names checks 9b and 9c read and its
+// hand-over carries. A transport reads them from here, so a service cannot verify under one actsOn and build its
+// blocks or read what it is handed under another.
+func (v *Verifier) Extensions() Extensions {
+	return v.cfg.Extensions
+}
+
+// Verify runs the live order on in (verification.md, The live order), and answers with the first check that
+// fails, or OK:
 //
 //  0. POLICY_EXPIRED, if the Config's PolicyNotAfter is outside [0, 2^53 - 1] or the clock is past it;
 //  1. CHAIN_MISSING, unless the chain reads from its token;
-//  2. BAD_SIGNATURE, if a signed field of any stamp holds "|";
-//  3. BAD_ORIGIN, unless the origin is an allowed origin;
-//  4. BAD_SIGNATURE, BROKEN_LINK, then BINDING_MISMATCH, unless each stamp in turn is signed under one
-//     of the keys the current keyrings give its service and links to the one before, and then each
-//     stamp's rcv addresses the next stamp's svc, by name or as svc#operation, and the last's is the
-//     receiver exactly;
+//  2. BAD_ORIGIN, unless the origin is an allowed origin;
+//  3. BAD_SIGNATURE, then BROKEN_LINK, unless each stamp in turn is signed under one of the keys the current
+//     keyrings give its service and links to the one before;
+//  4. BINDING_MISMATCH, unless each stamp's rcv addresses the next stamp's svc, by name or as svc#operation,
+//     and the last's is the receiver exactly;
 //  5. RID_MISMATCH, unless every stamp carries the origin's rid;
 //  6. SESSION_UNKNOWN, unless every stamp carries the Config's session;
 //  7. EXPIRED, unless the last stamp's ts is within the call window of now, either way, and the origin's
 //     is at most the run window before now and the call window after it;
 //  8. BINDING_MISMATCH, unless the last stamp binds the expected binding;
-//  9. INFLUENCE_MISMATCH, unless the influence reads and the last stamp commits to it;
-//  10. REPLAY, unless there is a nonce key, the cache remembers keys for at least twice the call window,
+//  9. the blocks: 9a, EXTENSION_MISMATCH, unless they read, one per stamp, each committing to its stamp's
+//     ext; then 9b, EXTENSION_NOT_ALLOWED, if a block holds a name the Config's settings do not carry; then
+//     9c, EXTENSION_REQUIRED, if the last block requires an extension the settings do not act on;
+//  10. PEER_MISMATCH, if there is a peer and it is not the last signer;
+//  11. REPLAY, unless there is a nonce key, the cache remembers keys for at least twice the call window,
 //     and the key is new to it; only then is the key recorded;
-//  11. PATH_NOT_ALLOWED, unless the proof proves the route against a current root with its rootId;
-//  12. PEER_MISMATCH, if there is a peer and it is not the last signer.
+//  12. PATH_NOT_ALLOWED, unless the proof proves the route against a current root with its rootId.
+//
+// On OK the Result's HandOver holds, for each extension the settings act on, one entry per stamp, verified.
 //
 // A keyring or root is current while the clock is at most its own notAfter, and the verifier judges which
 // are current once for each request. Check 0 is the Config's PolicyNotAfter alone, which Pinned sets to the
@@ -150,11 +165,11 @@ func (v *Verifier) Verify(ctx context.Context, in Input) (Result, error) {
 	if v.cfg.PolicyNotAfter < 0 || v.cfg.PolicyNotAfter > json.MaxSafe || now > v.cfg.PolicyNotAfter {
 		return Result{Reason: reason.PolicyExpired}, nil
 	}
-	code, last, err := v.check(ctx, in, now)
+	code, last, h, err := v.check(ctx, in, now)
 	if err != nil {
 		return Result{}, err
 	}
-	r := Result{Reason: code}
+	r := Result{Reason: code, HandOver: h}
 	switch {
 	case in.Peer != nil:
 		r.SuspectSvc, r.SuspectInst = in.Peer.Svc, in.Peer.Inst
@@ -164,60 +179,67 @@ func (v *Verifier) Verify(ctx context.Context, in Input) (Result, error) {
 	return r, nil
 }
 
-// check runs checks 1 to 12 and returns the first code that fails, or OK, with the chain's last stamp
-// once the chain has read.
-func (v *Verifier) check(ctx context.Context, in Input, now int64) (reason.Code, stamp.Stamp, error) {
-	// 1-2. The chain reads, and no signed field holds the delimiter.
+// check runs checks 1 to 12 and returns the first code that fails, or OK with the hand-over, with the chain's
+// last stamp once the chain has read.
+func (v *Verifier) check(ctx context.Context, in Input, now int64) (reason.Code, stamp.Stamp, *HandOver, error) {
+	// 1. The chain reads.
 	if in.Chain == nil {
-		return reason.ChainMissing, stamp.Stamp{}, nil
+		return reason.ChainMissing, stamp.Stamp{}, nil, nil
 	}
 	c, code := stamp.ReadChain(*in.Chain)
 	if code != reason.OK {
-		return code, stamp.Stamp{}, nil
+		return code, stamp.Stamp{}, nil, nil
 	}
 	origin, last := c[0], c[len(c)-1]
 
-	// 3-6. The origin, signatures and links, receivers, rid and session, under the keyrings current now.
+	// 2-6. The origin, signatures and links, receivers, rid and session, under the keyrings current now.
 	keyrings, roots := v.current(now)
 	if code := chaincheck.Stamps(c, keyrings, v.cfg.AllowedOrigins, v.cfg.Sess, in.Receiver, nil); code != reason.OK {
-		return code, last, nil
+		return code, last, nil, nil
 	}
 
 	// 7. Freshness.
 	if !fresh(now, origin.TS, last.TS, v.cfg.CallMaxAgeMs, v.cfg.RunMaxAgeMs) {
-		return reason.Expired, last, nil
+		return reason.Expired, last, nil, nil
 	}
 
-	// 8-9. The binding and the influence commitment.
-	if code := chaincheck.Commitments(last, in.ExpectedBind, in.Influence); code != reason.OK {
-		return code, last, nil
+	// 8. The binding.
+	if code := chaincheck.Binding(last, in.ExpectedBind); code != reason.OK {
+		return code, last, nil, nil
 	}
 
-	// 10. Replay. A cache that forgets sooner than twice the call window could forget a key while a replay
+	// 9a-9c. The blocks, matched to their stamps before any name in them is believed; 9c, live.
+	ext := v.cfg.Extensions
+	bs, code := chaincheck.Blocks(c, in.Blocks, ext.Carries, ext.ActsOnName, true)
+	if code != reason.OK {
+		return code, last, nil, nil
+	}
+
+	// 10. The peer is the last signer, before the nonce is touched: a request another peer sends spends
+	// nothing and blames no signer.
+	if in.Peer != nil && in.Peer.Svc != last.Svc {
+		return reason.PeerMismatch, last, nil, nil
+	}
+
+	// 11. Replay. A cache that forgets sooner than twice the call window could forget a key while a replay
 	// of it is still fresh, so it fails closed before the key is spent.
 	ttl := v.cfg.Nonces.TTL()
 	if in.NonceKey == nil || ttl < 0 || ttl/2 < v.cfg.CallMaxAgeMs {
-		return reason.Replay, last, nil
+		return reason.Replay, last, nil, nil
 	}
 	seen, err := v.cfg.Nonces.SeenBefore(ctx, *in.NonceKey, now)
 	if err != nil {
-		return "", last, err
+		return "", last, nil, err
 	}
 	if seen {
-		return reason.Replay, last, nil
+		return reason.Replay, last, nil, nil
 	}
 
-	// 11. The route, against the roots current now.
+	// 12. The route, against the roots current now.
 	if code := chaincheck.Route(c, in.ReceiverInRoute, in.Proof, roots); code != reason.OK {
-		return code, last, nil
+		return code, last, nil, nil
 	}
-
-	// 12. The peer is the last signer. It runs last, so every other check keeps its code when a transport
-	// adds a peer.
-	if in.Peer != nil && in.Peer.Svc != last.Svc {
-		return reason.PeerMismatch, last, nil
-	}
-	return reason.OK, last, nil
+	return reason.OK, last, NewHandOver(true, c, bs, ext), nil
 }
 
 // fresh runs check 7's arithmetic on the origin's and the last stamp's ts: the last is within call of

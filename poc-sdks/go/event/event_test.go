@@ -38,7 +38,7 @@ func (c *clock) read() int64 { return c.now }
 // newResponder returns a responder that takes events from payment alone, and the clock it reads.
 func newResponder(t *testing.T) (*event.Responder, *clock) {
 	t.Helper()
-	_, pub := vectors.V3Key(t, "payment")
+	_, pub := vectors.VectorKey(t, "payment")
 	c := &clock{now: t0}
 	return event.NewResponder([]policy.Keyring{{"payment": pub}}, []string{"payment"}, c.read), c
 }
@@ -46,7 +46,7 @@ func newResponder(t *testing.T) (*event.Responder, *clock) {
 // body returns ev signed by payment, as the body a responder receives.
 func body(t testing.TB, ev event.Event) []byte {
 	t.Helper()
-	priv, _ := vectors.V3Key(t, "payment")
+	priv, _ := vectors.VectorKey(t, "payment")
 	wire, err := ev.Wire()
 	if err != nil {
 		t.Fatalf("Wire: %v", err)
@@ -196,7 +196,7 @@ func TestRemembered(t *testing.T) {
 // up.
 func TestAllowListFirst(t *testing.T) {
 	r, _ := newResponder(t)
-	priv, _ := vectors.V3Key(t, "payment")
+	priv, _ := vectors.VectorKey(t, "payment")
 	wire, err := sample.Wire()
 	if err != nil {
 		t.Fatal(err)
@@ -217,8 +217,8 @@ func TestAllowListFirst(t *testing.T) {
 // TestIDsAcrossSigners offers an event from payment, then the same event signed by search: a responder
 // remembers the ids of every signer together, so the second is refused as repeated.
 func TestIDsAcrossSigners(t *testing.T) {
-	_, paymentPub := vectors.V3Key(t, "payment")
-	searchPriv, searchPub := vectors.V3Key(t, "search")
+	_, paymentPub := vectors.VectorKey(t, "payment")
+	searchPriv, searchPub := vectors.VectorKey(t, "search")
 	r := event.NewResponder([]policy.Keyring{{"payment": paymentPub, "search": searchPub}},
 		[]string{"payment", "search"}, func() int64 { return t0 })
 	if _, refusal := r.Accept(body(t, sample)); refusal != "" {
@@ -284,7 +284,7 @@ func TestOneIDFrom64Goroutines(t *testing.T) {
 // keyring it was given and the keyring replaced in the list, still verifies it, so the event is refused
 // only as repeated.
 func TestResponderKeepsItsOwnConfig(t *testing.T) {
-	_, pub := vectors.V3Key(t, "payment")
+	_, pub := vectors.VectorKey(t, "payment")
 	keyring := policy.Keyring{"payment": append(ed25519.PublicKey(nil), pub...)}
 	keyrings := []policy.Keyring{keyring}
 	allowed := []string{"payment"}
@@ -305,8 +305,8 @@ func TestResponderKeepsItsOwnConfig(t *testing.T) {
 // the signer under its own name (UNKNOWN_SIGNER), and the signature must verify under one of the keys they
 // give it (BAD_SIGNATURE). A responder with no keyring refuses every signer as unknown.
 func TestResponderKeyrings(t *testing.T) {
-	_, payment := vectors.V3Key(t, "payment")
-	_, search := vectors.V3Key(t, "search")
+	_, payment := vectors.VectorKey(t, "payment")
+	_, search := vectors.VectorKey(t, "search")
 	tests := []struct {
 		name     string
 		keyrings []policy.Keyring
@@ -385,7 +385,7 @@ func TestEventWireRefuses(t *testing.T) {
 // TestSignEnvelopeRefuses signs bytes a responder would not read as an event with an id, and signs with a
 // key that is not an Ed25519 private key: each is refused, with no envelope.
 func TestSignEnvelopeRefuses(t *testing.T) {
-	priv, _ := vectors.V3Key(t, "payment")
+	priv, _ := vectors.VectorKey(t, "payment")
 	wire, err := sample.Wire()
 	if err != nil {
 		t.Fatal(err)

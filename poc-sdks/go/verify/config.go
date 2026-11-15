@@ -68,10 +68,10 @@ type PinnedRoot struct {
 // Config built by hand with no keyring has no key for any stamp, so every chain is BAD_SIGNATURE, and one
 // with no root proves no route, so every chain that gets that far is PATH_NOT_ALLOWED.
 type Config struct {
-	// Keyrings are the keyrings the verifier pins. Check 4 looks a stamp's key up in every one current at
+	// Keyrings are the keyrings the verifier pins. Check 3 looks a stamp's key up in every one current at
 	// the verifier's clock.
 	Keyrings []PinnedKeyring
-	// Roots are the roots the verifier pins. Check 11 proves the route against a current one whose RootID is
+	// Roots are the roots the verifier pins. Check 12 proves the route against a current one whose RootID is
 	// the proof's.
 	Roots []PinnedRoot
 	// PolicyNotAfter is the earlier of the latest keyring's notAfter and the latest root's, in milliseconds
@@ -92,12 +92,16 @@ type Config struct {
 	CallMaxAgeMs int64
 	// RunMaxAgeMs bounds the origin's age.
 	RunMaxAgeMs int64
+	// Extensions is the service's extension settings (verification.md, Inputs): the names check 9b carries,
+	// the extensions check 9c holds the caller's requires to and the hand-over holds. The zero value acts on
+	// none and carries any name.
+	Extensions Extensions
 }
 
 // Pinned returns cfg with the keyrings kfs and the roots pinned: its Keyrings, Roots and PolicyNotAfter
 // filled from them, once each is checked against pin, the pinned policy key as base64url
 // SubjectPublicKeyInfo (the text of policy.pub). The caller sets the rest of cfg by name: AllowedOrigins,
-// Sess, Nonces, Now, CallMaxAgeMs and RunMaxAgeMs. Each keyring must name pin and verify under it, each
+// Sess, Nonces, Now, CallMaxAgeMs, RunMaxAgeMs and Extensions. Each keyring must name pin and verify under it, each
 // root must verify under it, and every one must be current at cfg.Now(). Pinned refuses them otherwise,
 // naming the member by its place in its list, such as keyrings[1], so that no verifier is built on
 // material the pin does not vouch for now. It refuses no keyring or no root, and a cfg with no clock or no

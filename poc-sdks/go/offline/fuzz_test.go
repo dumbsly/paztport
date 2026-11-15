@@ -18,38 +18,44 @@ import (
 )
 
 // offlineCodes are the codes the offline verifier gives under keyrings and roots with no window, which
-// count for every record: a live verifier's but PEER_MISMATCH and POLICY_EXPIRED, and TIME_MISMATCH and
-// PROMPT_MISMATCH.
+// count for every record, and settings with no list: a live verifier's but PEER_MISMATCH, POLICY_EXPIRED,
+// EXTENSION_NOT_ALLOWED and EXTENSION_REQUIRED, which is live only, and TIME_MISMATCH and PROMPT_MISMATCH.
 var offlineCodes = []reason.Code{
 	reason.OK, reason.ChainMissing, reason.BadOrigin, reason.BadSignature, reason.BrokenLink, reason.Expired,
 	reason.RIDMismatch, reason.BindingMismatch, reason.Replay, reason.PathNotAllowed, reason.SessionUnknown,
-	reason.InfluenceMismatch, reason.TimeMismatch, reason.PromptMismatch,
+	reason.ExtensionMismatch, reason.TimeMismatch, reason.PromptMismatch,
 }
 
-// FuzzVerify verifies any recorded chain token, with any rid, recorded times or none, age limits or none,
-// prompt and session, against a verifier that holds every key of v3.json's offline cases and the mesh
-// fixture, in a record set that has spent one key. The seeds are the mesh fixture's chain, recorded at its
-// own time, which verifies, at another, with no recorded time and with no age limits, and the offline
-// cases' chains, with their times and limits absent where the case gives none. It never panics, gives only
-// an offline code, and names no one unless the result is OK or PATH_NOT_ALLOWED.
+// FuzzVerify verifies any recorded chain and blocks tokens, the blocks present or absent, with any rid, recorded
+// times or none, age limits or none, prompt and session, against a verifier that holds every key of v4.json's
+// offline cases and the mesh fixture, in a record set that has spent one key. The seeds are the mesh fixture's
+// chain, recorded at its own time, which verifies, at another, with no recorded time and with no age limits, and
+// the offline cases' chains and blocks, with their times and limits absent where the case gives none. It never
+// panics, gives only an offline code, names no one unless the result is OK or PATH_NOT_ALLOWED, and hands over
+// items exactly when it is OK.
 func FuzzVerify(f *testing.F) {
 	s := mesh(f)
 	tok := s.token(f)
-	f.Add(tok, "rid-1", "", true, end, start, true, true, int64(1800000), true, int64(5000), prompt)
-	f.Add(tok, "rid-1", "", true, end+1, start, true, true, int64(1800000), true, int64(5000), prompt)
-	f.Add(tok, "rid-1", "", false, int64(0), int64(0), false, true, int64(1800000), true, int64(5000), prompt)
-	f.Add(tok, "rid-1", "", true, end, start, true, false, int64(0), false, int64(0), prompt)
-	v3 := vectors.Load(f, "v3.json")
-	v3.Get("offline").Each(func(_ string, c vectors.Node) {
+	f.Add(tok, "", true, "rid-1", "", true, end, start, true, true, int64(1800000), true, int64(5000), prompt)
+	f.Add(tok, "", true, "rid-1", "", true, end+1, start, true, true, int64(1800000), true, int64(5000), prompt)
+	f.Add(tok, "", true, "rid-1", "", false, int64(0), int64(0), false, true, int64(1800000), true, int64(5000),
+		prompt)
+	f.Add(tok, "", true, "rid-1", "", true, end, start, true, false, int64(0), false, int64(0), prompt)
+	v4 := vectors.Load(f, "v4.json")
+	v4.Get("offline").Each(func(_ string, c vectors.Node) {
 		ts, runMax, callMax := c.Get("recordedTs"), c.Get("runMaxAgeMs"), c.Get("callMaxAgeMs")
 		last := int64(0)
 		if !ts.IsNull() {
 			last = ts.Get("last").Int()
 		}
-		f.Add(c.Get("chainToken").Str(), "rid-1", "sess-1", !ts.IsNull(), last, int64(0), false,
+		blocks, absent := "", c.Get("blocksToken").IsNull()
+		if !absent {
+			blocks = c.Get("blocksToken").Str()
+		}
+		f.Add(c.Get("chainToken").Str(), blocks, absent, "rid-1", "sess-1", !ts.IsNull(), last, int64(0), false,
 			!runMax.IsNull(), orZero(runMax), !callMax.IsNull(), orZero(callMax), c.Get("prompt").Str())
 	})
-	mesh := v3.Get("policies").Get("mesh")
+	mesh := v4.Get("policies").Get("mesh")
 	root, err := b64.Decode(mesh.Get("root").Str())
 	if err != nil {
 		f.Fatal(err)
@@ -57,11 +63,11 @@ func FuzzVerify(f *testing.F) {
 	proof := mesh.Get("proofTokens").Get("gateway/orders/payment").Str()
 	keyring := policy.Keyring{}
 	for _, name := range []string{"session", "pi", "gateway", "orders"} {
-		_, keyring[name] = vectors.V3Key(f, name)
+		_, keyring[name] = vectors.VectorKey(f, name)
 	}
 	rootID := mesh.Get("rootId").Str()
-	f.Fuzz(func(t *testing.T, chain, rid, sess string, recorded bool, last, run int64, runGiven bool,
-		runMaxGiven bool, runMax int64, callMaxGiven bool, callMax int64, prompt string) {
+	f.Fuzz(func(t *testing.T, chain, blocks string, absent bool, rid, sess string, recorded bool, last, run int64,
+		runGiven bool, runMaxGiven bool, runMax int64, callMaxGiven bool, callMax int64, prompt string) {
 		bind, key := "bind-1", "rid-1|orders|req"
 		in := offline.Input{
 			Chain:           &chain,
@@ -72,6 +78,9 @@ func FuzzVerify(f *testing.F) {
 			NonceKey:        &key,
 			RID:             &rid,
 			Prompt:          &prompt,
+		}
+		if !absent {
+			in.Blocks = &blocks
 		}
 		if recorded {
 			in.Recorded = &offline.RecordedTimes{Last: last, RunGiven: runGiven, Run: []int64{run}}
@@ -95,6 +104,9 @@ func FuzzVerify(f *testing.F) {
 		named := r.SuspectSvc != "" || r.SuspectInst != ""
 		if named && r.Reason != reason.OK && r.Reason != reason.PathNotAllowed {
 			t.Fatalf("a %s result names %q, %q", r.Reason, r.SuspectSvc, r.SuspectInst)
+		}
+		if (r.HandOver != nil) != r.OK() {
+			t.Fatalf("a %s result has the hand-over %v", r.Reason, r.HandOver)
 		}
 	})
 }
@@ -127,7 +139,7 @@ func FuzzRecord(f *testing.F) {
 		if s.AttestedAt(at) && !s.Attested() {
 			t.Fatalf("attested at %d, but not at all", at)
 		}
-		r, ok := new(offline.RecordSet).Call(offline.Input{}, offline.Config{}, s)
+		r, ok := new(offline.RecordSet).Call(offline.Input{}, offline.Config{}, s, nil)
 		if ok != s.Attested() || (!ok && r != verify.Result{}) {
 			t.Fatalf("Call = %+v, %t; but Attested = %t", r, ok, s.Attested())
 		}

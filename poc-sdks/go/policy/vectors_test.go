@@ -15,16 +15,16 @@ import (
 	"github.com/dumbsly/paztport/poc-sdks/go/policy"
 )
 
-// TestKeyring replays v3.json's keyring cases. Each file is read as written; one the reader keeps is held to
+// TestKeyring replays v4.json's keyring cases. Each file is read as written; one the reader keeps is held to
 // its signing bytes, its verdict under the policy key's pin and its window, and one that verifies is signed
 // again, which reproduces its sig since Ed25519 is deterministic.
 func TestKeyring(t *testing.T) {
-	v3 := vectors.Load(t, "v3.json")
-	v3.Get("keyring").Each(func(name string, c vectors.Node) {
+	v4 := vectors.Load(t, "v4.json")
+	v4.Get("keyring").Each(func(name string, c vectors.Node) {
 		t.Run(name, func(t *testing.T) {
 			c := c.With(t)
 			policyKey := c.Get("policyKey").Str()
-			pin := v3.With(t).Get("keys").Get(policyKey).Get("pub").Str()
+			pin := v4.With(t).Get("keys").Get(policyKey).Get("pub").Str()
 			kf, err := policy.ParseKeyringFile([]byte(c.Get("file").Str()))
 			if refused(t, c, err) {
 				return
@@ -47,7 +47,7 @@ func TestKeyring(t *testing.T) {
 			}
 			current(t, c, kf.Current)
 			if c.Get("verifies").Bool() {
-				priv, _ := vectors.V3Key(t, policyKey)
+				priv, _ := vectors.VectorKey(t, policyKey)
 				again, err := policy.SignKeyring(kf.Services, kf.Policy, kf.NotAfter, priv)
 				if err != nil {
 					t.Fatalf("SignKeyring: %v", err)
@@ -60,21 +60,21 @@ func TestKeyring(t *testing.T) {
 	})
 }
 
-// TestRoot replays v3.json's root cases as TestKeyring does the keyring's. Every root that reads names its
+// TestRoot replays v4.json's root cases as TestKeyring does the keyring's. Every root that reads names its
 // policy's tree.
 func TestRoot(t *testing.T) {
-	v3 := vectors.Load(t, "v3.json")
-	v3.Get("root").Each(func(name string, c vectors.Node) {
+	v4 := vectors.Load(t, "v4.json")
+	v4.Get("root").Each(func(name string, c vectors.Node) {
 		t.Run(name, func(t *testing.T) {
 			c := c.With(t)
-			v3 := v3.With(t)
+			v4 := v4.With(t)
 			policyKey := c.Get("policyKey").Str()
-			pin := v3.Get("keys").Get(policyKey).Get("pub").Str()
+			pin := v4.Get("keys").Get(policyKey).Get("pub").Str()
 			root, err := policy.ParseRootFile([]byte(c.Get("file").Str()))
 			if refused(t, c, err) {
 				return
 			}
-			tree := v3.Get("policies").Get(c.Get("policy").Str())
+			tree := v4.Get("policies").Get(c.Get("policy").Str())
 			if root.Root != tree.Get("root").Str() || root.RootID != tree.Get("rootId").Str() {
 				t.Fatalf("read the root %s under %s, want the policy's %s under %s",
 					root.Root, root.RootID, tree.Get("root").Str(), tree.Get("rootId").Str())
@@ -95,7 +95,7 @@ func TestRoot(t *testing.T) {
 				if err != nil {
 					t.Fatalf("Bytes: %v", err)
 				}
-				priv, _ := vectors.V3Key(t, policyKey)
+				priv, _ := vectors.VectorKey(t, policyKey)
 				again, err := policy.SignRoot(b, root.RootID, root.NotAfter, priv)
 				if err != nil {
 					t.Fatalf("SignRoot: %v", err)
@@ -108,14 +108,14 @@ func TestRoot(t *testing.T) {
 	})
 }
 
-// TestReplyCert replays v3.json's replyCert cases: each certificate under the pin the case names, and
+// TestReplyCert replays v4.json's replyCert cases: each certificate under the pin the case names, and
 // issued again by its signer when it verifies.
 func TestReplyCert(t *testing.T) {
-	v3 := vectors.Load(t, "v3.json")
-	v3.Get("replyCert").Each(func(name string, c vectors.Node) {
+	v4 := vectors.Load(t, "v4.json")
+	v4.Get("replyCert").Each(func(name string, c vectors.Node) {
 		t.Run(name, func(t *testing.T) {
 			c := c.With(t)
-			pin := v3.With(t).Get("keys").Get(c.Get("pin").Str()).Get("pub").Str()
+			pin := v4.With(t).Get("keys").Get(c.Get("pin").Str()).Get("pub").Str()
 			cert, err := policy.ParseReplyCertFile([]byte(c.Get("file").Str()))
 			if refused(t, c, err) {
 				return
@@ -133,7 +133,7 @@ func TestReplyCert(t *testing.T) {
 				t.Fatalf("Verifies = %v, want %v", got, want)
 			}
 			if c.Get("verifies").Bool() {
-				priv, _ := vectors.V3Key(t, c.Get("signer").Str())
+				priv, _ := vectors.VectorKey(t, c.Get("signer").Str())
 				again, err := policy.IssueReplyCert(cert.Policy, cert.Svc, cert.Key, cert.NotAfter, priv)
 				if err != nil {
 					t.Fatalf("IssueReplyCert: %v", err)
@@ -146,10 +146,10 @@ func TestReplyCert(t *testing.T) {
 	})
 }
 
-// TestMerkle replays v3.json's merkle section: its leaf and node hashes, and each proof object, read as
+// TestMerkle replays v4.json's merkle section: its leaf and node hashes, and each proof object, read as
 // written, proven against the root, read again from its header, and written back as that header.
 func TestMerkle(t *testing.T) {
-	m := vectors.Load(t, "v3.json").Get("merkle")
+	m := vectors.Load(t, "v4.json").Get("merkle")
 	m.Get("leaves").Each(func(name string, l vectors.Node) {
 		h, err := policy.LeafHash(decode(t, l.Get("salt").Str()), l.Get("path").Str())
 		if err != nil {

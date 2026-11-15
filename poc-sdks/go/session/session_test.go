@@ -50,9 +50,9 @@ func attestedHandshake(t *testing.T) handshake {
 	}
 	h := handshake{req: req, reply: reply, wire: wire, pin: pub(t, v4, c.Get("pin").Str()),
 		entry: c.Get("serverEntry").Str(), now: c.Get("now").Int()}
-	h.signer, _ = vectors.V3Key(t, h.entry)
-	h.client, _ = vectors.V3Key(t, "client-policy")
-	h.server, _ = vectors.V3Key(t, "server-policy")
+	h.signer, _ = vectors.VectorKey(t, h.entry)
+	h.client, _ = vectors.VectorKey(t, "client-policy")
+	h.server, _ = vectors.VectorKey(t, "server-policy")
 	if got := session.CheckReply(wire, req, h.pin, h.entry, h.now, session.Requirement{}); got != session.Attested {
 		t.Fatalf("the handshake's reply is %s", got)
 	}
@@ -117,7 +117,7 @@ func signersByPub(t *testing.T, v4 vectors.Node) map[string]ed25519.PrivateKey {
 	t.Helper()
 	signers := map[string]ed25519.PrivateKey{}
 	for _, name := range v4.With(t).Get("keys").Names() {
-		priv, _ := vectors.V3Key(t, name)
+		priv, _ := vectors.VectorKey(t, name)
 		signers[pub(t, v4, name)] = priv
 	}
 	return signers

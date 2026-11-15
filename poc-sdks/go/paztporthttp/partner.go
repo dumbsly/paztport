@@ -6,7 +6,6 @@ package paztporthttp
 import (
 	"context"
 
-	"github.com/dumbsly/paztport/poc-sdks/go/influence"
 	"github.com/dumbsly/paztport/poc-sdks/go/paztporthttp/wire"
 	"github.com/dumbsly/paztport/poc-sdks/go/reason"
 	"github.com/dumbsly/paztport/poc-sdks/go/stamp"
@@ -17,8 +16,8 @@ import (
 // in place of the handler's answer, or a call served in an unsafe session, where nothing the request
 // carries is believed, or in an attested one, where it verified in that session.
 //
-// A trusted record may be written from a call only when [PartnerAccepted.TrustedRecord] says so: when it
-// is attested and neither its influence nor what the handler has read since holds untrusted content.
+// A trusted record may be written from a call only when [PartnerAccepted.TrustedRecord] says so, which it
+// never does until a call hands its items over.
 type PartnerAccepted struct {
 	// Refusal is the answer to send in place of the handler's, or nil when the call is served.
 	Refusal *Answer
@@ -28,9 +27,6 @@ type PartnerAccepted struct {
 	// Chain is the chain that verified in the session, for the handler's own calls to stamp onto, or nil
 	// unless Attested.
 	Chain stamp.Chain
-	// Influence is the verified influence, owners included, the handler starts from when Attested, and
-	// otherwise none, whatever headers came.
-	Influence []influence.Entry
 	// Result is the session verifier's result on the call, or nil when no verification ran: in an unsafe
 	// session, or when the session is unknown. The embedder may build an event from it; the caller is
 	// never told it.
@@ -48,13 +44,12 @@ type PartnerAccepted struct {
 //     starts again.
 //   - With no header, the caller never opened a session, and the call is served as in an unsafe one. In
 //     an unsafe session nothing is verified and nothing the call carries is believed: it is served with
-//     no chain and no influence, and not Attested.
+//     no chain, and not Attested.
 //   - In an attested session the live order runs once, with the session's own verifier, the entry
 //     service as receiver, the request's own binding, the tokens of its headers, the nonce key
 //     <rid>|<last svc>|<last rcv>|req and peer's service and address as the peer. A result that is not OK
-//     is refused 403 {"reason":"<code>"}: a partner has no audit mode, so influence that does not read is
-//     refused 403 {"reason":"INFLUENCE_MISMATCH"} too. On OK the call is Attested, with the chain and the
-//     influence its boundary stamp committed to.
+//     is refused 403 {"reason":"<code>"}: a partner has no audit mode. No blocks token is read, so a boundary
+//     stamp whose ext is not "" is refused EXTENSION_MISMATCH. On OK the call is Attested, with the chain.
 //
 // Accept does not refuse the endpoints switched off for unsafe sessions, since only the framework knows
 // which handler a request reaches. An adapter refuses one served and not Attested whose method and path
@@ -88,13 +83,8 @@ func (s *Sessions) Accept(ctx context.Context, req InboundRequest, peer *PeerCer
 	if !res.OK() {
 		return partnerRefused(Refusal(403, res.Reason), &res), nil
 	}
-	es, read := readInfluence(req.Influence)
-	if !read || chain == nil {
-		// Not reached after OK, which has read both; refused rather than served with less than was
-		// committed to.
-		return partnerRefused(Refusal(403, reason.InfluenceMismatch), &res), nil
-	}
-	return PartnerAccepted{Attested: true, Chain: chain, Influence: es, Result: &res}, nil
+	// Plan 4b: the boundary block's items, handed over; until then the call carries none.
+	return PartnerAccepted{Attested: true, Chain: chain, Result: &res}, nil
 }
 
 // partnerRefused returns the refusal answer, with the verifier's result res, or nil when none ran.
