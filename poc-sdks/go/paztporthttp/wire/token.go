@@ -4,11 +4,8 @@
 package wire
 
 import (
-	"errors"
 	"fmt"
 
-	"github.com/dumbsly/paztport/poc-sdks/go/influence"
-	"github.com/dumbsly/paztport/poc-sdks/go/internal/b64"
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/json"
 	"github.com/dumbsly/paztport/poc-sdks/go/policy"
 	"github.com/dumbsly/paztport/poc-sdks/go/stamp"
@@ -26,37 +23,26 @@ func EncodeProof(p policy.Proof) (string, error) {
 	return p.Token()
 }
 
-// EncodeInfluence returns the value of a request's [Influence] header: the token of es, in the order
-// given, which is the list the last stamp's infl commits to. With no entries it returns "", and the
-// request carries no header, which a receiver reads as none; a token is never "". It refuses what
-// influence.EntriesWire refuses.
-func EncodeInfluence(es []influence.Entry) (string, error) {
-	if len(es) == 0 {
-		return "", nil
-	}
-	b, err := influence.EntriesWire(es)
+// EncodeBlocks returns the value of a request's [Extensions] header: the token of bs, the blocks one per stamp
+// of the chain it travels with, in chain order. It is always a token, never "", so a sender sends the header
+// whatever its blocks hold. It refuses blocks whose wire bytes would pass the wire limit, 256 KiB: nothing is
+// dropped to make room.
+func EncodeBlocks(bs stamp.Blocks) (string, error) {
+	tok, err := bs.Token()
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("paztport wire: the blocks header can't be written: %w", err)
 	}
-	return b64.Encode(b), nil
+	return tok, nil
 }
 
-// EncodeResponse returns the value of a response's [Response] header: the token of the object {labels,
-// stamp}, with exactly those members, s the response stamp and labels written as []. It refuses any label,
-// since no binding covers one and no caller believes it, a stamp that stamp.Stamp.Wire refuses, and an object
-// over the wire limit.
-func EncodeResponse(s stamp.Stamp, labels []influence.Label) (string, error) {
+// EncodeResponse returns the value of a response's [Response] header: the token of the object {block, stamp},
+// with exactly those members, s the response stamp and block the block its ext commits to. It refuses a stamp
+// that stamp.Stamp.Wire refuses and an object over the wire limit.
+func EncodeResponse(s stamp.Stamp, block stamp.Block) (string, error) {
 	unwritable := func(err error) error {
 		return fmt.Errorf("paztport wire: the response header can't be written: %w", err)
 	}
-	if len(labels) > 0 { // Plan 4b: a label becomes an item on the response stamp's block.
-		return "", unwritable(errors.New("a label is not written until the response carries its block"))
-	}
 	sb, err := s.Wire()
-	if err != nil {
-		return "", err
-	}
-	lb, err := influence.LabelsWire(labels)
 	if err != nil {
 		return "", err
 	}
@@ -64,12 +50,12 @@ func EncodeResponse(s stamp.Stamp, labels []influence.Label) (string, error) {
 	if err != nil {
 		return "", unwritable(err)
 	}
-	lv, err := json.ReadWire(lb)
+	bv, err := json.ReadWire(block.Wire())
 	if err != nil {
 		return "", unwritable(err)
 	}
 	tok, err := json.Token(json.Obj(
-		json.Member{Name: "labels", Value: lv},
+		json.Member{Name: "block", Value: bv},
 		json.Member{Name: "stamp", Value: sv},
 	))
 	if err != nil {

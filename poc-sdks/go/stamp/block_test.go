@@ -163,6 +163,29 @@ func TestWhatIsNotAnArrayOfBlocksDoesNotRead(t *testing.T) {
 	}
 }
 
+func TestParseBlockReadsOneBlock(t *testing.T) {
+	empty, err := stamp.ParseBlock([]byte(`{"items":{},"requires":[]}`))
+	if err != nil || empty.Commit() != "" {
+		t.Fatalf("ParseBlock of the empty block = %q, %v, want the empty block", empty.Commit(), err)
+	}
+	b := mustBlock(t, map[string][]string{"example": {"7"}}, nil)
+	got, err := stamp.ParseBlock(b.Wire())
+	if err != nil || string(got.Wire()) != string(b.Wire()) || got.Commit() != b.Commit() {
+		t.Fatalf("ParseBlock(%s) = %s, %v", b.Wire(), got.Wire(), err)
+	}
+	if items, ok := got.Items("example"); !ok || !slices.Equal(items, []string{"7"}) {
+		t.Fatalf(`Items("example") = %v, %v`, items, ok)
+	}
+	for _, wire := range []string{
+		"null", "[]", `{"items":{}}`, `{"items":{},"requires":[],"x":1}`, `{"requires":[],"items":{}}`,
+		`{"items":{"Example":[]},"requires":[]}`, `[{"items":{},"requires":[]}]`, `{"items":{}, "requires":[]}`,
+	} {
+		if got, err := stamp.ParseBlock([]byte(wire)); err == nil {
+			t.Errorf("ParseBlock(%s) = %s, want an error", wire, got.Wire())
+		}
+	}
+}
+
 func TestAnInheritedMemberNameIsAnOrdinaryName(t *testing.T) {
 	b := mustBlock(t, map[string][]string{"constructor": {"1"}, "prototype": {}}, []string{"constructor", "prototype"})
 	got, err := stamp.ParseBlocks([]byte("[" + string(b.Wire()) + "]"))

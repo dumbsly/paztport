@@ -65,19 +65,3 @@ func TestRulesPeerAndHandshake(t *testing.T) {
 		t.Fatalf("the shop handshake's body starts %q", body[:min(20, len(body))])
 	}
 }
-
-// TestRulesMaterialIn reads the material of a file named, and http-v4.json's is http-v3.json's, file for file.
-func TestRulesMaterialIn(t *testing.T) {
-	for _, name := range []string{"shop", "shop-keys", "psp"} {
-		v3, v4 := RulesMaterial(t, name), RulesMaterialIn(t, "http-v4.json", name)
-		if v4.PolicyKey != v3.PolicyKey || !bytes.Equal(v4.Root, v3.Root) || !bytes.Equal(v4.Keyring, v3.Keyring) ||
-			v4.Entry != v3.Entry || !bytes.Equal(v4.ReplyCert, v3.ReplyCert) || len(v4.Proofs) != len(v3.Proofs) {
-			t.Fatalf("%s differs between http-v3.json and http-v4.json", name)
-		}
-		for i := range v4.Proofs {
-			if v4.Proofs[i].Route != v3.Proofs[i].Route || !bytes.Equal(v4.Proofs[i].Text, v3.Proofs[i].Text) {
-				t.Fatalf("%s's proof %d differs", name, i)
-			}
-		}
-	}
-}

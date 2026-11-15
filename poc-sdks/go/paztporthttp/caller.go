@@ -310,7 +310,10 @@ func (c *Caller) Check(
 	if c.Verifier == nil {
 		return Received{Entries: untrusted(src, wire.ResultHash(status, body))}, nil
 	}
-	rc, err := wire.CheckResponse(ctx, c.Verifier, o.Sent, o.Proof, responseHeader, status, body, c.Stamper.Svc, o.Key)
+	// The call carried no blocks header, so the receiver read one empty block per stamp sent.
+	sentBlocks := make(stamp.Blocks, len(o.Sent))
+	rc, err := wire.CheckResponse(ctx, c.Verifier, o.Sent, sentBlocks, o.Proof, responseHeader, status, body,
+		c.Stamper.Svc, o.Key)
 	if err != nil {
 		return Received{}, err
 	}

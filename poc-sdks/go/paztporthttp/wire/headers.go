@@ -13,10 +13,11 @@ const (
 	// Proof names the header holding the proof, as a token, for the request's full route, the receiving
 	// service included.
 	Proof = "X-Path-Proof"
-	// Influence names the header holding, as a token, the influence entries a request was made under. An
-	// absent one means no entries.
-	Influence = "X-Path-Influence"
-	// Response names the header holding a response's attestation, as a token of {labels, stamp}.
+	// Extensions names the header holding, as a token, a request's blocks: one per stamp of its chain, in
+	// chain order. An absent one means every block is empty.
+	Extensions = "X-Path-Extensions"
+	// Response names the header holding a response's attestation, as a token of {block, stamp}: the response
+	// stamp and the block it commits to.
 	Response = "X-Path-Response"
 	// Session names the header holding, as plain text, the id of the session a call between
 	// organisations is made in. Inside a mesh it is absent.

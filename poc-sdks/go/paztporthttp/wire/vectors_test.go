@@ -5,12 +5,12 @@ package wire_test
 
 import (
 	"bytes"
-	"slices"
 	"testing"
 
-	"github.com/dumbsly/paztport/poc-sdks/go/influence"
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/b64"
+	"github.com/dumbsly/paztport/poc-sdks/go/internal/json"
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/vectors"
+	"github.com/dumbsly/paztport/poc-sdks/go/internal/vectors/handover"
 	"github.com/dumbsly/paztport/poc-sdks/go/paztporthttp/wire"
 	"github.com/dumbsly/paztport/poc-sdks/go/policy"
 	"github.com/dumbsly/paztport/poc-sdks/go/reason"
@@ -18,12 +18,12 @@ import (
 	"github.com/dumbsly/paztport/poc-sdks/go/verify"
 )
 
-// TestRequestBindingVectors replays http-v3.json's request bindings: a method, a target exactly as sent
+// TestRequestBindingVectors replays http-v4.json's request bindings: a method, a target exactly as sent
 // and a body give the binding.
 func TestRequestBindingVectors(t *testing.T) {
-	cases := vectors.Load(t, "http-v3.json").Get("requestBinding")
-	if cases.Len() == 0 {
-		t.Fatal("http-v3.json has no requestBinding case")
+	cases := vectors.Load(t, "http-v4.json").Get("requestBinding")
+	if cases.Len() != 6 {
+		t.Fatalf("http-v4.json has %d requestBinding cases, want 6", cases.Len())
 	}
 	cases.Each(func(name string, c vectors.Node) {
 		t.Run(name, func(t *testing.T) {
@@ -39,12 +39,22 @@ func TestRequestBindingVectors(t *testing.T) {
 	})
 }
 
-// TestHeaderNameVectors replays http-v3.json's header names: a header name is Paztport's when it begins
-// with X-Path-, compared case-insensitively over ASCII.
+// TestHeaderNameVectors replays http-v4.json's header names: a header name is Paztport's when it begins
+// with X-Path-, compared case-insensitively over ASCII, so version 3's X-Path-Influence is Paztport's as much as
+// X-Path-Extensions is.
 func TestHeaderNameVectors(t *testing.T) {
-	cases := vectors.Load(t, "http-v3.json").Get("headerNames")
-	if cases.Len() == 0 {
-		t.Fatal("http-v3.json has no headerNames case")
+	cases := vectors.Load(t, "http-v4.json").Get("headerNames")
+	if cases.Len() != 16 {
+		t.Fatalf("http-v4.json has %d headerNames cases, want 16", cases.Len())
+	}
+	paztport := map[string]bool{}
+	cases.Each(func(_ string, c vectors.Node) {
+		if c.Get("paztport").Bool() {
+			paztport[c.Get("header").Str()] = true
+		}
+	})
+	if !paztport[wire.Extensions] || !paztport["X-Path-Influence"] {
+		t.Fatalf("http-v4.json does not give both %s and X-Path-Influence as Paztport's", wire.Extensions)
 	}
 	cases.Each(func(name string, c vectors.Node) {
 		t.Run(name, func(t *testing.T) {
@@ -57,11 +67,11 @@ func TestHeaderNameVectors(t *testing.T) {
 	})
 }
 
-// TestResultHashVectors replays http-v3.json's result hashes: a status and a body give the hash.
+// TestResultHashVectors replays http-v4.json's result hashes: a status and a body give the hash.
 func TestResultHashVectors(t *testing.T) {
-	cases := vectors.Load(t, "http-v3.json").Get("resultHash")
-	if cases.Len() == 0 {
-		t.Fatal("http-v3.json has no resultHash case")
+	cases := vectors.Load(t, "http-v4.json").Get("resultHash")
+	if cases.Len() != 4 {
+		t.Fatalf("http-v4.json has %d resultHash cases, want 4", cases.Len())
 	}
 	cases.Each(func(name string, c vectors.Node) {
 		t.Run(name, func(t *testing.T) {
@@ -74,14 +84,25 @@ func TestResultHashVectors(t *testing.T) {
 	})
 }
 
-// TestResponseVectors replays http-v3.json's responses: the caller checks the header payment returned
-// against the chain it sent, the status and the body, with the proof it sent, uses times against one
-// nonce cache that already holds the case's spent keys, and expects the last check. Each case runs under
-// its own policyNotAfter.
+// TestResponseVectors replays http-v4.json's responses: the caller checks the header payment returned
+// against the chain and blocks it sent, the status and the body, with the proof it sent and the case's extension
+// settings, uses times against one nonce cache that already holds the case's spent keys, and expects the last
+// check, its hand-over included. Each case runs under its own policyNotAfter.
 func TestResponseVectors(t *testing.T) {
-	cases := vectors.Load(t, "http-v3.json").Get("responses")
-	if cases.Len() == 0 {
-		t.Fatal("http-v3.json has no responses case")
+	cases := vectors.Load(t, "http-v4.json").Get("responses")
+	if cases.Len() != 19 {
+		t.Fatalf("http-v4.json has %d responses cases, want 19", cases.Len())
+	}
+	// The codes the section exists for, from its data, so that a filtered run still checks they occur.
+	occur := map[reason.Code]bool{}
+	cases.Each(func(_ string, c vectors.Node) { occur[reason.Code(c.Get("expected").Get("reason").Str())] = true })
+	for _, code := range []reason.Code{
+		reason.OK, reason.BindingMismatch, reason.ExtensionMismatch, reason.Replay, reason.PolicyExpired,
+		reason.ChainMissing, reason.ExtensionRequired,
+	} {
+		if !occur[code] {
+			t.Fatalf("no responses case expects %s", code)
+		}
 	}
 	cases.Each(func(name string, c vectors.Node) {
 		t.Run(name, func(t *testing.T) {
@@ -94,8 +115,8 @@ func TestResponseVectors(t *testing.T) {
 			var got wire.ResponseCheck
 			for range uses {
 				var err error
-				got, err = wire.CheckResponse(t.Context(), v, rc.sent, &rc.proof, rc.header, rc.status, rc.body,
-					rc.caller, rc.key)
+				got, err = wire.CheckResponse(t.Context(), v, rc.sent, rc.sentBlocks, &rc.proof, rc.header, rc.status,
+					rc.body, rc.caller, rc.key)
 				if err != nil {
 					t.Fatalf("CheckResponse: %v", err)
 				}
@@ -106,12 +127,10 @@ func TestResponseVectors(t *testing.T) {
 				SuspectSvc:  e.Get("suspectSvc").Str(),
 				SuspectInst: e.Get("suspectInst").Str(),
 			}
-			if got.Result != want {
-				t.Errorf("Result = %+v, want %+v", got.Result, want)
+			if plain(got.Result) != want {
+				t.Errorf("Result = %+v, want %+v", plain(got.Result), want)
 			}
-			if wantLabels := labels(e.Get("labels")); !slices.Equal(got.Labels, wantLabels) {
-				t.Errorf("Labels = %+v, want %+v", got.Labels, wantLabels)
-			}
+			handover.Match(t, "the response's hand-over", got.Result.HandOver, handover.Expected(t, e.Get("handOver").Raw()))
 			if wantHash := e.Get("resultHash").Str(); got.ResultHash != wantHash {
 				t.Errorf("ResultHash = %s, want %s", got.ResultHash, wantHash)
 			}
@@ -148,19 +167,20 @@ func TestHTTPBindingRefusals(t *testing.T) {
 // responseCase is one responses case, read: the verifier's Config and what the caller passes to
 // CheckResponse. A Config with no nonce cache is given a fresh one of nonceTTL by verifier.
 type responseCase struct {
-	cfg      verify.Config
-	nonceTTL int64
-	sent     stamp.Chain
-	proof    policy.Proof
-	header   string
-	status   int
-	body     []byte
-	caller   string
-	key      string
+	cfg        verify.Config
+	nonceTTL   int64
+	sent       stamp.Chain
+	sentBlocks stamp.Blocks
+	proof      policy.Proof
+	header     string
+	status     int
+	body       []byte
+	caller     string
+	key        string
 }
 
 // responseMaterial returns the root (base64url), root id and proof a responses case runs on: those of the
-// rules material it names, or of the v3.json policy it names.
+// rules material it names, or of the v4.json policy it names.
 func responseMaterial(t testing.TB, c vectors.Node) (root, rootID string, proof policy.Proof) {
 	t.Helper()
 	var err error
@@ -181,7 +201,7 @@ func responseMaterial(t testing.TB, c vectors.Node) (root, rootID string, proof 
 		}
 		return m.Get("root").Get("root").Str(), m.Get("root").Get("rootId").Str(), proof
 	}
-	p := vectors.Load(t, "v3.json").Get("policies").Get(c.Get("policy").Str())
+	p := vectors.Load(t, "v4.json").Get("policies").Get(c.Get("policy").Str())
 	proof, err = policy.ReadProof(p.Get("proofTokens").Get(c.Get("proofRoute").Str()).Str())
 	if err != nil {
 		t.Fatalf("the proof: %v", err)
@@ -202,7 +222,7 @@ func readResponseCase(t testing.TB, c vectors.Node) responseCase {
 	keyring := policy.Keyring{}
 	ring := c.Get("keyring")
 	for _, svc := range ring.Names() {
-		_, pub := vectors.V3Key(t, ring.Get(svc).Str())
+		_, pub := vectors.VectorKey(t, ring.Get(svc).Str())
 		keyring[svc] = pub
 	}
 	origins := c.Get("allowedOrigins")
@@ -215,13 +235,13 @@ func readResponseCase(t testing.TB, c vectors.Node) responseCase {
 	sent := make(stamp.Chain, sentNode.Len())
 	for i := range sent {
 		s := sentNode.Index(i)
-		if v := s.Get("v").Int(); v != 3 {
+		if v := s.Get("v").Int(); v != 4 {
 			t.Fatalf("sent stamp %d has v %d", i, v)
 		}
 		sent[i] = stamp.Stamp{
 			Svc: s.Get("svc").Str(), Inst: s.Get("inst").Str(), RID: s.Get("rid").Str(), TS: s.Get("ts").Int(),
 			Sess: s.Get("sess").Str(), Rcv: s.Get("rcv").Str(), Bind: s.Get("bind").Str(),
-			Infl: s.Get("infl").Str(), Prev: s.Get("prev").Str(), Sig: s.Get("sig").Str(),
+			Ext: s.Get("ext").Str(), Prev: s.Get("prev").Str(), Sig: s.Get("sig").Str(),
 		}
 	}
 	var nonces verify.NonceCache
@@ -246,15 +266,17 @@ func readResponseCase(t testing.TB, c vectors.Node) responseCase {
 			CallMaxAgeMs:   c.Get("callMaxAgeMs").Int(),
 			RunMaxAgeMs:    c.Get("runMaxAgeMs").Int(),
 			Nonces:         nonces,
+			Extensions:     extensions(t, c),
 		},
-		nonceTTL: c.Get("nonceTtlMs").Int(),
-		sent:     sent,
-		proof:    proof,
-		header:   c.Get("responseHeader").Str(),
-		status:   int(c.Get("status").Int()),
-		body:     c.Get("body").With(t).Hex(),
-		caller:   c.Get("caller").Str(),
-		key:      responseKey(c),
+		nonceTTL:   c.Get("nonceTtlMs").Int(),
+		sent:       sent,
+		sentBlocks: blocks(t, c.Get("sentBlocks")),
+		proof:      proof,
+		header:     c.Get("responseHeader").Str(),
+		status:     int(c.Get("status").Int()),
+		body:       c.Get("body").With(t).Hex(),
+		caller:     c.Get("caller").Str(),
+		key:        responseKey(c),
 	}
 }
 
@@ -267,17 +289,39 @@ func (rc responseCase) verifier() *verify.Verifier {
 	return verify.New(cfg)
 }
 
-// labels returns the labels array n describes.
-func labels(n vectors.Node) []influence.Label {
-	ls := make([]influence.Label, n.Len())
-	for i := range ls {
-		l := n.Index(i)
-		ls[i] = influence.Label{Class: influence.Class(l.Get("cls").Str()), CID: l.Get("cid").Str()}
-		if l.Has("owner") {
-			ls[i].Owner = l.Get("owner").Str()
-		}
+// extensions returns the settings case c gives: acting on actsOn and carrying any name, or, where
+// allowedExtensions is not null, only the names it lists.
+func extensions(t testing.TB, c vectors.Node) verify.Extensions {
+	t.Helper()
+	var e verify.Extensions
+	var err error
+	if allowed := c.Get("allowedExtensions"); allowed.IsNull() {
+		e, err = verify.NewExtensions(c.Get("actsOn").Strs())
+	} else {
+		e, err = verify.NewExtensionsAllowing(c.Get("actsOn").Strs(), allowed.Strs())
 	}
-	return ls
+	if err != nil {
+		t.Fatalf("the case's extension settings: %v", err)
+	}
+	return e
+}
+
+// blocks returns the blocks array n holds, read by the SDK's own reader from its canonical text.
+func blocks(t testing.TB, n vectors.Node) stamp.Blocks {
+	t.Helper()
+	v, err := json.ReadFile(n.Raw())
+	if err != nil {
+		t.Fatalf("the blocks: %v", err)
+	}
+	b, err := json.Wire(v)
+	if err != nil {
+		t.Fatalf("the blocks have no canonical text: %v", err)
+	}
+	bs, err := stamp.ParseBlocks(b)
+	if err != nil {
+		t.Fatalf("the blocks: %v", err)
+	}
+	return bs
 }
 
 // responseKey returns the key value the case's call gave, "" when it gave none.

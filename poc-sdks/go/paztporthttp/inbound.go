@@ -19,9 +19,10 @@ type InboundRequest struct {
 	// what was sent (net/http: Request.RequestURI; a gateway's external processor: the :path header). It
 	// is never one rebuilt from a parsed URL.
 	Target string
-	// Chain, Proof, Influence and Session are the values of the X-Path-* headers of those names, each as
-	// received, or "" when the header is absent. A repeated header's first value is the one Paztport
-	// reads; NewInboundRequest takes it. Influence is read by nothing: the verifier gets no blocks token.
+	// Chain, Proof and Session are the values of the X-Path-* headers of those names, and Influence the value
+	// of X-Path-Extensions, each as received, or "" when the header is absent. A repeated header's first value
+	// is the one Paztport reads; NewInboundRequest takes it. Influence is read by nothing: the verifier gets no
+	// blocks token.
 	Chain, Proof, Influence, Session string
 	// Body is the body, whole. The receiver binds it as given and never changes it. An adapter that
 	// cannot hold the body whole, such as one that would have to truncate it, must refuse the request
@@ -48,7 +49,7 @@ func NewInboundRequest(method, target string, body []byte, header func(name stri
 		Target:    target,
 		Chain:     first(wire.Chain),
 		Proof:     first(wire.Proof),
-		Influence: first(wire.Influence),
+		Influence: first(wire.Extensions),
 		Session:   first(wire.Session),
 		Body:      body,
 	}

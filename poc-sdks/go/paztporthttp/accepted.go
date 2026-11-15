@@ -109,7 +109,7 @@ func (a Accepted) Attest(status int, body []byte, labels []influence.Label) (str
 	if err != nil {
 		return "", false, err
 	}
-	h, err := wire.EncodeResponse(s, nil)
+	h, err := wire.EncodeResponse(s, stamp.EmptyBlock)
 	if err != nil {
 		return "", false, err
 	}

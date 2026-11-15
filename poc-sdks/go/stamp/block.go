@@ -195,6 +195,20 @@ func ParseBlocks(wire []byte) (Blocks, error) {
 	return blocksFromValue(v)
 }
 
+// ParseBlock reads one block from its JCS bytes, by the schema ParseBlocks reads each block of an array by
+// (wire.md, Blocks). Anything else, null included, is an error.
+func ParseBlock(wire []byte) (Block, error) {
+	v, err := json.ReadWire(wire)
+	if err != nil {
+		return Block{}, fmt.Errorf("paztport stamp: the block does not read: %w", err)
+	}
+	b, err := blockFromValue(v)
+	if err != nil {
+		return Block{}, fmt.Errorf("paztport stamp: the block: %w", err)
+	}
+	return b, nil
+}
+
 func blocksFromValue(v json.Value) (Blocks, error) {
 	if v.Kind() != json.KindArray {
 		return nil, errors.New("paztport stamp: the blocks are not an array")
