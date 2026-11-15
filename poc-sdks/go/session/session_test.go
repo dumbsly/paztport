@@ -561,22 +561,37 @@ func TestReplyExtensions(t *testing.T) {
 		return ptr(json.Arr(items...))
 	}
 	none := session.Requirement{}
+	// The policy-key form of the same reply, signed by the policy key: attested as it is, so that a row in this
+	// form fails only by its extensions.
+	policyForm := h.wire
+	for _, member := range []string{"serverKeyringSig", "serverKeyringNotAfter", "serverReplyCert"} {
+		policyForm = edit(t, policyForm, member, nil)
+	}
+	got := session.CheckReply(signedAs(t, policyForm, h.server), h.req, h.pin, h.entry, h.now, none)
+	if got != session.Attested {
+		t.Fatalf("the policy-key form of the handshake's reply: CheckReply = %s, want %s", got, session.Attested)
+	}
 	for _, c := range []struct {
-		name  string
-		value *json.Value // nil: the member removed
+		name       string
+		value      *json.Value // nil: the member removed
+		policyForm bool        // the policy-key form, signed by the policy key; otherwise the entry-key form
 	}{
-		{"no extensions", nil},
-		{"extensions null", ptr(json.Null())},
-		{"extensions not an array", ptr(json.S("example"))},
-		{"extensions holding a value that is not a string", ptr(json.Arr(json.I(1)))},
-		{"extensions unsorted", names("influence", "example")},
-		{"extensions naming one twice", names("example", "example")},
-		{"extensions naming Example", names("Example")},
-		{"extensions naming the empty name", names("")},
-		{"extensions naming a 33-character name", names(strings.Repeat("a", 33))},
+		{"no extensions", nil, false},
+		{"extensions null", ptr(json.Null()), false},
+		{"extensions not an array", ptr(json.S("example")), false},
+		{"extensions holding a value that is not a string", ptr(json.Arr(json.I(1))), false},
+		{"extensions unsorted", names("influence", "example"), false},
+		{"extensions naming one twice", names("example", "example"), false},
+		{"extensions naming Example", names("Example"), false},
+		{"extensions naming the empty name", names(""), false},
+		{"extensions naming a 33-character name", names(strings.Repeat("a", 33)), false},
+		{"extensions unsorted, the policy-key form", names("influence", "example"), true},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			wire := signedAs(t, edit(t, h.wire, "extensions", c.value), h.signer)
+			if c.policyForm {
+				wire = signedAs(t, edit(t, policyForm, "extensions", c.value), h.server)
+			}
 			if _, err := session.ParseReply(wire); err == nil {
 				t.Fatal("ParseReply read it")
 			}

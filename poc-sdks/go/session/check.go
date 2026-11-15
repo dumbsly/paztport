@@ -37,7 +37,8 @@ const (
 	// judged failed.
 	BadSignature Check = "BAD_SIGNATURE"
 	// ExtensionRequired: the reply is genuine and attested, and does not list an extension the client requires
-	// of the server. The client makes no call in the session, and does not replace it.
+	// of the server. The client does not replace the session, and makes no call in it unless its requirement's
+	// switch lets it continue (Requirement.CallsAfter).
 	ExtensionRequired Check = "EXTENSION_REQUIRED"
 )
 
