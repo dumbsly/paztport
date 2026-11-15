@@ -14,6 +14,7 @@ import (
 	"github.com/dumbsly/paztport/poc-sdks/go/paztporthttp"
 	"github.com/dumbsly/paztport/poc-sdks/go/paztporthttp/wire"
 	"github.com/dumbsly/paztport/poc-sdks/go/policy"
+	"github.com/dumbsly/paztport/poc-sdks/go/reason"
 	"github.com/dumbsly/paztport/poc-sdks/go/session"
 	"github.com/dumbsly/paztport/poc-sdks/go/stamp"
 	"github.com/dumbsly/paztport/poc-sdks/go/verify"
@@ -23,17 +24,18 @@ import (
 // one partner, its clock set to each step's at and its settings the case's. A handshake is served by
 // Sessions.ServeHandshake; a call is decided by Sessions.Accept, and then, as an adapter does, an unsafe
 // session's switched-off endpoints are refused before the handler runs. Each step's outcome is compared, the items
-// a call hands on with handedOn, and, where a step asks it, whether a trusted record may be written once the
-// handler has read the call's read.
+// a call hands on with handedOn, and, where a step asks them, the reason a guarded public write to the call's
+// destinationOwner gets and whether a trusted record may be written, once the handler has read the call's read.
 func TestPartnerRulesVectors(t *testing.T) {
 	kinds := []struct {
 		name  string
 		cases int
 	}{
 		{"sessionHeader", 10}, {"sessionRegistry", 6}, {"handshakeErrors", 15}, {"sessionExpiry", 3},
-		{"boundaryRefusals", 7}, {"partnerTrustedRecord", 7},
+		{"boundaryRefusals", 7}, {"partnerTrustedRecord", 8},
 	}
 	refusals := map[string]bool{}
+	writes := map[reason.Code]bool{}
 	records := map[bool]bool{}
 	for _, kind := range kinds {
 		t.Run(kind.name, func(t *testing.T) {
@@ -47,6 +49,9 @@ func TestPartnerRulesVectors(t *testing.T) {
 					for _, refusal := range got.refusals {
 						refusals[refusal] = true
 					}
+					for _, write := range got.writes {
+						writes[write] = true
+					}
 					for _, record := range got.records {
 						records[record] = true
 					}
@@ -59,6 +64,12 @@ func TestPartnerRulesVectors(t *testing.T) {
 	for _, want := range []string{`403 {"reason":"EXTENSION_MISMATCH"}`, `400 {"reason":"INFLUENCE_MISMATCH"}`} {
 		if !refusals[want] {
 			t.Errorf("no partner call is refused %s", want)
+		}
+	}
+	// The owner-aware rule at the boundary denies as well as allows.
+	for _, want := range []reason.Code{reason.OK, reason.InfluenceDenied} {
+		if !writes[want] {
+			t.Errorf("no partner call's public write is %s", want)
 		}
 	}
 	if !records[true] || !records[false] {
@@ -75,10 +86,11 @@ type partnerScript struct {
 	opened   map[string]string
 }
 
-// scriptRun is what a partner case's calls gave: the refusals they were answered with, and the trusted records
-// they were asked for, granted or not.
+// scriptRun is what a partner case's calls gave: the refusals they were answered with, the reasons the public
+// writes they asked about got, and the trusted records they were asked for, granted or not.
 type scriptRun struct {
 	refusals []string
+	writes   []reason.Code
 	records  []bool
 }
 
@@ -124,13 +136,28 @@ func runPartnerScript(t *testing.T, c vectors.Node) scriptRun {
 				refusal := fmt.Sprintf("%d %s", r.Get("status").Int(), r.Get("body").With(t).Hex())
 				run.refusals = append(run.refusals, refusal)
 			}
+			call := step.Get("call")
+			var read []influence.Entry
+			if call.Has("read") {
+				read = entries(call.Get("read"))
+			}
+			// A call that names a destination owner asks about a guarded public write, and only such a call.
+			if call.Has("destinationOwner") != e.Has("publicWrite") {
+				t.Fatalf("step %d: destinationOwner and publicWrite come together", i)
+			}
+			if call.Has("destinationOwner") && !e.Get("publicWrite").IsNull() {
+				if served == nil {
+					t.Fatalf("step %d: a refused call is asked about a public write", i)
+				}
+				owner, code := call.Get("destinationOwner").Str(), reason.Code(e.Get("publicWrite").Str())
+				if got := served.PublicWrite(read, owner); got != code {
+					t.Errorf("step %d: PublicWrite(%v, %q) = %s, want %s", i, read, owner, got, code)
+				}
+				run.writes = append(run.writes, code)
+			}
 			if r := e.Get("trustedRecord"); !r.IsNull() {
 				if served == nil {
 					t.Fatalf("step %d: a refused call is asked for a trusted record", i)
-				}
-				var read []influence.Entry
-				if n := step.Get("call"); n.Has("read") {
-					read = entries(n.Get("read"))
 				}
 				if got := served.TrustedRecord(read); got != r.Bool() {
 					t.Errorf("step %d: TrustedRecord(%v) = %v, want %v", i, read, got, r.Bool())
