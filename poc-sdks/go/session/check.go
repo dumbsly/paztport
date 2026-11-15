@@ -5,6 +5,7 @@ package session
 
 import (
 	"crypto/ed25519"
+	"slices"
 
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/b64"
 	"github.com/dumbsly/paztport/poc-sdks/go/keys"
@@ -14,9 +15,11 @@ import (
 // Check is the outcome of the client's check of a reply: the first of its checks that fails, or the
 // session's status.
 //
-// Every outcome but Attested and Unsafe means the server may have opened an attested session the client
-// can't use, so the client replaces it: it sends the same request again with no client root and a fresh
-// nonce, and trusts the reply to that either way.
+// Every outcome but Attested, Unsafe and ExtensionRequired means the server may have opened an attested
+// session the client can't use, so the client replaces it: it sends the same request again with no client
+// root and a fresh nonce, and trusts the reply to that either way. ExtensionRequired is not replaced: the
+// reply was sound, and the replacement would only be an unsafe session with a server known not to act on
+// the extension. What a client with a requirement does after each outcome is Requirement.CallsAfter's.
 type Check string
 
 // The outcomes: the session's status when every check holds, then each check's failure, in the order the
@@ -33,11 +36,15 @@ const (
 	// BadSignature: the reply's signature, a root, the session id, or the server's material at the time
 	// judged failed.
 	BadSignature Check = "BAD_SIGNATURE"
+	// ExtensionRequired: the reply is genuine and attested, and does not list an extension the client requires
+	// of the server. The client makes no call in the session, and does not replace it.
+	ExtensionRequired Check = "EXTENSION_REQUIRED"
 )
 
 // CheckReply is the client's live check of reply, the bytes it received, against the request req it sent,
 // the server policy key pin it pinned, the server's entry service serverEntry from its own configuration
-// (never from the reply) and its clock's now. In order, the first failure is the outcome:
+// (never from the reply), its clock's now and what it requires of the server, need. In order, the first
+// failure is the outcome:
 //
 //  1. the reply reads, by ParseReply (MalformedReply);
 //  2. it names pin as its policy key (PinMismatch);
@@ -47,35 +54,54 @@ const (
 //     when the reply has no keyring window either. Then the server's root, when there is one, verifies
 //     under pin and is current at now; an "attested" reply has both roots; and, whatever the status, sess
 //     is the session id the client derives from req and the reply (BadSignature);
-//  4. the reply's status: Attested or Unsafe.
+//  4. the reply's status: Attested or Unsafe;
+//  5. only where step 4 gives Attested, the reply lists every extension need requires (ExtensionRequired),
+//     so that no earlier outcome is hidden by it.
 //
 // The form is told by which members are present, never by which key verifies, so a reply stripped of its
 // certificate, or given one, can't pass under whichever key signed it. The server's material is judged at
 // now whatever the reply's status, so a server whose root or keyring has expired is BadSignature, and the
 // client takes its replacement path; and an unsafe reply is bound to req as an attested one is. CheckReply
 // never panics.
-func CheckReply(reply []byte, req Request, pin, serverEntry string, now int64) Check {
+func CheckReply(reply []byte, req Request, pin, serverEntry string, now int64, need Requirement) Check {
+	r, check := checkSteps(reply, req, pin, serverEntry, now)
+	if check != Attested {
+		return check
+	}
+	// Step 5 (sessions.md, The client's check of the reply).
+	for _, name := range need.extensions {
+		if !slices.Contains(r.Extensions, name) {
+			return ExtensionRequired
+		}
+	}
+	return Attested
+}
+
+// checkSteps is steps 1 to 4 of the client's check (see CheckReply), with the reply read where step 1
+// passed. Step 5 reads the client's live configuration, which a recorded handshake does not hold, so
+// AttestedOffline runs only these.
+func checkSteps(reply []byte, req Request, pin, serverEntry string, now int64) (Reply, Check) {
 	r, err := ParseReply(reply)
 	if err != nil {
-		return MalformedReply
+		return Reply{}, MalformedReply
 	}
 	if r.ServerPolicyKey != pin {
-		return PinMismatch
+		return r, PinMismatch
 	}
 	if !serverSignaturesVerify(r, pin, serverEntry) || !serverCurrent(r, now) {
-		return BadSignature
+		return r, BadSignature
 	}
 	isAttested := r.Status == StatusAttested
 	if isAttested && (r.ServerRoot == nil || req.ClientRoot == nil) {
-		return BadSignature
+		return r, BadSignature
 	}
 	if sess, ok := ID(req, r.ServerRoot, r.Nonce); !ok || sess != r.Sess {
-		return BadSignature
+		return r, BadSignature
 	}
 	if isAttested {
-		return Attested
+		return r, Attested
 	}
-	return Unsafe
+	return r, Unsafe
 }
 
 // serverSignaturesVerify reports whether the server's signatures on reply r verify, judged at no time: r
@@ -159,14 +185,16 @@ func signedBy(r Reply, key ed25519.PublicKey) bool {
 
 // AttestedOffline reports whether a recorded handshake opened an attested session, judged at at, the time
 // of the record being judged (a call's last stamp's ts, which the client signed), never a time read from
-// the handshake record, which anyone holding it can edit. The reply, as recorded, must pass CheckReply at
-// at as Attested, against the recorded pin and the server's entry service from the verifier's own
-// configuration; and the client's root and keyring must verify under its policy key and be current at at.
+// the handshake record, which anyone holding it can edit. The reply, as recorded, must pass steps 1 to 4 of
+// CheckReply at at as Attested, against the recorded pin and the server's entry service from the verifier's
+// own configuration; and the client's root and keyring must verify under its policy key and be current at
+// at. Step 5 reads the client's live configuration, which a record does not hold, so the extensions the reply
+// lists do not decide it.
 //
 // There is no client pin offline: the server's signed "attested" reply, whose session id binds the
 // client's policy key and keyring, is its statement that it pinned them. AttestedOffline never panics.
 func AttestedOffline(reply []byte, req Request, pin, serverEntry string, at int64) bool {
-	if CheckReply(reply, req, pin, serverEntry, at) != Attested {
+	if _, check := checkSteps(reply, req, pin, serverEntry, at); check != Attested {
 		return false
 	}
 	// An attested reply has passed with both roots present.

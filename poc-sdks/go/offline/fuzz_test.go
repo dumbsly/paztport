@@ -100,14 +100,14 @@ func FuzzVerify(f *testing.F) {
 }
 
 // FuzzRecord records any request and reply bytes, with any pin and entry, judged at any time. The seeds
-// are v3.json's recordedHandshake cases and a handshake of which nothing was recorded. Record never
+// are v4.json's recordedHandshake cases and a handshake of which nothing was recorded. Record never
 // panics; the response window is a protocol integer; a session attested at all is attested at 0, since
 // every limit is an upper bound at or after 0; and a call gets a result exactly in a session attested at
 // all.
 func FuzzRecord(f *testing.F) {
-	v3 := vectors.Load(f, "v3.json")
-	v3.Get("recordedHandshake").Each(func(_ string, c vectors.Node) {
-		pin := v3.Get("keys").Get(c.Get("pin").Str()).Get("pub").Str()
+	v4 := vectors.Load(f, "v4.json")
+	v4.Get("recordedHandshake").Each(func(_ string, c vectors.Node) {
+		pin := v4.Get("keys").Get(c.Get("pin").Str()).Get("pub").Str()
 		f.Add(decode(f, c.Get("requestToken").Str()), decode(f, c.Get("replyToken").Str()), pin,
 			c.Get("serverEntry").Str(), c.Get("at").Index(0).Int())
 	})

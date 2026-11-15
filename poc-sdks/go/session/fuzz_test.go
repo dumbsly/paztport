@@ -15,15 +15,16 @@ import (
 
 // checks are the outcomes of the client's check.
 var checks = []session.Check{session.Attested, session.Unsafe, session.MalformedReply, session.PinMismatch,
-	session.BadSignature}
+	session.BadSignature, session.ExtensionRequired}
 
-// FuzzParseReply reads any bytes as a reply, seeded with v3.json's sessionReply replies. It never panics.
+// FuzzParseReply reads any bytes as a reply, seeded with v4.json's sessionReply replies. It never panics.
 // A reply that reads writes back to exactly the bytes it was read from and has signing bytes, and the
-// client's check of any bytes, against the first case's request, pin and entry service, is one of its
-// outcomes, MALFORMED_REPLY exactly when the bytes do not read.
+// client's check of any bytes, against the first case's request, pin and entry service and a client that
+// requires influence, is one of its outcomes, MALFORMED_REPLY exactly when the bytes do not read. The offline
+// reading, steps 1 to 4, attests only bytes the live check finds attested, whatever they list.
 func FuzzParseReply(f *testing.F) {
-	v3 := vectors.Load(f, "v3.json")
-	cases := v3.Get("sessionReply")
+	v4 := vectors.Load(f, "v4.json")
+	cases := section(f, v4, "sessionReply")
 	cases.Each(func(_ string, c vectors.Node) {
 		b, err := b64.Decode(c.Get("replyToken").Str())
 		if err != nil {
@@ -36,14 +37,21 @@ func FuzzParseReply(f *testing.F) {
 	if err != nil {
 		f.Fatal(err)
 	}
-	pin := v3.Get("keys").Get(first.Get("pin").Str()).Get("pub").Str()
+	pin := v4.Get("keys").Get(first.Get("pin").Str()).Get("pub").Str()
 	entry, now := first.Get("serverEntry").Str(), first.Get("now").Int()
+	need, err := session.NewRequirement([]string{"influence"}, false)
+	if err != nil {
+		f.Fatal(err)
+	}
 	f.Fuzz(func(t *testing.T, b []byte) {
-		check := session.CheckReply(b, req, pin, entry, now)
+		check := session.CheckReply(b, req, pin, entry, now, need)
 		if !slices.Contains(checks, check) {
 			t.Fatalf("CheckReply = %q", check)
 		}
-		session.AttestedOffline(b, req, pin, entry, now)
+		attested := check == session.Attested || check == session.ExtensionRequired
+		if session.AttestedOffline(b, req, pin, entry, now) && !attested {
+			t.Fatalf("AttestedOffline = true, and CheckReply = %s", check)
+		}
 		reply, err := session.ParseReply(b)
 		if (err != nil) != (check == session.MalformedReply) {
 			t.Fatalf("ParseReply: %v, and CheckReply = %s", err, check)
@@ -60,12 +68,12 @@ func FuzzParseReply(f *testing.F) {
 	})
 }
 
-// FuzzParseRequest reads any bytes as a request, seeded with v3.json's sessionRequest requests. It never
+// FuzzParseRequest reads any bytes as a request, seeded with v4.json's sessionRequest requests. It never
 // panics, a request that reads writes back to exactly the bytes it was read from, and the server's own
 // checks of it never panic either.
 func FuzzParseRequest(f *testing.F) {
-	v3 := vectors.Load(f, "v3.json")
-	v3.Get("sessionRequest").Each(func(_ string, c vectors.Node) {
+	v4 := vectors.Load(f, "v4.json")
+	section(f, v4, "sessionRequest").Each(func(_ string, c vectors.Node) {
 		b, err := b64.Decode(c.Get("requestToken").Str())
 		if err != nil {
 			f.Fatal(err)

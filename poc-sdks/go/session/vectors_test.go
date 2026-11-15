@@ -5,6 +5,7 @@ package session_test
 
 import (
 	"bytes"
+	"slices"
 	"testing"
 
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/b64"
@@ -14,11 +15,11 @@ import (
 	"github.com/dumbsly/paztport/poc-sdks/go/session"
 )
 
-// TestRequestVectors replays v3.json's sessionRequest cases: each token is read as the server reads it,
+// TestRequestVectors replays v4.json's sessionRequest cases: each token is read as the server reads it,
 // and is OK or MALFORMED. A request that reads writes back to exactly its bytes, and ParseRequest reads
 // those bytes as ReadRequest reads the token.
 func TestRequestVectors(t *testing.T) {
-	cases := vectors.Load(t, "v3.json").Get("sessionRequest")
+	cases := section(t, vectors.Load(t, "v4.json"), "sessionRequest")
 	seen := map[string]int{}
 	cases.Each(func(name string, c vectors.Node) {
 		t.Run(name, func(t *testing.T) {
@@ -52,16 +53,18 @@ func TestRequestVectors(t *testing.T) {
 	}
 }
 
-// TestReplyVectors replays v3.json's sessionReply cases: the client's check of each reply against the
-// request it sent, its pin and its entry service at now, and the offline reading of the same handshake at
-// the same time, attested exactly when the live check is. A reply that reads writes back to exactly its
-// bytes, its signing bytes are those bytes less sig, and one the check accepts is signed again by the key
-// that signed it, which reproduces its sig since Ed25519 is deterministic.
+// TestReplyVectors replays v4.json's sessionReply cases: the client's check of each reply against the
+// request it sent, its pin and its entry service at now, with the extensions the case requires (none when it
+// gives none) and no switch, and the offline reading of the same handshake at the same time, which runs steps
+// 1 to 4 only: attested exactly when the live check is ATTESTED or EXTENSION_REQUIRED. A reply that reads
+// writes back to exactly its bytes, its signing bytes are those bytes less sig, and one whose signature the
+// check accepts is signed again by the key that signed it, which reproduces its sig since Ed25519 is
+// deterministic.
 func TestReplyVectors(t *testing.T) {
-	v3 := vectors.Load(t, "v3.json")
-	signers := signersByPub(t, v3)
+	v4 := vectors.Load(t, "v4.json")
+	signers := signersByPub(t, v4)
 	seen := map[session.Check]int{}
-	v3.Get("sessionReply").Each(func(name string, c vectors.Node) {
+	section(t, v4, "sessionReply").Each(func(name string, c vectors.Node) {
 		t.Run(name, func(t *testing.T) {
 			c := c.With(t)
 			req, err := session.ReadRequest(c.Get("requestToken").Str())
@@ -69,16 +72,25 @@ func TestReplyVectors(t *testing.T) {
 				t.Fatalf("ReadRequest: %v", err)
 			}
 			wire := decode(t, c.Get("replyToken").Str())
-			pin := pub(t, v3, c.Get("pin").Str())
+			pin := pub(t, v4, c.Get("pin").Str())
 			entry, now := c.Get("serverEntry").Str(), c.Get("now").Int()
+			var requires []string
+			if c.Has("requires") {
+				requires = c.Get("requires").Strs()
+			}
+			need, err := session.NewRequirement(requires, false)
+			if err != nil {
+				t.Fatalf("NewRequirement: %v", err)
+			}
 			want := session.Check(c.Get("expected").Str())
 			seen[want]++
 
-			if got := session.CheckReply(wire, req, pin, entry, now); got != want {
+			if got := session.CheckReply(wire, req, pin, entry, now, need); got != want {
 				t.Fatalf("CheckReply = %s, want %s", got, want)
 			}
-			if got := session.AttestedOffline(wire, req, pin, entry, now); got != (want == session.Attested) {
-				t.Fatalf("AttestedOffline = %v, want %v", got, want == session.Attested)
+			attested := want == session.Attested || want == session.ExtensionRequired
+			if got := session.AttestedOffline(wire, req, pin, entry, now); got != attested {
+				t.Fatalf("AttestedOffline = %v, want %v", got, attested)
 			}
 
 			reply, err := session.ParseReply(wire)
@@ -89,7 +101,7 @@ func TestReplyVectors(t *testing.T) {
 				return
 			}
 			roundTrip(t, reply, wire)
-			if want == session.Attested || want == session.Unsafe {
+			if attested || want == session.Unsafe {
 				key := reply.ServerPolicyKey
 				if reply.ServerReplyCert != nil {
 					key = reply.ServerReplyCert.Key
@@ -102,10 +114,41 @@ func TestReplyVectors(t *testing.T) {
 		})
 	})
 	for _, check := range []session.Check{session.Attested, session.Unsafe, session.MalformedReply,
-		session.PinMismatch, session.BadSignature} {
+		session.PinMismatch, session.BadSignature, session.ExtensionRequired} {
 		if seen[check] == 0 {
 			t.Errorf("no case expects %s", check)
 		}
+	}
+}
+
+// TestSessionRequirement replays v4.json's sessionRequirement cases: what a client that requires the case's
+// extensions, with or without its switch, may do after the outcome check, JSON null for no reply checked, of a
+// reply listing listed.
+func TestSessionRequirement(t *testing.T) {
+	v4 := vectors.Load(t, "v4.json")
+	seen := map[bool]int{}
+	section(t, v4, "sessionRequirement").Each(func(name string, c vectors.Node) {
+		t.Run(name, func(t *testing.T) {
+			c := c.With(t)
+			need, err := session.NewRequirement(c.Get("requires").Strs(), c.Get("continueWithout").Bool())
+			if err != nil {
+				t.Fatalf("NewRequirement: %v", err)
+			}
+			var check session.Check
+			if n := c.Get("check"); !n.IsNull() {
+				check = session.Check(n.Str())
+			}
+			e := c.Get("expected")
+			want := session.Calls{Calls: e.Get("calls").Bool(), Requires: e.Get("requires").Strs()}
+			seen[want.Calls]++
+			got := need.CallsAfter(check, c.Get("listed").Strs())
+			if got.Calls != want.Calls || !slices.Equal(got.Requires, want.Requires) {
+				t.Fatalf("CallsAfter = %+v, want %+v", got, want)
+			}
+		})
+	})
+	if seen[true] == 0 || seen[false] == 0 {
+		t.Fatalf("the cases expect calls %v; want both true and false among them", seen)
 	}
 }
 
@@ -137,12 +180,12 @@ func roundTrip(t *testing.T, reply session.Reply, wire []byte) {
 	}
 }
 
-// TestStatusVectors replays v3.json's sessionStatus cases: the server's status for each request at now,
+// TestStatusVectors replays v4.json's sessionStatus cases: the server's status for each request at now,
 // against its own root and keyring, read from their files, its policy key and the client keys it pinned.
 func TestStatusVectors(t *testing.T) {
-	v3 := vectors.Load(t, "v3.json")
+	v4 := vectors.Load(t, "v4.json")
 	seen := map[string]int{}
-	v3.Get("sessionStatus").Each(func(name string, c vectors.Node) {
+	section(t, v4, "sessionStatus").Each(func(name string, c vectors.Node) {
 		t.Run(name, func(t *testing.T) {
 			c := c.With(t)
 			req, err := session.ReadRequest(c.Get("requestToken").Str())
@@ -157,12 +200,12 @@ func TestStatusVectors(t *testing.T) {
 			if err != nil {
 				t.Fatalf("ParseKeyringFile: %v", err)
 			}
-			own := pub(t, v3, c.Get("serverPolicyKey").Str())
+			own := pub(t, v4, c.Get("serverPolicyKey").Str())
 			if !kf.Verifies(own) {
 				t.Fatal("the server's keyring does not verify under its policy key")
 			}
 			var pinned []string
-			c.Get("pinned").Each(func(_ string, name vectors.Node) { pinned = append(pinned, pub(t, v3, name.Str())) })
+			c.Get("pinned").Each(func(_ string, name vectors.Node) { pinned = append(pinned, pub(t, v4, name.Str())) })
 			want := c.Get("expected").Str()
 			seen[want]++
 			if got := session.Status(req, &root, kf, own, pinned, c.Get("now").Int()); got != want {
@@ -175,12 +218,12 @@ func TestStatusVectors(t *testing.T) {
 	}
 }
 
-// TestDeriveIDVectors replays v3.json's fixedInputs, each length consecutive bytes from start, and the
+// TestDeriveIDVectors replays v4.json's fixedInputs, each length consecutive bytes from start, and the
 // deriveSessionId cases built from them, a null root signature being an absent root.
 func TestDeriveIDVectors(t *testing.T) {
-	v3 := vectors.Load(t, "v3.json")
+	v4 := vectors.Load(t, "v4.json")
 	inputs := map[string][]byte{}
-	v3.Get("fixedInputs").Each(func(name string, in vectors.Node) {
+	section(t, v4, "fixedInputs").Each(func(name string, in vectors.Node) {
 		b := make([]byte, in.Get("length").Int())
 		for i := range b {
 			b[i] = byte(in.Get("start").Int() + int64(i))
@@ -190,11 +233,11 @@ func TestDeriveIDVectors(t *testing.T) {
 		}
 		inputs[name] = b
 	})
-	d := v3.Get("deriveSessionId")
+	d := section(t, v4, "deriveSessionId")
 	policyKey := d.Get("keys").Get("clientPolicyKey").Str()
 	keyring := map[string]string{}
 	d.Get("keys").Get("clientKeyring").Each(func(svc string, key vectors.Node) { keyring[svc] = key.Str() })
-	d.Get("cases").Each(func(name string, c vectors.Node) {
+	section(t, d, "cases").Each(func(name string, c vectors.Node) {
 		t.Run(name, func(t *testing.T) {
 			c := c.With(t)
 			sig := func(member string) []byte {
@@ -212,6 +255,17 @@ func TestDeriveIDVectors(t *testing.T) {
 	})
 }
 
+// section returns file's member name, failing the test unless it is there and not empty, so that a replay
+// can't pass by replaying nothing.
+func section(t testing.TB, file vectors.Node, name string) vectors.Node {
+	t.Helper()
+	n := file.With(t).Get(name)
+	if n.Len() == 0 {
+		t.Fatalf("vectors: %s is empty", name)
+	}
+	return n
+}
+
 // decode returns the bytes of token tok.
 func decode(t *testing.T, tok string) []byte {
 	t.Helper()
@@ -222,8 +276,8 @@ func decode(t *testing.T, tok string) []byte {
 	return b
 }
 
-// pub returns the public key of v3.json's key called name, as base64url SubjectPublicKeyInfo.
-func pub(t *testing.T, v3 vectors.Node, name string) string {
+// pub returns the public key of v4.json's key called name, as base64url SubjectPublicKeyInfo.
+func pub(t *testing.T, v4 vectors.Node, name string) string {
 	t.Helper()
-	return v3.With(t).Get("keys").Get(name).Get("pub").Str()
+	return v4.With(t).Get("keys").Get(name).Get("pub").Str()
 }

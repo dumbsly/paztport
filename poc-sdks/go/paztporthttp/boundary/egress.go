@@ -327,7 +327,9 @@ func (x *Exchange) Answer(status int, body []byte) (Step, bool, error) {
 	switch x.phase {
 	case phaseFull:
 		if status == 200 {
-			switch session.CheckReply(body, x.req, x.e.cfg.PartnerPolicyKey, x.e.cfg.Partner, x.e.cfg.Now()) {
+			// Plan 4b: the client's configured requirement, and CallsAfter deciding the calls, replace the zero one.
+			switch session.CheckReply(body, x.req, x.e.cfg.PartnerPolicyKey, x.e.cfg.Partner, x.e.cfg.Now(),
+				session.Requirement{}) {
 			case session.Attested:
 				return x.open(body, true)
 			case session.Unsafe:

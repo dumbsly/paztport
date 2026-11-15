@@ -106,6 +106,7 @@ func (s *Sessions) open(req session.Request, peer peerKey) ([]byte, bool) {
 		Sess:                  id,
 		Status:                status,
 		Disabled:              disabled,
+		Extensions:            []string{}, // Plan 4b: the sorted names the partner's verifier acts on replace it.
 	}, cfg.EntryKey)
 	if err != nil {
 		return nil, false

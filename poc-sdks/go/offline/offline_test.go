@@ -462,23 +462,23 @@ func TestSpending(t *testing.T) {
 	}
 }
 
-// handshake returns v3.json's recordedHandshake case name: its request's and reply's bytes, its pin and
+// handshake returns v4.json's recordedHandshake case name: its request's and reply's bytes, its pin and
 // its configured entry.
 func handshake(t *testing.T, name string) (request, reply []byte, pin, entry string) {
 	t.Helper()
-	v3 := vectors.Load(t, "v3.json")
+	v4 := vectors.Load(t, "v4.json")
 	found := false
-	v3.Get("recordedHandshake").Each(func(n string, c vectors.Node) {
+	v4.Get("recordedHandshake").Each(func(n string, c vectors.Node) {
 		if n != name {
 			return
 		}
 		c = c.With(t)
 		request, reply = decode(t, c.Get("requestToken").Str()), decode(t, c.Get("replyToken").Str())
-		pin = v3.Get("keys").Get(c.Get("pin").Str()).Get("pub").Str()
+		pin = v4.Get("keys").Get(c.Get("pin").Str()).Get("pub").Str()
 		entry, found = c.Get("serverEntry").Str(), true
 	})
 	if !found {
-		t.Fatalf("v3.json has no recordedHandshake case %q", name)
+		t.Fatalf("v4.json has no recordedHandshake case %q", name)
 	}
 	return request, reply, pin, entry
 }
@@ -593,7 +593,7 @@ func TestSess(t *testing.T) {
 }
 
 // TestResponseNotAfter checks that the response window counts only once the server's signatures over it
-// verify: a reply edited in the record and not signed again gives none, as do v3.json's replies with no
+// verify: a reply edited in the record and not signed again gives none, as do v4.json's replies with no
 // server root and with one another key signed; the keyring's window counts only in the entry-key form.
 func TestResponseNotAfter(t *testing.T) {
 	request, reply, pin, entry := handshake(t, "server keyring's notAfter")

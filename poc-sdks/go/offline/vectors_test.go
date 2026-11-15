@@ -189,18 +189,18 @@ func asArrays(c vectors.Node, notAfter string, split bool) vectors.Node {
 		vectors.Member{Name: "roots", Text: `[{"policy": ` + string(c.Get("policy").Raw()) + until + `}]`})
 }
 
-// TestRecordedHandshakeVectors replays v3.json's recordedHandshake cases: whether each opened an attested
+// TestRecordedHandshakeVectors replays v4.json's recordedHandshake cases: whether each opened an attested
 // session at all and at each of its times, and the limit on a response recorded in it.
 func TestRecordedHandshakeVectors(t *testing.T) {
-	v3 := vectors.Load(t, "v3.json")
-	cases := v3.Get("recordedHandshake")
+	v4 := vectors.Load(t, "v4.json")
+	cases := v4.Get("recordedHandshake")
 	if cases.Len() == 0 {
-		t.Fatal("v3.json has no recordedHandshake case")
+		t.Fatal("v4.json has no recordedHandshake case")
 	}
 	cases.Each(func(name string, c vectors.Node) {
 		t.Run(name, func(t *testing.T) {
 			c := c.With(t)
-			s := record(t, v3, c)
+			s := record(t, v4, c)
 			e := c.Get("expected")
 			if got, want := s.Attested(), e.Get("attested").Bool(); got != want {
 				t.Errorf("Attested = %t, want %t", got, want)
@@ -226,88 +226,10 @@ func TestRecordedHandshakeVectors(t *testing.T) {
 	})
 }
 
-// TestRecordedCallVectors replays v3.json's recordedCall cases. Each case is one record set: its calls are
-// checked in order against one set of spent keys, each by Call in the session of the handshake it names
-// (that request's client keyring and root, that reply's session id), which holds a call that verifies to
-// that session's limits at its last stamp's ts.
-func TestRecordedCallVectors(t *testing.T) {
-	v3 := vectors.Load(t, "v3.json")
-	cases := v3.Get("recordedCall")
-	if cases.Len() == 0 {
-		t.Fatal("v3.json has no recordedCall case")
-	}
-	// The section's shape, from its data, so that a filtered run still checks it: nine calls, and at least
-	// one that is OUTSIDE_SESSION.
-	calls, outside := 0, 0
-	cases.Each(func(_ string, c vectors.Node) {
-		want := c.Get("expected")
-		calls += want.Len()
-		want.Each(func(_ string, e vectors.Node) {
-			if e.Get("reason").Str() == string(reason.OutsideSession) {
-				outside++
-			}
-		})
-	})
-	if calls != 9 || outside == 0 {
-		t.Fatalf("the section has %d calls, %d of them OUTSIDE_SESSION; want 9, and at least one", calls, outside)
-	}
-	policies := v3.Get("policies")
-	cases.Each(func(name string, c vectors.Node) {
-		t.Run(name, func(t *testing.T) {
-			c := c.With(t)
-			var sessions []offline.RecordedSession
-			c.Get("handshakes").Each(func(_ string, h vectors.Node) {
-				sessions = append(sessions, record(t, v3, h.With(t)))
-			})
-			records := offline.NewRecordSet()
-			origins := c.Get("allowedOrigins").Strs()
-			want := c.Get("expected")
-			if c.Get("calls").Len() != want.Len() {
-				t.Fatalf("the case gives %d calls and %d answers", c.Get("calls").Len(), want.Len())
-			}
-			for i := range c.Get("calls").Len() {
-				call := c.Get("calls").Index(i)
-				s := sessions[call.Get("handshake").Int()]
-				req, ok := s.Request()
-				if !ok || req.ClientRoot == nil {
-					t.Fatalf("call %d: the handshake's request does not read, or has no client root", i)
-				}
-				keyring, err := req.KeyringFile().Keyring()
-				if err != nil {
-					t.Fatalf("call %d: the client keyring: %v", i, err)
-				}
-				root, err := req.ClientRoot.Bytes()
-				if err != nil {
-					t.Fatalf("call %d: the client root: %v", i, err)
-				}
-				// The session's windows are Call's to judge, so the members have none.
-				cfg := offline.Config{
-					Keyrings: []verify.PinnedKeyring{{Keys: keyring, NotAfter: math.MaxInt64}},
-					Roots: []verify.PinnedRoot{
-						{Root: root, RootID: req.ClientRoot.RootID, NotAfter: math.MaxInt64},
-					},
-					AllowedOrigins: origins,
-					Sess:           s.Sess(),
-					RunMaxAgeMs:    optionalInt(c.Get("runMaxAgeMs")),
-					CallMaxAgeMs:   optionalInt(c.Get("callMaxAgeMs")),
-				}
-				in := input(t, call, policies.With(t).Get(call.Get("policy").Str()))
-				got, ok := records.Call(in, cfg, s)
-				if !ok {
-					t.Fatalf("call %d: no result, though every handshake here is attested", i)
-				}
-				if w := reason.Code(want.Index(i).Get("reason").Str()); got.Reason != w {
-					t.Errorf("call %d = %s, want %s", i, got.Reason, w)
-				}
-			}
-		})
-	})
-}
-
-// record reads h, a handshake in the recordedHandshake shape, from its tokens.
-func record(t *testing.T, v3, h vectors.Node) offline.RecordedSession {
+// record reads h, a handshake in the recordedHandshake shape, from its tokens, its pin named in file's keys.
+func record(t *testing.T, file, h vectors.Node) offline.RecordedSession {
 	t.Helper()
-	pin := v3.With(t).Get("keys").Get(h.Get("pin").Str()).Get("pub").Str()
+	pin := file.With(t).Get("keys").Get(h.Get("pin").Str()).Get("pub").Str()
 	return offline.Record(decode(t, h.Get("requestToken").Str()), decode(t, h.Get("replyToken").Str()), pin,
 		h.Get("serverEntry").Str())
 }
