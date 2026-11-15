@@ -47,8 +47,9 @@ func texts[T interface{ value() (json.Value, error) }](what string, xs []T) ([]s
 	return out, nil
 }
 
-// Request is what a request's hand-over holds under influence, as ReadRequest reads it (influence.md, The
-// every-stamp rule and Entries). What the service adds itself is the caller's to add.
+// Request is what a request's hand-over holds under influence (influence.md, The every-stamp rule and Entries).
+// It is built by ReadRequest, which alone records whether every item read: a Request built by hand reports
+// Reads true, whatever its UnreadSigner holds. What the service adds itself is the caller's to add.
 type Request struct {
 	// Entries is every item of every block, read as an entry, in chain order; none when an item does not read.
 	Entries []Entry

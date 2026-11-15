@@ -6,6 +6,7 @@ package influence_test
 import (
 	"bytes"
 	"encoding/hex"
+	"slices"
 	"testing"
 
 	"github.com/dumbsly/paztport/poc-sdks/go/influence"
@@ -70,7 +71,8 @@ func readsBoth(t *testing.T, cases vectors.Node, read func(item string) error) {
 	})
 }
 
-// TestRule replays v4.json's influence.rule, the owner-aware rule's truth table. A case gives each entry's
+// TestRule replays v4.json's influence.rule, the owner-aware rule's truth table, through PublicWriteRefused and
+// through GuardedWriteRefused with every stamp naming influence and with one not. A case gives each entry's
 // class and owner, all the rule reads. A null destination owner is unknown, as "" is.
 func TestRule(t *testing.T) {
 	cases := vectors.Load(t, "v4.json").Get("influence").Get("rule")
@@ -88,8 +90,17 @@ func TestRule(t *testing.T) {
 				}
 				es = append(es, e)
 			})
-			if got, want := influence.PublicWriteRefused(es, owner(c)), c.Get("refused").Bool(); got != want {
+			want := c.Get("refused").Bool()
+			if got := influence.PublicWriteRefused(es, owner(c)); got != want {
 				t.Fatalf("PublicWriteRefused = %v, want %v", got, want)
+			}
+			// Where every stamp names influence the guarded write is the owner-aware rule's alone; where one
+			// does not, it is refused whatever the entries say.
+			if got := influence.GuardedWriteRefused(true, es, owner(c)); got != want {
+				t.Fatalf("GuardedWriteRefused(true) = %v, want %v", got, want)
+			}
+			if !influence.GuardedWriteRefused(false, es, owner(c)) {
+				t.Fatal("GuardedWriteRefused(false) allows the write")
 			}
 		})
 	})
@@ -133,8 +144,16 @@ func TestRequestVectors(t *testing.T) {
 				if got.Reason != reason.InfluenceMismatch {
 					t.Fatalf("the case gives no everyStampNames beside %s", got.Reason)
 				}
-				if got.UnreadSigner == "" {
-					t.Fatalf("Decide = %+v names no signer for the item that does not read", got)
+				// A signer may be "", so the signer's name cannot say the request was refused: Reads does,
+				// and Decide names the signer ReadRequest found, the svc of a block naming influence.
+				r := influence.ReadRequest(stamps)
+				if r.Reads() || got.UnreadSigner != r.UnreadSigner {
+					t.Fatalf("Decide = %+v beside ReadRequest = %+v, want it unread and the same signer", got, r)
+				}
+				if !slices.ContainsFunc(stamps, func(s verify.StampItems) bool {
+					return s.Named && s.Svc == got.UnreadSigner
+				}) {
+					t.Fatalf("Decide names %q, no signer of a block naming influence", got.UnreadSigner)
 				}
 				return
 			}

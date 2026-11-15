@@ -76,6 +76,24 @@ func TestReadRequestAnItemThatIsNotAnEntryNamesItsSigner(t *testing.T) {
 	}
 }
 
+// TestReadRequestNamesTheFirstUnreadSigner: the second and third blocks both hold an item that does not read, and
+// the second's signer is the one named.
+func TestReadRequestNamesTheFirstUnreadSigner(t *testing.T) {
+	r := influence.ReadRequest([]verify.StampItems{
+		named("session", webText),
+		named("gateway", aliceOwnText, aLabel),
+		named("pi", `"not an entry"`),
+	})
+	if r.Reads() || r.UnreadSigner != "gateway" {
+		t.Fatalf("ReadRequest = %+v, want it unread, signed by gateway", r)
+	}
+	got := influence.Decide([]verify.StampItems{silent("session"), named("gateway", aLabel), named("pi", aLabel)},
+		nil, true, "alice")
+	if want := (influence.Decision{Reason: reason.InfluenceMismatch, UnreadSigner: "gateway"}); got != want {
+		t.Fatalf("Decide = %+v, want %+v", got, want)
+	}
+}
+
 // TestReadRequestAnUnreadItemUnderAnEmptySvc: a chain's reading allows a stamp whose svc is "", and the keyless
 // check hands its block on. An item there that does not read is still unread, though its signer's name is "".
 func TestReadRequestAnUnreadItemUnderAnEmptySvc(t *testing.T) {
@@ -141,6 +159,12 @@ func TestDecide(t *testing.T) {
 			influence.Decision{Reason: reason.InfluenceMismatch, UnreadSigner: "pi"}},
 		{"a write, nothing handed on, the owner's own private data added",
 			nil, []influence.Entry{aliceOwn}, true,
+			influence.Decision{Reason: reason.OK, EveryStampNames: true}},
+		{"a write, nothing handed on, third-party content and someone else's private data added",
+			nil, []influence.Entry{web, bobs}, true,
+			influence.Decision{Reason: reason.InfluenceDenied, EveryStampNames: true}},
+		{"a read, nothing handed on, third-party content and someone else's private data added",
+			nil, []influence.Entry{web, bobs}, false,
 			influence.Decision{Reason: reason.OK, EveryStampNames: true}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
