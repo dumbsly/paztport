@@ -301,3 +301,30 @@ func fileLength(v json.Value) (int, error) {
 	b, err := json.File(v)
 	return len(b), err
 }
+
+// TestHashedText checks the string form for hashed content: RFC 8785's escapes as Wire writes them, a
+// noncharacter as itself, and no text that is not valid UTF-8.
+func TestHashedText(t *testing.T) {
+	for _, s := range []string{"plain", "a\"b\\c\n\t\x01", "\x7f", " ", "\U0001F600"} {
+		want, err := json.Wire(json.S(s))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got, err := json.HashedText(s); err != nil || got != string(want) {
+			t.Errorf("HashedText(%+q) = %+q, %v; want what Wire writes, %+q", s, got, err, want)
+		}
+	}
+	for _, s := range []string{"\uFFFF", "\uFDD0", "\U0010FFFF"} {
+		if got, err := json.HashedText(s); err != nil || got != "\""+s+"\"" {
+			t.Errorf("HashedText(%+q) = %+q, %v; want the character itself", s, got, err)
+		}
+		if b, err := json.Wire(json.S(s)); step(err) != json.StepWrite {
+			t.Errorf("Wire(%+q) = %+q, %v; want a write refusal", s, b, err)
+		}
+	}
+	for _, s := range []string{"a\xffb", "\xed\xa0\x80", "\xc0\x80"} {
+		if got, err := json.HashedText(s); step(err) != json.StepWrite {
+			t.Errorf("HashedText(%+q) = %+q, %v; want a write refusal", s, got, err)
+		}
+	}
+}

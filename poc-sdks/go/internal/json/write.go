@@ -150,6 +150,26 @@ func (w *writer) string(s string) error {
 	if err := checkText(s); err != nil {
 		return err
 	}
+	w.escaped(s)
+	return nil
+}
+
+// HashedText returns s as RFC 8785 writes a string, for hashed content and nonce keys (wire.md, Hashed
+// content): as the wire writer does, except that a noncharacter is written as itself, because text that is
+// hashed is not text a reader reads back. It refuses s unless it is valid UTF-8, since a lone surrogate has
+// no text to hash.
+func HashedText(s string) (string, error) {
+	if !text.Valid(s) {
+		return "", refuse(StepWrite, "a string that is not valid UTF-8, such as the bytes of a lone surrogate")
+	}
+	w := writer{}
+	w.escaped(s)
+	return string(w.out), nil
+}
+
+// escaped appends s, which must be valid UTF-8, quoted and escaped as RFC 8785 §3.2.2.2 says. Wire and
+// HashedText share it, so the rule is written once.
+func (w *writer) escaped(s string) {
 	const hex = "0123456789abcdef"
 	w.out = append(w.out, '"')
 	for i := range len(s) {
@@ -177,7 +197,6 @@ func (w *writer) string(s string) error {
 		}
 	}
 	w.out = append(w.out, '"')
-	return nil
 }
 
 // canonicalOrder returns a copy of members sorted by LessUTF16, refusing a name a reader would refuse.
