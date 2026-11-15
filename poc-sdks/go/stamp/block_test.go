@@ -151,6 +151,8 @@ func TestWhatIsNotAnArrayOfBlocksDoesNotRead(t *testing.T) {
 		"null", "{}", `[{"items":{}}]`, `[{"items":{},"requires":[],"x":1}]`,
 		`[{"items":{"example":{}},"requires":[]}]`, `[{"items":{},"requires":["b","a"]}]`,
 		`[{"items":{},"requires":["a","a"]}]`, `[{"items":{},"requires":[1]}]`, "[ ]",
+		`[{"items":{"Example":[]},"requires":[]}]`, `[{"items":{},"requires":["Example"]}]`,
+		`[{"items":[],"requires":[]}]`,
 	} {
 		if got, err := stamp.ParseBlocks([]byte(wire)); err == nil {
 			t.Errorf("ParseBlocks(%s) = %v, want an error", wire, got)

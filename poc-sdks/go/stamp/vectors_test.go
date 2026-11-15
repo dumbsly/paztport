@@ -227,8 +227,16 @@ func TestBlocksCommit(t *testing.T) {
 	cases.Each(func(name string, c vectors.Node) {
 		t.Run(name, func(t *testing.T) {
 			c := c.With(t)
-			// a block read alone travels in an array, as the vectors' consumers wrap it
-			got, err := stamp.ParseBlocks(append(append([]byte("["), c.Get("jcs").Str()...), ']'))
+			// the case's block, canonicalised as TestBlocksRead does, read as the one element of an array
+			v, err := json.ReadFile(c.Get("block").Raw())
+			if err != nil {
+				t.Fatalf("the case's block: %v", err)
+			}
+			canonical, err := json.Wire(v)
+			if err != nil {
+				t.Fatalf("the case's block has no canonical bytes: %v", err)
+			}
+			got, err := stamp.ParseBlocks(append(append([]byte("["), canonical...), ']'))
 			if err != nil || len(got) != 1 {
 				t.Fatalf("ParseBlocks: %v, %v", got, err)
 			}

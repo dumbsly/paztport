@@ -32,7 +32,8 @@ type Block struct {
 	text     string              // the block's JCS text; "" only for the zero Block
 }
 
-// IsExtensionName reports whether name is an extension name: 1 to 32 of a-z, 0-9 and '-'.
+// IsExtensionName reports whether name is an extension name: 1 to 32 of a-z, 0-9 and '-'. Names are ASCII, so
+// byte order is UTF-16 code unit order, and this file sorts and compares them as plain strings.
 func IsExtensionName(name string) bool {
 	if len(name) < 1 || len(name) > 32 {
 		return false
@@ -53,7 +54,8 @@ func IsExtensionName(name string) bool {
 // text of one value the strict reader takes. It copies what it is given.
 func NewBlock(items map[string][]string, requires []string) (Block, error) {
 	own := make(map[string][]string, len(items))
-	for name, list := range items {
+	for _, name := range slices.Sorted(maps.Keys(items)) {
+		list := items[name]
 		if !IsExtensionName(name) {
 			return Block{}, fmt.Errorf("paztport stamp: a block can't name %q: not an extension name", name)
 		}
@@ -70,7 +72,6 @@ func NewBlock(items map[string][]string, requires []string) (Block, error) {
 		own[name] = texts
 	}
 	req := slices.Clone(requires)
-	// Extension names are ASCII, for which byte order is UTF-16 code unit order.
 	slices.Sort(req)
 	for i, name := range req {
 		if !IsExtensionName(name) {
@@ -87,7 +88,7 @@ func NewBlock(items map[string][]string, requires []string) (Block, error) {
 // deeper than alone, as an element of the array of blocks.
 func build(items map[string][]string, requires []string) (Block, error) {
 	if len(items) == 0 && len(requires) == 0 {
-		return EmptyBlock, nil
+		return Block{}, nil
 	}
 	b := Block{items: items, requires: requires}
 	v, err := b.value()
@@ -133,7 +134,7 @@ func (b Block) value() (json.Value, error) {
 // named. It is a copy.
 func (b Block) Names() []string {
 	names := slices.Collect(maps.Keys(b.items))
-	slices.Sort(names) // ASCII names: byte order is UTF-16 code unit order
+	slices.Sort(names)
 	return names
 }
 
@@ -248,8 +249,7 @@ func blockFromValue(o json.Value) (Block, error) {
 		if n.Kind() != json.KindString || !IsExtensionName(n.Str()) {
 			return Block{}, errors.New("a name in requires is not an extension name")
 		}
-		// strictly increasing refuses both an unsorted pair and a name twice; ASCII, so byte order is
-		// UTF-16 code unit order
+		// strictly increasing refuses both an unsorted pair and a name twice
 		if last := len(requires) - 1; last >= 0 && n.Str() <= requires[last] {
 			return Block{}, errors.New("requires is unsorted or holds a name twice")
 		}
