@@ -129,13 +129,21 @@ func Decide(stamps []verify.StampItems, added []Entry, guardedWrite bool, destin
 }
 
 // Items is influence's offline item check, an offline.ItemCheck (verification.md, Offline verification):
-// INFLUENCE_MISMATCH when an item handed on under influence does not read, else OK. A nil hand-over, or one that
-// holds nothing under influence, from a verifier that does not act on it, is nothing handed on: OK.
+// INFLUENCE_MISMATCH when an item handed on under influence does not read, else OK.
+//
+// It panics when h comes from settings that do not act on influence: such a hand-over holds nothing under it, so
+// every call would pass unread. That is the verifier's configuration, never a request's, so it is a program fault,
+// as a verifier with no clock is. A nil hand-over, which RecordSet.Call never passes since it calls an item check
+// only on OK, hands nothing on and gives OK.
 func Items(h *verify.HandOver) reason.Code {
 	if h == nil {
 		return reason.OK
 	}
-	stamps, _ := h.Under(Name)
+	stamps, acted := h.Under(Name)
+	if !acted {
+		panic("paztport influence: Items needs a hand-over from settings that act on influence; " +
+			"the offline verifier's settings must act on influence to read its items")
+	}
 	if r := ReadRequest(stamps); !r.Reads() {
 		return r.refusal
 	}

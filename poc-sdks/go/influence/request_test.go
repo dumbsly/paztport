@@ -5,6 +5,7 @@ package influence_test
 
 import (
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/dumbsly/paztport/poc-sdks/go/influence"
@@ -217,12 +218,8 @@ func TestShapedOnlyByTrustedEveryStamp(t *testing.T) {
 }
 
 // TestItems is influence's offline item check: INFLUENCE_MISMATCH for an item that does not read, under any
-// stamp, else OK; a hand-over with nothing under influence is nothing handed on.
+// stamp, else OK; no hand-over hands nothing on.
 func TestItems(t *testing.T) {
-	other, err := verify.NewExtensions([]string{"example"})
-	if err != nil {
-		t.Fatal(err)
-	}
 	for _, c := range []struct {
 		name string
 		h    *verify.HandOver
@@ -233,13 +230,34 @@ func TestItems(t *testing.T) {
 		{"a label", served(t, named("session"), named("pi", aLabel)), reason.InfluenceMismatch},
 		{"a label after a silent block", served(t, silent("session"), named("pi", aLabel)),
 			reason.InfluenceMismatch},
-		{"a hand-over that holds nothing under influence",
-			verify.NewHandOver(true, stamp.Chain{{Svc: "pi"}}, stamp.Blocks{block(t, aLabel)}, other), reason.OK},
 		{"no hand-over", nil, reason.OK},
 	} {
 		if got := influence.Items(c.h); got != c.want {
 			t.Errorf("%s: Items = %s, want %s", c.name, got, c.want)
 		}
+	}
+}
+
+// TestItemsPanicsAtSettingsNotActingOnInfluence: a hand-over from settings that act on another extension, or on
+// none, holds nothing under influence, so reading it would pass an item that does not read. Items fails closed:
+// it panics, naming the cause, rather than give OK.
+func TestItemsPanicsAtSettingsNotActingOnInfluence(t *testing.T) {
+	other, err := verify.NewExtensions([]string{"example"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, ext := range map[string]verify.Extensions{"another extension": other, "none": {}} {
+		h := verify.NewHandOver(true, stamp.Chain{{Svc: "pi"}}, stamp.Blocks{block(t, aLabel)}, ext)
+		func() {
+			defer func() {
+				msg, _ := recover().(string)
+				if !strings.Contains(msg, "must act on influence") {
+					t.Errorf("settings acting on %s: Items panicked with %q, want the cause named", name, msg)
+				}
+			}()
+			got := influence.Items(h)
+			t.Errorf("settings acting on %s: Items = %s, want a panic", name, got)
+		}()
 	}
 }
 

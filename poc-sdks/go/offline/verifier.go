@@ -146,7 +146,9 @@ func (rs *RecordSet) Verify(in Input, cfg Config) verify.Result {
 
 // ItemCheck is an extension's reading of the items a verified recorded call hands over (verification.md, Offline
 // verification): reason.OK when they read, and otherwise the extension's code, such as INFLUENCE_MISMATCH. The
-// core reads no item, so an extension that acts offline passes its own; nil reads none.
+// core reads no item, so an extension that acts offline passes its own; nil reads none. The hand-over holds only
+// the extensions the config's settings act on, so a check passed with settings that do not act on its extension
+// is a program fault (influence.Items panics).
 type ItemCheck func(h *verify.HandOver) reason.Code
 
 // Call verifies in, a call recorded in the session s, as Verify does, and judges it in its session. A
