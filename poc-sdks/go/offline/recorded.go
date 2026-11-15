@@ -132,11 +132,13 @@ func (s RecordedSession) Request() (session.Request, bool) {
 // limits judge them, the reply's session id, and the allowed origins, age limits and extension settings given,
 // copied. A key in the request's keyring that does not parse is left out, so a stamp under it is BAD_SIGNATURE,
 // and a root that does not decode proves no route. It returns false for a session that is not attested at all,
-// for which no recorded call has a result, and for a recorded request with no client root, which asks for an
-// unsafe session and so is never attested.
+// for which no recorded call has a result.
 func (s RecordedSession) CallConfig(
 	origins []string, runMaxAgeMs, callMaxAgeMs *int64, ext verify.Extensions,
 ) (Config, bool) {
+	// An attested session always has a client root: the session package's check of the reply refuses an attested
+	// status beside a request with none. The nil test stays because that guarantee is kept in another package and
+	// the lines below dereference the root, so a change there gives no config rather than a panic.
 	if !s.Attested() || s.request.ClientRoot == nil {
 		return Config{}, false
 	}

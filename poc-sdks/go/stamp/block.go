@@ -227,9 +227,6 @@ func blockFromValue(o json.Value) (Block, error) {
 		if m.Value.Kind() != json.KindArray {
 			return Block{}, fmt.Errorf("the items of %q are not an array", m.Name)
 		}
-		if _, dup := items[m.Name]; dup {
-			return Block{}, fmt.Errorf("%q is named twice", m.Name)
-		}
 		texts := []string{}
 		for _, item := range m.Value.Items() {
 			text, err := json.Wire(item)

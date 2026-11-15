@@ -123,8 +123,8 @@ func TestABadSignatureDoesNotMatter(t *testing.T) {
 	if !serve || h == nil {
 		t.Fatalf("serve=%v h=%v", serve, h)
 	}
-	if got, _ := h.Under("example"); !got[1].Named {
-		t.Errorf("Under = %+v", got)
+	if got, _ := h.Under("example"); len(got) != 2 || !got[1].Named {
+		t.Errorf("Under = %+v, want two stamps, the second named", got)
 	}
 }
 

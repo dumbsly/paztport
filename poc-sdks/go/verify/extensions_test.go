@@ -90,9 +90,8 @@ func TestExtensionsHoldCopies(t *testing.T) {
 	}
 	acts[0], allowed[2] = "z", "z"
 	e.ActsOn()[0] = "z"
-	if list, _ := e.Allowed(); true {
-		list[0] = "z"
-	}
+	list, _ := e.Allowed()
+	list[0] = "z"
 	if got := e.ActsOn(); !reflect.DeepEqual(got, []string{"a", "b"}) {
 		t.Errorf("ActsOn = %v", got)
 	}
