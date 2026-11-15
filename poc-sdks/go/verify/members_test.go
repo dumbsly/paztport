@@ -74,7 +74,7 @@ var (
 	oldKeys    = map[string]string{"gateway": "gateway", "orders": "pi"}
 )
 
-// TestVerifyKeyrings checks check 4 against several keyrings: a stamp's key is looked up by its own
+// TestVerifyKeyrings checks check 3 against several keyrings: a stamp's key is looked up by its own
 // service's name in every current keyring, and its signature must verify under one of the keys they give
 // it.
 func TestVerifyKeyrings(t *testing.T) {
@@ -137,7 +137,7 @@ func TestVerifyKeyrings(t *testing.T) {
 	}
 }
 
-// TestVerifyRoots checks check 11 against several roots: the proof's rootId selects the current roots
+// TestVerifyRoots checks check 12 against several roots: the proof's rootId selects the current roots
 // with that rootId, and the route must prove against one of them.
 func TestVerifyRoots(t *testing.T) {
 	// first and second are two trees under their own rootIds; renewed renews first under its rootId, and
@@ -199,8 +199,8 @@ func TestVerifyRoots(t *testing.T) {
 
 // TestVerifyMemberWindows checks when a keyring or a root is current: while the clock is at most its
 // notAfter, a protocol integer, or always for math.MaxInt64, which is no window. Any other window is
-// current at no time. Check 0 is the Config's PolicyNotAfter alone, so each member is judged by checks 4
-// and 11.
+// current at no time. Check 0 is the Config's PolicyNotAfter alone, so each member is judged by checks 3
+// and 12.
 func TestVerifyMemberWindows(t *testing.T) {
 	tests := []struct {
 		window int64

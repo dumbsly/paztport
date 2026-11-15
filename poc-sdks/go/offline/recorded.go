@@ -132,7 +132,8 @@ func (s RecordedSession) Request() (session.Request, bool) {
 // limits judge them, the reply's session id, and the allowed origins, age limits and extension settings given,
 // copied. A key in the request's keyring that does not parse is left out, so a stamp under it is BAD_SIGNATURE,
 // and a root that does not decode proves no route. It returns false for a session that is not attested at all,
-// for which no recorded call has a result.
+// for which no recorded call has a result, and for a recorded request with no client root, which asks for an
+// unsafe session and so is never attested.
 func (s RecordedSession) CallConfig(
 	origins []string, runMaxAgeMs, callMaxAgeMs *int64, ext verify.Extensions,
 ) (Config, bool) {

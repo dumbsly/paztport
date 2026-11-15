@@ -12,6 +12,7 @@ import (
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/b64"
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/json"
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/vectors"
+	"github.com/dumbsly/paztport/poc-sdks/go/keys"
 	"github.com/dumbsly/paztport/poc-sdks/go/offline"
 	"github.com/dumbsly/paztport/poc-sdks/go/policy"
 	"github.com/dumbsly/paztport/poc-sdks/go/reason"
@@ -1006,9 +1007,13 @@ func TestCallConfigHoldsTheClientsKeyringAndRootAndTheRepliesSession(t *testing.
 	if len(k.Keys) != len(req.ClientKeyring) || len(k.Keys) == 0 {
 		t.Fatalf("the keyring has %d keys, the request %d", len(k.Keys), len(req.ClientKeyring))
 	}
-	for svc := range req.ClientKeyring {
-		if _, ok := k.Keys[svc]; !ok {
-			t.Errorf("the keyring lacks %s", svc)
+	for svc, text := range req.ClientKeyring {
+		want, err := keys.ParsePublic(text)
+		if err != nil {
+			t.Fatalf("the request's key for %s: %v", svc, err)
+		}
+		if got, ok := k.Keys[svc]; !ok || !got.Equal(want) {
+			t.Errorf("the keyring holds %x for %s, want the request's %x", got, svc, want)
 		}
 	}
 	root, err := req.ClientRoot.Bytes()

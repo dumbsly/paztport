@@ -395,7 +395,7 @@ func TestOrder(t *testing.T) {
 	}
 }
 
-// TestSignatureThenLink pins check 4's loop: each stamp's signature, then its link, before the next stamp.
+// TestSignatureThenLink pins check 3's loop: each stamp's signature, then its link, before the next stamp.
 func TestSignatureThenLink(t *testing.T) {
 	third := stamp.Stamp{Svc: "pi", Inst: "pi-1", RID: "rid-1", TS: now - 100, Rcv: "payment", Bind: "bind-2"}
 	tests := []struct {

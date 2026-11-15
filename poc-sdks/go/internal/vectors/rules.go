@@ -12,7 +12,8 @@ import (
 // material, client certificates and handshake bodies. They are handed over as the file holds them, as
 // text or bytes, never as SDK values, so that each package's tests read them with the SDK's own readers.
 
-// rulesFile is the vector file holding the rules section.
+// rulesFile is the vector file holding the rules section paztporthttp's tests read, until they move to
+// http-v4.json.
 const rulesFile = "http-v3.json"
 
 // Rules returns http-v3.json's rules section.
@@ -58,10 +59,17 @@ type RouteProof struct {
 	Text  []byte
 }
 
-// RulesMaterial returns the material called name.
+// RulesMaterial returns the material called name, from the rules section paztporthttp's tests read.
 func RulesMaterial(t testing.TB, name string) Material {
 	t.Helper()
-	m := Rules(t).Get("material").Get(name)
+	return RulesMaterialIn(t, rulesFile, name)
+}
+
+// RulesMaterialIn returns the material called name from the rules section of the vector file file, such as
+// http-v4.json, whose material is http-v3.json's value for value.
+func RulesMaterialIn(t testing.TB, file, name string) Material {
+	t.Helper()
+	m := Load(t, file).Get("rules").Get("material").Get(name)
 	out := Material{
 		PolicyKey: m.Get("policyKey").Str(),
 		Root:      m.Get("root").Raw(),

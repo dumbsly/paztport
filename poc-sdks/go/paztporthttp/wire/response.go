@@ -43,7 +43,8 @@ type ResponseCheck struct {
 //  2. BINDING_MISMATCH, unless the response binding (stamp.ResponseBinding) of the [ResultHash] of status
 //     and body and the rid of sent's origin as the call id can be computed;
 //  3. the live order, run by v on the chain sent then the response stamp, as received by caller, with no
-//     influence, the proof sent, no peer, that binding as the one expected and the nonce key
+//     blocks token, so one empty block per stamp, the proof sent, no peer, that binding as the one expected and
+//     the nonce key
 //     <rid>|<last rcv>|resp, where last rcv is sent's last rcv whole, with the operation when it names
 //     one, or <rid>|<last rcv>|<key>|resp when key is not empty, so that a call is made once per request
 //     tree for each item of a keyed operation. The route is the request's own, so the proof the caller

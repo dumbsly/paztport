@@ -197,7 +197,7 @@ func TestOperationTableCoveredBy(t *testing.T) {
 	table := readTable(t, ops.Get("keyed").Get("file").Str())
 	route := strings.Join(ops.Get("keyed").Get("route").Strs(), "/")
 
-	m := vectors.RulesMaterial(t, "shop-keys")
+	m := vectors.RulesMaterialIn(t, "http-v4.json", "shop-keys")
 	root, err := policy.ParseRootFile(m.Root)
 	if err != nil {
 		t.Fatal(err)

@@ -19,6 +19,12 @@ import (
 	"github.com/dumbsly/paztport/poc-sdks/go/verify"
 )
 
+// The core's replays of v4.json live in stamp, verify, offline, session, policy and keys. As spec/README.md's
+// Conformance section says of the SDKs that do not implement it, the MCP profile's sections are not replayed:
+// recordedLocalStep, responseAttestation, sessionParams, sessionResult, bindMcpCall and bindResult. Nor is the
+// member influence, the extension's sections, which the influence package still replays from v3.json until the
+// extension moves to version 4.
+
 // TestVectors replays v4.json's verify cases. Each builds its Config directly, with a fixed clock, a fresh
 // MemoryNonceCache of the case's nonceTtlMs and the extension settings the case gives, runs the verifier uses times
 // against that one cache, each use sent by its peer, and expects the last result, its hand-over included. A case
