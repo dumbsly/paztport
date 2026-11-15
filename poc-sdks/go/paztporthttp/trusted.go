@@ -10,8 +10,8 @@ import (
 // TrustedRecord reports whether the handler of the request a accepted may write a trusted record: a
 // record later decisions take as fact, such as who holds a card. read is everything the handler has read
 // since it started, such as the entries of its own calls' responses. It is false for every request: whether
-// the chain was shaped only by trusted content is read from the items its stamps hand over, and no item is
-// handed over yet.
+// the chain was shaped only by trusted content is read from the items its stamps hand over, which this method
+// does not read yet, and false grants nothing, so it is never looser than that rule.
 func (a Accepted) TrustedRecord(read []influence.Entry) bool {
 	return false // Plan 4b: the every-stamp rule over a verified hand-over, then the entries read.
 }

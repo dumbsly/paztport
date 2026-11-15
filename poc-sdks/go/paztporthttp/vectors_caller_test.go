@@ -52,13 +52,17 @@ func TestPeerCertificatesVectors(t *testing.T) {
 	})
 }
 
-// TestCallerInfluenceVectors replays the rules' callerInfluence: a call stamped by Caller.Stamp, then
-// its response checked by Caller.Check, compared as {rcv, reason, influence}.
+// TestCallerInfluenceVectors replays the rules' callerInfluence: a call stamped by Caller.Stamp after the case's
+// inbound chain and blocks, signing what the case added, then its response checked by Caller.Check against the
+// chain and blocks sent, compared on the receiver it was addressed to and the check's reason. The recorded
+// response chains onto the caller's own stamp, so only a call that signed exactly the block the case's settings
+// give verifies.
 func TestCallerInfluenceVectors(t *testing.T) {
 	cases := vectors.Rules(t).Get("callerInfluence")
-	if cases.Len() != 9 {
-		t.Fatalf("the rules have %d callerInfluence cases, want 9", cases.Len())
+	if cases.Len() != 12 {
+		t.Fatalf("the rules have %d callerInfluence cases, want 12", cases.Len())
 	}
+	reasons := map[reason.Code]bool{}
 	cases.Each(func(name string, c vectors.Node) {
 		t.Run(name, func(t *testing.T) {
 			c := c.With(t)
@@ -89,19 +93,26 @@ func TestCallerInfluenceVectors(t *testing.T) {
 			case !wantReason.IsNull() && got.Check.Result.Reason != reason.Code(wantReason.Str()):
 				t.Errorf("Reason = %s, want %s", got.Check.Result.Reason, wantReason.Str())
 			}
-			if want := entries(e.Get("influence")); !slices.Equal(got.Entries, want) {
-				t.Errorf("Entries = %+v\nwant %+v", got.Entries, want)
+			if got.Check != nil {
+				reasons[got.Check.Result.Reason] = true
 			}
 		})
 	})
+	// OK needs the call to have signed the block its settings give after the blocks it received, and
+	// EXTENSION_REQUIRED is check 9c on the responder's block, read after the blocks the call sent.
+	for _, want := range []reason.Code{reason.OK, reason.ExtensionRequired, reason.ChainMissing, reason.BindingMismatch} {
+		if !reasons[want] {
+			t.Errorf("no response checks as %s", want)
+		}
+	}
 }
 
-// TestCallerStampsInHeaderOrder sends a call that has a proof and influence with its headers ordered
-// Chain, Proof, Influence, each the token of what was stamped.
+// TestCallerStampsInHeaderOrder sends a call that has a proof with its headers ordered Chain, Proof, Extensions,
+// each the token of what was stamped and sent: the blocks received, then the caller's own, naming influence with
+// what it added.
 func TestCallerStampsInHeaderOrder(t *testing.T) {
 	c := callerCase(t, "each label becomes an entry")
 	_, o := stampCallerCase(t, c, nil)
-	infl := entries(c.Get("influence"))
 	chain, err := wire.EncodeChain(o.Sent)
 	if err != nil {
 		t.Fatal(err)
@@ -113,25 +124,29 @@ func TestCallerStampsInHeaderOrder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	inflTok, err := wire.EncodeInfluence(infl)
-	if err != nil || inflTok == "" {
-		t.Fatalf("EncodeInfluence = %q, %v", inflTok, err)
+	own, err := influence.RequestBlock(entries(c.Get("added")), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sent := append(blocksOf(t, c.Get("inboundBlocks")), own)
+	blocksTok, err := wire.EncodeBlocks(sent)
+	if err != nil {
+		t.Fatal(err)
 	}
 	want := []wire.Header{{Name: wire.Chain, Value: chain}, {Name: wire.Proof, Value: proof},
-		{Name: wire.Influence, Value: inflTok}}
+		{Name: wire.Extensions, Value: blocksTok}}
 	if !slices.Equal(o.Headers, want) {
 		t.Fatalf("Headers = %+v\nwant %+v", o.Headers, want)
+	}
+	if got, _ := o.Blocks.Token(); got != blocksTok {
+		t.Fatalf("Blocks = %+v, want those the header holds", o.Blocks)
 	}
 	bind, err := wire.Bind("POST", "/pay", []byte(`{"amount":100}`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	commit, err := influence.Commit(infl)
-	if err != nil {
-		t.Fatal(err)
-	}
 	last := o.Sent[len(o.Sent)-1]
-	if len(o.Sent) != 2 || last.Bind != bind || last.Infl != commit || last.Svc != "orders" {
+	if len(o.Sent) != 2 || last.Bind != bind || last.Ext != own.Commit() || last.Svc != "orders" {
 		t.Fatalf("Sent = %+v", o.Sent)
 	}
 }
@@ -179,10 +194,11 @@ func callerCase(t *testing.T, name string) vectors.Node {
 	return found
 }
 
-// stampCallerCase builds case c's caller, its stamper's clock at ts and, when it has a verifier, one
-// pinned to its material over nonces (a fresh cache when nil), and stamps the case's call: its URI split
-// into the authority, whose host the case's receivers name, and the target as written. The tables the
-// case's caller holds are the operations section's, by name.
+// stampCallerCase builds case c's caller, its stamper's clock at ts, the case's extension settings and, when
+// it has a verifier, one pinned to its material under them over nonces (a fresh cache when nil), and stamps the
+// case's call after its inbound chain and blocks, signing what it added: its URI split into the authority,
+// whose host the case's receivers name, and the target as written. The tables the case's caller holds are the
+// operations section's, by name.
 func stampCallerCase(
 	t *testing.T, c vectors.Node, nonces verify.NonceCache,
 ) (*paztporthttp.Caller, paztporthttp.Outbound) {
@@ -192,8 +208,9 @@ func stampCallerCase(
 	ts := c.Get("ts").Int()
 	priv, _ := vectors.RulesKey(t, svc)
 	caller := &paztporthttp.Caller{
-		Stamper: &stamp.Stamper{Svc: svc, Inst: cc.Get("inst").Str(), Key: priv, Now: func() int64 { return ts }},
-		Bundle:  bundleOf(t, c),
+		Stamper:    &stamp.Stamper{Svc: svc, Inst: cc.Get("inst").Str(), Key: priv, Now: func() int64 { return ts }},
+		Bundle:     bundleOf(t, c),
+		Extensions: caseSettings(t, c),
 	}
 	if cc.Get("verifier").Bool() {
 		if nonces == nil {
@@ -206,12 +223,13 @@ func stampCallerCase(
 			Now:            func() int64 { return now },
 			CallMaxAgeMs:   c.Get("callMaxAgeMs").Int(),
 			RunMaxAgeMs:    c.Get("runMaxAgeMs").Int(),
+			Extensions:     caseSettings(t, c),
 		})
 	}
 	if tables := cc.Get("operations"); tables.Len() > 0 {
 		caller.Operations = map[string]policy.OperationTable{}
 		for _, name := range tables.Strs() {
-			text := vectors.Load(t, "http-v3.json").Get("operations").Get(name).Get("file").Str()
+			text := vectors.Load(t, "http-v4.json").Get("operations").Get(name).Get("file").Str()
 			table, err := policy.ReadOperationTable([]byte(text))
 			if err != nil {
 				t.Fatalf("ReadOperationTable(%s): %v", name, err)
@@ -238,8 +256,8 @@ func stampCallerCase(
 	if !named {
 		t.Fatalf("the call's host %q has no receiver name", authority)
 	}
-	o, err := caller.Stamp(call.Get("method").Str(), target, name, body,
-		chainOf(c.Get("inbound")), entries(c.Get("influence")))
+	inbound := paztporthttp.Inbound{Chain: chainOf(c.Get("inbound")), Blocks: blocksOf(t, c.Get("inboundBlocks"))}
+	o, err := caller.Stamp(call.Get("method").Str(), target, name, body, inbound, entries(c.Get("added")))
 	if err != nil {
 		t.Fatalf("Stamp: %v", err)
 	}
@@ -292,7 +310,7 @@ func chainOf(n vectors.Node) stamp.Chain {
 		c[i] = stamp.Stamp{
 			Svc: s.Get("svc").Str(), Inst: s.Get("inst").Str(), RID: s.Get("rid").Str(), TS: s.Get("ts").Int(),
 			Sess: s.Get("sess").Str(), Rcv: s.Get("rcv").Str(), Bind: s.Get("bind").Str(),
-			Infl: s.Get("infl").Str(), Prev: s.Get("prev").Str(), Sig: s.Get("sig").Str(),
+			Ext: s.Get("ext").Str(), Prev: s.Get("prev").Str(), Sig: s.Get("sig").Str(),
 		}
 	}
 	return c

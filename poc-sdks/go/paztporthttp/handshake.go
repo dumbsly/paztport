@@ -36,9 +36,10 @@ const (
 //     bytes.
 //
 // The session is attested only when session.Status says so and a verifier can be pinned to the keyring
-// and root the client presented; otherwise it is unsafe, and the reply lists the operations
-// SessionsConfig.UnsafeDisabled switches off. The reply is in the entry-key form, signed by the entry
-// service's key. A handshake that opens no session changes no session.
+// and root the client presented, with the partner's extension settings; otherwise it is unsafe, and the reply
+// lists the operations SessionsConfig.UnsafeDisabled switches off. Every reply lists the extensions the partner
+// acts on, sorted, whatever its status. The reply is in the entry-key form, signed by the entry service's key.
+// A handshake that opens no session changes no session.
 func (s *Sessions) ServeHandshake(body []byte, peer *PeerCert) Answer {
 	if peer == nil || peer.Peer.Svc == "" || peer.Issuer == "" {
 		return handshakeError(noSession)
@@ -83,6 +84,7 @@ func (s *Sessions) open(req session.Request, peer peerKey) ([]byte, bool) {
 			Now:            cfg.Now,
 			CallMaxAgeMs:   cfg.CallMaxAgeMs,
 			RunMaxAgeMs:    cfg.RunMaxAgeMs,
+			Extensions:     cfg.Extensions,
 		})
 		if err == nil {
 			e.verifier = verify.New(vc)
@@ -106,7 +108,7 @@ func (s *Sessions) open(req session.Request, peer peerKey) ([]byte, bool) {
 		Sess:                  id,
 		Status:                status,
 		Disabled:              disabled,
-		Extensions:            []string{}, // Plan 4b: the sorted names the partner's verifier acts on replace it.
+		Extensions:            cfg.Extensions.ActsOn(),
 	}, cfg.EntryKey)
 	if err != nil {
 		return nil, false

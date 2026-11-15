@@ -372,7 +372,7 @@ func (r *request) stamp(
 		return r.refuse(RefusedMaterial, refusedOther)
 	}
 	start := time.Now()
-	out, err := r.p.caller.Stamp(r.method, r.target, r.receiver, r.body, nil, nil)
+	out, err := r.p.caller.Stamp(r.method, r.target, r.receiver, r.body, paztporthttp.Inbound{}, nil)
 	took := time.Since(start)
 	if err != nil {
 		return r.refuse(RefusedError, refusedOther)

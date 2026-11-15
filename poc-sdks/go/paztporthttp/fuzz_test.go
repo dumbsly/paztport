@@ -121,10 +121,11 @@ func FuzzServeHandshake(f *testing.F) {
 // opened an attested session for the shop, seeded with the calls of the rules' partner cases. A call may
 // name that session and carry a boundary stamp signed in it over the call's own method, target and body,
 // so that the fuzzer reaches the session's verifier with a chain that verifies. It never panics, and its
-// answer keeps the partner's rules: a refusal is 403 and carries nothing, an attested call carries the
-// chain that verified, and any other call carries neither chain nor influence.
+// answer keeps the partner's rules: a refusal is 403, or 400 for an influence item that does not read, and
+// carries nothing; an attested call carries the chain that verified and a verified hand-over; and any other
+// call carries nothing and hands nothing on.
 func FuzzSessionsAccept(f *testing.F) {
-	c := vectors.Rules(f).Get("sessionHeader").Index(1)
+	c := ruleCase(f, "sessionHeader", "the session this peer opened")
 	partner := c.Get("partner")
 	handshake, call := c.Get("steps").Index(0), c.Get("steps").Index(1)
 	template := call.Get("call").Get("stamp")
@@ -145,7 +146,7 @@ func FuzzSessionsAccept(f *testing.F) {
 				}
 				cl := step.Get("call")
 				var flags uint8
-				var sess, proof, infl string
+				var sess, proof, blocks string
 				if ref := cl.Get("session"); !ref.IsNull() && ref.Has("id") {
 					sess = ref.Get("id").Str()
 				} else if !ref.IsNull() {
@@ -157,16 +158,16 @@ func FuzzSessionsAccept(f *testing.F) {
 				if h := cl.Get("proofHeader"); !h.IsNull() {
 					proof = h.Str()
 				}
-				if h := cl.Get("influenceHeader"); !h.IsNull() {
-					infl = h.Str()
+				if h := cl.Get("extensionsHeader"); !h.IsNull() {
+					blocks = h.Str()
 				}
-				f.Add(cl.Get("method").Str(), cl.Get("target").Str(), cl.Get("body").Hex(), "", proof, infl, sess,
+				f.Add(cl.Get("method").Str(), cl.Get("target").Str(), cl.Get("body").Hex(), "", proof, blocks, sess,
 					flags, peerIndex(f, cl.Get("peer")))
 			})
 		})
 	}
 	f.Add("POST", "/charge", []byte{}, "W10", "ew", "not*base64url", " \t", uint8(1), uint8(0))
-	f.Fuzz(func(t *testing.T, method, target string, reqBody []byte, chain, proof, infl, sess string,
+	f.Fuzz(func(t *testing.T, method, target string, reqBody []byte, chain, proof, blocks, sess string,
 		flags, peer uint8) {
 		live := cfg
 		live.Nonces = verify.NewMemoryNonceCache(ttl)
@@ -188,24 +189,28 @@ func FuzzSessionsAccept(f *testing.F) {
 			chain = signBoundary(t, template.With(t), r.Sess, bind)
 		}
 		req := paztporthttp.InboundRequest{Method: method, Target: target, Chain: chain, Proof: proof,
-			Influence: infl, Session: sess, Body: reqBody}
+			Extensions: blocks, Session: sess, Body: reqBody}
 		pa, err := s.Accept(t.Context(), req, peers[int(peer)%len(peers)])
 		if err != nil {
 			t.Fatalf("Accept: %v", err)
 		}
+		carries := pa.Inbound.Chain != nil || pa.Inbound.Blocks != nil || pa.HandOver != nil
 		switch {
 		case pa.Refusal != nil:
-			if pa.Refusal.Status != 403 || !strings.HasPrefix(string(pa.Refusal.Body), `{"reason":"`) ||
-				pa.Attested || pa.Chain != nil || len(pa.Influence) != 0 {
+			unread := pa.Refusal.Status == 400 && string(pa.Refusal.Body) == `{"reason":"INFLUENCE_MISMATCH"}`
+			if (pa.Refusal.Status != 403 && !unread) || !strings.HasPrefix(string(pa.Refusal.Body), `{"reason":"`) ||
+				pa.Attested || carries {
 				t.Fatalf("a refusal %d %s carries %+v", pa.Refusal.Status, pa.Refusal.Body, pa)
 			}
 		case pa.Attested:
-			if pa.Chain == nil || pa.Result == nil || !pa.Result.OK() {
-				t.Fatalf("an attested call with chain %v and result %v", pa.Chain, pa.Result)
+			if len(pa.Inbound.Chain) != 1 || len(pa.Inbound.Blocks) != 1 || pa.Result == nil || !pa.Result.OK() ||
+				pa.HandOver == nil || !pa.HandOver.Verified() {
+				t.Fatalf("an attested call with Inbound %+v, result %v, hand-over %v", pa.Inbound, pa.Result,
+					pa.HandOver)
 			}
 		default:
-			if pa.Chain != nil || len(pa.Influence) != 0 {
-				t.Fatalf("an unattested call carries chain %v and influence %v", pa.Chain, pa.Influence)
+			if carries {
+				t.Fatalf("an unattested call carries %+v", pa)
 			}
 		}
 	})

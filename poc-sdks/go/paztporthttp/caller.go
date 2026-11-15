@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"unicode"
 
@@ -150,14 +151,23 @@ type Caller struct {
 	// keyed operation the caller's response key is the unkeyed one and its own check refuses the second
 	// item's response REPLAY; hold the receiver's table to call a keyed operation per item.
 	Operations map[string]policy.OperationTable
+	// Extensions is this service's extension settings, for a caller with no Verifier: whether it acts on
+	// influence decides the block each call's stamp signs. Beside a Verifier the settings are the Verifier's,
+	// and this must be the zero value or equal to them, or Stamp panics: a service states its settings once.
+	Extensions verify.Extensions
+	// Requires holds, by the service name of each receiver this service calls, the extensions this service
+	// requires of it, which its own block on each call to that receiver lists (wire.md, Blocks): a receiver that
+	// acts on none of them refuses the call. A receiver not held requires nothing. Each name must be an extension
+	// name, and none twice, or Stamp refuses the calls to that receiver.
+	Requires map[string][]string
 }
 
-// Outbound is one call, stamped: the headers to send with it and what was stamped, which [Caller.Check]
-// checks its response against.
+// Outbound is one call, stamped: the headers to send with it and what was stamped and sent, which
+// [Caller.Check] checks its response against.
 type Outbound struct {
 	// Headers are the headers to set on the call, in order: X-Path-Chain, then X-Path-Proof when the
-	// bundle holds a proof for the route. No blocks header is sent: every stamp this caller signs attaches the
-	// empty block.
+	// bundle holds a proof for the route, then X-Path-Extensions, which every call carries, the empty blocks of
+	// an origin's call included.
 	// The adapter first removes every header the request carries that [wire.IsPaztport] names, all values,
 	// then sets each one of these, replacing and never appending. A gateway's external processor also
 	// removes every such header from the response it passes back.
@@ -165,11 +175,14 @@ type Outbound struct {
 	// Sent is the chain sent, ending in this call's stamp, whose rcv is the receiver's policy name, with
 	// the operation when the call names one. The service it names is the response's target.
 	Sent stamp.Chain
+	// Blocks are the blocks sent, one per stamp of Sent: those the request carried, unchanged, then this call's
+	// own, to which its stamp commits.
+	Blocks stamp.Blocks
 	// Proof is the proof sent with it, or nil for none.
 	Proof *policy.Proof
 	// Key is the call's key value, "" for none: the one the receiver's operation table gave for the call
 	// when the stamp names an operation that declares a key. [Caller.Check] keeps it in the response's
-	// nonce key, <rid>|<last rcv>|<key>|resp.
+	// nonce key ([wire.ResponseNonceKey]).
 	Key string
 }
 
@@ -184,24 +197,29 @@ type Received struct {
 	Entries []influence.Entry
 }
 
-// Stamp stamps a call to receiver, the receiver's policy name, after the chain inbound, attaching the empty
-// block, and returns the headers to send it with. An embedder that names operations passes the name, '#' and
-// the operation the call invokes: "payment#pay". method and target are
-// the request's as sent: target is the request target in origin form, the raw path, then "?" and the raw
-// query, exactly as the transport writes it on the wire (for net/http's client, req.URL.RequestURI(); for
-// a gateway's external processor, the :path header), never one received and then rebuilt from a parsed
-// URL. body is the body, whole.
+// Stamp stamps a call to receiver, the receiver's policy name, after the chain inbound carries, and returns
+// the headers to send it with. An embedder that names operations passes the name, '#' and the operation the call
+// invokes: "payment#pay". method and target are the request's as sent: target is the request target in origin
+// form, the raw path, then "?" and the raw query, exactly as the transport writes it on the wire (for net/http's
+// client, req.URL.RequestURI(); for a gateway's external processor, the :path header), never one received and
+// then rebuilt from a parsed URL. body is the body, whole.
 //
-// inbound is the chain the request being served carried, nil where there is none; an origin starts a new
-// chain and ignores it, and any other service needs it. infl, the influence so far, is not sent: the call
-// carries no blocks, so a later hop refuses any chain in which a stamp before it attaches one. Neither is
-// changed.
+// inbound is what the request being served carries on, [Accepted.Inbound] or [PartnerAccepted.Inbound], the zero
+// Inbound where there is none; an origin starts a new chain and ignores it, and any other service needs its
+// chain. The call sends the blocks inbound holds unchanged, one empty block per stamp where it holds none, then
+// this service's own block, to which its stamp commits (wire.md, Blocks). Where the service's settings act on
+// influence, its own block names influence with added, what it added itself for the request so far, the
+// responses to its own calls among them and never what it received, which travels on in its own blocks, [] where
+// it added nothing (influence.md, The every-stamp rule). Otherwise added is not sent, and its block names nothing.
+// Either way the block requires what [Caller.Requires] holds for the receiver's service. Neither inbound nor
+// added is changed.
 //
-// A gateway's external processor, an origin that stamps the requests it lets in, calls Stamp with
-// inbound and infl nil: the headers are then X-Path-Chain, holding the one origin stamp, and X-Path-Proof
-// when the bundle holds the route's proof. Whoever sends the call first removes every header the request
-// carries that [wire.IsPaztport] names, all values, then sets each header Stamp returns, replacing and
-// never appending; a gateway's external processor also removes them from the response it passes back.
+// A gateway's external processor, an origin that stamps the requests it lets in, calls Stamp with the zero
+// Inbound and no added: the headers are then X-Path-Chain, holding the one origin stamp, X-Path-Proof when the
+// bundle holds the route's proof, and X-Path-Extensions, holding the origin's one block. Whoever sends the call
+// first removes every header the request carries that [wire.IsPaztport] names, all values, then sets each header
+// Stamp returns, replacing and never appending; a gateway's external processor also removes them from the
+// response it passes back.
 //
 // Where the caller holds the table of the receiver's service (see [Caller.Operations]), the call is
 // matched against it on method and the raw path and raw query of target, nothing decoded. A receiver
@@ -209,21 +227,34 @@ type Received struct {
 // operation must name the one matched; and the key value of a keyed operation, read from the target, is
 // kept in [Outbound.Key].
 //
-// Stamp refuses an empty method or target, which no request has, a method or target that is not valid
-// UTF-8, which has no binding (see [wire.Bind]), a receiver that is no [policy.ValidReceiver], and whatever
-// the stamper refuses: a stamper whose svc is not a route node (see [policy.ValidNode]). Where the caller
-// holds the table, it refuses a call no operation matches, a receiver naming another operation than the
-// call matches, and a call to a keyed operation that gives no key value, such as a percent-encoded
-// segment. Nothing is signed in any of these cases, and the error of the last two names the receiver and
-// operation, never the target or any value of the call. It refuses, too, every call to a service whose
-// table it holds under another service's name, signing nothing.
+// Stamp refuses inbound blocks that are not one per stamp of inbound's chain, blocks beside no chain, an empty
+// method or target, which no request has, a method or target that is not valid UTF-8, which has no binding (see
+// [wire.Bind]), a receiver that is no [policy.ValidReceiver], an added entry or a Requires list that no block can
+// hold, blocks whose header would pass the wire limit, 256 KiB, since nothing is dropped to make room, and
+// whatever the stamper refuses: a stamper whose svc is not a route node (see [policy.ValidNode]). Where the
+// caller holds the table, it refuses a call no operation matches, a receiver naming another operation than the
+// call matches, and a call to a keyed operation that gives no key value, such as a percent-encoded segment.
+// Nothing is signed in any of these cases, and the error of the last two names the receiver and operation, never
+// the target or any value of the call. It refuses, too, every call to a service whose table it holds under
+// another service's name, signing nothing.
+//
+// It panics on a caller whose Extensions differ from its Verifier's, a fault in the program.
 //
 // An embedder may still pass "svc#operation" with no table held; that call reads no key value, so for a
 // keyed operation the caller's response key is the unkeyed one and its own check refuses the second item's
 // response REPLAY; hold the receiver's table to call a keyed operation per item.
 func (c *Caller) Stamp(
-	method, target, receiver string, body []byte, inbound stamp.Chain, infl []influence.Entry,
+	method, target, receiver string, body []byte, inbound Inbound, added []influence.Entry,
 ) (Outbound, error) {
+	ext := settings(c.Verifier, c.Extensions, "caller")
+	// One block per inbound stamp (wire.md, Blocks): any other list would be signed into a call the next hop
+	// refuses at check 9a, so it is refused before anything is signed.
+	if inbound.Blocks != nil && len(inbound.Blocks) != len(inbound.Chain) {
+		if len(inbound.Chain) == 0 {
+			return Outbound{}, errors.New("paztport http: blocks given with no inbound chain; nothing is sent")
+		}
+		return Outbound{}, errors.New("paztport http: the inbound blocks are not one per inbound stamp; nothing is sent")
+	}
 	if method == "" || target == "" {
 		return Outbound{}, errors.New("paztport http: can't stamp a call with an empty method or target")
 	}
@@ -235,8 +266,23 @@ func (c *Caller) Stamp(
 	if err != nil {
 		return Outbound{}, err
 	}
-	// Plan 4b: the blocks received, then this service's own, travel in X-Path-Extensions; until then none.
-	chain, proof, err := c.Stamper.Next(inbound, receiver, bind, stamp.EmptyBlock, c.Bundle)
+	own, err := c.ownBlock(ext, policy.Service(receiver), added)
+	if err != nil {
+		return Outbound{}, err
+	}
+	var blocks stamp.Blocks
+	if !c.Stamper.Origin && len(inbound.Chain) > 0 {
+		if blocks = slices.Clone(inbound.Blocks); blocks == nil {
+			blocks = make(stamp.Blocks, len(inbound.Chain))
+		}
+	}
+	blocks = append(blocks, own)
+	// Written before anything is signed: blocks past the wire limit are refused here, and nothing is dropped.
+	blocksTok, err := wire.EncodeBlocks(blocks)
+	if err != nil {
+		return Outbound{}, err
+	}
+	chain, proof, err := c.Stamper.Next(inbound.Chain, receiver, bind, own, c.Bundle)
 	if err != nil {
 		return Outbound{}, err
 	}
@@ -252,7 +298,27 @@ func (c *Caller) Stamp(
 		}
 		headers = append(headers, wire.Header{Name: wire.Proof, Value: proofTok})
 	}
-	return Outbound{Headers: headers, Sent: chain, Proof: proof, Key: key}, nil
+	headers = append(headers, wire.Header{Name: wire.Extensions, Value: blocksTok})
+	return Outbound{Headers: headers, Sent: chain, Blocks: blocks, Proof: proof, Key: key}, nil
+}
+
+// ownBlock returns this service's own block for a call to the service named service (influence.md, The
+// every-stamp rule): where ext acts on influence, influence named with added, [] when it added nothing;
+// otherwise a block that names nothing, the empty block where nothing is required of the receiver. Either
+// requires what c.Requires holds for service.
+func (c *Caller) ownBlock(ext verify.Extensions, service string, added []influence.Entry) (stamp.Block, error) {
+	requires := c.Requires[service]
+	var own stamp.Block
+	var err error
+	if ext.ActsOnName(influence.Name) {
+		own, err = influence.RequestBlock(added, requires)
+	} else {
+		own, err = stamp.NewBlock(nil, requires)
+	}
+	if err != nil {
+		return stamp.Block{}, fmt.Errorf("paztport http: the call to %s has no block; nothing is sent: %w", service, err)
+	}
+	return own, nil
 }
 
 // operate names the receiver a call is stamped to and returns its key value, "" for none, from the table the
@@ -286,19 +352,21 @@ func (c *Caller) operate(method, target, receiver string) (named, key string, er
 	return named, key, nil
 }
 
-// Check checks the response to the call o, with responseHeader, the X-Path-Response header's first value
-// as received, "" when it is absent, status, and body whole, and returns what it contributes. With a
-// verifier it runs [wire.CheckResponse] on the chain and proof o sent, as received by this service. Every
-// response, verified or not, and any response to a caller with no verifier, adds exactly one local-untrusted
-// entry with src "http:<target>" and h its result hash, so content nobody vouched for still counts against
-// later calls. The target is the service the rcv of o's last stamp names, without any operation
+// Check checks the response to the call o, as Stamp returned it, with responseHeader, the X-Path-Response
+// header's first value as received, "" when it is absent, status, and body whole, and returns what it
+// contributes. With a verifier it runs [wire.CheckResponse] on the chain, blocks and proof o sent, as received by
+// this service. Every response, verified or not, and any response to a caller with no verifier, adds exactly one
+// local-untrusted entry with src "http:<target>" and h its result hash, so content nobody vouched for still counts
+// against later calls. The target is the service the rcv of o's last stamp names, without any operation
 // ([policy.Service]): a call to "payment#pay" adds an entry from "http:payment".
 //
-// The response's nonce key is <rid>|<last rcv>|resp, or <rid>|<last rcv>|<key>|resp where o has a key.
+// The response's nonce key is the JCS text of [rid, last rcv, "resp"], or of [rid, last rcv, key, "resp"] where o
+// has a key ([wire.ResponseNonceKey]).
 //
 // ctx reaches only the verifier's nonce cache. The error is the cache's, when it could not answer, and
 // comes with the zero Received; the response then counts for nothing it can vouch for, and the embedder
-// fails the call.
+// fails the call. Check panics, as [wire.CheckResponse] does, on an o whose Blocks are not one per stamp of
+// Sent, which Stamp never returns.
 func (c *Caller) Check(
 	ctx context.Context, o Outbound, responseHeader string, status int, body []byte,
 ) (Received, error) {
@@ -310,9 +378,7 @@ func (c *Caller) Check(
 	if c.Verifier == nil {
 		return Received{Entries: untrusted(src, wire.ResultHash(status, body))}, nil
 	}
-	// The call carried no blocks header, so the receiver read one empty block per stamp sent.
-	sentBlocks := make(stamp.Blocks, len(o.Sent))
-	rc, err := wire.CheckResponse(ctx, c.Verifier, o.Sent, sentBlocks, o.Proof, responseHeader, status, body,
+	rc, err := wire.CheckResponse(ctx, c.Verifier, o.Sent, o.Blocks, o.Proof, responseHeader, status, body,
 		c.Stamper.Svc, o.Key)
 	if err != nil {
 		return Received{}, err

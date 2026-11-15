@@ -2,9 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package handover compares a hand-over with the one a vector case expects, and reads a case's extension
-// settings, for the module's tests. Only tests import it. It is a package of its own because it reads verify's types, which package vectors may not, since
-// the tests of packages verify imports use vectors. It reads the expected hand-over from its text in the vector
-// file, with the SDK's own reader, and not through vectors, because only tests may import that harness.
+// settings, for the module's tests. Only tests import it. It is a package of its own because it reads verify's
+// types, which package vectors may not, since the tests of packages verify imports use vectors. It reads the
+// expected hand-over and the settings from their text in the vector file, with the SDK's own reader, and not
+// through vectors, because only tests may import that harness.
 package handover
 
 import (

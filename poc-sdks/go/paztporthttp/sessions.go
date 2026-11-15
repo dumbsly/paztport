@@ -56,6 +56,10 @@ type SessionsConfig struct {
 	IdleMs int64
 	// CallMaxAgeMs and RunMaxAgeMs are each attested session's verifier's windows: see verify.Config.
 	CallMaxAgeMs, RunMaxAgeMs int64
+	// Extensions is the partner's extension settings: the extensions it acts on and the names it carries. A
+	// partner has no verifier of its own, so each attested session's verifier is built with these, and every
+	// reply lists the names it acts on, sorted (sessions.md, The reply). The zero value acts on none.
+	Extensions verify.Extensions
 	// Nonces is the replay cache every session's verifier shares.
 	Nonces verify.NonceCache
 	// Now is the partner's clock, in milliseconds since the Unix epoch: each handshake judges both sides'

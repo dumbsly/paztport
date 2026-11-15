@@ -18,14 +18,21 @@ import (
 type Accepted struct {
 	// Refusal is the answer to send in place of the handler's, or nil when the request is served.
 	Refusal *Answer
-	// Inbound is the chain the request carried, for the handler's own calls to stamp onto. It is nil
-	// when none came, it did not read, the request was refused, or this service is an origin, which
-	// starts a new request tree.
-	Inbound stamp.Chain
-	// Verified reports whether Inbound passed the live order at this hop. A chain that failed in audit mode,
-	// was not checked (the hop is off, or has nothing to verify with), whose nonce cache could not answer or
-	// came to an origin is not verified. Plan 4b: the hand-over joins it; until then no item is carried.
+	// Inbound is the chain the request carried and its blocks, for the handler's own calls to stamp onto
+	// ([Caller.Stamp]), which send the blocks unchanged before their own. It is the zero Inbound when no chain
+	// came, it did not read, the request was refused, or this service is an origin, which starts a new request
+	// tree.
+	Inbound Inbound
+	// Verified reports whether Inbound's chain passed the live order at this hop. A chain that failed in audit
+	// mode, was not checked (the hop is off, or has nothing to verify with), whose nonce cache could not answer or
+	// came to an origin is not verified.
 	Verified bool
+	// HandOver is what the request hands this service for the extensions its settings act on: one entry per
+	// stamp, in chain order, for each. It is the verifier's, and verified, when Verified; on any other request
+	// served with a chain that read it is the items of blocks check 9a matched to their stamps, not verified
+	// ([verify.ServedUnverified]). It is nil where the chain did not read or none came, at an origin, and on a
+	// refusal.
+	HandOver *verify.HandOver
 	// Result is the live order's result on the request, or nil when it did not run or its nonce cache
 	// could not answer. Under a mode it is the result to report; for a service with no mode it decided
 	// only whether to attest. The embedder may build an event from it; the caller is never told it.
@@ -35,11 +42,13 @@ type Accepted struct {
 	Audit bool
 	// CacheErr is the nonce cache's error, when it could not answer, for the embedder's own log; nil
 	// otherwise. The request is then undecided: it is refused with [Unavailable] under enforce, and
-	// otherwise served unverified and unattested, with no Result, carrying the chain as received.
+	// otherwise served unverified and unattested, with no Result, carrying its chain and blocks once check 9a
+	// has held on them.
 	CacheErr error
 
-	key    string    // the request's key value, "" for none
-	attest *attester // nil unless the answer is attested
+	key    string            // the request's key value, "" for none
+	attest *attester         // nil unless the answer is attested
+	ext    verify.Extensions // the service's extension settings, which decided HandOver
 }
 
 // attester is what an attested answer is stamped with: this service's stamper and the chain the request
@@ -57,11 +66,12 @@ type attester struct {
 // nonce cache could not answer. Two deliveries of one request give the same key, so the application can
 // tell a request it has already handled.
 func (a Accepted) Delivery() (Delivery, bool) {
-	if !a.Verified || len(a.Inbound) == 0 {
+	c := a.Inbound.Chain
+	if !a.Verified || len(c) == 0 {
 		return Delivery{}, false
 	}
-	last := a.Inbound[len(a.Inbound)-1]
-	return Delivery{RID: a.Inbound[0].RID, Svc: last.Svc, Rcv: last.Rcv, Key: a.key, Bind: last.Bind}, true
+	last := c[len(c)-1]
+	return Delivery{RID: c[0].RID, Svc: last.Svc, Rcv: last.Rcv, Key: a.key, Bind: last.Bind}, true
 }
 
 // Delivery is the key of one delivery of a verified request, for the application's own idempotency

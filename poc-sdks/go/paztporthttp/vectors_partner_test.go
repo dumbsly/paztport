@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/dumbsly/paztport/poc-sdks/go/influence"
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/vectors"
+	"github.com/dumbsly/paztport/poc-sdks/go/internal/vectors/handover"
 	"github.com/dumbsly/paztport/poc-sdks/go/keys"
 	"github.com/dumbsly/paztport/poc-sdks/go/paztporthttp"
 	"github.com/dumbsly/paztport/poc-sdks/go/paztporthttp/wire"
@@ -18,18 +18,20 @@ import (
 	"github.com/dumbsly/paztport/poc-sdks/go/verify"
 )
 
-// TestPartnerRulesVectors replays the partner kinds of http-v3.json's rules: each case runs its steps against
-// one partner, its clock set to each step's at. A handshake is served by Sessions.ServeHandshake; a call is
-// decided by Sessions.Accept, and then, as an adapter does, an unsafe session's switched-off endpoints are
-// refused before the handler runs.
+// TestPartnerRulesVectors replays the partner kinds of http-v4.json's rules: each case runs its steps against
+// one partner, its clock set to each step's at and its settings the case's. A handshake is served by
+// Sessions.ServeHandshake; a call is decided by Sessions.Accept, and then, as an adapter does, an unsafe
+// session's switched-off endpoints are refused before the handler runs. Each step's outcome is compared but for
+// whether a trusted record may be written, and the items a call hands on are compared with handedOn.
 func TestPartnerRulesVectors(t *testing.T) {
 	kinds := []struct {
 		name  string
 		cases int
 	}{
-		{"sessionHeader", 9}, {"sessionRegistry", 6}, {"handshakeErrors", 14}, {"sessionExpiry", 3},
-		{"boundaryRefusals", 6}, {"partnerTrustedRecord", 5},
+		{"sessionHeader", 10}, {"sessionRegistry", 6}, {"handshakeErrors", 15}, {"sessionExpiry", 3},
+		{"boundaryRefusals", 7}, {"partnerTrustedRecord", 7},
 	}
+	refusals := map[string]bool{}
 	for _, kind := range kinds {
 		t.Run(kind.name, func(t *testing.T) {
 			cases := vectors.Rules(t).Get(kind.name)
@@ -38,10 +40,19 @@ func TestPartnerRulesVectors(t *testing.T) {
 			}
 			cases.Each(func(name string, c vectors.Node) {
 				t.Run(name, func(t *testing.T) {
-					runPartnerScript(t, c.With(t))
+					for _, refusal := range runPartnerScript(t, c.With(t)) {
+						refusals[refusal] = true
+					}
 				})
 			})
 		})
+	}
+	// The codes the version adds at a partner: blocks the boundary stamp does not commit to, and an item that
+	// does not read at a partner acting on influence.
+	for _, want := range []string{`403 {"reason":"EXTENSION_MISMATCH"}`, `400 {"reason":"INFLUENCE_MISMATCH"}`} {
+		if !refusals[want] {
+			t.Errorf("no partner call is refused %s", want)
+		}
 	}
 }
 
@@ -55,8 +66,8 @@ type partnerScript struct {
 }
 
 // runPartnerScript runs partner case c's steps in order and fails t at the first whose outcome is not
-// its expected.
-func runPartnerScript(t *testing.T, c vectors.Node) {
+// its expected. It returns the refusals the calls were answered with.
+func runPartnerScript(t *testing.T, c vectors.Node) []string {
 	t.Helper()
 	p := c.Get("partner")
 	sc := &partnerScript{now: p.Get("start").Int(), opened: map[string]string{}}
@@ -71,6 +82,7 @@ func runPartnerScript(t *testing.T, c vectors.Node) {
 	if steps.Len() == 0 {
 		t.Fatal("the case has no steps")
 	}
+	var refusals []string
 	for i := range steps.Len() {
 		step := steps.Index(i)
 		sc.now = step.Get("at").Int()
@@ -79,13 +91,22 @@ func runPartnerScript(t *testing.T, c vectors.Node) {
 			got = sc.handshake(t, step)
 			want = expectedHandshake(step.Get("expected"))
 		} else {
-			got = sc.call(t, step.Get("call"))
+			var h *verify.HandOver
+			got, h = sc.call(t, step.Get("call"))
 			want = expectedCall(t, step.Get("expected"))
+			handover.Match(t, fmt.Sprintf("step %d", i), h, handover.Expected(t, step.Get("expected").Get("handedOn").Raw()))
+			if h != nil && !h.Verified() {
+				t.Errorf("step %d: the hand-over is not verified", i)
+			}
+			if r := step.Get("expected").Get("refusal"); !r.IsNull() {
+				refusals = append(refusals, fmt.Sprintf("%d %s", r.Get("status").Int(), r.Get("body").With(t).Hex()))
+			}
 		}
 		if got != want {
 			t.Fatalf("step %d: got %s\nwant %s", i, got, want)
 		}
 	}
+	return refusals
 }
 
 // partnerConfig returns the configuration partner p describes, its material read from its files' text by
@@ -126,6 +147,7 @@ func partnerConfig(t testing.TB, p vectors.Node, now func() int64) paztporthttp.
 		IdleMs:         p.Get("sessionIdleMs").Int(),
 		CallMaxAgeMs:   p.Get("callMaxAgeMs").Int(),
 		RunMaxAgeMs:    p.Get("runMaxAgeMs").Int(),
+		Extensions:     handover.Settings(t, p.Get("actsOn").Raw(), p.Get("allowedExtensions").Raw()),
 		Nonces:         verify.NewMemoryNonceCache(p.Get("nonceTtlMs").Int()),
 		Now:            now,
 	}
@@ -144,7 +166,7 @@ func (sc *partnerScript) handshake(t *testing.T, step vectors.Node) string {
 	}
 	a := sc.sessions.ServeHandshake(body, partnerPeer(t, h.Get("peer")))
 	if a.Status != 200 {
-		return handshakeOutcome(a.Status, string(a.Body), "null", "null")
+		return handshakeOutcome(a.Status, string(a.Body), "null", "null", "null")
 	}
 	r, err := session.ParseReply(a.Body)
 	if err != nil {
@@ -153,13 +175,13 @@ func (sc *partnerScript) handshake(t *testing.T, step vectors.Node) string {
 	if as := step.Get("as"); !as.IsNull() {
 		sc.opened[as.Str()] = r.Sess
 	}
-	return handshakeOutcome(a.Status, "null", r.Status, fmt.Sprintf("%q", r.Disabled))
+	return handshakeOutcome(a.Status, "null", r.Status, fmt.Sprintf("%q", r.Disabled), fmt.Sprintf("%q", r.Extensions))
 }
 
 // expectedHandshake returns a handshake step's expected, in the shape of handshakeOutcome: the body of a
 // 400 is exactly {"error":"<code>"}.
 func expectedHandshake(e vectors.Node) string {
-	body, status, disabled := "null", "null", "null"
+	body, status, disabled, extensions := "null", "null", "null", "null"
 	if !e.Get("error").IsNull() {
 		body = `{"error":"` + e.Get("error").Str() + `"}`
 	}
@@ -169,16 +191,20 @@ func expectedHandshake(e vectors.Node) string {
 	if !e.Get("disabled").IsNull() {
 		disabled = fmt.Sprintf("%q", e.Get("disabled").Strs())
 	}
-	return handshakeOutcome(int(e.Get("status").Int()), body, status, disabled)
+	if !e.Get("extensions").IsNull() {
+		extensions = fmt.Sprintf("%q", e.Get("extensions").Strs())
+	}
+	return handshakeOutcome(int(e.Get("status").Int()), body, status, disabled, extensions)
 }
 
-func handshakeOutcome(status int, body, sessionStatus, disabled string) string {
-	return fmt.Sprintf("{status: %d, body: %s, sessionStatus: %s, disabled: %s}", status, body, sessionStatus, disabled)
+func handshakeOutcome(status int, body, sessionStatus, disabled, extensions string) string {
+	return fmt.Sprintf("{status: %d, body: %s, sessionStatus: %s, disabled: %s, extensions: %s}", status, body,
+		sessionStatus, disabled, extensions)
 }
 
 // call makes a call step's request as the peer it names, its boundary stamp signed now in the session the
-// stamp names, and returns its outcome in the shape of expectedCall.
-func (sc *partnerScript) call(t *testing.T, c vectors.Node) string {
+// stamp names, and returns its outcome in the shape of expectedCall, with what it hands on.
+func (sc *partnerScript) call(t *testing.T, c vectors.Node) (string, *verify.HandOver) {
 	t.Helper()
 	req := paztporthttp.InboundRequest{
 		Method: c.Get("method").Str(),
@@ -192,8 +218,8 @@ func (sc *partnerScript) call(t *testing.T, c vectors.Node) string {
 	if h := c.Get("proofHeader"); !h.IsNull() {
 		req.Proof = h.Str()
 	}
-	if h := c.Get("influenceHeader"); !h.IsNull() {
-		req.Influence = h.Str()
+	if h := c.Get("extensionsHeader"); !h.IsNull() {
+		req.Extensions = h.Str()
 	}
 	a, err := sc.sessions.Accept(t.Context(), req, partnerPeer(t, c.Get("peer")))
 	if err != nil {
@@ -206,23 +232,15 @@ func (sc *partnerScript) call(t *testing.T, c vectors.Node) string {
 		refusal = &r
 	}
 	if refusal != nil {
-		if a.Attested || a.Chain != nil || len(a.Influence) != 0 {
+		if a.Attested || a.Inbound.Chain != nil || a.Inbound.Blocks != nil || a.HandOver != nil {
 			t.Fatalf("a refusal carries what a served call does: %+v", a)
 		}
-		return callOutcome(fmt.Sprintf("%d %s", refusal.Status, refusal.Body), false, nil, false)
+		return callOutcome(fmt.Sprintf("%d %s", refusal.Status, refusal.Body), false), nil
 	}
-	if a.Attested != (a.Chain != nil) {
-		t.Fatalf("Attested is %v with chain %v", a.Attested, a.Chain)
+	if a.Attested != (a.Inbound.Chain != nil) || len(a.Inbound.Blocks) != len(a.Inbound.Chain) {
+		t.Fatalf("Attested is %v with Inbound %+v", a.Attested, a.Inbound)
 	}
-	return callOutcome("null", a.Attested, a.Influence, a.TrustedRecord(readOf(c)))
-}
-
-// readOf returns what call step c's handler reads once the call is accepted: its read, or none.
-func readOf(c vectors.Node) []influence.Entry {
-	if !c.Has("read") {
-		return nil
-	}
-	return entries(c.Get("read"))
+	return callOutcome("null", a.Attested), a.HandOver
 }
 
 // expectedCall returns a call step's expected, in the shape of callOutcome.
@@ -232,12 +250,11 @@ func expectedCall(t *testing.T, e vectors.Node) string {
 	if r := e.Get("refusal"); !r.IsNull() {
 		refusal = fmt.Sprintf("%d %s", r.Get("status").Int(), r.Get("body").With(t).Hex())
 	}
-	return callOutcome(refusal, e.Get("attested").Bool(), entries(e.Get("influence")), e.Get("trustedRecord").Bool())
+	return callOutcome(refusal, e.Get("attested").Bool())
 }
 
-func callOutcome(refusal string, attested bool, infl []influence.Entry, trusted bool) string {
-	return fmt.Sprintf("{refusal: %s, attested: %v, influence: %+v, trustedRecord: %v}", refusal, attested, infl,
-		trusted)
+func callOutcome(refusal string, attested bool) string {
+	return fmt.Sprintf("{refusal: %s, attested: %v}", refusal, attested)
 }
 
 // sessionRef returns the session id ref names: one a handshake opened as {"of": <as>}, a literal
@@ -259,7 +276,7 @@ func (sc *partnerScript) sessionRef(t *testing.T, ref vectors.Node) string {
 
 // boundaryChain returns the X-Path-Chain value of the one boundary stamp st describes, signed now with
 // its key: in the session its sess names, binding the call's method and target and the stamp's own body,
-// and committing to the stamp's influence.
+// and committing to the stamp's block.
 func (sc *partnerScript) boundaryChain(t *testing.T, st vectors.Node, method, target string) string {
 	t.Helper()
 	bind, err := wire.Bind(method, target, st.Get("body").With(t).Hex())
@@ -270,17 +287,13 @@ func (sc *partnerScript) boundaryChain(t *testing.T, st vectors.Node, method, ta
 }
 
 // signBoundary returns the X-Path-Chain value of the one boundary stamp st describes, in session sess and
-// binding bind, signed now with its key and committing to the stamp's influence.
+// binding bind, signed now with its key and committing to the stamp's block.
 func signBoundary(t testing.TB, st vectors.Node, sess, bind string) string {
 	t.Helper()
-	infl, err := influence.Commit(entries(st.Get("influence")))
-	if err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
 	key, _ := vectors.RulesKey(t, st.Get("key").Str())
 	s, err := stamp.Sign(stamp.Stamp{
 		Svc: st.Get("svc").Str(), Inst: st.Get("inst").Str(), RID: st.Get("rid").Str(), TS: st.Get("ts").Int(),
-		Sess: sess, Rcv: st.Get("rcv").Str(), Bind: bind, Infl: infl,
+		Sess: sess, Rcv: st.Get("rcv").Str(), Bind: bind, Ext: blockOf(t, st.Get("block")).Commit(),
 	}, key)
 	if err != nil {
 		t.Fatalf("stamp.Sign: %v", err)

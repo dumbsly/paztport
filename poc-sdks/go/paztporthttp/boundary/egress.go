@@ -243,7 +243,7 @@ type Exchange struct {
 func (e *Egress) Begin(
 	a paztporthttp.Accepted, infl []influence.Entry, path string, body []byte,
 ) (*Exchange, Step, error) {
-	if !a.Verified || len(a.Inbound) == 0 {
+	if !a.Verified || len(a.Inbound.Chain) == 0 {
 		return nil, Step{}, ErrNotVerified
 	}
 	if path == "" {
@@ -255,11 +255,12 @@ func (e *Egress) Begin(
 	}
 	cfg := &e.cfg
 	// Plan 4b: the blinded entries travel in the boundary block; until then they are checked, not sent.
-	if _, err := influence.Reduce(infl, cfg.BoundaryKey, a.Inbound[0].RID, cfg.Partner, cfg.Stamper.Svc); err != nil {
+	rid := a.Inbound.Chain[0].RID
+	if _, err := influence.Reduce(infl, cfg.BoundaryKey, rid, cfg.Partner, cfg.Stamper.Svc); err != nil {
 		return nil, Step{}, err
 	}
 	x := &Exchange{
-		e: e, inbound: slices.Clone(a.Inbound), infl: slices.Clone(infl), path: path, body: bytes.Clone(body),
+		e: e, inbound: slices.Clone(a.Inbound.Chain), infl: slices.Clone(infl), path: path, body: bytes.Clone(body),
 		bind: bind,
 	}
 	s := e.take()

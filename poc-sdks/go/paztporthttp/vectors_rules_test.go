@@ -6,12 +6,13 @@ package paztporthttp_test
 import (
 	"encoding/hex"
 	"fmt"
-	"slices"
 	"strings"
 	"testing"
 
 	"github.com/dumbsly/paztport/poc-sdks/go/influence"
+	"github.com/dumbsly/paztport/poc-sdks/go/internal/json"
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/vectors"
+	"github.com/dumbsly/paztport/poc-sdks/go/internal/vectors/handover"
 	"github.com/dumbsly/paztport/poc-sdks/go/keys"
 	"github.com/dumbsly/paztport/poc-sdks/go/paztporthttp"
 	"github.com/dumbsly/paztport/poc-sdks/go/policy"
@@ -19,11 +20,15 @@ import (
 	"github.com/dumbsly/paztport/poc-sdks/go/verify"
 )
 
-// TestReceiverRulesVectors replays the receiver kinds of http-v3.json's rules: each case enters its
-// request uses times at its service, against one nonce cache already holding spent, the handler then
-// reads read, and the last entry's answer is compared with expected.
+// TestReceiverRulesVectors replays the receiver kinds of http-v4.json's rules: each case enters its request uses
+// times at its service, under the case's extension settings, against one nonce cache already holding spent, and
+// the last entry's answer is compared with expected: the refusal, whether the chain verified and the answer is
+// attested, and the items handed on, by name acted on. Whether a public write or a trusted record is allowed is
+// not compared here.
 func TestReceiverRulesVectors(t *testing.T) {
-	for _, kind := range []string{"requests", "unreadableInfluence", "attestation", "refusals", "trustedRecord"} {
+	refusals := map[string]bool{}
+	for _, kind := range []string{"requests", "influenceItems", "servedUnverified", "attestation", "refusals",
+		"trustedRecord"} {
 		t.Run(kind, func(t *testing.T) {
 			cases := vectors.Rules(t).Get(kind)
 			if cases.Len() == 0 {
@@ -32,14 +37,29 @@ func TestReceiverRulesVectors(t *testing.T) {
 			cases.Each(func(name string, c vectors.Node) {
 				t.Run(name, func(t *testing.T) {
 					c := c.With(t)
-					got := runReceiverCase(t, c)
-					want := expectedAnswer(t, c.Get("expected"))
-					if !got.equal(want) {
+					a := runReceiverCase(t, c)
+					got := answerOf(a)
+					e := c.Get("expected")
+					want := expectedAnswer(t, e)
+					if got != want {
 						t.Fatalf("got %s\nwant %s", got, want)
 					}
+					handover.Match(t, "handed on", a.HandOver, handover.Expected(t, e.Get("handedOn").Raw()))
+					if a.HandOver != nil && a.HandOver.Verified() != a.Verified {
+						t.Errorf("the hand-over's Verified is %v, the request's %v", a.HandOver.Verified(), a.Verified)
+					}
+					refusals[want.refusal] = true
 				})
 			})
 		})
+	}
+	// The codes the version adds at a receiver: check 9a where it serves unverified, an item that does not read,
+	// and a last block requiring what the service does not act on, refused in enforce mode.
+	for _, want := range []string{`400 {"reason":"EXTENSION_MISMATCH"}`, `400 {"reason":"INFLUENCE_MISMATCH"}`,
+		`403 {"reason":"EXTENSION_REQUIRED"}`} {
+		if !refusals[want] {
+			t.Errorf("no receiver case is refused %s", want)
+		}
 	}
 }
 
@@ -62,60 +82,48 @@ func TestUnsafeEndpointsVectors(t *testing.T) {
 	})
 }
 
-// answer is a receiver case's answer, in the shape of its expected.
+// answer is a receiver case's answer, in the shape of its expected, but for what is handed on, which
+// handover.Match compares.
 type answer struct {
-	refusal  *paztporthttp.Answer
+	refusal  string // "<status> <body>", or "null" for none
 	verified bool
-	infl     []influence.Entry
 	attests  bool
-	trusted  bool
-}
-
-func (a answer) equal(b answer) bool {
-	sameRefusal := (a.refusal == nil) == (b.refusal == nil)
-	if sameRefusal && a.refusal != nil {
-		sameRefusal = a.refusal.Status == b.refusal.Status && string(a.refusal.Body) == string(b.refusal.Body)
-	}
-	return sameRefusal && a.verified == b.verified && slices.Equal(a.infl, b.infl) &&
-		a.attests == b.attests && a.trusted == b.trusted
 }
 
 func (a answer) String() string {
+	return fmt.Sprintf("{refusal: %s, verified: %v, attests: %v}", a.refusal, a.verified, a.attests)
+}
+
+// answerOf returns a's answer.
+func answerOf(a paztporthttp.Accepted) answer {
 	r := "null"
-	if a.refusal != nil {
-		r = fmt.Sprintf("%d %s", a.refusal.Status, a.refusal.Body)
+	if a.Refusal != nil {
+		r = fmt.Sprintf("%d %s", a.Refusal.Status, a.Refusal.Body)
 	}
-	return fmt.Sprintf("{refusal: %s, verified: %v, influence: %+v, attests: %v, trustedRecord: %v}",
-		r, a.verified, a.infl, a.attests, a.trusted)
+	return answer{refusal: r, verified: a.Verified, attests: a.Attests()}
 }
 
 // expectedAnswer reads a receiver case's expected.
 func expectedAnswer(t testing.TB, e vectors.Node) answer {
 	t.Helper()
-	want := answer{
-		verified: e.Get("verified").Bool(),
-		infl:     entries(e.Get("influence")),
-		attests:  e.Get("attests").Bool(),
-		trusted:  e.Get("trustedRecord").Bool(),
-	}
+	want := answer{refusal: "null", verified: e.Get("verified").Bool(), attests: e.Get("attests").Bool()}
 	if r := e.Get("refusal"); !r.IsNull() {
 		body, err := hex.DecodeString(r.Get("body").Str())
 		if err != nil {
 			t.Fatalf("the refusal's body: %v", err)
 		}
-		want.refusal = &paztporthttp.Answer{Status: int(r.Get("status").Int()), Body: body}
+		want.refusal = fmt.Sprintf("%d %s", r.Get("status").Int(), body)
 	}
 	return want
 }
 
-// runReceiverCase runs receiver case c and answers in the shape of its expected. A case with no request
-// is work outside any request, which only TrustedRecord is asked about, of the zero Accepted.
-func runReceiverCase(t *testing.T, c vectors.Node) answer {
+// runReceiverCase runs receiver case c and returns its last entry's Accepted. A case with no request is work
+// outside any request: the zero Accepted.
+func runReceiverCase(t *testing.T, c vectors.Node) paztporthttp.Accepted {
 	t.Helper()
-	read := entries(c.Get("read"))
 	r := caseReceiver(t, c)
 	if c.Get("request").IsNull() {
-		return answer{trusted: paztporthttp.Accepted{}.TrustedRecord(read)}
+		return paztporthttp.Accepted{}
 	}
 	req := caseRequest(t, c.Get("request"))
 	peer := casePeer(c.Get("peer"))
@@ -125,20 +133,15 @@ func runReceiverCase(t *testing.T, c vectors.Node) answer {
 		t.Fatalf("the case runs %d times", uses)
 	}
 	var a paztporthttp.Accepted
-	var trusted bool
 	for range uses {
 		a = r.Accept(t.Context(), req, peer, mode)
-		var readNow []influence.Entry
-		if a.Refusal == nil {
-			readNow = read
-		}
-		trusted = a.TrustedRecord(readNow)
 	}
-	return answer{refusal: a.Refusal, verified: a.Verified, infl: a.Influence, attests: a.Attests(), trusted: trusted}
+	return a
 }
 
 // caseReceiver returns the receiver case c names: its service, with a stamper holding the service's
-// key and a clock fixed at now, and, when it has a verifier, one pinned to its material.
+// key and a clock fixed at now, the case's extension settings, and, when it has a verifier, one pinned to its
+// material under those settings.
 func caseReceiver(t *testing.T, c vectors.Node) *paztporthttp.Receiver {
 	t.Helper()
 	s := c.Get("service")
@@ -153,6 +156,7 @@ func caseReceiver(t *testing.T, c vectors.Node) *paztporthttp.Receiver {
 			Svc: svc, Inst: s.Get("inst").Str(), Key: priv, Origin: origin,
 			NewRID: func() string { return "unused" }, Now: func() int64 { return now },
 		},
+		Extensions: caseSettings(t, c),
 	}
 	if s.Get("verifier").Bool() {
 		r.Verifier = caseVerifier(t, c)
@@ -160,8 +164,8 @@ func caseReceiver(t *testing.T, c vectors.Node) *paztporthttp.Receiver {
 	return r
 }
 
-// caseVerifier returns a verifier pinned to case c's material, in no session, over a nonce cache that
-// already holds the case's spent keys.
+// caseVerifier returns a verifier pinned to case c's material, in no session, under its extension settings,
+// over a nonce cache that already holds the case's spent keys.
 func caseVerifier(t *testing.T, c vectors.Node) *verify.Verifier {
 	t.Helper()
 	now := c.Get("now").Int()
@@ -177,7 +181,14 @@ func caseVerifier(t *testing.T, c vectors.Node) *verify.Verifier {
 		Now:            func() int64 { return now },
 		CallMaxAgeMs:   c.Get("callMaxAgeMs").Int(),
 		RunMaxAgeMs:    c.Get("runMaxAgeMs").Int(),
+		Extensions:     caseSettings(t, c),
 	})
+}
+
+// caseSettings returns case c's extension settings.
+func caseSettings(t testing.TB, c vectors.Node) verify.Extensions {
+	t.Helper()
+	return handover.Settings(t, c.Get("actsOn").Raw(), c.Get("allowedExtensions").Raw())
 }
 
 // pinnedVerifier returns a verifier for cfg pinned to the rules' material called material, read from
@@ -259,4 +270,38 @@ func entries(n vectors.Node) []influence.Entry {
 		}
 	}
 	return es
+}
+
+// blocksOf returns the array of blocks n holds, read by the SDK's own reader from its canonical text.
+func blocksOf(t testing.TB, n vectors.Node) stamp.Blocks {
+	t.Helper()
+	bs, err := stamp.ParseBlocks(canonical(t, n))
+	if err != nil {
+		t.Fatalf("the blocks: %v", err)
+	}
+	return bs
+}
+
+// blockOf returns the block n holds, read by the SDK's own reader from its canonical text.
+func blockOf(t testing.TB, n vectors.Node) stamp.Block {
+	t.Helper()
+	b, err := stamp.ParseBlock(canonical(t, n))
+	if err != nil {
+		t.Fatalf("the block: %v", err)
+	}
+	return b
+}
+
+// canonical returns the canonical text of the value n holds.
+func canonical(t testing.TB, n vectors.Node) []byte {
+	t.Helper()
+	v, err := json.ReadFile(n.Raw())
+	if err != nil {
+		t.Fatalf("the vector's text: %v", err)
+	}
+	b, err := json.Wire(v)
+	if err != nil {
+		t.Fatalf("the vector's value has no canonical text: %v", err)
+	}
+	return b
 }

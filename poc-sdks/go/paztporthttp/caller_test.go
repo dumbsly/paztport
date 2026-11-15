@@ -18,6 +18,7 @@ import (
 	"github.com/dumbsly/paztport/poc-sdks/go/policy"
 	"github.com/dumbsly/paztport/poc-sdks/go/reason"
 	"github.com/dumbsly/paztport/poc-sdks/go/stamp"
+	"github.com/dumbsly/paztport/poc-sdks/go/verify"
 )
 
 // TestReceiversName names a receiver by its host, ignoring the port and the host's case, keeping a
@@ -166,17 +167,22 @@ func originCaller(t *testing.T) (*paztporthttp.Caller, ed25519.PublicKey, policy
 }
 
 // TestCallerExtProcOrigin stamps as a gateway's external processor does, an origin with no inbound
-// chain and no influence: exactly X-Path-Chain, holding the one origin stamp, then X-Path-Proof, and no
-// X-Path-Proof for a route the bundle holds no proof for.
+// chain that acts on no extension: exactly X-Path-Chain, holding the one origin stamp, then X-Path-Proof, then
+// X-Path-Extensions, holding its one empty block, and no X-Path-Proof for a route the bundle holds no proof for.
 func TestCallerExtProcOrigin(t *testing.T) {
 	caller, pub, proof := originCaller(t)
 	body := []byte(`{"qty":1}`)
-	o, err := caller.Stamp("POST", "/orders/7?x=%2F", "orders", body, nil, nil)
+	o, err := caller.Stamp("POST", "/orders/7?x=%2F", "orders", body, paztporthttp.Inbound{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(o.Headers) != 2 || o.Headers[0].Name != wire.Chain || o.Headers[1].Name != wire.Proof {
-		t.Fatalf("Headers = %+v, want exactly X-Path-Chain then X-Path-Proof", o.Headers)
+	empty, err := wire.EncodeBlocks(stamp.Blocks{stamp.EmptyBlock})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(o.Headers) != 3 || o.Headers[0].Name != wire.Chain || o.Headers[1].Name != wire.Proof ||
+		o.Headers[2] != (wire.Header{Name: wire.Extensions, Value: empty}) {
+		t.Fatalf("Headers = %+v, want exactly X-Path-Chain, X-Path-Proof, then the one empty block", o.Headers)
 	}
 	sent, code := stamp.ReadChain(o.Headers[0].Value)
 	if code != reason.OK || !slices.Equal(sent, o.Sent) || len(sent) != 1 {
@@ -188,7 +194,7 @@ func TestCallerExtProcOrigin(t *testing.T) {
 	}
 	s := sent[0]
 	if s.Svc != "gateway" || s.Inst != "gw-1" || s.RID != "rid-1" || s.TS != 1767225600000 || s.Sess != "" ||
-		s.Rcv != "orders" || s.Bind != bind || s.Infl != "" || s.Prev != "" {
+		s.Rcv != "orders" || s.Bind != bind || s.Ext != "" || s.Prev != "" {
 		t.Fatalf("the origin stamp is %+v", s)
 	}
 	msg, err := s.SigningBytes()
@@ -207,11 +213,12 @@ func TestCallerExtProcOrigin(t *testing.T) {
 		t.Fatalf("the proof header %q, Proof %v, receiver %q", o.Headers[1].Value, o.Proof, rcv)
 	}
 
-	o, err = caller.Stamp("GET", "/statements", "ledger", nil, nil, nil)
+	o, err = caller.Stamp("GET", "/statements", "ledger", nil, paztporthttp.Inbound{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(o.Headers) != 1 || o.Headers[0].Name != wire.Chain || o.Proof != nil {
+	if len(o.Headers) != 2 || o.Headers[0].Name != wire.Chain || o.Headers[1].Name != wire.Extensions ||
+		o.Proof != nil {
 		t.Fatalf("with no proof for the route: Headers = %+v, Proof %v", o.Headers, o.Proof)
 	}
 }
@@ -220,7 +227,7 @@ func TestCallerExtProcOrigin(t *testing.T) {
 // a target or method with no UTF-8 form, which gives no binding.
 func TestCallerStampBindsTheTarget(t *testing.T) {
 	caller, _, _ := originCaller(t)
-	o, err := caller.Stamp("GET", "/pay?", "orders", nil, nil, nil)
+	o, err := caller.Stamp("GET", "/pay?", "orders", nil, paztporthttp.Inbound{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -238,7 +245,7 @@ func TestCallerStampBindsTheTarget(t *testing.T) {
 		{"", "/p"},
 		{"GET", ""},
 	} {
-		o, err := caller.Stamp(tc.method, tc.target, "orders", nil, nil, nil)
+		o, err := caller.Stamp(tc.method, tc.target, "orders", nil, paztporthttp.Inbound{}, nil)
 		if err == nil {
 			t.Errorf("Stamp(%q, %q) = %+v, want an error", tc.method, tc.target, o)
 		}
@@ -248,26 +255,299 @@ func TestCallerStampBindsTheTarget(t *testing.T) {
 	}
 }
 
-// TestCallerStampLeavesItsInputs never writes into the inbound chain's or the influence's backing
+// TestCallerStampLeavesItsInputs never writes into the inbound chain's, its blocks' or what was added's backing
 // arrays, even where they have room.
 func TestCallerStampLeavesItsInputs(t *testing.T) {
 	c := callerCase(t, "each label becomes an entry")
-	chain := chainOf(c.Get("inbound"))
-	inbound := append(make(stamp.Chain, 0, len(chain)+1), chain...)
-	infl := entries(c.Get("influence"))
-	spare := append(make([]influence.Entry, 0, len(infl)+1), infl...)
-	priv, _ := vectors.RulesKey(t, "orders")
-	caller := &paztporthttp.Caller{Stamper: &stamp.Stamper{Svc: "orders", Inst: "ord-1", Key: priv,
-		Now: func() int64 { return 1767225599500 }}}
+	chain, blocks := chainOf(c.Get("inbound")), blocksOf(t, c.Get("inboundBlocks"))
+	inbound := paztporthttp.Inbound{
+		Chain:  append(make(stamp.Chain, 0, len(chain)+1), chain...),
+		Blocks: append(make(stamp.Blocks, 0, len(blocks)+1), blocks...),
+	}
+	added := entries(c.Get("added"))
+	spare := append(make([]influence.Entry, 0, len(added)+1), added...)
+	signed := 0
+	caller := hopCaller(t, actsOnInfluence(t), &signed)
 	o, err := caller.Stamp("POST", "/pay", "payment", nil, inbound, spare)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if inbound[:cap(inbound)][len(inbound)] != (stamp.Stamp{}) || spare[:cap(spare)][len(spare)] != (influence.Entry{}) {
+	if inbound.Chain[:cap(inbound.Chain)][len(chain)] != (stamp.Stamp{}) ||
+		inbound.Blocks[:cap(inbound.Blocks)][len(blocks)].Commit() != "" ||
+		spare[:cap(spare)][len(spare)] != (influence.Entry{}) {
 		t.Fatal("Stamp wrote past the end of a slice it was given")
 	}
-	if !slices.Equal(inbound, chain) || !slices.Equal(spare, infl) || len(o.Sent) != len(chain)+1 {
-		t.Fatalf("Stamp changed its inputs, or sent %d stamps", len(o.Sent))
+	if !slices.Equal(inbound.Chain, chain) || !slices.Equal(spare, added) || len(o.Sent) != len(chain)+1 ||
+		len(o.Blocks) != len(chain)+1 {
+		t.Fatalf("Stamp changed its inputs, or sent %d stamps and %d blocks", len(o.Sent), len(o.Blocks))
+	}
+}
+
+// hopCaller returns orders' caller, a hop that is no origin, with settings ext and no verifier; its stamper
+// counts in signed each stamp it signs.
+func hopCaller(t *testing.T, ext verify.Extensions, signed *int) *paztporthttp.Caller {
+	t.Helper()
+	priv, _ := vectors.RulesKey(t, "orders")
+	return &paztporthttp.Caller{
+		Stamper: &stamp.Stamper{Svc: "orders", Inst: "ord-1", Key: priv, Now: func() int64 {
+			*signed++
+			return 1767225599500
+		}},
+		Extensions: ext,
+	}
+}
+
+// actsOnInfluence returns settings that act on influence and carry any name.
+func actsOnInfluence(t testing.TB) verify.Extensions {
+	t.Helper()
+	ext, err := verify.NewExtensions([]string{influence.Name})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ext
+}
+
+// forwarded returns the inbound of the callerInfluence case "each label becomes an entry": gateway's one stamp
+// and its block, which names influence with nothing.
+func forwarded(t *testing.T) paztporthttp.Inbound {
+	t.Helper()
+	c := callerCase(t, "each label becomes an entry")
+	return paztporthttp.Inbound{Chain: chainOf(c.Get("inbound")), Blocks: blocksOf(t, c.Get("inboundBlocks"))}
+}
+
+// sentBlocks returns the blocks o's X-Path-Extensions header holds, failing t unless they are o.Blocks and one
+// per stamp sent, the last the one its own stamp commits to.
+func sentBlocks(t *testing.T, o paztporthttp.Outbound) stamp.Blocks {
+	t.Helper()
+	var tok string
+	for _, h := range o.Headers {
+		if h.Name == wire.Extensions {
+			tok = h.Value
+		}
+	}
+	bs, err := stamp.ReadBlocks(tok)
+	if err != nil {
+		t.Fatalf("the blocks header %q does not read: %v", tok, err)
+	}
+	want, err := o.Blocks.Token()
+	if err != nil || tok != want || len(bs) != len(o.Sent) {
+		t.Fatalf("the blocks header holds %d blocks for %d stamps, Blocks %+v", len(bs), len(o.Sent), o.Blocks)
+	}
+	if last := o.Sent[len(o.Sent)-1]; last.Ext != bs[len(bs)-1].Commit() {
+		t.Fatalf("the call's stamp commits to %q, its block to %q", last.Ext, bs[len(bs)-1].Commit())
+	}
+	return bs
+}
+
+// TestEveryCallCarriesTheBlocksHeader sends X-Path-Extensions with every call: an origin's, which acts on no
+// extension, holds its one empty block; a forwarded call holds the blocks received, unchanged, then the caller's
+// own; and a call after a chain received with no blocks holds one empty block for each stamp received.
+func TestEveryCallCarriesTheBlocksHeader(t *testing.T) {
+	origin, _, _ := originCaller(t)
+	o, err := origin.Stamp("GET", "/orders/7", "orders", nil, paztporthttp.Inbound{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bs := sentBlocks(t, o); len(bs) != 1 || bs[0].Commit() != "" {
+		t.Fatalf("an origin's call sends %+v, want the one empty block", bs)
+	}
+
+	signed := 0
+	in := forwarded(t)
+	o, err = hopCaller(t, verify.Extensions{}, &signed).Stamp("POST", "/pay", "payment", nil, in, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bs := sentBlocks(t, o)
+	if len(bs) != 2 || bs[0].Commit() != in.Blocks[0].Commit() || in.Blocks[0].Commit() == "" ||
+		bs[1].Commit() != "" {
+		t.Fatalf("a forwarded call sends %+v, want the block received then the empty block", bs)
+	}
+
+	in.Blocks = nil
+	o, err = hopCaller(t, verify.Extensions{}, &signed).Stamp("POST", "/pay", "payment", nil, in, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bs := sentBlocks(t, o); len(bs) != 2 || bs[0].Commit() != "" || bs[1].Commit() != "" {
+		t.Fatalf("a call after no blocks sends %+v, want an empty block for each stamp", bs)
+	}
+}
+
+// TestAHopActingOnInfluenceSignsWhatItAdded signs, at a hop whose settings act on influence, its own block naming
+// influence with what it added, [] when it added nothing, and requiring what it requires of the receiver.
+func TestAHopActingOnInfluenceSignsWhatItAdded(t *testing.T) {
+	added := entries(callerCase(t, "each label becomes an entry").Get("added"))
+	for name, tc := range map[string]struct {
+		added    []influence.Entry
+		requires []string
+	}{
+		"what it added":        {added, nil},
+		"nothing added":        {nil, nil},
+		"requiring influence":  {added, []string{influence.Name}},
+		"a requirement of one": {nil, []string{"example"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			signed := 0
+			caller := hopCaller(t, actsOnInfluence(t), &signed)
+			caller.Requires = map[string][]string{"payment": tc.requires, "ledger": {"other"}}
+			o, err := caller.Stamp("POST", "/pay", "payment#pay", nil, forwarded(t), tc.added)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want, err := influence.RequestBlock(tc.added, tc.requires)
+			if err != nil {
+				t.Fatal(err)
+			}
+			bs := sentBlocks(t, o)
+			if got := bs[len(bs)-1]; got.Commit() != want.Commit() {
+				t.Fatalf("the call signs %s, want %s", got.Wire(), want.Wire())
+			}
+			if items, named := bs[len(bs)-1].Items(influence.Name); !named || len(items) != len(tc.added) {
+				t.Fatalf("the call's block names influence %v with %d items, want %d", named, len(items),
+					len(tc.added))
+			}
+		})
+	}
+}
+
+// TestAHopNotActingOnInfluenceSignsTheEmptyBlockOrOnlyRequires signs, at a hop whose settings do not act on
+// influence, a block that names nothing, whatever it added: the empty block, or one that only requires what the
+// hop requires of the receiver.
+func TestAHopNotActingOnInfluenceSignsTheEmptyBlockOrOnlyRequires(t *testing.T) {
+	added := entries(callerCase(t, "each label becomes an entry").Get("added"))
+	signed := 0
+	caller := hopCaller(t, verify.Extensions{}, &signed)
+	o, err := caller.Stamp("POST", "/pay", "payment", nil, forwarded(t), added)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bs := sentBlocks(t, o); bs[len(bs)-1].Commit() != "" {
+		t.Fatalf("the call signs %s, want the empty block", bs[len(bs)-1].Wire())
+	}
+	caller.Requires = map[string][]string{"payment": {influence.Name}}
+	o, err = caller.Stamp("POST", "/pay", "payment", nil, forwarded(t), added)
+	if err != nil {
+		t.Fatal(err)
+	}
+	last := sentBlocks(t, o)[len(o.Sent)-1]
+	if string(last.Wire()) != `{"items":{},"requires":["influence"]}` {
+		t.Fatalf("the call signs %s, want a block that only requires influence", last.Wire())
+	}
+}
+
+// wantNothingSigned fails t unless Stamp refused with an error, gave the zero Outbound and signed nothing.
+func wantNothingSigned(t *testing.T, o paztporthttp.Outbound, err error, signed int) {
+	t.Helper()
+	if err == nil {
+		t.Fatalf("Stamp = %+v, want an error", o)
+	}
+	if signed != 0 || o.Headers != nil || o.Sent != nil || o.Blocks != nil {
+		t.Fatalf("signed %d stamps, Outbound %+v; want nothing", signed, o)
+	}
+	if !strings.HasSuffix(err.Error(), "nothing is sent") && !strings.Contains(err.Error(), "nothing is sent:") {
+		t.Errorf("the error %q does not say nothing is sent", err)
+	}
+}
+
+// TestInboundBlocksNotOnePerStampAreRefused signs nothing for inbound blocks of another length than its chain,
+// which the next hop would refuse at check 9a; nil blocks are one empty block per stamp.
+func TestInboundBlocksNotOnePerStampAreRefused(t *testing.T) {
+	in := forwarded(t)
+	for name, blocks := range map[string]stamp.Blocks{
+		"none":      {},
+		"two":       {stamp.EmptyBlock, stamp.EmptyBlock},
+		"one short": in.Blocks[:0],
+	} {
+		signed := 0
+		bad := paztporthttp.Inbound{Chain: in.Chain, Blocks: blocks}
+		o, err := hopCaller(t, actsOnInfluence(t), &signed).Stamp("POST", "/pay", "payment", nil, bad, nil)
+		t.Run(name, func(t *testing.T) { wantNothingSigned(t, o, err, signed) })
+	}
+}
+
+// TestBlocksBesideNoChainAreRefused signs nothing for inbound blocks with no chain, at a hop and at an origin
+// alike.
+func TestBlocksBesideNoChainAreRefused(t *testing.T) {
+	signed := 0
+	bad := paztporthttp.Inbound{Blocks: stamp.Blocks{stamp.EmptyBlock}}
+	o, err := hopCaller(t, actsOnInfluence(t), &signed).Stamp("POST", "/pay", "payment", nil, bad, nil)
+	wantNothingSigned(t, o, err, signed)
+	origin, _, _ := originCaller(t)
+	origin.Stamper.Now = func() int64 {
+		signed++
+		return 1767225600000
+	}
+	o, err = origin.Stamp("POST", "/orders", "orders", nil, bad, nil)
+	wantNothingSigned(t, o, err, signed)
+}
+
+// TestBlocksPastTheWireLimitAreRefusedBeforeSigning refuses a call whose blocks header would pass the wire limit,
+// 256 KiB, before anything is signed: nothing is dropped to make room.
+func TestBlocksPastTheWireLimitAreRefusedBeforeSigning(t *testing.T) {
+	big := make([]influence.Entry, 300)
+	for i := range big {
+		big[i] = influence.Entry{Class: influence.Public, Src: "http:catalogue", H: strings.Repeat("h", 1000)}
+	}
+	signed := 0
+	o, err := hopCaller(t, actsOnInfluence(t), &signed).Stamp("POST", "/pay", "payment", nil, forwarded(t), big)
+	wantNothingSigned(t, o, err, signed)
+	// Under the limit, the same call is signed.
+	if _, err := hopCaller(t, actsOnInfluence(t), &signed).Stamp("POST", "/pay", "payment", nil, forwarded(t),
+		big[:200]); err != nil || signed != 1 {
+		t.Fatalf("a call under the limit: %v, signed %d", err, signed)
+	}
+}
+
+// TestARequiresNameThatIsNotAnExtensionNameIsRefused signs nothing for a call to a receiver whose requirement
+// holds a name that is not an extension name, or one name twice, and calls to other receivers are signed.
+func TestARequiresNameThatIsNotAnExtensionNameIsRefused(t *testing.T) {
+	for _, ext := range []verify.Extensions{{}, actsOnInfluence(t)} {
+		for _, requires := range [][]string{{"Influence"}, {""}, {"influence", "influence"}} {
+			signed := 0
+			caller := hopCaller(t, ext, &signed)
+			caller.Requires = map[string][]string{"payment": requires}
+			o, err := caller.Stamp("POST", "/pay", "payment#pay", nil, forwarded(t), nil)
+			wantNothingSigned(t, o, err, signed)
+			if _, err := caller.Stamp("POST", "/charge", "ledger", nil, forwarded(t), nil); err != nil {
+				t.Fatalf("a call to another receiver: %v", err)
+			}
+		}
+	}
+}
+
+// TestCallerSettingsBesideAVerifierWithOthersPanic: a caller states its settings once, so settings beside a
+// verifier that hold others panic, a fault in the program; the zero settings and the verifier's own do not.
+func TestCallerSettingsBesideAVerifierWithOthersPanic(t *testing.T) {
+	c := callerCase(t, "each label becomes an entry")
+	carriesNothing, err := verify.NewExtensionsAllowing(nil, []string{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, tc := range map[string]struct {
+		given  verify.Extensions
+		panics bool
+	}{
+		"the verifier's own": {caseSettings(t, c), false},
+		"the zero settings":  {verify.Extensions{}, false},
+		"others":             {carriesNothing, true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			caller, _ := stampCallerCase(t, c, nil)
+			caller.Extensions = tc.given
+			defer func() {
+				if got := recover() != nil; got != tc.panics {
+					t.Fatalf("panicked %v, want %v", got, tc.panics)
+				}
+			}()
+			o, err := caller.Stamp("POST", "/pay", "payment", nil, forwarded(t), nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if last := o.Blocks[len(o.Blocks)-1]; !slices.Contains(last.Names(), influence.Name) {
+				t.Fatalf("the call signs %s, want the verifier's settings to name influence", last.Wire())
+			}
+		})
 	}
 }
 
@@ -275,7 +555,7 @@ func TestCallerStampLeavesItsInputs(t *testing.T) {
 // from the receiver, by its result hash.
 func TestCallerCheckWithNoVerifier(t *testing.T) {
 	caller, _, _ := originCaller(t)
-	o, err := caller.Stamp("GET", "/orders/7", "orders", nil, nil, nil)
+	o, err := caller.Stamp("GET", "/orders/7", "orders", nil, paztporthttp.Inbound{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
