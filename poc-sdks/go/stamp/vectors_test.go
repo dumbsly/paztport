@@ -168,3 +168,76 @@ func labels(t *testing.T, n vectors.Node) []influence.Label {
 	}
 	return ls
 }
+
+// TestBlocksRead replays v4.json's blocks.read: each token reads as a request's blocks exactly when the case
+// says OK, and where it does the blocks' wire bytes are the canonical bytes of the case's blocks.
+func TestBlocksRead(t *testing.T) {
+	cases := vectors.Load(t, "v4.json").Get("blocks").Get("read")
+	if cases.Len() == 0 {
+		t.Fatal("v4.json has no blocks.read case")
+	}
+	var read, refused int
+	cases.Each(func(name string, c vectors.Node) {
+		t.Run(name, func(t *testing.T) {
+			c := c.With(t)
+			got, err := stamp.ReadBlocks(c.Get("token").Str())
+			switch want := c.Get("expected").Str(); want {
+			case "OK":
+				read++
+				if err != nil {
+					t.Fatalf("ReadBlocks: %v", err)
+				}
+				if !c.Has("blocks") {
+					return
+				}
+				v, err := json.ReadFile(c.Get("blocks").Raw())
+				if err != nil {
+					t.Fatalf("the case's blocks: %v", err)
+				}
+				canonical, err := json.Wire(v)
+				if err != nil {
+					t.Fatalf("the case's blocks have no canonical bytes: %v", err)
+				}
+				wire, err := got.Wire()
+				if err != nil || string(wire) != string(canonical) {
+					t.Fatalf("Wire = %s, %v, want %s", wire, err, canonical)
+				}
+			case "REFUSED":
+				refused++
+				if err == nil {
+					t.Fatalf("ReadBlocks read %v, want an error", got)
+				}
+			default:
+				t.Fatalf("expected is %q", want)
+			}
+		})
+	})
+	if read == 0 || refused == 0 {
+		t.Fatalf("the cases hold %d that read and %d that do not; each outcome must be covered", read, refused)
+	}
+}
+
+// TestBlocksCommit replays v4.json's blocks.commit: each block's wire bytes are its jcs and its commitment
+// is its ext.
+func TestBlocksCommit(t *testing.T) {
+	cases := vectors.Load(t, "v4.json").Get("blocks").Get("commit")
+	if cases.Len() == 0 {
+		t.Fatal("v4.json has no blocks.commit case")
+	}
+	cases.Each(func(name string, c vectors.Node) {
+		t.Run(name, func(t *testing.T) {
+			c := c.With(t)
+			// a block read alone travels in an array, as the vectors' consumers wrap it
+			got, err := stamp.ParseBlocks(append(append([]byte("["), c.Get("jcs").Str()...), ']'))
+			if err != nil || len(got) != 1 {
+				t.Fatalf("ParseBlocks: %v, %v", got, err)
+			}
+			if string(got[0].Wire()) != c.Get("jcs").Str() {
+				t.Fatalf("Wire = %s, want %s", got[0].Wire(), c.Get("jcs").Str())
+			}
+			if got[0].Commit() != c.Get("ext").Str() {
+				t.Fatalf("Commit = %q, want %q", got[0].Commit(), c.Get("ext").Str())
+			}
+		})
+	})
+}
