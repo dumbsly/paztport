@@ -1344,8 +1344,8 @@ class PaztportAutoConfigurationTest {
         return (OutboundInterceptor) interceptors.get(0);
     }
 
-    // Plan 3b's K1: the receiver, the caller, the partner's sessions, the egress and both verifiers hold the one
-    // instance the properties built, so none can act on another set than the others.
+    // The receiver, the caller, the partner's sessions, the egress and both verifiers hold the one instance the
+    // properties built, so none can act on another set than the others (the README's Extensions section).
     @Test
     void oneSettingsInstanceReachesEveryBuilder(@TempDir Path dir) throws Exception {
         writeWorld(dir);
@@ -1388,7 +1388,8 @@ class PaztportAutoConfigurationTest {
         }
     }
 
-    // Present and empty, allowed carries no name, so a service cannot act on influence beside it (L4).
+    // Present and empty, allowed carries no name (check 9b's allowedExtensions, set and empty), so a service cannot
+    // act on influence beside it.
     @Test
     void anEmptyAllowedBesideActsOnFailsStartUp() {
         runner.withPropertyValues("paztport.extensions.acts-on=influence", "paztport.extensions.allowed=")
@@ -1407,7 +1408,8 @@ class PaztportAutoConfigurationTest {
         });
     }
 
-    // Absent, allowed is no list: any name is carried, and the service acts on what acts-on says (L4).
+    // Absent, allowed is no list (check 9b's allowedExtensions unset): any name is carried, and the service acts on
+    // what acts-on says.
     @Test
     void anAbsentAllowedCarriesAnyName() {
         runner.withPropertyValues("paztport.extensions.acts-on=influence").run(context -> {
@@ -1419,7 +1421,7 @@ class PaztportAutoConfigurationTest {
             assertThat(settings.carries("influence")).isTrue();
             assertThat(settings.carries("audit")).isTrue();
         });
-        // And with nothing set the service acts on no extension (L2).
+        // And with nothing set the service acts on no extension, the setting for one no model's content reaches.
         runner.run(context -> assertThat(context.getBean(ExtensionSettings.class).actsOn()).isEmpty());
     }
 
@@ -1435,7 +1437,8 @@ class PaztportAutoConfigurationTest {
         return blocks.get(blocks.size() - 1);
     }
 
-    // What a call requires of its receiver goes in its own block, per receiver policy name (Plan 3b's K4).
+    // What a call requires of its receiver goes in its own block's requires (wire.md, Blocks: Requiring), per
+    // receiver policy name.
     @Test
     void requiresPerReceiverReachesTheCaller(@TempDir Path dir) throws Exception {
         writeWorld(dir);
