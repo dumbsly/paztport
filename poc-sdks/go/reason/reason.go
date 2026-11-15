@@ -33,9 +33,6 @@ const (
 	// SessionUnknown means a stamp names another session. Over HTTP it is also a call whose
 	// X-Path-Session names no live session opened by the sending peer.
 	SessionUnknown Code = "SESSION_UNKNOWN"
-	// InfluenceMismatch is no check of the live order: it means the influence extension refused an item on a
-	// request's block that does not read. Over HTTP it is a 400 in either mode, live and offline.
-	InfluenceMismatch Code = "INFLUENCE_MISMATCH"
 	// PeerMismatch, which only a live verifier gives, means the authenticated transport peer is not the
 	// last signer (check 10).
 	PeerMismatch Code = "PEER_MISMATCH"
@@ -48,13 +45,20 @@ const (
 // The codes of the spec's checks 9a to 9c, which test the extension blocks that travel with a chain.
 const (
 	// ExtensionMismatch means the blocks do not read, are not one per stamp, or one does not match its stamp's
-	// ext (check 9a). A service about to serve a request it did not verify answers it with a 400.
+	// ext (check 9a). Over HTTP, a service about to serve a request it did not verify answers it with a 400.
 	ExtensionMismatch Code = "EXTENSION_MISMATCH"
 	// ExtensionNotAllowed means a block names an extension the verifier's allowed extensions do not hold (check 9b).
 	ExtensionNotAllowed Code = "EXTENSION_NOT_ALLOWED"
 	// ExtensionRequired, which only a live verifier gives, means the sender requires an extension the receiver
 	// does not act on (check 9c).
 	ExtensionRequired Code = "EXTENSION_REQUIRED"
+)
+
+// The code of an extension's own rule, outside the live order.
+const (
+	// InfluenceMismatch means the influence extension refused an item on a request's block that does not read.
+	// It is given live and offline; over HTTP it is a 400 in either mode.
+	InfluenceMismatch Code = "INFLUENCE_MISMATCH"
 )
 
 // The codes only an offline verifier gives. A client never accepts one as a server's verdict.

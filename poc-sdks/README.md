@@ -14,8 +14,9 @@ policy, verification, influence and sessions. The demos in
 - [spec](spec/README.md): the written protocol spec and the shared conformance vectors. The TypeScript SDK
   replays `v4.json`. Java replays `v4.json` in `paztport-core`, but for what belongs to the MCP profile, and
   `http-v4.json` in `paztport-http`. The Go SDK's core replays `v4.json`, but for its MCP profile sections and
-  the MCP-only parts of `influence`, and `http-v4.json`'s `operations` and `boundaryInfluence`; its `paztporthttp`
-  packages replay `http-v3.json` until the next plan moves them to version 4. `v3.json` is replayed by no SDK and
+  the MCP-only parts of `influence`, and `http-v4.json`'s `operations` but its `receive` cases, and
+  `boundaryInfluence`; the tests of its `paztporthttp` packages replay `http-v3.json` and do not pass until the next
+  plan moves them to version 4. `v3.json` is replayed by no SDK and
   stays, frozen, until the close. All three replay `events.json`, `json.json` and `ed25519.json`.
 - `scripts/`: the link, import and jar checks that `./run test` runs, the tests for `./run`,
   and `third-party.sh`, which regenerates `THIRD-PARTY.txt` from both Java trees.
@@ -24,8 +25,8 @@ policy, verification, influence and sessions. The demos in
 
 The full format is in the [protocol spec](spec/README.md): every byte layout, binding, check and code. This is
 a summary of version 4, which the TypeScript SDK and Java's `paztport-core` and `paztport-http` speak. The Go SDK's core
-speaks version 4 too; its `paztporthttp` packages speak version 3, which `http-v3.json` records, until the next plan
-moves them to version 4.
+speaks version 4 too; its `paztporthttp` packages are between versions, with version 3's HTTP behaviour behind
+stopgaps, until the next plan.
 
 A stamp is a JSON object, and a chain is an array of them, origin first:
 
@@ -57,8 +58,8 @@ its response chain, one block per stamp of it, its proof and the result hash. Ov
 chain, the proof and the blocks travel as tokens in the `X-Path-Chain`, `X-Path-Proof` and `X-Path-Extensions`
 headers, a call in a session opened by the handshake over HTTP names it in `X-Path-Session`, and a response
 carries one more stamp on the request chain, back to the caller, with its own block, in `X-Path-Response`
-([wire.md](spec/wire.md#http)). The Go SDK's version 3 carries influence in `X-Path-Influence` in place of the
-blocks. A version 4 verifier accepts only stamps whose `v` is 4, and the Go SDK's only those whose `v` is 3.
+([wire.md](spec/wire.md#http)). Version 3 carried influence in `X-Path-Influence` in place of the
+blocks. A version 4 verifier accepts only stamps whose `v` is 4, and so does Go's.
 Binary values are base64url without padding.
 
 The signed root (`root.json`) that verifiers pin is `{ "notAfter", "root", "rootId", "sig" }`, where `sig` is the

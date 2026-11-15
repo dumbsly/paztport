@@ -4,14 +4,15 @@ One Go module, `github.com/dumbsly/paztport/poc-sdks/go`, for Go 1.27 or newer.
 It depends on nothing beyond Go's standard library: it reads and writes JSON with
 its own strict reader and writer, and every cryptographic primitive is Go's.
 
-Its core implements protocol version 4 as the [spec](../spec/README.md) defines it, all but the
+Every package but `paztporthttp` and its two packages implements protocol version 4 as the [spec](../spec/README.md) defines it, all but the
 MCP profile: stamps, chains and extension blocks, policy material, the live and offline verifiers, influence
 as an extension and the owner-aware rule, sessions and responder events. It replays `spec/vectors/v4.json`
 but for the [MCP profile](../spec/README.md#the-mcp-profile)'s sections, `influence.response`, and the
-`influence.request` cases whose `served` is not empty; `json.json` but for its MCP bindings; `events.json` and
-`ed25519.json` in full; and `http-v4.json`'s `operations` and `boundaryInfluence`. The `paztporthttp` packages,
-the receiver, caller, partner and egress, still carry version 3 behaviour behind stopgaps, and their tests do
-not pass until the next plan moves them to version 4. The core leaves out:
+`influence.request` cases whose `served` is not empty; `json.json` but for `jcs` and its MCP and `http` bindings;
+`events.json` and `ed25519.json` in full; and `http-v4.json`'s `operations` but its `receive` cases, and
+`boundaryInfluence`. The `paztporthttp` packages, the receiver, caller, partner and egress, are between versions:
+they stamp version 4 through the core but still carry version 3 behaviour behind stopgaps, and their tests do not
+pass until the next plan moves them to version 4. The SDK leaves out:
 
 - **The MCP profile**, local steps included.
 - **Any integration.** It sends nothing, logs nothing, publishes no events and
@@ -61,11 +62,11 @@ replace github.com/dumbsly/paztport/poc-sdks/go => ../path/to/poc-sdks/go
   commits to its block), the prompt and response bindings, and the `Stamper` that
   starts, extends and answers chains and stamps the boundary call.
 - `influence`: the first extension, a set of functions over what the verifier hands
-  on, and no import of the core's: entries and content labels (`ParseEntry`,
+  on, which no core package imports: entries and content labels (`ParseEntry`,
   `ParseLabel`), the request and response blocks, `ReadRequest` and `Decide`, the
   every-stamp and owner-aware rules (`GuardedWriteRefused`, `ShapedOnlyByTrusted`),
   `ResponseEntries`, `Items`, and blinded boundary influence and its openings. A test in
-  `internal/guard` keeps the core from importing it.
+  `internal/guard` keeps `stamp`, `verify`, `offline` and `session` from importing it.
 - `verify`: the live verifier, its checks 0 to 12 in the spec's order, with the
   extension checks 9a to 9c and the peer before the nonce; `Extensions`, which says
   what a verifier acts on and allows (the zero value acts on nothing); the `HandOver`
@@ -79,7 +80,7 @@ replace github.com/dumbsly/paztport/poc-sdks/go => ../path/to/poc-sdks/go
   their sessions, whose `CallConfig` gives the settings a call is checked under.
 - `event`: responder events, their signed envelope, and the `Responder`'s checks.
 - `reason`: the reason codes.
-- `paztporthttp`: version 3 over HTTP at a service, until the next plan: the `Receiver`, the `Caller`, peers
+- `paztporthttp`: between versions until the next plan, version 3 behaviour over HTTP at a service: the `Receiver`, the `Caller`, peers
   from client certificates, and a partner's `Sessions` and handshake endpoint.
 - `paztporthttp/wire`: the headers, the request binding, the result hash and the
   caller's check of a response.
