@@ -4,13 +4,14 @@ One Go module, `github.com/dumbsly/paztport/poc-sdks/go`, for Go 1.27 or newer.
 It depends on nothing beyond Go's standard library: it reads and writes JSON with
 its own strict reader and writer, and every cryptographic primitive is Go's.
 
-It implements protocol v3 as the [spec](../spec/README.md) defines it, all but the
-MCP profile: stamps and chains, policy material, the live and offline verifiers, influence and
-the owner-aware rule, sessions, responder events, and v3 over HTTP at a receiver,
-a caller, a partner and an egress. It replays `spec/vectors/v3.json` and
-`json.json` but their sections that belong to the
-[MCP profile](../spec/README.md#the-mcp-profile), and `http-v3.json`,
-`events.json` and `ed25519.json` in full. It leaves out:
+Its core implements protocol version 4 as the [spec](../spec/README.md) defines it, all but the
+MCP profile: stamps, chains and extension blocks, policy material, the live and offline verifiers, influence
+as an extension and the owner-aware rule, sessions and responder events. It replays `spec/vectors/v4.json`
+but for the [MCP profile](../spec/README.md#the-mcp-profile)'s sections, `influence.response`, and the
+`influence.request` cases whose `served` is not empty; `json.json` but for its MCP bindings; `events.json` and
+`ed25519.json` in full; and `http-v4.json`'s `operations` and `boundaryInfluence`. The `paztporthttp` packages,
+the receiver, caller, partner and egress, still carry version 3 behaviour behind stopgaps, and their tests do
+not pass until the next plan moves them to version 4. The core leaves out:
 
 - **The MCP profile**, local steps included.
 - **Any integration.** It sends nothing, logs nothing, publishes no events and
@@ -55,20 +56,30 @@ replace github.com/dumbsly/paztport/poc-sdks/go => ../path/to/poc-sdks/go
   (`OperationTable`, read with `ReadOperationTable` or `LoadOperationTable`),
   which map a request to its operation with `Match` and to a keyed operation's
   key value with `KeyValue`.
-- `stamp`: stamps and chains, the prompt and response bindings, and the `Stamper`
-  that starts, extends and answers chains and stamps the boundary call.
-- `influence`: influence entries and content labels, the commitment, the
-  owner-aware rule, `ShapedOnlyByTrusted`, and blinded boundary influence and its
-  openings.
-- `verify`: the live verifier, its checks 0 to 12 in the spec's order, and the
-  nonce cache.
-- `session`: the handshake's request and reply, the server's status and the
-  client's check of a reply, and the session id.
-- `offline`: a record set verified again later, its recorded calls and the
-  recorded handshakes that opened their sessions.
+- `stamp`: version 4 stamps and chains, the extension blocks that travel beside a
+  chain (`Block`, `Blocks`, `EmptyBlock`: an item is its JCS text, and a stamp's `ext`
+  commits to its block), the prompt and response bindings, and the `Stamper` that
+  starts, extends and answers chains and stamps the boundary call.
+- `influence`: the first extension, a set of functions over what the verifier hands
+  on, and no import of the core's: entries and content labels (`ParseEntry`,
+  `ParseLabel`), the request and response blocks, `ReadRequest` and `Decide`, the
+  every-stamp and owner-aware rules (`GuardedWriteRefused`, `ShapedOnlyByTrusted`),
+  `ResponseEntries`, `Items`, and blinded boundary influence and its openings. A test in
+  `internal/guard` keeps the core from importing it.
+- `verify`: the live verifier, its checks 0 to 12 in the spec's order, with the
+  extension checks 9a to 9c and the peer before the nonce; `Extensions`, which says
+  what a verifier acts on and allows (the zero value acts on nothing); the `HandOver`
+  of verified, or unverified, items per stamp; `ServedUnverified` for a request served
+  without verifying; `NonceKey`; and the nonce cache.
+- `session`: the handshake's request and reply, the reply's `extensions`, the
+  server's status and the client's check of a reply (`ExtensionRequired`), the
+  client's `Requirement` and `CallsAfter`, and the session id.
+- `offline`: a record set verified again later, its recorded calls (`Call` takes
+  an `ItemCheck` for the extension's items) and the recorded handshakes that opened
+  their sessions, whose `CallConfig` gives the settings a call is checked under.
 - `event`: responder events, their signed envelope, and the `Responder`'s checks.
 - `reason`: the reason codes.
-- `paztporthttp`: v3 over HTTP at a service: the `Receiver`, the `Caller`, peers
+- `paztporthttp`: version 3 over HTTP at a service, until the next plan: the `Receiver`, the `Caller`, peers
   from client certificates, and a partner's `Sessions` and handshake endpoint.
 - `paztporthttp/wire`: the headers, the request binding, the result hash and the
   caller's check of a response.

@@ -10,6 +10,6 @@
 // [PolicyExpired]. An offline verifier gives the same but [PeerMismatch], and also [TimeMismatch],
 // [PromptMismatch] and [OutsideSession], which are never sent live: a client must not take them for a
 // server's verdict. A server deciding on a call may also answer [InfluenceDenied] or [UnsafeSession].
-// [ExtensionMismatch], [ExtensionNotAllowed] and [ExtensionRequired] are the codes of the spec's checks 9a to 9c,
-// which no verifier in this SDK gives yet.
+// [ExtensionMismatch], [ExtensionNotAllowed] and [ExtensionRequired] are the codes of the spec's checks 9a to 9c.
+// [InfluenceMismatch] is no check of the live order: the influence extension gives it for an item that does not read.
 package reason

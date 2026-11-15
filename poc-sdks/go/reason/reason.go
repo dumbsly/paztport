@@ -15,28 +15,29 @@ const (
 	ChainMissing Code = "CHAIN_MISSING"
 	// BadOrigin means the origin is not an allowed origin, or offline, not the expected instance.
 	BadOrigin Code = "BAD_ORIGIN"
-	// BadSignature means a signed field holds "|", a key is unknown, or a signature fails.
+	// BadSignature means a key is unknown or a signature fails (check 3).
 	BadSignature Code = "BAD_SIGNATURE"
-	// BrokenLink means a stamp's prev is not the previous stamp's sig.
+	// BrokenLink means a stamp's prev is not the previous stamp's sig (check 3).
 	BrokenLink Code = "BROKEN_LINK"
 	// Expired means a stamp is outside the freshness window, or offline, outside the age limits.
 	Expired Code = "EXPIRED"
 	// RIDMismatch means the stamps don't share the origin's rid, or name another request.
 	RIDMismatch Code = "RID_MISMATCH"
-	// BindingMismatch means a stamp's rcv names the wrong hop, or the binding does not match what was
-	// received.
+	// BindingMismatch means a stamp's rcv names the wrong hop (check 4), or the binding does not match what
+	// was received (check 8).
 	BindingMismatch Code = "BINDING_MISMATCH"
-	// Replay means the nonce key was seen before.
+	// Replay means the nonce key was seen before (check 11).
 	Replay Code = "REPLAY"
-	// PathNotAllowed means the route is not proven against the root.
+	// PathNotAllowed means the route is not proven against the root (check 12).
 	PathNotAllowed Code = "PATH_NOT_ALLOWED"
 	// SessionUnknown means a stamp names another session. Over HTTP it is also a call whose
 	// X-Path-Session names no live session opened by the sending peer.
 	SessionUnknown Code = "SESSION_UNKNOWN"
-	// InfluenceMismatch means the influence does not read, or the last stamp does not commit to it.
+	// InfluenceMismatch is no check of the live order: it means the influence extension refused an item on a
+	// request's block that does not read. Over HTTP it is a 400 in either mode, live and offline.
 	InfluenceMismatch Code = "INFLUENCE_MISMATCH"
 	// PeerMismatch, which only a live verifier gives, means the authenticated transport peer is not the
-	// last signer.
+	// last signer (check 10).
 	PeerMismatch Code = "PEER_MISMATCH"
 	// PolicyExpired means the keyring or root the verifier relies on has expired: live, the time is past
 	// the policy's notAfter; offline, the record's own time is past the notAfter of a root or keyring it
@@ -44,16 +45,15 @@ const (
 	PolicyExpired Code = "POLICY_EXPIRED"
 )
 
-// The codes of the spec's checks 9a to 9c, which test the extension blocks that travel with a chain. No verifier
-// in this SDK gives them yet.
+// The codes of the spec's checks 9a to 9c, which test the extension blocks that travel with a chain.
 const (
 	// ExtensionMismatch means the blocks do not read, are not one per stamp, or one does not match its stamp's
-	// ext.
+	// ext (check 9a). A service about to serve a request it did not verify answers it with a 400.
 	ExtensionMismatch Code = "EXTENSION_MISMATCH"
-	// ExtensionNotAllowed means a block names an extension the verifier's allowed extensions do not hold.
+	// ExtensionNotAllowed means a block names an extension the verifier's allowed extensions do not hold (check 9b).
 	ExtensionNotAllowed Code = "EXTENSION_NOT_ALLOWED"
 	// ExtensionRequired, which only a live verifier gives, means the sender requires an extension the receiver
-	// does not act on.
+	// does not act on (check 9c).
 	ExtensionRequired Code = "EXTENSION_REQUIRED"
 )
 
