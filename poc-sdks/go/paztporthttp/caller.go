@@ -14,6 +14,7 @@ import (
 	"github.com/dumbsly/paztport/poc-sdks/go/influence"
 	"github.com/dumbsly/paztport/poc-sdks/go/paztporthttp/wire"
 	"github.com/dumbsly/paztport/poc-sdks/go/policy"
+	"github.com/dumbsly/paztport/poc-sdks/go/reason"
 	"github.com/dumbsly/paztport/poc-sdks/go/stamp"
 	"github.com/dumbsly/paztport/poc-sdks/go/verify"
 )
@@ -191,10 +192,15 @@ type Received struct {
 	// Check is the check of the response's attestation, or nil when the caller has no verifier and
 	// nothing was checked.
 	Check *wire.ResponseCheck
-	// Entries are the influence entries the response adds: exactly one local-untrusted entry, for every
-	// response, verified or not, since no label on a response is believed. The embedder adds them to its
-	// request's influence.
+	// Entries are the influence entries the response adds, as [influence.ResponseEntries] gives them: its labels
+	// where the whole response verified, otherwise one local-untrusted entry, never dropped. A caller with no
+	// verifier, or one that does not act on influence, is handed no label, so every response adds that one entry.
+	// The embedder adds them to its request's influence, a refused response's included.
 	Entries []influence.Entry
+	// Refused reports that the response failed check 9c, EXTENSION_REQUIRED: it requires an extension this caller
+	// does not act on, such as influence for labels it would drop. The embedder fails the call, hands the response
+	// to nothing and does not retry it, since the handler ran (verification.md, A response, at the caller).
+	Refused bool
 }
 
 // Stamp stamps a call to receiver, the receiver's policy name, after the chain inbound carries, and returns
@@ -357,10 +363,12 @@ func (c *Caller) operate(method, target, receiver string) (named, key string, er
 // Check checks the response to the call o, as Stamp returned it, with responseHeader, the X-Path-Response
 // header's first value as received, "" when it is absent, status, and body whole, and returns what it
 // contributes. With a verifier it runs [wire.CheckResponse] on the chain, blocks and proof o sent, as received by
-// this service. Every response, verified or not, and any response to a caller with no verifier, adds exactly one
-// local-untrusted entry with src "http:<target>" and h its result hash, so content nobody vouched for still counts
-// against later calls. The target is the service the rcv of o's last stamp names, without any operation
-// ([policy.Service]): a call to "payment#pay" adds an entry from "http:payment".
+// this service, and the response adds what [influence.ResponseEntries] gives for the check's result and the
+// response stamp's items under influence: its labels where it verified, otherwise one local-untrusted entry, so
+// content nobody vouched for still counts against later calls. A response to a caller with no verifier adds that
+// one entry, and is never refused. Each entry has src "http:<target>" and h the result hash. The target is the
+// service the rcv of o's last stamp names, without any operation ([policy.Service]): a call to "payment#pay" adds
+// entries from "http:payment".
 //
 // The response's nonce key is the JCS text of [rid, last rcv, "resp"], or of [rid, last rcv, key, "resp"] where o
 // has a key ([wire.ResponseNonceKey]).
@@ -378,18 +386,16 @@ func (c *Caller) Check(
 	}
 	src := "http:" + target
 	if c.Verifier == nil {
-		return Received{Entries: untrusted(src, wire.ResultHash(status, body))}, nil
+		return Received{Entries: influence.ResponseEntries("", nil, src, wire.ResultHash(status, body))}, nil
 	}
 	rc, err := wire.CheckResponse(ctx, c.Verifier, o.Sent, o.Blocks, o.Proof, responseHeader, status, body,
 		c.Stamper.Svc, o.Key)
 	if err != nil {
 		return Received{}, err
 	}
-	// Plan 4b: a verified response adds what its block's labels say; until then every response is untrusted.
-	return Received{Check: &rc, Entries: untrusted(src, rc.ResultHash)}, nil
-}
-
-// untrusted returns the one entry a response nobody vouched for adds.
-func untrusted(src, h string) []influence.Entry {
-	return []influence.Entry{{Class: influence.LocalUntrusted, Src: src, H: h}}
+	return Received{
+		Check:   &rc,
+		Entries: influence.ResponseEntries(rc.Result.Reason, rc.Response(influence.Name), src, rc.ResultHash),
+		Refused: rc.Result.Reason == reason.ExtensionRequired,
+	}, nil
 }

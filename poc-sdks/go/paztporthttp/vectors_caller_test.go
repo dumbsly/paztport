@@ -54,15 +54,16 @@ func TestPeerCertificatesVectors(t *testing.T) {
 
 // TestCallerInfluenceVectors replays the rules' callerInfluence: a call stamped by Caller.Stamp after the case's
 // inbound chain and blocks, signing what the case added, then its response checked by Caller.Check against the
-// chain and blocks sent, compared on the receiver it was addressed to and the check's reason. The recorded
-// response chains onto the caller's own stamp, so only a call that signed exactly the block the case's settings
-// give verifies.
+// chain and blocks sent, compared on the receiver it was addressed to, the check's reason, the entries the response
+// adds and whether it was refused. The recorded response chains onto the caller's own stamp, so only a call that
+// signed exactly the block the case's settings give verifies.
 func TestCallerInfluenceVectors(t *testing.T) {
 	cases := vectors.Rules(t).Get("callerInfluence")
 	if cases.Len() != 12 {
 		t.Fatalf("the rules have %d callerInfluence cases, want 12", cases.Len())
 	}
 	reasons := map[reason.Code]bool{}
+	refused, labelled := 0, 0
 	cases.Each(func(name string, c vectors.Node) {
 		t.Run(name, func(t *testing.T) {
 			c := c.With(t)
@@ -93,11 +94,28 @@ func TestCallerInfluenceVectors(t *testing.T) {
 			case !wantReason.IsNull() && got.Check.Result.Reason != reason.Code(wantReason.Str()):
 				t.Errorf("Reason = %s, want %s", got.Check.Result.Reason, wantReason.Str())
 			}
+			if want := entries(e.Get("influence")); !slices.Equal(got.Entries, want) {
+				t.Errorf("Entries = %+v\nwant %+v", got.Entries, want)
+			}
+			if want := e.Get("refused").Bool(); got.Refused != want {
+				t.Errorf("Refused = %v, want %v", got.Refused, want)
+			}
 			if got.Check != nil {
 				reasons[got.Check.Result.Reason] = true
 			}
+			if got.Refused {
+				refused++
+			}
+			if len(got.Entries) > 0 && got.Entries[0].Class != influence.LocalUntrusted {
+				labelled++
+			}
 		})
 	})
+	// One response is refused at check 9c, and some add their labels: the rest add one local-untrusted entry or,
+	// naming influence with no label, none.
+	if refused != 1 || labelled == 0 {
+		t.Errorf("%d responses refused and %d adding labels, want 1 and some", refused, labelled)
+	}
 	// OK needs the call to have signed the block its settings give after the blocks it received, and
 	// EXTENSION_REQUIRED is check 9c on the responder's block, read after the blocks the call sent.
 	for _, want := range []reason.Code{reason.OK, reason.ExtensionRequired, reason.ChainMissing, reason.BindingMismatch} {

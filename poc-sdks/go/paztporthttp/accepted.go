@@ -99,16 +99,31 @@ func (a Accepted) Attests() bool {
 
 // Attest returns the X-Path-Response header for the handler's complete answer, status and body, and true:
 // one stamp on the chain the request carried, back to its caller, binding the answer's result hash and the
-// request's rid, and attaching the empty block. It takes the answer whole, so an adapter calls it only once
-// nothing will change the body; an answer it cannot hold whole is one to send unattested.
+// request's rid, and attaching this service's block (influence.md, Content labels). At a service whose settings
+// act on influence the block names influence with labels, each an item in the order given, [] when there is none,
+// and requires influence when there is a label, so a caller that does not act on it refuses the answer rather than
+// drop the labels; at any other service it is the empty block. It takes the answer whole, so an adapter calls it
+// only once nothing will change the body; an answer it cannot hold whole is one to send unattested.
 //
-// It returns false, and no header, when the answer is not attested: when [Accepted.Attests] is false,
-// when labels holds any label, since none is carried, or when the binding cannot carry the request's rid,
-// such as a rid holding a newline. The caller then counts the answer untrusted, which is always safe. The
-// error is for a stamper that cannot sign, such as one with no key.
+// It returns false, and no header, when the answer is not attested: when [Accepted.Attests] is false; when labels
+// holds a label at a service that does not act on influence, which has no block to carry it; when a label cannot
+// be written, its class not one of the four or its text not valid UTF-8; when the header would pass the wire limit,
+// 256 KiB, since nothing is dropped to make room; or when the binding cannot carry the request's rid, such as a
+// rid holding a newline. None of these is an error: the caller counts an unattested answer as one
+// local-untrusted entry, never looser than a label. The error is for a stamper that cannot sign, such as one with
+// no key.
 func (a Accepted) Attest(status int, body []byte, labels []influence.Label) (string, bool, error) {
-	// Plan 4b: labels become items on the response stamp's block; until then a labelled answer is unattested.
-	if a.attest == nil || len(labels) > 0 {
+	if a.attest == nil {
+		return "", false, nil
+	}
+	block := stamp.EmptyBlock
+	if a.ext.ActsOnName(influence.Name) {
+		b, err := influence.ResponseBlock(labels, nil)
+		if err != nil {
+			return "", false, nil
+		}
+		block = b
+	} else if len(labels) > 0 {
 		return "", false, nil
 	}
 	hash := wire.ResultHash(status, body)
@@ -116,13 +131,14 @@ func (a Accepted) Attest(status int, body []byte, labels []influence.Label) (str
 	if _, err := stamp.ResponseBinding(hash, rid); err != nil {
 		return "", false, nil
 	}
-	s, err := a.attest.stamper.Respond(a.attest.chain, hash, rid, stamp.EmptyBlock)
+	s, err := a.attest.stamper.Respond(a.attest.chain, hash, rid, block)
 	if err != nil {
 		return "", false, err
 	}
-	h, err := wire.EncodeResponse(s, stamp.EmptyBlock)
+	// Respond signs only a stamp that has a wire form, so the header fails only past the wire limit.
+	h, err := wire.EncodeResponse(s, block)
 	if err != nil {
-		return "", false, err
+		return "", false, nil
 	}
 	return h, true, nil
 }

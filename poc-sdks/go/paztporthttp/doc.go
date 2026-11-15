@@ -12,7 +12,8 @@
 // [Receiver.Accept] with the peer its transport authenticated and the operator's [Mode]. The [Accepted]
 // it gets back holds a refusal to send in place of the handler's answer, or the chain and blocks the handler's
 // calls carry on and the items the request hands the extensions the service acts on; once the handler's answer
-// is complete, [Accepted.Attest] gives its X-Path-Response header when it is attested.
+// is complete, [Accepted.Attest] gives its X-Path-Response header when it is attested, its block carrying the
+// handler's labels where the service acts on influence.
 // [Accepted.TrustedRecord] says whether the handler may write a record later decisions take as fact.
 //
 // The receiver follows the spec. A service states its extension settings once, the extensions it acts on and
@@ -50,8 +51,9 @@
 // external processor, an origin, calls it with no inbound chain. Which policy name a destination has is the
 // deployment's to configure, never the request's: [Receivers] maps a host to it, and a host holding a byte
 // outside ASCII has none, so a call to it is not stamped. [Caller.Check] checks the response against the chain
-// and blocks sent and returns the influence it adds: one local-untrusted entry for each response, so a response
-// is never dropped.
+// and blocks sent and returns the influence it adds, the entries of its labels where it verified and otherwise one
+// local-untrusted entry, so a response is never dropped, and whether it was refused at check 9c, a call the
+// embedder fails.
 //
 // A partner, the entry point of another organisation's calls, keeps [Sessions], made with [NewSessions]
 // from its own material, its extension settings and the client policy keys it has pinned. Its adapter answers

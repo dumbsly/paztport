@@ -580,21 +580,28 @@ func TestCallerSettingsBesideAVerifierWithOthersPanic(t *testing.T) {
 	}
 }
 
-// TestCallerCheckWithNoVerifier checks nothing, and counts any response as one local-untrusted entry
-// from the receiver, by its result hash.
-func TestCallerCheckWithNoVerifier(t *testing.T) {
-	caller, _, _ := originCaller(t)
-	o, err := caller.Stamp("GET", "/orders/7", "orders", nil, paztporthttp.Inbound{}, nil)
-	if err != nil {
-		t.Fatal(err)
+// TestACallerWithNoVerifierAddsOneUntrustedEntry checks nothing, so a response adds one local-untrusted entry from
+// the receiver, by its result hash, though its header holds labels an acting responder signed, and it is never
+// refused, whatever the caller's settings: a label counts only when the whole response verifies.
+func TestACallerWithNoVerifierAddsOneUntrustedEntry(t *testing.T) {
+	c := verifiedCase(t)
+	a := accept(t, c, caseRequest(t, c.Get("request")), paztporthttp.ModeEnforce)
+	wantServed(t, a, true)
+	o := sentTo(t, c, a)
+	body := []byte(`{"receipt":"r-1"}`)
+	h, ok, err := a.Attest(200, body, answerLabels)
+	if err != nil || !ok {
+		t.Fatalf("Attest = %q, %v, %v", h, ok, err)
 	}
-	body := []byte(`{"id":7}`)
-	got, err := caller.Check(t.Context(), o, "anything", 200, body)
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := []influence.Entry{{Class: influence.LocalUntrusted, Src: "http:orders", H: wire.ResultHash(200, body)}}
-	if got.Check != nil || !slices.Equal(got.Entries, want) {
-		t.Fatalf("Check = %+v, want no check and %+v", got, want)
+	settings := map[string]verify.Extensions{"acting on influence": actsOnInfluence(t), "acting on nothing": {}}
+	for name, ext := range settings {
+		caller := &paztporthttp.Caller{Stamper: &stamp.Stamper{Svc: "orders"}, Extensions: ext}
+		got, err := caller.Check(t.Context(), o, h, 200, body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want := untrustedFrom(200, body); got.Check != nil || !slices.Equal(got.Entries, want) || got.Refused {
+			t.Fatalf("%s: Check = %+v, want no check, %+v and not refused", name, got, want)
+		}
 	}
 }

@@ -4,6 +4,7 @@
 package paztporthttp_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/hex"
 	"errors"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/dumbsly/paztport/poc-sdks/go/influence"
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/b64"
+	"github.com/dumbsly/paztport/poc-sdks/go/internal/json"
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/vectors"
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/vectors/handover"
 	"github.com/dumbsly/paztport/poc-sdks/go/paztporthttp"
@@ -390,8 +392,8 @@ func TestAttestRoundTrip(t *testing.T) {
 	}
 }
 
-// TestAttestUnattested gives no header for an answer that is not attested, that holds a label, or whose binding
-// cannot carry the request's rid, and an error only for a stamper that cannot sign.
+// TestAttestUnattested gives no header for an answer that is not attested, that holds a label no block can carry,
+// or whose binding cannot carry the request's rid, and an error only for a stamper that cannot sign.
 func TestAttestUnattested(t *testing.T) {
 	t.Run("not attesting", func(t *testing.T) {
 		c := verifiedCase(t)
@@ -404,12 +406,11 @@ func TestAttestUnattested(t *testing.T) {
 			t.Fatalf("a hand-made Accepted attested: %q, %v, %v", h, ok, err)
 		}
 	})
-	t.Run("a label", func(t *testing.T) {
+	t.Run("a label no block can carry", func(t *testing.T) {
 		c := verifiedCase(t)
 		a := accept(t, c, caseRequest(t, c.Get("request")), paztporthttp.ModeEnforce)
 		wantServed(t, a, true)
-		for _, l := range []influence.Label{influence.NewLabel(influence.Private, "alice"),
-			{Class: "secret", CID: "c"}, {Class: influence.Public, CID: "c\xff"}} {
+		for _, l := range []influence.Label{{Class: "secret", CID: "c"}, {Class: influence.Public, CID: "c\xff"}} {
 			if h, ok, err := a.Attest(200, nil, []influence.Label{l}); h != "" || ok || err != nil {
 				t.Fatalf("Attest(%+v) = %q, %v, %v; want unattested", l, h, ok, err)
 			}
@@ -449,6 +450,251 @@ func TestAttestUnattested(t *testing.T) {
 			t.Fatalf("Attest = %q, %v, %v; want an error", h, ok, err)
 		}
 	})
+}
+
+// answerLabels label a handler's answer: alice's private receipt, then public terms with no owner.
+var answerLabels = []influence.Label{
+	{Class: influence.Private, CID: "cid-receipt-1", Owner: "alice"},
+	{Class: influence.Public, CID: "cid-terms-1"},
+}
+
+// sentTo returns the call that brought case c's request to payment, which accepted it as a: what orders sent, the
+// chain and blocks payment received and the request's proof, copied before any handler touches a.
+func sentTo(t *testing.T, c vectors.Node, a paztporthttp.Accepted) paztporthttp.Outbound {
+	t.Helper()
+	proof, err := policy.ReadProof(header(c, wire.Proof))
+	if err != nil {
+		t.Fatalf("ReadProof: %v", err)
+	}
+	return paztporthttp.Outbound{Sent: slices.Clone(a.Inbound.Chain), Blocks: slices.Clone(a.Inbound.Blocks),
+		Proof: &proof}
+}
+
+// checkingCaller returns orders' caller for case c, checking the answers to its calls with a verifier pinned to
+// the case's material under the settings ext, over a nonce cache of its own.
+func checkingCaller(t *testing.T, c vectors.Node, ext verify.Extensions) *paztporthttp.Caller {
+	t.Helper()
+	now := c.Get("now").Int()
+	return &paztporthttp.Caller{
+		Stamper: &stamp.Stamper{Svc: "orders"},
+		Verifier: pinnedVerifier(t, c.Get("material").Str(), verify.Config{
+			AllowedOrigins: c.Get("allowedOrigins").Strs(),
+			Nonces:         verify.NewMemoryNonceCache(c.Get("nonceTtlMs").Int()),
+			Now:            func() int64 { return now },
+			CallMaxAgeMs:   c.Get("callMaxAgeMs").Int(),
+			RunMaxAgeMs:    c.Get("runMaxAgeMs").Int(),
+			Extensions:     ext,
+		}),
+	}
+}
+
+// responseBlock returns the block the response header h holds, read by the SDK's own block reader.
+func responseBlock(t *testing.T, h string) stamp.Block {
+	t.Helper()
+	v, err := json.ReadToken(h)
+	if err != nil {
+		t.Fatalf("the response header: %v", err)
+	}
+	field, ok := json.Field(v, "block")
+	if !ok {
+		t.Fatal("the response header holds no block")
+	}
+	text, err := json.Wire(field)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := stamp.ParseBlock(text)
+	if err != nil {
+		t.Fatalf("the response's block: %v", err)
+	}
+	return b
+}
+
+// wantReceived fails t unless r is the check of a response that gave code, added want and was refused as
+// refused says.
+func wantReceived(t *testing.T, r paztporthttp.Received, code reason.Code, want []influence.Entry, refused bool) {
+	t.Helper()
+	if r.Check == nil || r.Check.Result.Reason != code {
+		t.Fatalf("Check = %+v, want %s", r.Check, code)
+	}
+	if !slices.Equal(r.Entries, want) || r.Refused != refused {
+		t.Fatalf("Entries %+v, Refused %v; want %+v, %v", r.Entries, r.Refused, want, refused)
+	}
+}
+
+// untrustedFrom is the one entry an answer nobody vouched for adds from payment, by its result hash.
+func untrustedFrom(status int, body []byte) []influence.Entry {
+	return []influence.Entry{{Class: influence.LocalUntrusted, Src: "http:payment", H: wire.ResultHash(status, body)}}
+}
+
+// TestAnActingResponderSignsItsLabels: at a responder acting on influence, the answer's block names influence with
+// each label, in order, and requires influence, so the caller acting on influence that checks it adds one entry per
+// label, from the service it called, by the answer's result hash.
+func TestAnActingResponderSignsItsLabels(t *testing.T) {
+	c := verifiedCase(t)
+	a := accept(t, c, caseRequest(t, c.Get("request")), paztporthttp.ModeEnforce)
+	wantServed(t, a, true)
+	o := sentTo(t, c, a)
+	body := []byte(`{"receipt":"r-1"}`)
+	h, ok, err := a.Attest(201, body, answerLabels)
+	if err != nil || !ok || h == "" {
+		t.Fatalf("Attest = %q, %v, %v", h, ok, err)
+	}
+	want, err := influence.ResponseBlock(answerLabels, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := responseBlock(t, h); !bytes.Equal(got.Wire(), want.Wire()) ||
+		!slices.Equal(got.Requires(), []string{influence.Name}) {
+		t.Fatalf("the response's block is %s, want %s, requiring influence", got.Wire(), want.Wire())
+	}
+	got, err := checkingCaller(t, c, actsOnInfluence(t)).Check(t.Context(), o, h, 201, body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hash := wire.ResultHash(201, body)
+	wantReceived(t, got, reason.OK, []influence.Entry{answerLabels[0].Entry("http:payment", hash),
+		answerLabels[1].Entry("http:payment", hash)}, false)
+}
+
+// TestAnActingResponderWithNoLabelNamesInfluenceWithNothing: a responder acting on influence names it on every
+// answer it attests, [] for one with no label, requiring nothing; such an answer adds no entry.
+func TestAnActingResponderWithNoLabelNamesInfluenceWithNothing(t *testing.T) {
+	c := verifiedCase(t)
+	a := accept(t, c, caseRequest(t, c.Get("request")), paztporthttp.ModeEnforce)
+	wantServed(t, a, true)
+	o := sentTo(t, c, a)
+	body := []byte(`{"paid":true}`)
+	h, ok, err := a.Attest(200, body, nil)
+	if err != nil || !ok {
+		t.Fatalf("Attest = %q, %v, %v", h, ok, err)
+	}
+	if got := string(responseBlock(t, h).Wire()); got != `{"items":{"influence":[]},"requires":[]}` {
+		t.Fatalf("the response's block is %s, want influence named with nothing", got)
+	}
+	got, err := checkingCaller(t, c, actsOnInfluence(t)).Check(t.Context(), o, h, 200, body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantReceived(t, got, reason.OK, nil, false)
+}
+
+// TestALabelledAnswerAtAResponderNotActingOnInfluenceIsUnattested: a responder that does not act on influence,
+// acting on nothing or on another extension, cannot carry a label, so a labelled answer goes unattested, with no
+// error, and its caller adds one local-untrusted entry for it, stricter than any label; an answer with no label is
+// attested with the empty block.
+func TestALabelledAnswerAtAResponderNotActingOnInfluenceIsUnattested(t *testing.T) {
+	c := verifiedCase(t)
+	other, err := verify.NewExtensions([]string{"example"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, ext := range map[string]verify.Extensions{"acting on nothing": {}, "acting on another": other} {
+		t.Run(name, func(t *testing.T) {
+			r := caseReceiver(t, c)
+			r.Extensions, r.Verifier = ext, caseVerifierWith(t, c, ext)
+			a := r.Accept(t.Context(), caseRequest(t, c.Get("request")), nil, paztporthttp.ModeEnforce)
+			wantServed(t, a, true)
+			o := sentTo(t, c, a)
+			body := []byte(`{"receipt":"r-1"}`)
+			if h, ok, err := a.Attest(200, body, answerLabels[:1]); h != "" || ok || err != nil {
+				t.Fatalf("Attest = %q, %v, %v; want unattested", h, ok, err)
+			}
+			got, err := checkingCaller(t, c, actsOnInfluence(t)).Check(t.Context(), o, "", 200, body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			wantReceived(t, got, reason.ChainMissing, untrustedFrom(200, body), false)
+
+			h, ok, err := a.Attest(200, body, nil)
+			if err != nil || !ok {
+				t.Fatalf("Attest with no label = %q, %v, %v", h, ok, err)
+			}
+			if got := responseBlock(t, h); got.Commit() != stamp.EmptyBlock.Commit() {
+				t.Fatalf("the response's block is %s, want the empty block", got.Wire())
+			}
+		})
+	}
+}
+
+// TestAResponseBlockPastTheWireLimitIsUnattestedWithNoError: labels whose response header would pass the wire limit
+// leave the answer unattested, nothing dropped to make room, and that is no error: the caller adds one
+// local-untrusted entry. The block alone is within the limit; with the stamp beside it the header is not.
+func TestAResponseBlockPastTheWireLimitIsUnattestedWithNoError(t *testing.T) {
+	c := verifiedCase(t)
+	a := accept(t, c, caseRequest(t, c.Get("request")), paztporthttp.ModeEnforce)
+	wantServed(t, a, true)
+	big := []influence.Label{{Class: influence.Public, CID: strings.Repeat("c", json.WireBytes-200)}}
+	if b, err := influence.ResponseBlock(big, nil); err != nil || len(b.Wire()) > json.WireBytes {
+		t.Fatalf("the block alone does not fit: %d bytes, %v", len(b.Wire()), err)
+	}
+	if h, ok, err := a.Attest(200, nil, big); h != "" || ok || err != nil {
+		t.Fatalf("Attest = %d characters, %v, %v; want unattested", len(h), ok, err)
+	}
+	if h, ok, err := a.Attest(200, nil, answerLabels); h == "" || !ok || err != nil {
+		t.Fatalf("Attest of labels that fit = %q, %v, %v", h, ok, err)
+	}
+}
+
+// TestAResponseRefusedAtNineCIsRefused: a labelled answer requires influence, so a caller that does not act on it
+// refuses the answer at check 9c and fails the call; the answer still adds its one local-untrusted entry. A response
+// that fails any other check is not refused, only untrusted.
+func TestAResponseRefusedAtNineCIsRefused(t *testing.T) {
+	c := verifiedCase(t)
+	a := accept(t, c, caseRequest(t, c.Get("request")), paztporthttp.ModeEnforce)
+	wantServed(t, a, true)
+	o := sentTo(t, c, a)
+	body := []byte(`{"receipt":"r-1"}`)
+	h, ok, err := a.Attest(201, body, answerLabels)
+	if err != nil || !ok {
+		t.Fatalf("Attest = %q, %v, %v", h, ok, err)
+	}
+	got, err := checkingCaller(t, c, verify.Extensions{}).Check(t.Context(), o, h, 201, body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantReceived(t, got, reason.ExtensionRequired, untrustedFrom(201, body), true)
+
+	other := []byte(`{"receipt":"r-2"}`)
+	got, err = checkingCaller(t, c, actsOnInfluence(t)).Check(t.Context(), o, h, 201, other)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantReceived(t, got, reason.BindingMismatch, untrustedFrom(201, other), false)
+}
+
+// TestALabelBesideAnEntryIsOneUntrustedEntry: a response that verifies, whose block names influence with a label
+// and an item that is not one, an entry, adds no label: one local-untrusted entry, and it is not refused.
+func TestALabelBesideAnEntryIsOneUntrustedEntry(t *testing.T) {
+	c := verifiedCase(t)
+	a := accept(t, c, caseRequest(t, c.Get("request")), paztporthttp.ModeEnforce)
+	wantServed(t, a, true)
+	o := sentTo(t, c, a)
+	body := []byte(`{"receipt":"r-1"}`)
+	hash := wire.ResultHash(200, body)
+	block, err := stamp.NewBlock(map[string][]string{influence.Name: {
+		`{"cid":"cid-receipt-1","cls":"private","owner":"alice"}`,
+		`{"cls":"third-party","h":"h2","src":"web:example.com"}`,
+	}}, []string{influence.Name})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := caseReceiver(t, c).Stamper.Respond(o.Sent, hash, o.Sent[0].RID, block)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h, err := wire.EncodeResponse(s, block)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := checkingCaller(t, c, actsOnInfluence(t)).Check(t.Context(), o, h, 200, body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantReceived(t, got, reason.OK, untrustedFrom(200, body), false)
+	if items := got.Check.Response(influence.Name); items == nil || len(items.Items) != 2 {
+		t.Fatalf("the check hands over %+v, want both items", items)
+	}
 }
 
 // mintedChain returns the token of a chain gateway then orders sign for req at payment, at case c's now, in the
