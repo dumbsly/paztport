@@ -6,7 +6,7 @@
 
 import { encode } from "../encoding/b64url.ts";
 import { sha256 } from "../crypto/crypto.ts";
-import { writeWire } from "../encoding/jcs.ts";
+import { writeToken, writeWire } from "../encoding/jcs.ts";
 import { readToken, type JsonValue } from "../encoding/json.ts";
 import { array, exactly, object } from "../internal/fields.ts";
 
@@ -87,6 +87,17 @@ export function blocksOf(value: JsonValue): Block[] {
 /** Reads a token of blocks: MalformedJson for bytes that do not read, an Error naming what the schema refuses. */
 export function readBlocks(token: string): Block[] {
   return blocksOf(readToken(token));
+}
+
+/**
+ * The token of `blocks`, one per stamp in chain order: the token `readBlocks` reads. Throws, as `blockOf` does, for a
+ * block built by hand that the block schema refuses, and as `writeToken` does for what JSON cannot carry.
+ */
+export function writeBlocks(blocks: readonly Block[]): string {
+  const value = blocks as unknown as JsonValue[];
+  // a Block is a type, not a checked value, so one written by hand is held to the schema the reader applies
+  for (const block of value) blockOf(block);
+  return writeToken(value);
 }
 
 /** A stamp's `ext` for `block`: `""` for the empty block, else `b64url(SHA-256(JCS(block)))`. */

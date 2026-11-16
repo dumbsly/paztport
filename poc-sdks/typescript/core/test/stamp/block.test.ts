@@ -8,7 +8,7 @@ import { writeToken } from "../../src/encoding/jcs.ts";
 import { readToken, type JsonValue } from "../../src/encoding/json.ts";
 import { MalformedJson } from "../../src/encoding/json-rules.ts";
 import {
-  blockOf, commitBlock, EMPTY_BLOCK, isExtensionName, itemsUnder, makeBlock, readBlocks,
+  blockOf, commitBlock, EMPTY_BLOCK, isExtensionName, itemsUnder, makeBlock, readBlocks, writeBlocks, type Block,
 } from "../../src/stamp/block.ts";
 
 const commitOf = (text: string): string => encode(sha256(utf8(text)));
@@ -65,6 +65,24 @@ describe("block", () => {
     ["a number in requires", { items: {}, requires: [1] }],
   ])("refusesWhatIsNotABlock: %s", (_name, value) => {
     expect(() => blockOf(value)).toThrow();
+  });
+
+  it("writeBlocksIsWhatReadBlocksReads", () => {
+    const blocks = [EMPTY_BLOCK, makeBlock({ example: [{ note: "n" }, 7] }, ["example"])];
+    const token = writeBlocks(blocks);
+    // the token a client wrote by casting the blocks to a JSON value
+    expect(token).toBe(writeToken(blocks as unknown as JsonValue));
+    expect(readBlocks(token)).toEqual(blocks);
+    expect(readBlocks(writeBlocks([]))).toEqual([]);
+  });
+
+  it("writeBlocksRefusesABlockReadBlocksWouldRefuse", () => {
+    const unsorted: Block = { items: {}, requires: ["b", "a"] };
+    const badName = { items: { Example: [] }, requires: [] } as Block;
+    for (const block of [unsorted, badName]) {
+      expect(() => readBlocks(writeToken([block] as unknown as JsonValue))).toThrow();
+      expect(() => writeBlocks([EMPTY_BLOCK, block])).toThrow();
+    }
   });
 
   it("makeBlockSortsWhatItRequires", () => {

@@ -4,7 +4,7 @@
 import { describe, expect, it } from "vitest";
 import {
   INFLUENCE, bindPrompt, buildTree, commitBlock, extensionSettings, generateKeyPair, influenceBlock,
-  makeBlock, nonceKey, randomBytes, recordedCallReason, signStamp, writeToken,
+  makeBlock, nonceKey, randomBytes, recordedCallReason, signStamp, writeBlocks, writeToken,
 } from "@paztport/core";
 import type { Block, InfluenceEntry, JsonValue, OfflineConfig, RecordedSession } from "@paztport/core";
 import {
@@ -51,7 +51,7 @@ function world() {
       _meta: {
         [META_CHAIN]: writeToken([s0, s1]),
         [META_PROOF]: writeToken(tree.proofFor(ROUTE)),
-        [META_EXTENSIONS]: writeToken(blocks as unknown as JsonValue),
+        [META_EXTENSIONS]: writeBlocks(blocks),
         [META_CALL_ID]: callId,
       },
     };
@@ -79,7 +79,7 @@ describe("verifyRecordedCall", () => {
       .toBe("OK");
     // a block that does not match its stamp is refused by 9a
     const p = w.params();
-    (p._meta as Record<string, string>)[META_EXTENSIONS] = writeToken([BLOCKS[0], influenceBlock([])] as unknown as JsonValue);
+    (p._meta as Record<string, string>)[META_EXTENSIONS] = writeBlocks([BLOCKS[0]!, influenceBlock([])]);
     expect(verifyRecordedCall(p, w.call, w.cfg()).result.reason).toBe("EXTENSION_MISMATCH");
   });
 

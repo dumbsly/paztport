@@ -75,8 +75,9 @@ operation in an `rcv`.
   ([wire.md](../spec/wire.md#blocks)). `makeBlock(items, requires)` builds one, sorting `requires` and throwing on a
   name that is not an extension name or on a name twice in `requires`; `EMPTY_BLOCK` attaches nothing. `commitBlock`
   gives a stamp's `ext`: `""` for the empty block, else the base64url of the SHA-256 of its JCS. `readBlocks` reads a
-  token of blocks. `itemsUnder(block, name)` gives the items a block holds under a name, or null when it does not name
-  it; it finds only the block's own members, so a name such as `constructor` finds nothing where it is not listed.
+  token of blocks, and `writeBlocks` writes the token it reads, refusing a block built by hand that the reader would
+  refuse. `itemsUnder(block, name)` gives the items a block holds under a name, or null when it does not name it; it
+  finds only the block's own members, so a name such as `constructor` finds nothing where it is not listed.
 - **Extension settings.** A verifier's config takes the extensions it acts on and the names it carries as one
   `ExtensionSettings`, built by `extensionSettings(actsOn, allowed?)`, or for a recorded response by
   `recordExtensionSettings`, never by hand. `extensionSettings` throws on a name that is not an extension name, and on a

@@ -18,9 +18,9 @@ import {
   rulesHash,
   RUN_MAX_AGE_MS,
   stampLocalStep,
+  writeBlocks,
   writeToken,
   type InfluenceClass,
-  type JsonValue,
   type LocalRules,
   type LocalVerdict,
   type Resolved,
@@ -201,7 +201,7 @@ export class LocalGate {
         decision: writeToken({ callId: toolCallId, resolved, verdict, routeAllowed, rulesHash: hash }),
         chain: writeToken([origin, stamp]),
         proof: proof === null ? null : writeToken(proof),
-        blocks: writeToken([ORIGIN_BLOCK, block] as unknown as JsonValue),
+        blocks: writeBlocks([ORIGIN_BLOCK, block]),
       });
     } catch {
       // a call that cannot be bound, signed or recorded (input JCS rejects, a tool name that cannot be bound, a

@@ -17,11 +17,11 @@ import {
   sanitiseVerdictReason,
   serverPolicyNotAfter,
   signStamp,
+  writeBlocks,
   writeToken,
   type Block,
   type ExtensionSettings,
   type InfluenceEntry,
-  type JsonValue,
   type MerkleProof,
   type NonceCache,
   type ReasonCode,
@@ -260,7 +260,7 @@ export function stampToolCall(call: { name: string; args: unknown; callId: strin
   return {
     [META_CHAIN]: writeToken([s.origin, hop]),
     [META_PROOF]: writeToken(s.proof),
-    [META_EXTENSIONS]: writeToken([s.originBlock, s.block] as unknown as JsonValue),
+    [META_EXTENSIONS]: writeBlocks([s.originBlock, s.block]),
     [META_CALL_ID]: call.callId,
   };
 }
