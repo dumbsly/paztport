@@ -160,6 +160,56 @@ class HttpWireTest {
         }
     }
 
+    // HTTP's optional whitespace is space and horizontal tab (RFC 9110 section 5.6.3), and only those are removed:
+    // a value of any other character is a value, whatever Java calls whitespace.
+    @Test
+    void onlySpacesAndTabsAroundAValueAreRemoved() {
+        for (String blank : List.of("", " ", "\t", " \t ")) {
+            assertNull(HttpWire.headerValue(blank), "[" + blank + "]");
+        }
+        assertNull(HttpWire.headerValue(null));
+        for (String value : List.of("\u000b", "\u001c", "\u00a0", "\u2028", "\u3000")) {
+            assertEquals(value, HttpWire.headerValue(value), String.format("U+%04X", value.codePointAt(0)));
+        }
+        assertEquals("a b", HttpWire.headerValue(" \ta b\t "));
+        assertEquals("\u000ba\u000b", HttpWire.headerValue(" \u000ba\u000b\t"));
+    }
+
+    // A vertical tab is not blank, so the header is present and does not decode: check 9a refuses it, where an
+    // absent header would verify on this chain.
+    @Test
+    void aVerticalTabBlocksHeaderDoesNotDecode() {
+        Stamper.Stamped s = sent(Block.EMPTY);
+
+        assertNotNull(HttpWire.decodeBlocks("\u000b"));
+        assertEquals(ReasonCode.EXTENSION_MISMATCH, verifier().verify(HttpWire.request(
+                HttpWire.encodeChain(s.chain()), HttpWire.encodeProof(s.proof()), "\u000b", "POST", "/pay", BODY,
+                "payment", null, null)).reason());
+    }
+
+    // The spaces and tabs around a token are not part of it; any other character around it is, so it does not
+    // decode.
+    @Test
+    void aTokenWrappedInSpacesAndTabsDecodes() {
+        Stamper.Stamped s = sent(ORDERS_BLOCK);
+        String chain = HttpWire.encodeChain(s.chain());
+        String proof = HttpWire.encodeProof(s.proof());
+        String blocks = HttpWire.encodeBlocks(List.of(Block.EMPTY, ORDERS_BLOCK));
+
+        assertEquals(HttpWire.decodeChain(chain), HttpWire.decodeChain(" \t" + chain + "\t "));
+        assertEquals(HttpWire.decodeProof(proof), HttpWire.decodeProof(" \t" + proof + "\t "));
+        assertEquals(HttpWire.decodeBlocks(blocks), HttpWire.decodeBlocks(" \t" + blocks + "\t "));
+
+        assertEquals("\"malformed\"", HttpWire.decodeChain("\u000b" + chain));
+        assertNull(HttpWire.decodeProof("\u000b" + proof));
+        assertNotEquals(HttpWire.decodeBlocks(blocks), HttpWire.decodeBlocks("\u000b" + blocks));
+
+        Stamper.Stamped r = sent(Block.EMPTY);
+        String response = respondHeader(r, 200, Block.EMPTY);
+        assertEquals(ReasonCode.OK, check(r, emptyBlocks(r), " \t" + response + "\t ").result().reason());
+        assertNotEquals(ReasonCode.OK, check(r, emptyBlocks(r), "\u000b" + response).result().reason());
+    }
+
     @Test
     void theRequestNonceKeyIsAJcsArray() {
         Stamper.Stamped s = sent(ops, "payment#charge", Block.EMPTY, "b2");

@@ -280,18 +280,35 @@ class PartnerReceiverTest {
         }
     }
 
-    // Only spaces and tabs are blank: a no-break space is a value, and names no session.
+    // Only spaces and tabs are blank: a no-break space or a vertical tab is a value, and names no session.
     @Test
     void aSessionHeaderOfNbspNamesNoSession() {
         Map<String, String> call = boundary(attestedSession(), "rid-1", REFUND);
-        call.put(PaztportHeaders.SESSION, "\u00a0");
+        for (String value : List.of("\u00a0", "\u000b")) {
+            call.put(PaztportHeaders.SESSION, value);
+
+            PartnerAccepted accepted = receiver.accept(charge(call, REFUND), cert(SHOP_CA, "orders"));
+
+            String shown = String.format("U+%04X", (int) value.charAt(0));
+            assertNotNull(accepted.refusal(), shown + " is a value, never taken as unsafe");
+            assertEquals(403, accepted.refusal().status(), shown);
+            assertEquals("{\"reason\":\"SESSION_UNKNOWN\"}", text(accepted.refusal()), shown);
+            assertFalse(accepted.attested(), shown);
+        }
+    }
+
+    // The spaces and tabs around a value are not part of it, as HTTP reads every field value.
+    @Test
+    void aLiveSessionIdWrappedInSpacesAndTabsNamesThatSession() {
+        String sess = attestedSession();
+        Map<String, String> call = boundary(sess, "rid-1", REFUND);
+        call.put(PaztportHeaders.SESSION, " \t" + sess + "\t ");
 
         PartnerAccepted accepted = receiver.accept(charge(call, REFUND), cert(SHOP_CA, "orders"));
 
-        assertNotNull(accepted.refusal(), "a no-break space is a value, never taken as unsafe");
-        assertEquals(403, accepted.refusal().status());
-        assertEquals("{\"reason\":\"SESSION_UNKNOWN\"}", text(accepted.refusal()));
-        assertFalse(accepted.attested());
+        assertNull(accepted.refusal());
+        assertTrue(accepted.attested());
+        assertEquals(ReasonCode.OK, accepted.result().reason());
     }
 
     @Test

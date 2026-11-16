@@ -68,13 +68,29 @@ public final class HttpWire {
     // --- Header encodings ---
 
     /**
-     * A received Paztport header's value, or {@code null} when it is absent or blank: a blank header is read as an
-     * absent one, and any other value as it arrived (spec wire.md, HTTP). A blank header asks for nothing an absent
-     * one does not, since a caller can always leave the header out. Of the characters a field value may hold, read as
-     * ISO-8859-1, only space and horizontal tab are blank.
+     * A received Paztport header's value without the spaces and horizontal tabs around it, or {@code null} when the
+     * header is absent or nothing else is left (spec wire.md, HTTP). Those two are HTTP's optional whitespace, which is
+     * no part of a field value (RFC 9110 section 5.6.3), so only they are removed: a value holding any other character
+     * keeps it, whatever Java calls whitespace. A blank header asks for nothing an absent one does not, since a caller
+     * can always leave the header out.
      */
     public static String headerValue(String header) {
-        return header == null || header.isBlank() ? null : header;
+        if (header == null) {
+            return null;
+        }
+        int start = 0;
+        int end = header.length();
+        while (start < end && isOws(header.charAt(start))) {
+            start++;
+        }
+        while (end > start && isOws(header.charAt(end - 1))) {
+            end--;
+        }
+        return start == end ? null : header.substring(start, end);
+    }
+
+    private static boolean isOws(char c) {
+        return c == ' ' || c == '\t';
     }
 
     /** The {@code X-Path-Chain} header for {@code chain}. */
@@ -84,10 +100,11 @@ public final class HttpWire {
 
     /** The chain's JSON text: blank or absent gives {@code null}; unreadable gives {@code "malformed"}. */
     public static String decodeChain(String header) {
-        if (headerValue(header) == null) {
+        String value = headerValue(header);
+        if (value == null) {
             return null;
         }
-        String json = decodeJson(header);
+        String json = decodeJson(value);
         return json == null ? MALFORMED : json;
     }
 
@@ -98,7 +115,8 @@ public final class HttpWire {
 
     /** The proof's JSON text: absent or unreadable gives {@code null}, which the verifier answers as no proof. */
     public static String decodeProof(String header) {
-        return headerValue(header) == null ? null : decodeJson(header);
+        String value = headerValue(header);
+        return value == null ? null : decodeJson(value);
     }
 
     /**
@@ -118,20 +136,22 @@ public final class HttpWire {
      * {@code null}, so check 9a refuses it.
      */
     public static String decodeBlocks(String header) {
-        if (headerValue(header) == null) {
+        String value = headerValue(header);
+        if (value == null) {
             return null;
         }
-        String json = decodeJson(header);
+        String json = decodeJson(value);
         return json == null ? UNREADABLE : json;
     }
 
     /**
-     * The header's JSON text, once the header is known to be a token: the base64url of a value's JCS bytes; otherwise
-     * null. Those bytes are the only text of the value they hold, so the verifier reads exactly what was sent.
+     * The JSON text of a header's value, as {@link #headerValue} gives it, when the value is a token: the base64url of
+     * a value's JCS bytes; otherwise null. Those bytes are the only text of the value they hold, so the verifier reads
+     * exactly what was sent.
      */
-    private static String decodeJson(String header) {
+    private static String decodeJson(String value) {
         try {
-            return JsonWriter.text(JsonReader.token(header.strip()));
+            return JsonWriter.text(JsonReader.token(value));
         } catch (IllegalArgumentException e) {
             return null;
         }
@@ -260,11 +280,12 @@ public final class HttpWire {
      * header that is absent or does not read as that.
      */
     private static JsonValue.Obj attestation(String header) {
-        if (headerValue(header) == null) {
+        String value = headerValue(header);
+        if (value == null) {
             return null;
         }
         try {
-            JsonValue.Obj o = JsonFields.object(JsonReader.token(header.strip()));
+            JsonValue.Obj o = JsonFields.object(JsonReader.token(value));
             JsonFields.exactly(o, Set.of("block", "stamp"), Set.of());
             return o;
         } catch (IllegalArgumentException e) {

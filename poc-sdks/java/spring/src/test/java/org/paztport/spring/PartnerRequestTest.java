@@ -428,7 +428,7 @@ class PartnerRequestTest {
         assertEquals("UNSAFE_SESSION", empty.reason());
 
         // A second handshake adds a session and replaces none, so both work, and the refusals above were about
-        // the ids alone.
+        // the headers alone.
         String second = handshake(orders, true);
         assertEquals(200, post(orders, "/refund", boundary(sess, "rid-p3", "/refund", REFUND), REFUND).status());
         assertEquals(200, post(orders, "/refund", boundary(second, "rid-p4", "/refund", REFUND), REFUND).status());
