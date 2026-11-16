@@ -518,7 +518,8 @@ describe("known-answer vectors, version 4", () => {
     expect(replayRecordedCalls(committed, c)).toEqual(c.expected);
   });
 
-  // The cases the review of the spec asked version 4 to carry, each a statement that separates two readings.
+  // The committed vectors carry these cases, each of which separates two readings of the spec: a block, a write, a
+  // response, a recorded call, a local step, a Method not found answer.
   it.each([
     ["verify", "a block that only requires example, at a receiver that acts on it"],
     ["influence.request", "a pass-along block (as the hand-over gives it: items null), a write"],
@@ -537,18 +538,16 @@ describe("known-answer vectors, version 4", () => {
     ["influence.response", "verified, one label and one item that is not a label"],
     ["influence.response", "a result no check ran on, as in an unsafe session"],
     ["influence.recordedCall", "items under influence, at a verifier that acts on it"],
-    // and the cases for an origin block that does not name influence, a local write into a public folder,
-    // a Method not found answer, and a response whose first stamp names another call
     ["influence.request", "an origin block that does not name it, the caller's entries trusted, a write"],
     ["recordedLocalStep", "a write into a public folder, a private entry in the origin's block and the hop's block empty, signed as allowed"],
     ["sessionRequirement", "a Method not found answer (-32601)"],
     ["sessionRequirement", "a Method not found answer (-32601), with the switch"],
     ["responseAttestation", "a first stamp whose rid is not the call's"],
-  ])("everyCaseTheReviewAskedForIsThere %s: %s", (section, name) => {
+  ])("the committed vectors carry %s: %s", (section, name) => {
     const cases = sectionAt(committed, section) as any[];
     expect(cases.some((c) => c.name === name)).toBe(true);
   });
-  it("everyCaseTheReviewAskedForIsThere: the recorded calls with an item that does not read", () => {
+  it("the recorded calls with an item that does not read give their reasons", () => {
     const name = "items under influence, at a verifier that acts on it";
     const set = committed.influence.recordedCall.find((c: any) => c.name === name);
     const expected = set.expected.map((e: any) => e.reason);
