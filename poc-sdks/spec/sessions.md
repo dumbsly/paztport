@@ -445,7 +445,7 @@ MUST:
    it makes no call after a reply that fails step 5, nor in an unsafe session with the partner, whether the reply
    said `"unsafe"` or the session is the replacement, unless its configuration switch lets it continue.
 7. Take every partner reply as unattested. The partner does not attest what it answers, so nothing it says
-   counts as more: an egress that acts on influence records each reply as one `local-untrusted` entry
+   counts as more: the egress records each reply as one `local-untrusted` entry, whatever it acts on
    ([influence.md](influence.md#content-labels)).
 
 The Java SDK's `BoundaryClient` also checks, when it is built, that its own root and keyring verify under its own
