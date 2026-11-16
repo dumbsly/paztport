@@ -107,11 +107,11 @@ func (a Accepted) Attests() bool {
 //
 // It returns false, and no header, when the answer is not attested: when [Accepted.Attests] is false; when labels
 // holds a label at a service that does not act on influence, which has no block to carry it; when a label cannot
-// be written, its class not one of the four or its text not valid UTF-8; when the header would pass the wire limit,
-// 256 KiB, since nothing is dropped to make room; or when the binding cannot carry the request's rid, such as a
-// rid holding a newline. None of these is an error: the caller counts an unattested answer as one
-// local-untrusted entry, never looser than a label. The error is for a stamper that cannot sign, such as one with
-// no key.
+// be written, its class not one of the four or its text one a reader would refuse ([influence.ResponseBlock]);
+// when the header would pass the wire limit, 256 KiB, since nothing is dropped to make room; or when the binding
+// cannot carry the request's rid, such as a rid holding a newline. None of these is an error: the caller counts
+// an unattested answer as one local-untrusted entry, never looser than a label. The error is for a stamper that
+// cannot sign, such as one with no key.
 func (a Accepted) Attest(status int, body []byte, labels []influence.Label) (string, bool, error) {
 	if a.attest == nil {
 		return "", false, nil

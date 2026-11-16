@@ -14,7 +14,8 @@
 // calls carry on and the items the request hands the extensions the service acts on; once the handler's answer
 // is complete, [Accepted.Attest] gives its X-Path-Response header when it is attested, its block carrying the
 // handler's labels where the service acts on influence.
-// [Accepted.TrustedRecord] says whether the handler may write a record later decisions take as fact.
+// [Accepted.PublicWrite] decides a guarded public write the handler makes, and [Accepted.TrustedRecord] whether it
+// may write a record later decisions take as fact.
 //
 // The receiver follows the spec. A service states its extension settings once, the extensions it acts on and
 // the names it carries: its verifier's, or [Receiver.Extensions] where it has none. Under [ModeEnforce] or

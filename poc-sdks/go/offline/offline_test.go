@@ -866,7 +866,8 @@ func example(t testing.TB) stamp.Block {
 }
 
 // TestALastBlockRequiringAnExtensionNotActedOnIsOKOffline: check 9c is live only, since a record does not hold
-// the actsOn it was checked against live; the same block refused live is OK here (Review Focus 4's block too).
+// the actsOn it was checked against live; so a last block is OK here whatever it requires,
+// even two names of which only one is acted on, which the live verifier refuses.
 func TestALastBlockRequiringAnExtensionNotActedOnIsOKOffline(t *testing.T) {
 	for _, requires := range [][]string{{"example"}, {"example", "other"}} {
 		s := mesh(t)

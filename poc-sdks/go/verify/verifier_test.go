@@ -1093,7 +1093,7 @@ func TestBlocksAbsentAndEveryExtEmptyIsOK(t *testing.T) {
 }
 
 // TestBlocksThatAreJSONNullAreExtensionMismatch: a token that reads as null is present, and is not an array of
-// blocks, so it is never taken for no token (Review Focus 1).
+// blocks, so it is never taken for no token.
 func TestBlocksThatAreJSONNullAreExtensionMismatch(t *testing.T) {
 	s := mesh(t)
 	s.in.Blocks = ptr(b64.Encode([]byte("null")))
@@ -1155,7 +1155,7 @@ func TestAnItemAlteredIsExtensionMismatch(t *testing.T) {
 }
 
 // TestAnExtThatIsNotBase64urlIsExtensionMismatchNotChainMissing: ext is compared as text and never decoded, so a
-// signed ext that is no base64url reads, and fails check 9a (Review Focus 2).
+// signed ext that is no base64url reads, and fails check 9a.
 func TestAnExtThatIsNotBase64urlIsExtensionMismatchNotChainMissing(t *testing.T) {
 	s := mesh(t)
 	s.edit(1, func(st *stamp.Stamp) { st.Ext = "not base64url!" })
@@ -1166,7 +1166,7 @@ func TestAnExtThatIsNotBase64urlIsExtensionMismatchNotChainMissing(t *testing.T)
 }
 
 // TestAnExtThatIsTheHashOfTheEmptyBlockIsExtensionMismatch: the empty block's ext is "", not its hash, so a stamp
-// signing the hash matches neither no token nor an array of empty blocks (Review Focus 2).
+// signing the hash matches neither no token nor an array of empty blocks.
 func TestAnExtThatIsTheHashOfTheEmptyBlockIsExtensionMismatch(t *testing.T) {
 	sum := sha256.Sum256(stamp.EmptyBlock.Wire())
 	for name, tok := range map[string]*string{
@@ -1240,7 +1240,7 @@ func TestAnEarlierBlocksRequiresBindsNoOne(t *testing.T) {
 }
 
 // TestTwoRequiredNamesOneActedOnIsExtensionRequired: every name the last block requires must be acted on, not one
-// of them (Review Focus 4).
+// of them.
 func TestTwoRequiredNamesOneActedOnIsExtensionRequired(t *testing.T) {
 	for _, acts := range [][]string{{"example"}, {"other"}} {
 		s := mesh(t)

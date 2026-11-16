@@ -30,8 +30,8 @@ func (a Accepted) PublicWrite(read []influence.Entry, destinationOwner string) r
 
 // TrustedRecord reports whether a trusted record may be written from this request (influence.md, Trusted records):
 // a record later decisions take as fact, such as who holds a card. It needs a verified hand-over, every stamp
-// naming influence, and no untrusted entry in what was handed on plus read, everything the service read since it
-// accepted the request. So it is false for a request served unverified, at an origin, where nothing was handed on,
+// naming influence, and no untrusted entry in what was handed on plus read (everything the service read since it
+// accepted the request). So it is false for a request served unverified, at an origin, where nothing was handed on,
 // for a refusal and for the zero Accepted. False at a service whose settings do not act on influence.
 func (a Accepted) TrustedRecord(read []influence.Entry) bool {
 	return trustedRecord(a.Refusal != nil, a.ext, a.HandOver, read)

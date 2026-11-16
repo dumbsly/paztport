@@ -364,11 +364,10 @@ func (c *Caller) operate(method, target, receiver string) (named, key string, er
 // header's first value as received, "" when it is absent, status, and body whole, and returns what it
 // contributes. With a verifier it runs [wire.CheckResponse] on the chain, blocks and proof o sent, as received by
 // this service, and the response adds what [influence.ResponseEntries] gives for the check's result and the
-// response stamp's items under influence: its labels where it verified, otherwise one local-untrusted entry, so
-// content nobody vouched for still counts against later calls. A response to a caller with no verifier adds that
-// one entry, and is never refused. Each entry has src "http:<target>" and h the result hash. The target is the
-// service the rcv of o's last stamp names, without any operation ([policy.Service]): a call to "payment#pay" adds
-// entries from "http:payment".
+// response stamp's items under influence ([Received.Entries]). A response to a caller with no verifier is
+// checked by none, and is never refused. Each entry has src "http:<target>" and h the result hash. The target is
+// the service the rcv of o's last stamp names, without any operation ([policy.Service]): a call to "payment#pay"
+// adds entries from "http:payment".
 //
 // The response's nonce key is the JCS text of [rid, last rcv, "resp"], or of [rid, last rcv, key, "resp"] where o
 // has a key ([wire.ResponseNonceKey]).
