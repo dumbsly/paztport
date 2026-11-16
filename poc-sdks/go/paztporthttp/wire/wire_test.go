@@ -449,9 +449,9 @@ func TestCheckResponseProof(t *testing.T) {
 	}
 }
 
-// TestTheResponseNonceKeyIsAJCSArray writes each nonce key as the JCS text of its parts, so no part can run into
+// TestNonceKeysAreJCSArrays writes each nonce key as the JCS text of its parts, so no part can run into
 // its neighbour, and the key value comes before the direction.
-func TestTheResponseNonceKeyIsAJCSArray(t *testing.T) {
+func TestNonceKeysAreJCSArrays(t *testing.T) {
 	for _, c := range []struct{ got, want string }{
 		{wire.ResponseNonceKey("rid-http-1", "payment", ""), `["rid-http-1","payment","resp"]`},
 		{wire.ResponseNonceKey("rid-http-1", "payment#refund", "k1"), `["rid-http-1","payment#refund","k1","resp"]`},

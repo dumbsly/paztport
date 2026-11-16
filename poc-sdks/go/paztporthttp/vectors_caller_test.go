@@ -106,7 +106,7 @@ func TestCallerInfluenceVectors(t *testing.T) {
 			if got.Refused {
 				refused++
 			}
-			if len(got.Entries) > 0 && got.Entries[0].Class != influence.LocalUntrusted {
+			if len(got.Entries) > 0 && got.Entries[0].HasCID {
 				labelled++
 			}
 		})

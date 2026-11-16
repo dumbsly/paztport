@@ -155,41 +155,6 @@ func TestEmptyCID(t *testing.T) {
 	}
 }
 
-// TestParseEntryRefusesNamingTheMember refuses each way an item can break the entry's schema, naming the member
-// and never quoting the input.
-func TestParseEntryRefusesNamingTheMember(t *testing.T) {
-	for _, c := range []struct{ name, item, says string }{
-		{"no h", `{"cls":"public","src":"s"}`, `"h" is missing`},
-		{"no cls", `{"h":"h","src":"s"}`, `"cls" is missing`},
-		{"no src", `{"cls":"public","h":"h"}`, `"src" is missing`},
-		{"another member", `{"cls":"public","h":"h","secret":"s","src":"s"}`, "member 2 is not one"},
-		{"an unknown class", `{"cls":"secret","h":"h","src":"s"}`, `"cls" is not an influence class`},
-		{"a class that is not a string", `{"cls":1,"h":"h","src":"s"}`, `"cls" is not a string`},
-		{"src not a string", `{"cls":"public","h":"h","src":null}`, `"src" is not a string`},
-		{"h not a string", `{"cls":"public","h":["secret"],"src":"s"}`, `"h" is not a string`},
-		{"cid not a string", `{"cid":null,"cls":"public","h":"h","src":"s"}`, `"cid" is not a string`},
-		{"an empty owner", `{"cls":"private","h":"h","owner":"","src":"s"}`, `"owner" is empty`},
-		{"owner not a string", `{"cls":"private","h":"h","owner":7,"src":"s"}`, `"owner" is not a string`},
-		{"members out of order", `{"src":"s","cls":"public","h":"h"}`, "canonical"},
-		{"empty text", ``, "parse"},
-	} {
-		t.Run(c.name, func(t *testing.T) {
-			_, err := influence.ParseEntry(c.item)
-			if err == nil {
-				t.Fatal("ParseEntry read it")
-			}
-			msg := err.Error()
-			const prefix = "paztport influence: malformed influence entry: "
-			if !strings.HasPrefix(msg, prefix) || !strings.Contains(msg, c.says) {
-				t.Fatalf("the refusal %q does not say %q", msg, c.says)
-			}
-			if strings.Contains(msg, "secret") {
-				t.Fatalf("the refusal %q quotes the input", msg)
-			}
-		})
-	}
-}
-
 func TestEntriesWire(t *testing.T) {
 	got, err := influence.EntriesWire(nil)
 	equalBytes(t, "no entries", got, err, []byte(`[]`))
@@ -367,7 +332,7 @@ func TestResponseBlock(t *testing.T) {
 }
 
 // TestParseEntry reads one item's text as an entry, and refuses text that is not canonical as well as an item
-// that is not an entry, never quoting the input.
+// that is not an entry, naming the member where the entry's schema breaks and never quoting the input.
 func TestParseEntry(t *testing.T) {
 	e, err := influence.ParseEntry(`{"cid":"","cls":"private","h":"h1","owner":"alice","src":"github:acme/app#42"}`)
 	want := aliceOwn
@@ -389,6 +354,36 @@ func TestParseEntry(t *testing.T) {
 		} else if strings.Contains(err.Error(), "secret") {
 			t.Errorf("the refusal %q quotes the input", err)
 		}
+	}
+	for _, c := range []struct{ name, item, says string }{
+		{"no h", `{"cls":"public","src":"s"}`, `"h" is missing`},
+		{"no cls", `{"h":"h","src":"s"}`, `"cls" is missing`},
+		{"no src", `{"cls":"public","h":"h"}`, `"src" is missing`},
+		{"another member", `{"cls":"public","h":"h","secret":"s","src":"s"}`, "member 2 is not one"},
+		{"an unknown class", `{"cls":"secret","h":"h","src":"s"}`, `"cls" is not an influence class`},
+		{"a class that is not a string", `{"cls":1,"h":"h","src":"s"}`, `"cls" is not a string`},
+		{"src not a string", `{"cls":"public","h":"h","src":null}`, `"src" is not a string`},
+		{"h not a string", `{"cls":"public","h":["secret"],"src":"s"}`, `"h" is not a string`},
+		{"cid not a string", `{"cid":null,"cls":"public","h":"h","src":"s"}`, `"cid" is not a string`},
+		{"an empty owner", `{"cls":"private","h":"h","owner":"","src":"s"}`, `"owner" is empty`},
+		{"owner not a string", `{"cls":"private","h":"h","owner":7,"src":"s"}`, `"owner" is not a string`},
+		{"members out of order", `{"src":"s","cls":"public","h":"h"}`, "canonical"},
+		{"empty text", ``, "parse"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			_, err := influence.ParseEntry(c.item)
+			if err == nil {
+				t.Fatal("ParseEntry read it")
+			}
+			msg := err.Error()
+			const prefix = "paztport influence: malformed influence entry: "
+			if !strings.HasPrefix(msg, prefix) || !strings.Contains(msg, c.says) {
+				t.Fatalf("the refusal %q does not say %q", msg, c.says)
+			}
+			if strings.Contains(msg, "secret") {
+				t.Fatalf("the refusal %q quotes the input", msg)
+			}
+		})
 	}
 }
 

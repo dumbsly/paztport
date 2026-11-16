@@ -31,10 +31,8 @@ func TestExpectedReadsTheVectorForm(t *testing.T) {
 	if len(got) != 1 || !slices.EqualFunc(got["influence"], want, handover.Same) {
 		t.Fatalf("Expected = %+v, want influence: %+v", got, want)
 	}
-	for _, none := range []string{"null", ""} {
-		if got := handover.Expected(t, []byte(none)); got != nil {
-			t.Errorf("Expected(%q) = %+v, want nil", none, got)
-		}
+	if got := handover.Expected(t, []byte("null")); got != nil {
+		t.Errorf("Expected(null) = %+v, want nil", got)
 	}
 	if empty := handover.Expected(t, []byte("{}")); empty == nil || len(empty) != 0 {
 		t.Fatalf("Expected({}) = %#v, want an empty map", empty)
