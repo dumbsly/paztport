@@ -235,7 +235,7 @@ describe("paztport pi extension", { timeout: 30_000 }, () => {
   });
 
   it("refusesWhenConfigOrPinInsideWorkspace", async () => {
-    // R14: a config the agent can edit is refused, and its eventsLog is not trusted either
+    // a config the agent can edit is refused, and its eventsLog is not trusted either
     const cfg = setup([github()], { configDir: workspace });
     await expect(cfg.pi.emit("session_start", { reason: "startup" })).rejects.toThrow(/config .* is inside the workspace/);
     expect(cfg.pi.registrations).toEqual([]);

@@ -363,7 +363,7 @@ export default function paztport(pi: ExtensionAPI): void {
     try {
       const config = loadConfig(path);
       code = "WORKSPACE_GUARD";
-      // R14: a config inside the workspace is the agent's to edit, so its eventsLog is not used either
+      // a config inside the workspace is the agent's to edit, so its eventsLog is not used either
       assertOutsideWorkspace(path, ctx.cwd, "config");
       code = "EVENTS_LOG";
       events = new EventLog(config.eventsLog);
