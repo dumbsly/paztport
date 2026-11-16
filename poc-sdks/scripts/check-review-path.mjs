@@ -8,9 +8,10 @@
 // lines as an editor numbers them, the last counted though it has no newline. A section's runs from its heading to
 // the line before the next heading of the same or a higher level, or to the end of the file; a line inside a fenced
 // code block is not a heading. A link that names a missing file, a directory or an anchor the file lacks fails, as
-// does one that leaves the repository, a row with a link and no count or a count and no link, and a count cell
-// holding anything else. Links resolve from the file's directory, as check-links.mjs resolves them; a file outside
-// the repository (a copy under test) is read as if it stood at docs/review-path.md.
+// does one that leaves the repository, a row with a link and no count or a count and no link, a count cell holding
+// anything else, and a table with no row that links a file. Links resolve from the file's directory, as
+// check-links.mjs resolves them; a file outside the repository (a copy under test) is read as if it stood at
+// docs/review-path.md.
 // Usage: node check-review-path.mjs [repo root] [file, default docs/review-path.md]
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, statSync } from "node:fs";
@@ -119,6 +120,7 @@ for (const table of tables) {
     problems.push(`${where(header)}: the header has no |---| line under it`);
     continue;
   }
+  const before = rows;
   let sum = 0;
   // A row whose count does not read leaves the sum unknown, so the Total is then not compared with it.
   let summed = true;
@@ -161,6 +163,7 @@ for (const table of tables) {
       problems.push(`${where(row)}: ${target} has ${grouped(got.lines)} lines, written ${written}`);
     }
   }
+  if (rows === before) problems.push(`${where(header)}: a table with no rows that link a file`);
   if (total === null) {
     problems.push(`${where(table.at(-1))}: the table has no | **Total** | | <n> | row`);
     continue;

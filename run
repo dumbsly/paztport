@@ -23,10 +23,10 @@ Usage: ./run <command> [options]
                poc-demos/envoy-gateway/measurements/ (kept from run to run: the new keys and policy replace
                only out/), and the cluster deleted at the end unless --keep (needs python3 too).
   agents-mcp   Install the TypeScript SDK and the agents demo, set up demo keys, and start the demo page.
-  test         The link and Java import checks, the Java SDK and Java demo suites, a check of what
-               the built jars carry, the TypeScript type checks and the TypeScript SDK and demo suites,
-               then gofmt, go vet and the Go SDK's suite, and gofmt, go vet, staticcheck, the race-checked
-               suite and the third-party list of the Envoy Gateway processor. No model.
+  test         The link, Java import and review path checks, the Java SDK and Java demo suites, a check
+               of what the built jars carry, the TypeScript type checks and the TypeScript SDK and demo
+               suites, then gofmt, go vet and the Go SDK's suite, and gofmt, go vet, staticcheck, the
+               race-checked suite and the third-party list of the Envoy Gateway processor. No model.
   test --container
                The same, in a container, so that only Docker and git are needed on the host: builds the image
                of the toolchains (poc-sdks/scripts/test.Dockerfile, cached after the first time), streams in

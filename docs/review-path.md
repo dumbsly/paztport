@@ -104,16 +104,36 @@ call is checked against.
 | [stamp/origin.ts](../poc-sdks/typescript/core/src/stamp/origin.ts) | A run's origin stamp for one session. | 27 |
 | **Total** | | 1,223 |
 
-## Response attestation
+## The MCP binding in TypeScript
 
-How a client checks that a response over MCP came from the server's own hops.
+Version 4 over MCP, in `@paztport/mcp`: how a call and a result carry Paztport's
+objects in `_meta`, the server's checks of a call around the live order, and the
+client's handshake, its stamping of a call and its reading of a result. The
+handshake's MCP form is in the sessions sitting's spec row.
 
 | Read | What to look for | Lines |
 |---|---|---|
 | [wire.md: MCP](../poc-sdks/spec/wire.md#mcp) | How a call carries its chain over MCP, and a result its attestation. | 37 |
 | [verification.md: The MCP server and client](../poc-sdks/spec/verification.md#the-mcp-server-and-client) | The server's checks of a call and the client's of a response, around the live order. | 67 |
+| [mcp/src/index.ts](../poc-sdks/typescript/mcp/src/index.ts) | The package's exports. | 10 |
+| [mcp/src/meta.ts](../poc-sdks/typescript/mcp/src/meta.ts) | The `_meta` names a call and a result carry, and the handshake's method. | 20 |
+| [mcp/src/binding.ts](../poc-sdks/typescript/mcp/src/binding.ts) | `bindMcpCall`: what a tools/call's last stamp binds (check 8). | 12 |
+| [mcp/src/verify-call.ts](../poc-sdks/typescript/mcp/src/verify-call.ts) | `verifyCall`: the server's check of a call, with the receiver and nonce key it derives itself; `verifyRecordedCall` belongs to offline verification. | 145 |
+| [mcp/src/response.ts](../poc-sdks/typescript/mcp/src/response.ts) | `verifyMcpResponse`: a result's attestation handed to the core's response check. | 64 |
+| [mcp/src/verdict.ts](../poc-sdks/typescript/mcp/src/verdict.ts) | A server's verdict on a call, read as server data. | 26 |
+| [mcp/src/client.ts](../poc-sdks/typescript/mcp/src/client.ts) | Opening a session and replacing one, stamping a call, and reading a result and what it adds to influence. | 394 |
+| [mcp/src/server.ts](../poc-sdks/typescript/mcp/src/server.ts) | The server's checks of its own policy, the handshake, `McpServerSession.checkCall` and its response stamps, and `handleToolCall`. | 489 |
+| **Total** | | 1,264 |
+
+## Response attestation
+
+How a client checks that a response over MCP came from the server's own hops. The
+attestation's form and the client's check are in the MCP sitting's spec rows.
+
+| Read | What to look for | Lines |
+|---|---|---|
 | [session/attestation.ts](../poc-sdks/typescript/core/src/session/attestation.ts) | The attestation's schema, the response binding, and the live order run with the client as a receiver off the route. | 107 |
-| **Total** | | 211 |
+| **Total** | | 107 |
 
 ## Signed events and the responder's input
 

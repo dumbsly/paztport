@@ -870,10 +870,12 @@ What you can check for yourself:
 - `./run test` runs the repository's own checks, the TypeScript type checks, gofmt,
   go vet and staticcheck, every suite of the three SDKs and the demos, and a check
   of what the built jars carry. It needs no Docker and no model. The repository's
-  own checks are two scripts: `check-links.mjs` fails on a Markdown link to a
-  missing file or heading, and `check-imports.mjs` on a Java import the file does
-  not need. `./run test --container` runs all of it in a container, which is also
-  what CI runs.
+  own checks are three scripts: `check-links.mjs` fails on a Markdown link to a
+  missing file or heading, `check-imports.mjs` on a Java import the file does not
+  need, and `check-review-path.mjs` on a count in
+  [the review path](docs/review-path.md) that is not the lines its row links to.
+  `./run test --container` runs all of it in a container, which is also what CI
+  runs.
 - The Java mesh and Envoy Gateway READMEs say how their numbers were measured, on
   which host and with which versions, and the Envoy Gateway README names the runs
   they come from. The measurement scripts are in the repository. The raw results are
