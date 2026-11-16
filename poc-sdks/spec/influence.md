@@ -80,14 +80,14 @@ a request first, and serving it without the item would hide content from
 [the owner-aware rule](#the-owner-aware-rule). An MCP server in audit mode runs the call and notes the code in its
 verdict ([Over MCP](#over-mcp)). Offline, a verifier that acts on `influence` gives `INFLUENCE_MISMATCH` for an
 item on a recorded request's block that does not read, as the live service does
-([offline verification](verification.md#offline-verification)). That reading applied by a verifier whose settings do
-not act on `influence`, which is handed nothing under it, is a fault in the verifier's configuration, never a request
-with nothing handed on: an implementation refuses to run it. A recorded response whose block holds an
-`influence` item that is not a label is judged as it is live: the core's result stands, `OK` when the response
-verifies, no label is taken from it, and it counts as one `local-untrusted` entry; `INFLUENCE_MISMATCH` is given,
-live and offline, only for an item on a request's block. The code names no one and is never attributable,
-since the sender may be a hop that passed along a block it could not have read; the service logs the signer of the
-offending block for its operator.
+([offline verification](verification.md#offline-verification)). A verifier whose settings do not act on `influence`
+is handed nothing under it, so applying that reading there is a fault in the verifier's configuration: an
+implementation MUST NOT take it as a request with nothing handed on, and refuses to run it. A recorded response
+whose block holds an `influence` item that is not a label is judged as it is live: the core's result stands, `OK` when
+the response verifies, no label is taken from it, and it counts as one `local-untrusted` entry; `INFLUENCE_MISMATCH` is
+given, live and offline, only for an item on a request's block. The code names no one and is never attributable, since
+the sender may be a hop that passed along a block it could not have read; the service logs the signer of the offending
+block for its operator.
 
 `v4.json` pins the reading of an item as an entry in `influence.entries`: the three required members, with a `cid`,
 an `owner` or both, and an empty `cid`, which read; and a string, an array, `null`, another member, an unknown
@@ -308,7 +308,7 @@ What is handed on, and when, is the core's ([the live order](verification.md#the
 from the call, so nothing is handed on: a guarded write a handler asks about there, as an HTTP partner's may, is
 decided by the owner-aware rule over what the handler read, as wherever nothing is handed on, and no trusted record is
 written from the call. Listing a tool or endpoint in `disabled` remains the way to keep it out of unsafe sessions
-([sessions.md](sessions.md#unsafe-sessions)). An MCP server decides a guarded write only for a call that verified
+(tools in [sessions.md](sessions.md#unsafe-sessions), endpoints in [Over HTTP](sessions.md#over-http)). An MCP server decides a guarded write only for a call that verified
 ([sessions.md](sessions.md#the-server-decision)), so it decides none in an unsafe session, and in audit mode it notes
 a call that failed verification with the first failure's code and does not reach the decision: the second row is for
 HTTP services, whose handlers apply the rules, and the third row's MCP case says only that nothing is handed on.

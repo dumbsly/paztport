@@ -12,9 +12,10 @@ import (
 )
 
 // PublicWrite decides a guarded public write to a destination owned by destinationOwner ("" for none) from this
-// request (influence.md, What the rules read): reason.OK or reason.InfluenceDenied. read is what the service added
-// for the request since it was accepted, such as the entries of its own calls' responses. destinationOwner comes
-// from the service's own trusted records, never from the request, or the request could name its own.
+// request (influence.md, What the rules read): reason.OK or reason.InfluenceDenied, never another code (The
+// owner-aware rule). read is what the service added for the request since it was accepted, such as the entries of
+// its own calls' responses. destinationOwner comes from the service's own trusted records, never from the request,
+// or the request could name its own.
 //
 // It reads what the request was handed, verified or not: a stamp handed on that does not name influence denies
 // the write whatever the entries say (The every-stamp rule), and otherwise the owner-aware rule decides over the
