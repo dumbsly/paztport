@@ -8,6 +8,7 @@ import {
   encode,
   extensionSettings,
   newRecordSet,
+  readKeyring,
   readSessionReply,
   readSessionRequest,
   recordedCallReason,
@@ -55,7 +56,8 @@ import { ORIGIN_SVC, verifyClient, verifyLocal, type Client, type LocalResult, t
  *
  * Results that are this verifier's own, about the evidence file rather than the protocol:
  * - BAD_SESSION: the session record does not verify against its pin, or the server did not attest it, or the client
- *   recorded it as other than attested (`unsafe`, or `no-calls`: a session it made no call in).
+ *   recorded it as other than attested (`unsafe`, or `no-calls`: a session it made no call in), or its request names a
+ *   client policy key other than a client record's in the file.
  * - NO_SESSION: a call whose server has no verified session before it (a response to it is NO_CALL).
  * - UNREADABLE: a line, record or file that cannot be read.
  * - NO_CALL: a response with no verified call before it (same server, rid and call id).
@@ -170,7 +172,11 @@ export function pinFingerprint(pin: string): string {
   return encode(sha256(utf8(pin))).slice(0, 16);
 }
 
-function verifySession(r: Rec): Session | undefined {
+/**
+ * The verified session of a session record, or undefined when it is a bad session. `clientKeys` are the policy keys of
+ * the file's client records.
+ */
+function verifySession(r: Rec, clientKeys: readonly string[]): Session | undefined {
   try {
     if (r.status !== "attested" || !isString(r.pin) || !isString(r.request) || !isString(r.reply)) {
       return undefined;
@@ -181,6 +187,12 @@ function verifySession(r: Rec): Session | undefined {
       request: r.request, reply: r.reply, pin: r.pin, serverEntry: SERVER_ENTRY,
     });
     if (!recorded.attested) {
+      return undefined;
+    }
+    // An evidence file is one client's: a session request under another client policy key, even one the server pinned
+    // and attested, would let the file pair another client's attested session with this client's records.
+    const { clientPolicyKey } = readSessionRequest(r.request);
+    if (clientKeys.some((key) => key !== clientPolicyKey)) {
       return undefined;
     }
     const reply = readSessionReply(r.reply);
@@ -255,6 +267,8 @@ function verifyFile(path: string, label: string): VerifyReport {
   const disputed = new Set<string>();
   // Every client root, policy key, keyring and keyring window a session record names, for the client records to agree with.
   const named: NamedClient[] = [];
+  // The policy key of every client record whose keyring reads, for the session records to agree with.
+  const clientKeys: string[] = [];
   const runTimes = new Map<string, Set<number>>();
   for (const { rec } of lines) {
     if (rec.type === "run" && isString(rec.rid) && isString(rec.prompt)) {
@@ -265,6 +279,10 @@ function verifyFile(path: string, label: string): VerifyReport {
       } else if (seen !== rec.prompt) {
         disputed.add(rec.rid);
       }
+    }
+    const clientKey = rec.type === "client" && isString(rec.keyring) ? readOr(() => readKeyring(rec.keyring as string).policy) : undefined;
+    if (clientKey !== undefined) {
+      clientKeys.push(clientKey);
     }
     // a request that does not read names nothing
     const request = rec.type === "session" && isString(rec.request) ? readOr(() => readSessionRequest(rec.request as string)) : undefined;
@@ -316,7 +334,7 @@ function verifyFile(path: string, label: string): VerifyReport {
         runItems.push({ item: add("OK"), rid: rec.rid });
       }
     } else if (type === "session") {
-      const s = verifySession(rec);
+      const s = verifySession(rec, clientKeys);
       sessions.set(server, s);
       if (s !== undefined) {
         pins.add(pinFingerprint(rec.pin as string));

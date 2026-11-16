@@ -272,7 +272,7 @@ The rest are this tool's own, about the evidence file rather than the protocol:
 
 | Result | Records | Fails | What it means |
 | --- | --- | --- | --- |
-| `BAD_SESSION` | session | yes | The session record does not verify against its pin, or the server did not attest it, or the client recorded it as other than attested (`unsafe`, or `no-calls`: a session it made no call in). |
+| `BAD_SESSION` | session | yes | The session record does not verify against its pin, or the server did not attest it, or the client recorded it as other than attested (`unsafe`, or `no-calls`: a session it made no call in), or its request names a client policy key other than a client record's in the file: an evidence file is one client's, so it must not pair another client's attested session with this client's records. |
 | `NO_SESSION` | call | yes | The call has no verified session record for its server before it. (A response to such a call is `NO_CALL`.) |
 | `BAD_CLIENT` | client | yes | The client record does not verify: its keyring and root, which must read and be signed by the keyring's policy key, the same root, policy key, keyring and keyring window as every session record names, or its rules and their proof. |
 | `NO_CLIENT` | local | yes | No verified client record comes before the local step. |

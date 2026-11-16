@@ -520,33 +520,42 @@ describe("verifyEvidence: replay, handshakes, chains and client roots, responses
     expect(results(r.items, "call").every((x) => x === "NO_SESSION")).toBe(true);
   });
 
+  /**
+   * Signs the session request in `rs` again under the client policy key `policy`, its root's text given by
+   * `rootText`, and returns the signed request. The demo's policy key is not kept, so a request under another key is
+   * one only the server's reply vouches for offline; the session id moves with it, so the reply (with the server's
+   * entry key) and each call are signed again over the new one.
+   */
+  function signUnderClientKey(rs: any[], policy: { publicKey: string; privateKey: string }, rootText = (root: string) => root) {
+    const entryKey = readFileSync(join(demo, "server/mcp-entry.key"), "utf8").trim();
+    const s = rs.find((x) => x.type === "session");
+    const request = readSessionRequest(s.request);
+    const text = rootText(request.clientRoot!.root);
+    const notAfter = request.clientRoot!.notAfter;
+    const clientRoot = { ...request.clientRoot!, root: text, sig: encode(sign(policy.privateKey, rootSigningBytes(request.clientRoot!.rootId, text, notAfter))) };
+    const ringSig = encode(sign(policy.privateKey, keyringSigningBytes(policy.publicKey, request.clientKeyring, request.clientKeyringNotAfter)));
+    const signed = { ...request, clientRoot, clientPolicyKey: policy.publicKey, clientKeyringSig: ringSig };
+    s.request = tokenOf(signed);
+    const { sig: _sig, ...reply } = readSessionReply(s.reply);
+    const sess = deriveSessionId(clientRoot.sig, reply.serverRoot!.sig, signed.nonce, reply.nonce, signed);
+    s.reply = tokenOf(signSessionReply({ ...reply, sess }, entryKey));
+    for (const c of rs.filter((x) => x.type === "call")) {
+      const meta = c.params._meta;
+      const [origin, hop] = readChain(meta["paztport/chain"]);
+      const { sig: _o, v: _ov, ...originFields } = origin!;
+      const { sig: _h, v: _hv, ...hopFields } = hop!;
+      const o = signStamp({ ...originFields, sess }, material().sessionKey);
+      meta["paztport/chain"] = writeToken([o, signStamp({ ...hopFields, sess, prev: o.sig }, material().piKey)]);
+    }
+    return signed;
+  }
+
   it("aSignedClientRootThatDoesNotDecodeProvesNoRoute", () => {
     // the client policy key signs the root's text, so text that does not decode can stand in an attested handshake:
-    // the session is attested and the root proves no route, as Go's and Java's callConfig give. The demo's policy key
-    // is not kept, so the request is signed under a fresh one, which only the server's reply vouches for offline; the
-    // session id moves with it, so the reply and each call are signed again over the new one.
+    // the session is attested and the root proves no route, as Go's and Java's callConfig give
     const policy = generateKeyPair();
-    const entryKey = readFileSync(join(demo, "server/mcp-entry.key"), "utf8").trim();
     const withRootText = (rootText: (root: string) => string) => verifyEvidence(write(genuine, (rs) => {
-      const s = rs.find((x) => x.type === "session");
-      const request = readSessionRequest(s.request);
-      const text = rootText(request.clientRoot!.root);
-      const notAfter = request.clientRoot!.notAfter;
-      const clientRoot = { ...request.clientRoot!, root: text, sig: encode(sign(policy.privateKey, rootSigningBytes(request.clientRoot!.rootId, text, notAfter))) };
-      const ringSig = encode(sign(policy.privateKey, keyringSigningBytes(policy.publicKey, request.clientKeyring, request.clientKeyringNotAfter)));
-      const signed = { ...request, clientRoot, clientPolicyKey: policy.publicKey, clientKeyringSig: ringSig };
-      s.request = tokenOf(signed);
-      const { sig: _sig, ...reply } = readSessionReply(s.reply);
-      const sess = deriveSessionId(clientRoot.sig, reply.serverRoot!.sig, signed.nonce, reply.nonce, signed);
-      s.reply = tokenOf(signSessionReply({ ...reply, sess }, entryKey));
-      for (const c of rs.filter((x) => x.type === "call")) {
-        const meta = c.params._meta;
-        const [origin, hop] = readChain(meta["paztport/chain"]);
-        const { sig: _o, v: _ov, ...originFields } = origin!;
-        const { sig: _h, v: _hv, ...hopFields } = hop!;
-        const o = signStamp({ ...originFields, sess }, material().sessionKey);
-        meta["paztport/chain"] = writeToken([o, signStamp({ ...hopFields, sess, prev: o.sig }, material().piKey)]);
-      }
+      signUnderClientKey(rs, policy, rootText);
     }));
     // signed again over the root as it was, every call still verifies
     const same = withRootText((root) => root);
@@ -556,6 +565,36 @@ describe("verifyEvidence: replay, handshakes, chains and client roots, responses
     expect(results(r.items, "session")).toEqual(["OK"]);
     expect(results(r.items, "call")).toEqual(["PATH_NOT_ALLOWED", "PATH_NOT_ALLOWED", "PATH_NOT_ALLOWED", "PATH_NOT_ALLOWED"]);
     expect(r.ok).toBe(false);
+  });
+
+  it("aSessionUnderAnotherClientPolicyKeyThanTheClientRecordIsBadSession", () => {
+    // an evidence file is one client's: a session another pinned client opened, which the server attested, must not
+    // stand beside this client's record, so its calls are judged as a bad session's
+    const policy = generateKeyPair();
+    const beside = (record: (request: ReturnType<typeof signUnderClientKey>) => object) => verifyEvidence(write(genuine, (rs) => {
+      rs.unshift(record(signUnderClientKey(rs, policy)));
+    }));
+    const another = beside(() => clientRecord(material()));
+    expect(results(another.items, "session")).toEqual(["BAD_SESSION"]);
+    expect(results(another.items, "call")).toEqual(["NO_SESSION", "NO_SESSION", "NO_SESSION", "NO_SESSION"]);
+    expect(another.ok).toBe(false);
+    // the same session beside a client record under its own key (its responses, signed over the old session id, are
+    // not this test's)
+    const its = beside((request) => ({
+      v: 2,
+      type: "client",
+      keyring: writeToken({ notAfter: request.clientKeyringNotAfter, policy: policy.publicKey, services: request.clientKeyring, sig: request.clientKeyringSig }),
+      root: writeToken(request.clientRoot),
+      rules: null,
+      rulesProof: null,
+    }));
+    expect(results(its.items, "client")).toEqual(["OK"]);
+    expect(results(its.items, "session")).toEqual(["OK"]);
+    expect(results(its.items, "call")).toEqual(["OK", "OK", "OK", "OK"]);
+    // and the genuine session beside the demo's own client record
+    const genuineWithClient = verifyEvidence(write(genuine, (rs) => { rs.unshift(clientRecord(material())); }));
+    expect(bad(genuineWithClient.items)).toEqual([]);
+    expect(results(genuineWithClient.items, "session")).toEqual(["OK"]);
   });
 
   it("responseWithoutCallFails", () => {
