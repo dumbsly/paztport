@@ -894,11 +894,11 @@ What the numbers say:
   costs in the table above, those five verifies and one signature come to about
   1.3 ms of Ed25519 (5 × 223.3 + 224.2 = 1340.7 µs), about 70% of the difference.
   The remainder, about 0.6 ms, isn't broken down. Candidates are the other work
-  `enforce` adds (reading the chain, proof and extensions headers, the nonce
-  check, encoding the response stamp and `orders`' parse of it), queueing among
-  the 10 users, and a gap between the benchmark, run natively, and the same work
-  in Docker Desktop's VM on this host. The request binding, at 0.07 µs, is too
-  small to count.
+  `enforce` adds (decoding the proof header, decoding the extensions header a
+  second time for the verifier, the nonce check, encoding the response stamp and
+  `orders`' parse of it), queueing among the 10 users, and a gap between the
+  benchmark, run natively, and the same work in Docker Desktop's VM on this host.
+  The request binding, at 0.07 µs, is too small to count.
 - **The proof of legitimacy is effectively free.** Its walk costs about 1% of one
   Ed25519 verify. Of the primitives, nearly all the cost is Ed25519: a verify per
   stamp, and a signature per stamp a hop adds.
