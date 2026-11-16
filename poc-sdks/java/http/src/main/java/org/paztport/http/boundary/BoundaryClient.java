@@ -245,7 +245,8 @@ public final class BoundaryClient implements AutoCloseable {
      * @throws RequirementUnmetException with at most the handshake sent, when the session does not meet this egress's
      *     requirement, so no call is made in it; it must not be retried against this session
      * @throws IllegalArgumentException with nothing sent, when {@code path} would leave the partner's origin or
-     *     would not be sent as given
+     *     would not be sent as given; with at most the handshake sent, when the block of an attested call would pass
+     *     the wire limit
      * @throws UncheckedIOException when the call itself fails, or has no whole answer within the read timeout (its
      *     cause then an {@link java.net.http.HttpTimeoutException})
      * @throws RuntimeException whatever the listener throws, with the request not sent; and whatever the stamper
@@ -284,8 +285,8 @@ public final class BoundaryClient implements AutoCloseable {
                 sent = List.copyOf(BoundaryInfluence.reduce(held, blindingKey, rid, partner, stamper.svc()));
                 block = Influence.block(sent, requires);
             }
-            // Encoded before anything is signed, as every caller encodes its blocks, so the wire limit is met before
-            // anything is signed or recorded.
+            // The blocks token is made first, as HttpCaller makes it. The block was held to the wire limit when it was
+            // built, above, so nothing from here on fails for its size.
             String blocks = HttpWire.encodeBlocks(List.of(block));
             // Signed next, so a call that can't be signed is never sent and never recorded.
             Stamper.Stamped stamped = stamper.boundary(verified, current.sess(), partner, bind, block, bundle);
