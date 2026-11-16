@@ -23,24 +23,19 @@ import (
 // on, not verified, only for the extensions ext acts on; it is nil when serve is false and when the chain did
 // not read.
 func ServedUnverified(chain, blocks *string, ext Extensions) (h *HandOver, serve bool) {
-	var c stamp.Chain
 	if chain != nil {
-		read, code := stamp.ReadChain(*chain)
-		if code == reason.OK {
-			c = read
-		}
-	}
-	if c == nil {
-		if blocks != nil {
-			if _, err := stamp.ReadBlocks(*blocks); err != nil {
+		if c, code := stamp.ReadChain(*chain); code == reason.OK {
+			bs, code := chaincheck.Match(c, blocks)
+			if code != reason.OK {
 				return nil, false
 			}
+			return NewHandOver(false, c, bs, ext), true
 		}
-		return nil, true
 	}
-	bs, code := chaincheck.Match(c, blocks)
-	if code != reason.OK {
-		return nil, false
+	if blocks != nil {
+		if _, err := stamp.ReadBlocks(*blocks); err != nil {
+			return nil, false
+		}
 	}
-	return NewHandOver(false, c, bs, ext), true
+	return nil, true
 }

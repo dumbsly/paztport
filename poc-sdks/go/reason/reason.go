@@ -11,17 +11,17 @@ const (
 	// OK means every check held.
 	OK Code = "OK"
 	// ChainMissing means there is no chain, or one that does not read, or a malformed transport field
-	// around it, a response attestation that does not read included.
+	// around it, a response attestation that does not read included (check 1).
 	ChainMissing Code = "CHAIN_MISSING"
-	// BadOrigin means the origin is not an allowed origin, or offline, not the expected instance.
+	// BadOrigin means the origin is not an allowed origin, or offline, not the expected instance (check 2).
 	BadOrigin Code = "BAD_ORIGIN"
 	// BadSignature means a key is unknown or a signature fails (check 3).
 	BadSignature Code = "BAD_SIGNATURE"
 	// BrokenLink means a stamp's prev is not the previous stamp's sig (check 3).
 	BrokenLink Code = "BROKEN_LINK"
-	// Expired means a stamp is outside the freshness window, or offline, outside the age limits.
+	// Expired means a stamp is outside the freshness window, or offline, outside the age limits (check 7).
 	Expired Code = "EXPIRED"
-	// RIDMismatch means the stamps don't share the origin's rid, or name another request.
+	// RIDMismatch means the stamps don't share the origin's rid, or name another request (check 5).
 	RIDMismatch Code = "RID_MISMATCH"
 	// BindingMismatch means a stamp's rcv names the wrong hop (check 4), or the binding does not match what
 	// was received (check 8).
@@ -31,14 +31,14 @@ const (
 	// PathNotAllowed means the route is not proven against the root (check 12).
 	PathNotAllowed Code = "PATH_NOT_ALLOWED"
 	// SessionUnknown means a stamp names another session. Over HTTP it is also a call whose
-	// X-Path-Session names no live session opened by the sending peer.
+	// X-Path-Session names no live session opened by the sending peer (check 6).
 	SessionUnknown Code = "SESSION_UNKNOWN"
 	// PeerMismatch, which only a live verifier gives, means the authenticated transport peer is not the
 	// last signer (check 10).
 	PeerMismatch Code = "PEER_MISMATCH"
 	// PolicyExpired means the keyring or root the verifier relies on has expired: live, the time is past
 	// the policy's notAfter; offline, the record's own time is past the notAfter of a root or keyring it
-	// relies on. It is about the verifier's own material, not the request, so it names no one.
+	// relies on. It is about the verifier's own material, not the request, so it names no one (check 0).
 	PolicyExpired Code = "POLICY_EXPIRED"
 )
 

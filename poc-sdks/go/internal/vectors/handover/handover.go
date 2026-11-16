@@ -19,14 +19,11 @@ import (
 
 // Expected reads the hand-over a vector case expects from its text in the file (a vector Node's Raw), as the
 // vector files write one: null for none, or an object holding, for each name acted on, one {svc, items} per stamp
-// in chain order, items null where the stamp's block does not name the extension. It returns nil for null or for
-// no text, a hand-over the case does not give, and otherwise the entries per name, an empty map for {}, each item
+// in chain order, items null where the stamp's block does not name the extension. It returns nil for null, a
+// hand-over the case does not give, and otherwise the entries per name, an empty map for {}, each item
 // the canonical text of its JSON value, as the core hands items over. It fails t on text of any other shape.
 func Expected(t testing.TB, text []byte) map[string][]verify.StampItems {
 	t.Helper()
-	if len(text) == 0 {
-		return nil
-	}
 	v, err := json.ReadFile(text)
 	if err != nil {
 		t.Fatalf("handover: the expected hand-over: %v", err)
