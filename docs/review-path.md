@@ -5,14 +5,21 @@ core attests the path a request took; the profiles and the one extension,
 `influence`, are built on it
 ([the protocol](../poc-sdks/spec/README.md#the-protocol)). The first sitting reads
 the spec's sections on path attestation, then the TypeScript core that implements
-them. Each add-on after it is a further sitting, read the same way. To report a break
-you find, see [SECURITY.md](../SECURITY.md); anything else, see
-[CONTRIBUTING.md](../CONTRIBUTING.md).
+them. Each add-on after it is a further sitting, read the same way. The shared vectors
+([Conformance](../poc-sdks/spec/README.md#conformance)) are the recorded answers the
+SDKs replay. To report a break you find, see [SECURITY.md](../SECURITY.md); anything
+else, see [CONTRIBUTING.md](../CONTRIBUTING.md).
 
 Each table gives the lines to read: lines as an editor numbers them, comments and
 blank lines included; a spec section runs from its heading to the next heading of
 the same or a higher level. `./run test` checks every count and every total against
 the files.
+
+Five files of the TypeScript core are on no sitting: `index.ts` re-exports,
+`json-file.ts` writes the file form and `key-file.ts` trims a key file's text,
+`policy-owner.ts` holds the policy owner's checks before it signs, and
+`verdict-codes.ts` lists the codes a client shows from a server's verdict. None runs
+a check of a request.
 
 ## The afternoon: path attestation
 
@@ -125,7 +132,8 @@ handshake's MCP form is in the sessions sitting's spec row.
 | [mcp/src/verdict.ts](../poc-sdks/typescript/mcp/src/verdict.ts) | A server's verdict on a call, read as server data. | 26 |
 | [mcp/src/client.ts](../poc-sdks/typescript/mcp/src/client.ts) | Opening a session and replacing one, stamping a call, and reading a result and what it adds to influence. | 394 |
 | [mcp/src/server.ts](../poc-sdks/typescript/mcp/src/server.ts) | The server's checks of its own policy, the handshake, `McpServerSession.checkCall` and its response stamps, and `handleToolCall`. | 489 |
-| **Total** | | 1,264 |
+| [policy/own-material.ts](../poc-sdks/typescript/core/src/policy/own-material.ts) | `checkOwnMaterial`, the server's checks of its own keyring and root, signature then window, before it serves; and the warnings when one nears expiry. | 77 |
+| **Total** | | 1,341 |
 
 ## Response attestation
 
