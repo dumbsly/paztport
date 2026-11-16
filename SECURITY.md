@@ -5,13 +5,13 @@
 This covers the protocol spec ([poc-sdks/spec](poc-sdks/spec/README.md)), the three
 SDKs (TypeScript, Java and Go), and the demos as the proof of concept they are.
 
-These are reports we want:
+Examples of a report:
 
 - a request a verifier accepts that the spec says it must refuse;
 - two SDKs answering one input differently;
 - a way past [the owner-aware rule](README.md#the-owner-aware-rule) within what the
   request carries;
-- a key, salt or proof bundle reaching a log. The README says they never do
+- a private key, salt or proof bundle reaching a log. The README says they never do
   ([Design rules](README.md#design-rules)).
 
 Anything already in [docs/limits.md](docs/limits.md) is known. A report that the page
@@ -33,7 +33,7 @@ What helps:
 ## What to expect
 
 There is one maintainer. Replies are best effort, with no fixed response time, and
-there is no bounty. If you want credit, the advisory will name you.
+there is no bounty. If a report leads to an advisory, it credits you if you want.
 
 ## Supported versions
 

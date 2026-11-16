@@ -11,18 +11,21 @@ Pull requests are by arrangement: open an issue first.
 Every change that touches behaviour takes these steps, in order.
 
 1. A sentence in the spec, in [poc-sdks/spec/](poc-sdks/spec/README.md).
-2. The shared vectors in `poc-sdks/spec/vectors/`. One SDK's exporter writes each
-   file, and the file is re-exported, never hand-edited. The spec names the exporter
-   of [v4.json](poc-sdks/spec/README.md#v4json),
-   [http-v4.json](poc-sdks/spec/README.md#http-v4json) and
+2. The shared vectors in `poc-sdks/spec/vectors/`, re-exported by the SDK that
+   writes them, never hand-edited. The spec's section on each file names its
+   writer and how to regenerate it:
+   [v4.json](poc-sdks/spec/README.md#v4json),
+   [http-v4.json](poc-sdks/spec/README.md#http-v4json),
+   [events.json](poc-sdks/spec/README.md#eventsjson),
+   [json.json](poc-sdks/spec/README.md#jsonjson) and
    [ed25519.json](poc-sdks/spec/README.md#ed25519json).
 3. All three SDKs: [TypeScript](poc-sdks/typescript/README.md),
    [Java](poc-sdks/java/README.md) and [Go](poc-sdks/go/README.md).
 4. `./run test` and `./run test --container`
    ([how they run](README.md#quick-start)).
 
-The code is AI-written. It is held to the same shared vectors and checks as any
-change, so a contribution is reviewed the same way.
+The code is AI-written and held to the shared vectors and checks, so a contribution
+is reviewed the same way.
 
 ## Licence
 

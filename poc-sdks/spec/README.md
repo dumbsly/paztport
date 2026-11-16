@@ -80,7 +80,7 @@ answers.
 | [`v4.json`](#v4json) | Version 4: stamps and blocks, the live and offline verifiers and sessions, the [MCP profile](#the-mcp-profile), and the extension `influence` in its member `influence` | Written and replayed by TypeScript (`@paztport/core` for the session id, the prompt and response bindings, the block commitment and the Merkle tree, and `@paztport/mcp` for the rest). Replayed by Java (`paztport-core`) and by Go (`poc-sdks/go`, its protocol packages) for every section but the MCP profile's, `influence.response` and the `influence.request` cases whose `served` is not empty. |
 | [`http-v4.json`](#http-v4json) | Version 4 over HTTP | Written and replayed by Java (`paztport-http`), every section, and replayed by Go (`poc-sdks/go`), every section: `paztporthttp` and its two packages, and `policy` for `operations` but its `receive` cases, and `influence` for `boundaryInfluence`. The TypeScript SDK does not speak HTTP and does not replay it. |
 | [`events.json`](#eventsjson) | Responder events | Written and replayed by Java (`paztport-core`), and replayed by TypeScript (`@paztport/core`) and Go (`poc-sdks/go`). |
-| [`json.json`](#jsonjson) | Reading and writing JSON ([wire.md](wire.md#json)) | TypeScript (`@paztport/core`, and `@paztport/mcp` for `toolsCall`), every section but the `http` cases of `bindings`, and Java (`paztport-core`, and `paztport-http` for `http`) and Go (`poc-sdks/go`) for every section but `jcs` and the MCP profile's `bindings` (`toolsCall`, `result`, `localTool`), which belong to the [MCP profile](#the-mcp-profile); Go replays the `http` bindings in `paztporthttp/wire`. |
+| [`json.json`](#jsonjson) | Reading and writing JSON ([wire.md](wire.md#json)) | Written by TypeScript (`@paztport/core`), which replays, with `@paztport/mcp` for `toolsCall`, every section but the `http` cases of `bindings`, and Java (`paztport-core`, and `paztport-http` for `http`) and Go (`poc-sdks/go`) for every section but `jcs` and the MCP profile's `bindings` (`toolsCall`, `result`, `localTool`), which belong to the [MCP profile](#the-mcp-profile); Go replays the `http` bindings in `paztporthttp/wire`. |
 | [`ed25519.json`](#ed25519json) | The [signature rule](wire.md#signatures) | Written by a generator in `@paztport/core`'s tests, and replayed in full by TypeScript (`@paztport/core`), Java (`paztport-core`) and Go (`poc-sdks/go`). |
 
 | Part | Java SDK | TypeScript SDK | Go SDK |
@@ -375,6 +375,15 @@ cd poc-sdks/java && mvn -q -pl core,http test -Dtest=VectorsHttpV4Export -Dpaztp
 
 ### events.json
 
+`events.json` is written by Java's exporter,
+`poc-sdks/java/core/src/test/java/org/paztport/core/event/EventVectorsExport.java`.
+To regenerate the file:
+
+```bash
+cd poc-sdks/java && mvn -q -pl core test -Dtest=EventVectorsExport -Dpaztport.exportEventVectors=true \
+  -Dvectors.out="$PWD/../spec/vectors/events.json" -Dsurefire.failIfNoSpecifiedTests=false
+```
+
 - `envelope`: the envelope's signed bytes and signatures.
 - `verify`: the responder's checks (an accepted event, each refusal, `ts` at the window and 1 ms past it on both
   sides, replays with `uses` and across the window, refusals that spend no id, a wrong signer, a signer known only
@@ -387,6 +396,13 @@ cd poc-sdks/java && mvn -q -pl core,http test -Dtest=VectorsHttpV4Export -Dpaztp
 Its keys, `payment-next` among them, are derived by the rule of `v4.json`'s `about`.
 
 ### json.json
+
+`json.json` is written by TypeScript's exporter,
+`poc-sdks/typescript/core/test/vectors-json-export.ts`. To regenerate the file:
+
+```bash
+cd poc-sdks/typescript && node core/test/vectors-json-export.ts --write
+```
 
 Cases: each input given as bytes, and each refused input naming the reading step (`size`, `parse` or `canonical`)
 that first refuses it.

@@ -801,7 +801,8 @@ the commands.
 ```
 paztport/
 ├── LICENSE, NOTICE           Apache-2.0, copyright
-├── SECURITY.md, CONTRIBUTING.md  how to report a break; how a change is accepted
+├── SECURITY.md               how to report a break
+├── CONTRIBUTING.md           how a change is accepted
 ├── LICENSING.md              what each jar and image carries, and why
 ├── THIRD-PARTY.txt           runtime dependencies and their licences (generated)
 ├── licenses/                 licence texts the bundling jars carry, and the licence plugin's shared settings
