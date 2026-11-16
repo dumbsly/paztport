@@ -1,12 +1,78 @@
 # Known limits
 
-This is the register of what Paztport does not do on its own. It lists what a
-deployment must supply for Paztport to hold, what any design of this kind cannot
-do, and what this proof of concept leaves out. It uses the terms the README's
+This is the register of what Paztport does not do on its own. It sets out
+[what adopting it costs](#what-adopting-it-costs), then lists what a deployment must
+supply for Paztport to hold, what any design of this kind cannot do, and what this
+proof of concept leaves out. It uses the terms the README's
 [How it works](../README.md#how-it-works) introduces, among them the peer check,
 influence and the egress. "The rule" below is
 [the owner-aware rule](../README.md#the-owner-aware-rule), and the PSP is the
 payment provider in the [Java mesh](../poc-demos/java-mesh/README.md).
+
+## What adopting it costs
+
+Mutual TLS and an allowlist of who may call whom check the last hop: they let
+`orders` call `payment`. Paztport also checks the route a request took and, through
+the owner-aware rule, whose data shaped it. In the Java mesh it refuses a call from
+`orders` to `payment`'s `pay` inside a request that came in through `getOrder`, a
+read, and a support ticket asking for Alice's data to go to Mallory, at the mailer
+and at the payment provider, though every hop on its way was allowed; an allowlist
+lets both through. Some of what the mesh refuses an allowlist refuses too: `search`
+calling `payment`, which no route allows
+([what the demos show](../README.md#what-the-demos-show)).
+
+What it costs, beyond the mutual TLS and the allowlist:
+
+- **Every service on a route runs an SDK and holds a stamping key.** Each hop signs
+  its stamp with a key of its own, beside its TLS key, and whoever holds them is
+  that service (see "Key custody is the cluster's" and "A service is whoever holds
+  its keys" below). A service that calls another also holds its proof bundle, the
+  proofs for the routes whose last call it makes. A service that verifies requests,
+  or the responses it gets back, pins the policy key and holds the signed keyring
+  and root
+  ([who holds what](../poc-sdks/spec/wire.md#proof-bundles-and-who-holds-what),
+  [in the Java mesh](../poc-demos/java-mesh/README.md#least-knowledge-who-holds-what)).
+- **A policy change rebuilds the tree.** A change to the routes, or to a service's
+  operation table, draws a new root under a new `rootId` and new proof bundles, and
+  every service that pins the root or holds proofs loads the new ones, in an order
+  the deployment coordinates, since a proof from one tree does not prove against the
+  other's root
+  ([rebuilding](../poc-sdks/spec/wire.md#proof-bundles-and-who-holds-what),
+  [the policy tool](../poc-sdks/java/README.md#toolspolicy-tool)).
+- **Keyrings and roots need renewing.** The policy tools sign both for 7 days by
+  default. The policy owner renews them before then, offline where the policy key is
+  kept, and each service loads the renewed files; a service in `enforce` whose
+  keyring or root has expired refuses every request `POLICY_EXPIRED`
+  ([lifetimes and renewal](../poc-demos/java-mesh/README.md#lifetimes-and-renewal)).
+- **Revocation waits for expiry.** A keyring or root shown in a session handshake
+  can be replayed until it expires, 7 days by default, so a leaked key or a removed
+  route stays usable that long (see "Revocation takes up to a lifetime" below).
+- **The policy names every route a request may take**, not only who may call whom,
+  and `enforce` refuses a route it leaves out. The on-ramp is `audit` on real
+  traffic, to find the retries, health checks and batch jobs it trips; this proof of
+  concept has no real traffic, so how often that happens is not measured
+  ([modes and rollout](../poc-demos/java-mesh/README.md#modes-and-rollout),
+  [measurements](../poc-demos/java-mesh/README.md#measurements)).
+- **The peer check needs mutual TLS ended in the service's own process**, so the SDKs
+  do not support a sidecar mesh (see "The peer check needs mutual TLS in the
+  service's own process" below).
+- **Queues, caches and scheduled jobs are out of scope.** They break the model of
+  one linear chain (see "Async is out of scope" below).
+- **Each request carries and checks more.** In the Java mesh, on one host, `enforce`
+  on one hop added about 1.9 ms at the median, for that hop's checks, its signed
+  response and its caller's check of that response. The stamps the callers sign are
+  in both modes, so not in that figure, and a deployment that verifies at every hop
+  pays it at each. At chain depth 2 the request headers come to about 1.7 KB:
+  1058 B of chain, 615 B of proof and 111 B of extensions
+  ([measurements](../poc-demos/java-mesh/README.md#measurements)).
+- **Replay state is per replica, and a call is made once.** The SDKs' nonce caches
+  are in memory, one per replica, so a request sent twice can be served by another
+  replica or after a restart, and the receiving application handles that duplicate
+  delivery (see "Duplicate delivery is the application's" below). Over HTTP a service
+  calls a given receiver, or a given operation of it, at most once per request tree,
+  once per item for a keyed operation, so an application's retry of a call that was
+  delivered is refused `REPLAY` on the replica that saw it
+  ([nonce keys](../poc-sdks/spec/verification.md#freshness-and-replay)).
 
 ## Using it soundly
 

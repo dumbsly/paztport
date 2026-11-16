@@ -665,7 +665,8 @@ says it did ([the eval](poc-demos/agents-mcp/eval/README.md)).
 
 The most important limits, each linked to its section of
 [docs/limits.md](docs/limits.md), which also lists what a deployment must supply
-for Paztport to hold:
+for Paztport to hold and sets out
+[what adopting it costs](docs/limits.md#what-adopting-it-costs):
 
 - A compromised service on an allowed route keeps that route. On each live request
   that reaches it, it can make the calls its route allows with arguments it chooses,
