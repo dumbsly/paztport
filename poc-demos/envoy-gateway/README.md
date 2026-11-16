@@ -5,9 +5,8 @@ cluster. A Go `ext_proc` processor stamps each request as the origin service `ed
 [java-mesh](../java-mesh/README.md) services `orders` and `payment` verify it. The idea and the concepts are in the
 [root README](../../README.md).
 
-Until the Go SDK moves to protocol version 4, this demo does not pass: the processor stamps version 3, the java-mesh
-services it deploys read version 4 only and refuse its stamps (`CHAIN_MISSING`), so `./run envoy-gateway` fails its
-checks, and everything below was run on version 3.
+The processor stamps protocol version 4, which the java-mesh services it deploys read. The runs recorded below, the
+checks and the measurements, were made while it stamped version 3, before the Go SDK moved to version 4.
 
 This is the proof of concept, its behavioural checks, the harness for its measurements (see
 [Measuring it](#measuring-it)), and what one full run of them showed: the answers first, then the

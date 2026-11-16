@@ -289,7 +289,7 @@ flowchart LR
 
 | Field | Meaning |
 |---|---|
-| `v` | Version, always `3`. |
+| `v` | Version, always `4`. |
 | `svc` | Service name. The route is rebuilt from these and the `rcv` fields. |
 | `inst` | The signer's instance, as the signer reports it (in the Java mesh, its container's hostname), so whoever acts on a failed check can act on one replica, not a whole service. |
 | `rid` | Request ID, minted by the origin and carried unchanged. |
@@ -297,9 +297,9 @@ flowchart LR
 | `sess` | The id of the session the chain was stamped in, or empty for a chain with no session, as inside one mesh. |
 | `rcv` | The receiver this stamp was signed for: the next stamp's `svc`, or the chain's receiver. Over HTTP it may also name an operation, `service#operation`. |
 | `bind` | The binding of what *this hop sent*. Over HTTP, `SHA-256(METHOD \n PATH \n BODY)` (`PATH` with its query). |
-| `infl` | The commitment to the request's influence; empty for no influence. |
+| `ext` | The commitment to this stamp's block, the claims its signer attaches, such as the influence entries it adds; empty for the empty block. |
 | `prev` | The previous stamp's `sig`; empty at the origin. |
-| `sig` | Ed25519 signature over the canonical bytes `3\|svc\|inst\|rid\|ts\|sess\|rcv\|bind\|infl\|prev`. |
+| `sig` | Ed25519 signature over `paztport-stamp` and a newline, then the canonical (JCS) bytes of the stamp's other ten members, `v` included. |
 
 Why it's built this way:
 
@@ -557,10 +557,13 @@ result that does not verify, and every result in an unsafe session, as
 Between organisations, the partner must not see the sender's internal chain. In an
 attested session the sender's egress verifies the request's chain and sends one
 stamp of its own in its place, so the internal route stays inside. That stamp
-commits to the request's influence blinded to one entry for each class and owner,
-which is all the partner needs to apply the owner-aware rule. In an unsafe session
-the egress signs no stamp and sends no influence. Either way, a partner does not
-attest its replies (see
+commits to one block. Where the egress acts on influence and every stamp of the
+internal chain it verified names it, the block carries the request's influence
+blinded to one entry for each class and owner, which is all the partner needs to
+apply the owner-aware rule; otherwise the block names nothing, and the partner
+refuses the public writes and trusted records the call would lead to. In an unsafe
+session the egress signs no stamp and sends no influence. Either way, a partner does
+not attest its replies (see
 [Limits of the concept](docs/limits.md#limits-of-the-concept)), so the egress counts
 each one `local-untrusted`. The Java and Go SDKs implement this; the TypeScript SDK
 does not
@@ -630,9 +633,8 @@ Paztport at a Kubernetes edge, on a local kind cluster. A Go processor, which
 Envoy calls over gRPC for each request through its external processing filter
 (`ext_proc`), and which its own Helm chart installs, stamps each request entering
 the gateway as the origin service `edge`; the Java mesh's `orders` and `payment`
-verify it. The processor is built on the Go SDK, which still stamps version 3, while
-the mesh's services read version 4 only, so `./run envoy-gateway` fails its checks
-until the Go SDK moves to version 4; what follows is from runs on version 3. Its
+verify it. The processor is built on the Go SDK and stamps version 4; what follows
+is from runs made while it stamped version 3, before the Go SDK moved. Its
 checks show that a chain a client sends is replaced at the edge, not believed, that a
 request sent around the edge is refused, and that a stamp
 taken from the processor is refused from any connection but Envoy's. Its
@@ -801,7 +803,7 @@ paztport/
 ├── docs/                     limits.md, the known limits in full; directions.md, where this could go
 ├── run                       front door: java-mesh, envoy-gateway, agents-mcp, test, bench
 ├── poc-sdks/
-│   ├── spec/                 the protocol spec, and vectors/: v4.json, TypeScript's, and Java's but the MCP profile's sections; v3.json, Go's but the MCP profile's sections; http-v4.json, Java's; http-v3.json, Go's; events.json, all three's; json.json, TypeScript's but its http bindings, Java's and Go's but the MCP profile's sections; ed25519.json, all three's
+│   ├── spec/                 the protocol spec, and vectors/: v4.json, TypeScript's, and Java's and Go's but the MCP profile's sections; http-v4.json, Java's and Go's; v3.json and http-v3.json, frozen, replayed by none; events.json, all three's; json.json, TypeScript's but its http bindings, Java's and Go's but the MCP profile's sections; ed25519.json, all three's
 │   ├── scripts/              name check, link check, import check, jar check, tests for ./run, THIRD-PARTY.txt regeneration
 │   ├── java/                 core, http, spring (paztport-core, paztport-http, paztport-spring), tools/keygen, tools/policy-tool, tools/bench
 │   ├── typescript/           core, mcp (@paztport/core, @paztport/mcp), policy-tool

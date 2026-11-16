@@ -13,20 +13,16 @@ policy, verification, influence and sessions. The demos in
   protocol's packages, and `paztporthttp` with its `wire` and `boundary` packages.
 - [spec](spec/README.md): the written protocol spec and the shared conformance vectors. The TypeScript SDK
   replays `v4.json`. Java replays `v4.json` in `paztport-core`, but for what belongs to the MCP profile, and
-  `http-v4.json` in `paztport-http`. The Go SDK's core replays `v4.json`, but for its MCP profile sections and
-  the MCP-only parts of `influence`, and `http-v4.json`'s `operations` but its `receive` cases, and
-  `boundaryInfluence`; the tests of its `paztporthttp` packages replay `http-v3.json` and do not pass until the next
-  plan moves them to version 4. `v3.json` is replayed by no SDK and
-  stays, frozen, until the close. All three replay `events.json`, `json.json` and `ed25519.json`.
+  `http-v4.json` in `paztport-http`. The Go SDK replays `v4.json`, but for its MCP profile sections and the
+  MCP-only parts of `influence`, and `http-v4.json` in full. `v3.json` and `http-v3.json` are replayed by no SDK and
+  stay, frozen, until the close. All three replay `events.json`, `json.json` and `ed25519.json`.
 - `scripts/`: the link, import and jar checks that `./run test` runs, the tests for `./run`,
   and `third-party.sh`, which regenerates `THIRD-PARTY.txt` from both Java trees.
 
 ## On the wire
 
 The full format is in the [protocol spec](spec/README.md): every byte layout, binding, check and code. This is
-a summary of version 4, which the TypeScript SDK and Java's `paztport-core` and `paztport-http` speak. The Go SDK's core
-speaks version 4 too; its `paztporthttp` packages are between versions, with version 3's HTTP behaviour behind
-stopgaps, until the next plan.
+a summary of version 4, which the TypeScript SDK, Java's `paztport-core` and `paztport-http`, and the Go SDK speak.
 
 A stamp is a JSON object, and a chain is an array of them, origin first:
 
@@ -54,7 +50,7 @@ Every Paztport object travels as its JCS bytes, or as their base64url, its token
 those bytes with its own strict reader, never through a transport's JSON parser ([wire.md](spec/wire.md#json)).
 Over MCP (the TypeScript SDK), the chain, the route proof and the blocks, one per stamp, travel as tokens in the
 `tools/call` request's `_meta`, beside the call id, and a result carries the token of the server's attestation:
-its response chain, one block per stamp of it, its proof and the result hash. Over HTTP (the Java SDK), the
+its response chain, one block per stamp of it, its proof and the result hash. Over HTTP (the Java and Go SDKs), the
 chain, the proof and the blocks travel as tokens in the `X-Path-Chain`, `X-Path-Proof` and `X-Path-Extensions`
 headers, a call in a session opened by the handshake over HTTP names it in `X-Path-Session`, and a response
 carries one more stamp on the request chain, back to the caller, with its own block, in `X-Path-Response`
