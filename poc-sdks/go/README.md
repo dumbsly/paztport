@@ -116,9 +116,10 @@ The packages decide; the code that embeds them carries out what they decide:
 - **Sends the receiver's refusals.** `Receiver.Accept` returns an `Accepted`
   whose `Refusal`, when there is one, is sent in place of the handler's answer:
   `403` with the code where verification refuses under `enforce`;
-  `400 {"reason":"EXTENSION_MISMATCH"}` where the service would serve a request
-  it did not verify (under `audit` after a failure, with Paztport off, with no
-  mode or no verifier) and its blocks fail check 9a; and, at a service that acts
+  `400 {"reason":"EXTENSION_MISMATCH"}` where a service other than an origin
+  would serve a request it did not verify (under `audit` after a failure or
+  with a nonce cache that cannot answer, with Paztport off, with no mode or no
+  verifier) and its blocks fail check 9a; and, at a service that acts
   on `influence`, `400 {"reason":"INFLUENCE_MISMATCH"}` for a request handed an
   item that does not read as an entry, verified or not, in every mode.
 - **Carries what a request hands on.** A request the receiver serves gives the

@@ -658,8 +658,10 @@ the response check's `reason` (null when the caller has no verifier and checks n
 
 Some rules are not pinned by vectors and are tested in each HTTP SDK (`paztport-http`, `paztporthttp`): the startup
 checks of a partner's and an egress's own material, the [wire limit](wire.md#limits), 256 KiB, on a handshake body,
-clearing a session after `POLICY_EXPIRED`, the egress's own idle period, and the egress labelling its own response to
-its caller `local-untrusted`, since a handler may relay what the partner said. Each also tests the
+clearing a session after `POLICY_EXPIRED`, and the egress's own idle period. Each also tests that what the partner
+said reaches the embedder labelled `local-untrusted`, since a handler may relay it: Java's egress labels its own
+response to its caller, and Go's hands the partner's reply back as one `local-untrusted` entry in
+`Outcome.Influence`, the handler labelling its own answer. Each tests the
 [writer's limit](wire.md#writing) on the blocks it sends: a caller whose blocks token would pass 256 KiB signs and
 sends nothing, and a responder whose `X-Path-Response` would pass it leaves the answer unattested, which its caller
 counts as one `local-untrusted` entry ([influence.md](influence.md#content-labels)). Each tests too that a service's

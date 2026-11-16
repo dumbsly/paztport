@@ -55,7 +55,7 @@ chain, the proof and the blocks travel as tokens in the `X-Path-Chain`, `X-Path-
 headers, a call in a session opened by the handshake over HTTP names it in `X-Path-Session`, and a response
 carries one more stamp on the request chain, back to the caller, with its own block, in `X-Path-Response`
 ([wire.md](spec/wire.md#http)). Version 3 carried influence in `X-Path-Influence` in place of the
-blocks. A version 4 verifier accepts only stamps whose `v` is 4, and so does Go's.
+blocks. A version 4 verifier accepts only stamps whose `v` is 4.
 Binary values are base64url without padding.
 
 The signed root (`root.json`) that verifiers pin is `{ "notAfter", "root", "rootId", "sig" }`, where `sig` is the

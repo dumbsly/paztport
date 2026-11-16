@@ -162,7 +162,7 @@ with a clean copy, automatically, within seconds.
   1.9 ms at the median with one hop enforcing, most of it stock-JDK Ed25519,
   measured on version 3 of the protocol, and that section ends with its caveats. The
   [Envoy Gateway](poc-demos/envoy-gateway/README.md#measurements) processor adds
-  0.35 ms at the median at 1000 requests a second.
+  0.35 ms at the median at 1000 requests a second, also measured on version 3.
 
 The code is Apache-2.0. Every cryptographic primitive the SDKs use goes through each
 language's standard library (the JDK, Node's `node:crypto`, Go's `crypto`
