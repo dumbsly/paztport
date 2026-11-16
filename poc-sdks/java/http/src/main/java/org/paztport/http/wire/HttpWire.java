@@ -67,6 +67,16 @@ public final class HttpWire {
 
     // --- Header encodings ---
 
+    /**
+     * A received Paztport header's value, or {@code null} when it is absent or blank: a blank header is read as an
+     * absent one, and any other value as it arrived (spec wire.md, HTTP). A blank header asks for nothing an absent
+     * one does not, since a caller can always leave the header out. Of the characters a field value may hold, read as
+     * ISO-8859-1, only space and horizontal tab are blank.
+     */
+    public static String headerValue(String header) {
+        return header == null || header.isBlank() ? null : header;
+    }
+
     /** The {@code X-Path-Chain} header for {@code chain}. */
     public static String encodeChain(List<Stamp> chain) {
         return token(Chains.toJson(chain));
@@ -74,7 +84,7 @@ public final class HttpWire {
 
     /** The chain's JSON text: blank or absent gives {@code null}; unreadable gives {@code "malformed"}. */
     public static String decodeChain(String header) {
-        if (header == null || header.isBlank()) {
+        if (headerValue(header) == null) {
             return null;
         }
         String json = decodeJson(header);
@@ -88,7 +98,7 @@ public final class HttpWire {
 
     /** The proof's JSON text: absent or unreadable gives {@code null}, which the verifier answers as no proof. */
     public static String decodeProof(String header) {
-        return header == null || header.isBlank() ? null : decodeJson(header);
+        return headerValue(header) == null ? null : decodeJson(header);
     }
 
     /**
@@ -108,7 +118,7 @@ public final class HttpWire {
      * {@code null}, so check 9a refuses it.
      */
     public static String decodeBlocks(String header) {
-        if (header == null || header.isBlank()) {
+        if (headerValue(header) == null) {
             return null;
         }
         String json = decodeJson(header);
@@ -250,7 +260,7 @@ public final class HttpWire {
      * header that is absent or does not read as that.
      */
     private static JsonValue.Obj attestation(String header) {
-        if (header == null || header.isBlank()) {
+        if (headerValue(header) == null) {
             return null;
         }
         try {

@@ -557,7 +557,8 @@ A request carries Paztport in three headers, each a token, the base64url of the 
 
 **Paztport's headers.** Every header whose name begins with `X-Path-` is Paztport's: the four above,
 `X-Path-Response`, and any added later. Names are compared case-insensitively over ASCII, as HTTP compares field
-names (RFC 9110 §5.1). A caller MUST send only the Paztport headers it stamped: before it sets them, it removes
+names (RFC 9110 §5.1). A Paztport header whose value is empty or only spaces and tabs is read as absent; any other
+value is read as sent. A caller MUST send only the Paztport headers it stamped: before it sets them, it removes
 every Paztport header the call already carries, with all its values. An origin that forwards a request it
 received, such as a gateway's external processor, sends that request as its call, so it removes every Paztport
 header the client sent; and since its client is outside the request tree, it also removes every Paztport header

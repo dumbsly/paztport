@@ -256,7 +256,8 @@ So the server keeps at most N sessions for each peer its CAs vouch for.
 **Calls name their session** in the `X-Path-Session` request header, whose value is the session id
 ([wire.md](wire.md#http)).
 
-- **No header** means the caller never opened a session. The server treats the call as in an unsafe session.
+- **No header** (or a blank one, [wire.md](wire.md#http)) means the caller never opened a session. The server
+  treats the call as in an unsafe session.
 - **A header that names no live session opened by this call's peer** is refused
   `403 {"reason":"SESSION_UNKNOWN"}`. A server MUST take a session as the call's only when the issuer and the name
   it recorded for it are both those of the call's authenticated peer. A call with no client certificate, or one whose

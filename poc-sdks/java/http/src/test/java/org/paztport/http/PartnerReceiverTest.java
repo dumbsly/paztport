@@ -258,6 +258,55 @@ class PartnerReceiverTest {
                 + "session=unsafe"), traceLines());
     }
 
+    // A blank header is read as no header, as every Paztport header is (spec wire.md, HTTP): it asks for nothing an
+    // absent one does not, since a caller can always leave the header out.
+    @Test
+    void aBlankSessionHeaderIsNoHeader() {
+        Map<String, String> call = boundary(attestedSession(), "rid-1", REFUND);
+        for (String blank : List.of("", " ", "\t")) {
+            traces.list.clear();
+            call.put(PaztportHeaders.SESSION, blank);
+
+            PartnerAccepted accepted = receiver.accept(charge(call, REFUND), cert(SHOP_CA, "orders"));
+
+            String shown = "[" + blank + "]";
+            assertNull(accepted.refusal(), shown);
+            assertFalse(accepted.attested(), shown);
+            assertNull(accepted.verifiedChain(), shown);
+            assertNull(accepted.handOver(), shown);
+            assertNull(accepted.result(), shown);
+            assertEquals(List.of("PAZTPORT_TRACE request rid=rid-1 reason=- receiver=psp peer=orders (mTLS) "
+                    + "session=unsafe"), traceLines(), shown);
+        }
+    }
+
+    // Only spaces and tabs are blank: a no-break space is a value, and names no session.
+    @Test
+    void aSessionHeaderOfNbspNamesNoSession() {
+        Map<String, String> call = boundary(attestedSession(), "rid-1", REFUND);
+        call.put(PaztportHeaders.SESSION, "\u00a0");
+
+        PartnerAccepted accepted = receiver.accept(charge(call, REFUND), cert(SHOP_CA, "orders"));
+
+        assertNotNull(accepted.refusal(), "a no-break space is a value, never taken as unsafe");
+        assertEquals(403, accepted.refusal().status());
+        assertEquals("{\"reason\":\"SESSION_UNKNOWN\"}", text(accepted.refusal()));
+        assertFalse(accepted.attested());
+    }
+
+    @Test
+    void anUnknownSessionIdIsStillRefused() {
+        attestedSession(); // the peer holds a live session, but not the one it names
+
+        PartnerAccepted accepted = receiver.accept(charge(boundary("no-such-session", "rid-1", REFUND), REFUND),
+                cert(SHOP_CA, "orders"));
+
+        assertNotNull(accepted.refusal(), "an id that names no session is never taken as unsafe");
+        assertEquals(403, accepted.refusal().status());
+        assertEquals("{\"reason\":\"SESSION_UNKNOWN\"}", text(accepted.refusal()));
+        assertFalse(accepted.attested());
+    }
+
     @Test
     void aSessionOpenedUnsafeBelievesNothing() {
         String sess = sessions.open(SessionRequest.of(null, pub(shopPolicy), shopKeyring, Sessions.newNonce()),

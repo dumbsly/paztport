@@ -30,7 +30,7 @@ import org.slf4j.LoggerFactory;
  * its certificate's issuer and common name ({@link PeerCert}):
  *
  * <ul>
- *   <li>No header means the caller never opened a session, which is treated as unsafe.</li>
+ *   <li>No header, or a blank one, means the caller never opened a session, which is treated as unsafe.</li>
  *   <li>A header that does not name a live session this peer opened is refused {@code 403 SESSION_UNKNOWN}: another
  *       peer's id (another name, or the same name under another issuer), an evicted or expired one, one from
  *       before a restart, or a caller with no certificate. It is never taken as unsafe, or a caller could step down
@@ -71,7 +71,7 @@ public final class PartnerReceiver {
      * @param peer the client certificate the transport authenticated, or null without one
      */
     public PartnerAccepted accept(InboundRequest request, PeerCert peer) {
-        String sessionHeader = request.header(PaztportHeaders.SESSION);
+        String sessionHeader = HttpWire.headerValue(request.header(PaztportHeaders.SESSION));
         String chainHeader = request.header(PaztportHeaders.CHAIN);
         Peer sender = peer == null ? null : peer.peer();
         // Read once: for the trace line, and then for the call, but nothing is taken from it until it has verified.

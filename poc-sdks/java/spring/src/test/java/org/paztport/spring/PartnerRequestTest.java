@@ -421,10 +421,11 @@ class PartnerRequestTest {
         assertEquals(403, madeUp.status());
         assertEquals("SESSION_UNKNOWN", madeUp.reason());
 
-        // An empty id names no session either, and is not taken as no header.
-        Answer empty = post(orders, "/charge", Map.of(PaztportHeaders.SESSION, ""), REFUND);
+        // An empty id is no header (spec wire.md, HTTP), so the call is unsafe: the refund is refused as unsafe, not
+        // as naming an unknown session.
+        Answer empty = post(orders, "/refund", Map.of(PaztportHeaders.SESSION, ""), REFUND);
         assertEquals(403, empty.status());
-        assertEquals("SESSION_UNKNOWN", empty.reason());
+        assertEquals("UNSAFE_SESSION", empty.reason());
 
         // A second handshake adds a session and replaces none, so both work, and the refusals above were about
         // the ids alone.
