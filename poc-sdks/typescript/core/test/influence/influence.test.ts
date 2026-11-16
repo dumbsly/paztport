@@ -63,6 +63,13 @@ describe("influenceEntry", () => {
       ["a number as h", () => influenceEntry("public", "s", 7 as unknown as string)],
     ];
     for (const [name, build] of refused) expect(build, name).toThrow(Error);
+    // a member that is not a string is named as such, not as text it could not carry
+    for (const [name, build] of [
+      ["a null owner", () => influenceEntry("private", "s", "h", null as unknown as string)],
+      ["a number as cid", () => influenceEntry("public", "s", "h", undefined, 7 as unknown as string)],
+    ] as [string, () => InfluenceEntry][]) {
+      expect(build, name).toThrow("an influence entry's owner and cid, when given, are strings");
+    }
     // a surrogate pair is well-formed text
     expect(influenceEntry("public", "web:\uD83D\uDE00", "h").src).toBe("web:\u{1F600}");
   });

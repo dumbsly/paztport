@@ -62,19 +62,22 @@ export function entryOf(item: JsonValue): InfluenceEntry {
 }
 
 /**
- * A client's own entry, checked as Java's constructor checks one: `cls` one of the four classes, `src` and `h`
- * strings, an `owner`, when given, non-empty, and no lone surrogate or noncharacter in any string, since the entry's
- * JCS could not carry one. Throws an Error naming what it refuses. An absent `owner` or `cid` is left out of the
- * entry, not set to undefined, so the entry writes as the object `entryOf` reads.
+ * A client's own entry, checked as Java's constructor checks one: `cls` one of the four classes, `src` and `h` strings,
+ * an `owner` and a `cid`, when given, strings and the owner non-empty, and no lone surrogate or noncharacter in any
+ * string, since the entry's JCS could not carry one. Throws an Error naming what it refuses. An absent `owner` or `cid`
+ * is left out of the entry, not set to undefined, so the entry writes as the object `entryOf` reads.
  */
 export function influenceEntry(
   cls: InfluenceClass, src: string, h: string, owner?: string, cid?: string,
 ): InfluenceEntry {
   if (!(CLASSES as readonly string[]).includes(cls)) throw new Error("cls is not an influence class");
   if (typeof src !== "string" || typeof h !== "string") throw new Error("an influence entry needs src and h");
+  if ([owner, cid].some((text) => text !== undefined && typeof text !== "string")) {
+    throw new Error("an influence entry's owner and cid, when given, are strings");
+  }
   if (owner === "") throw new Error("an influence entry's owner is empty");
   for (const text of [src, h, cid, owner]) {
-    if (text !== undefined && (typeof text !== "string" || !isProtocolText(text))) {
+    if (text !== undefined && !isProtocolText(text)) {
       throw new Error("a lone surrogate or noncharacter in an influence entry");
     }
   }
