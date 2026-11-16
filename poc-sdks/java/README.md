@@ -532,6 +532,9 @@ a misspelt `paztport.verify` would otherwise leave the service unguarded. A `PAZ
 variable counts only in a form Spring Boot binds to one of these properties, so
 `PAZTPORT_RECEIVERNAMES_<HOST>` is accepted and `PAZTPORT_RECEIVER_NAMES_<HOST>`, which Boot
 binds to nothing, fails the start naming the variable.
+On Kubernetes, service links put `<SERVICE>_*` variables for every Service in the namespace into
+every pod, so a Service whose name begins with `paztport-` adds `PAZTPORT_` variables the start
+refuses: set `enableServiceLinks: false` on the pod, or name the Service otherwise.
 
 | Property | Default | Required | Meaning |
 |---|---|---|---|

@@ -47,6 +47,9 @@ spec:
     metadata:
       labels: {app: orders}
     spec:
+      # The starter refuses any PAZTPORT_ variable it does not define, and the Service paztport-processor would
+      # inject some (PAZTPORT_PROCESSOR_PORT_9090_TCP and the like) as service links.
+      enableServiceLinks: false
       terminationGracePeriodSeconds: 40
       securityContext:
         runAsNonRoot: true
@@ -153,6 +156,9 @@ spec:
     metadata:
       labels: {app: payment}
     spec:
+      # The starter refuses any PAZTPORT_ variable it does not define, and the Service paztport-processor would
+      # inject some (PAZTPORT_PROCESSOR_PORT_9090_TCP and the like) as service links.
+      enableServiceLinks: false
       terminationGracePeriodSeconds: 40
       securityContext:
         runAsNonRoot: true
