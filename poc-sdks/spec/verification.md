@@ -549,11 +549,14 @@ block like any other stamp.
 
 Each kind of record is checked this way:
 
-- **A recorded call**: the server-side call check above, with the offline chain verifier, the age limits and the
-  time the calling hop recorded stamping it. A chain that verifies but names a different call id from the
-  record's is `RID_MISMATCH`. The call counts in its session only up to the session's limits, judged at the last
-  stamp's `ts` (see the handshake below). A call that otherwise verifies, in a session whose recorded handshake is
-  attested, but whose last stamp's `ts` is past one of the session's limits
+- **A recorded call**: the server-side call check above, with the offline chain verifier, the age limits and the time
+  the calling hop recorded stamping it. Its keyring and root are the client keyring and root of the recorded request
+  of the session it was made in, with no window of their own, since the session's limits judge them. The client policy
+  key signed their text, so a key there that does not parse can stand in a signed request: it is left out, so a stamp
+  under it is `BAD_SIGNATURE`, and a root that does not decode proves no route. A chain that verifies but names a
+  different call id from the record's is `RID_MISMATCH`. The call counts in its session only up to the session's
+  limits, judged at the last stamp's `ts` (see the handshake below). A call that otherwise verifies, in a session
+  whose recorded handshake is attested, but whose last stamp's `ts` is past one of the session's limits
   ([sessions.md](sessions.md#recorded-handshakes)), is `OUTSIDE_SESSION`.
 - **A recorded response**: the client-side response check, with the live chain verifier at the time the client
   recorded verifying it, and one nonce cache that never forgets across the record set. Its `receiver` is the
