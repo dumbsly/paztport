@@ -836,9 +836,8 @@ when the whole mesh runs:
 
 ## Measurements
 
-Every figure in this section was measured on version 3 of the protocol, before
-stamps signed their JCS bytes and committed to blocks, and has not been measured
-again on version 4.
+Every figure in this section was measured on version 4 of the protocol, on
+2026-11-16.
 
 Measured on a single host, an Apple M5 Pro under macOS 26.6.2 (Docker Desktop,
 the services on Temurin 25.0.5, a JDK 25 runtime), with k6 driving the
@@ -854,8 +853,8 @@ failed in any run.
 
 | | p50 | p99 | mean | max |
 |---|---|---|---|---|
-| `payment` in `off` | 2.86 ms (2.86–2.93) | 4.99 ms (4.97–5.31) | 2.96 ms (2.96–3.04) | 10.02 ms (8.23–14.02) |
-| `payment` in `enforce` | 4.80 ms (4.79–4.85) | 7.18 ms (7.02–7.32) | 4.92 ms (4.90–4.97) | 11.03 ms (10.44–11.48) |
+| `payment` in `off` | 2.96 ms (2.91–3.00) | 5.22 ms (4.98–5.41) | 3.08 ms (3.01–3.12) | 11.13 ms (9.51–18.80) |
+| `payment` in `enforce` | 4.88 ms (4.84–4.91) | 7.16 ms (7.12–7.36) | 5.00 ms (4.95–5.03) | 13.76 ms (11.26–17.90) |
 
 The services call each other over pooled mutual-TLS connections, so these numbers
 don't include a handshake per hop per request. In steady load a connection is
@@ -878,28 +877,28 @@ the size of the headers on the mesh's request to `payment`, measured in the mesh
 
 | Operation | Cost |
 |---|---|
-| Merkle proof verify (depth 8) | **2.3 µs** |
+| Merkle proof verify (depth 8) | **2.2 µs** |
 | Request binding of the `POST /pay` request (base64url SHA-256 of method, target and body, newline-joined) | 0.07 µs |
-| Ed25519 sign / verify of one stamp (stock JDK) | ~222 / ~234 µs |
-| Request headers at chain depth 2 (version 3; without `X-Path-Extensions`, which version 4 always sends) | 946 B chain + 615 B proof = **1.5 KB** |
+| Ed25519 sign / verify of one stamp (stock JDK) | ~224 / ~223 µs |
+| Request headers at chain depth 2 | 1058 B chain + 615 B proof + 111 B extensions = **1.7 KB** |
 
 What the numbers say:
 
-- **`enforce` adds about 1.9 ms at the median at this load,** on version 3. Every `enforce` run's
-  p50 was 1.86–1.99 ms above every `off` run's, so the gap is far larger than the
+- **`enforce` adds about 1.9 ms at the median at this load.** Every `enforce` run's
+  p50 was 1.84–2.00 ms above every `off` run's, so the gap is far larger than the
   run-to-run spread, but three runs per mode support "about 1.9 ms", not a finer
-  figure. The p99 gap is about 2.2 ms (1.71–2.35 ms between any two runs). The
+  figure. The p99 gap is about 1.9 ms (1.71–2.38 ms between any two runs). The
   difference covers `payment`'s verification of the request (two stamps), its
   signing of the response, and `orders`' check of that response stamp (three
   stamps), which in `off` finds no stamp and stops at once. At the micro-benchmark
   costs in the table above, those five verifies and one signature come to about
-  1.4 ms of Ed25519 (5 × 233.8 + 221.9 = 1390.8 µs), about 70% of the difference.
-  The remainder, about 0.5 ms, isn't broken down. Candidates are the other work
-  `enforce` adds (reading the chain and proof headers, the nonce check, encoding
-  the response stamp and `orders`' parse of it), queueing among the 10 users,
-  and a gap between the benchmark, run natively, and the same work in Docker
-  Desktop's VM on this host. The request binding, at 0.07 µs, is too small to
-  count.
+  1.3 ms of Ed25519 (5 × 223.3 + 224.2 = 1340.7 µs), about 70% of the difference.
+  The remainder, about 0.6 ms, isn't broken down. Candidates are the other work
+  `enforce` adds (reading the chain, proof and extensions headers, the nonce
+  check, encoding the response stamp and `orders`' parse of it), queueing among
+  the 10 users, and a gap between the benchmark, run natively, and the same work
+  in Docker Desktop's VM on this host. The request binding, at 0.07 µs, is too
+  small to count.
 - **The proof of legitimacy is effectively free.** Its walk costs about 1% of one
   Ed25519 verify. Of the primitives, nearly all the cost is Ed25519: a verify per
   stamp, and a signature per stamp a hop adds.
@@ -907,11 +906,12 @@ What the numbers say:
   this repository doesn't benchmark, do tens of microseconds. A hot-path
   deployment would swap the signature implementation; the Merkle machinery
   wouldn't change.
-- **The chain grows by about 473 B per stamp, on average** (946 B over two), on
-  version 3. The proof is a fixed 615 B whatever the route length. On version 4
-  `X-Path-Extensions` always travels, one block per stamp, and is not in the figure.
-  The response headers were not measured: `X-Path-Response` carries one stamp and
-  its own block, which holds the labels.
+- **The chain grows by about 529 B per stamp, on average** (1058 B over two). The
+  proof is a fixed 615 B whatever the route length. `X-Path-Extensions` travels
+  with every request, one block per stamp: here two blocks in 111 B, each naming
+  influence with no entries, since neither `gateway` nor `orders` has added one
+  when it makes its call. The response headers were not measured: `X-Path-Response`
+  carries one stamp and its own block, which holds the labels.
 
 Caveats:
 
@@ -926,8 +926,8 @@ Caveats:
   none is measured on its own. Only `payment`'s work is switched here, so a
   design that verifies at every hop pays that cost once per verifying hop.
 - **A maximum is one request.** It moves more from run to run than the
-  percentiles do (`off`'s ran from 8.23 to 14.02 ms, `enforce`'s from 10.44 to
-  11.48 ms), so read it as this run's slowest request, not as a cost.
+  percentiles do (`off`'s ran from 9.51 to 18.80 ms, `enforce`'s from 11.26 to
+  17.90 ms), so read it as this run's slowest request, not as a cost.
 - **The primitive costs are JIT-warmed micro-benchmarks**, timed on their own
   outside the mesh, on the same host but not during this run; absolute numbers
   vary by host and JDK. The primitives they time (the Merkle walk, the request
