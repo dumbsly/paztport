@@ -66,9 +66,9 @@ Design choices:
 
 ## Conformance
 
-The spec describes version 4, and every SDK speaks it. The TypeScript SDK speaks it over MCP, which `v4.json` records.
-Java speaks it in `paztport-core`, and over HTTP in `paztport-http`, which `http-v4.json` records. The Go SDK speaks it
-in its protocol packages (`keys`, `policy`, `stamp`, `influence`, `verify`, `session`, `offline`, `event` and
+The spec describes version 4, which `v4.json` records, and `http-v4.json` over HTTP; every SDK speaks it. The
+TypeScript SDK speaks it over MCP. Java speaks it in `paztport-core`, and over HTTP in `paztport-http`. The Go SDK
+speaks it in its protocol packages (`keys`, `policy`, `stamp`, `influence`, `verify`, `session`, `offline`, `event` and
 `reason`), and over HTTP in `paztporthttp` and its two packages, `wire` and `boundary`. Neither Java nor Go implements
 the [MCP profile](#the-mcp-profile); the second table below says which SDK speaks each part.
 
@@ -118,20 +118,22 @@ not act on `influence`.
 In `http-v4.json` the extension's cases are `boundaryInfluence` and every case of `rules` whose `actsOn` names
 `influence`, a partner's or an egress's own for those kinds: a service that acts on `influence` reads each item it is
 handed under that name ([influence.md](influence.md#entries)), and its answers hold what the extension decides,
-`publicWrite`, `trustedRecord` and influence entries. They are all of `callerInfluence`, `trustedRecord` and
-`partnerTrustedRecord`, every `influenceItems` case but one, every case of the partner and egress kinds but two, and
-every case of `requests`, `servedUnverified`, `attestation` and `refusals` but nine. `responses` names `influence` only
-as an opaque name, in its blocks and in the verifier's `actsOn`, as `v4.json`'s `verify` does, so an implementation with
-no extension's rules passes it, since the core never reads an item.
+`publicWrite`, `trustedRecord` and influence entries. They are all of `callerInfluence` and `trustedRecord`, every
+`influenceItems` and `partnerTrustedRecord` case but one each, every case of the other partner kinds and of `egress`
+but two, and every case of `requests`, `servedUnverified`, `attestation` and `refusals` but nine. `responses` names
+`influence` only as an opaque name, in its blocks and in the verifier's `actsOn`, as `v4.json`'s `verify` does, so an
+implementation with no extension's rules passes it, since the core never reads an item.
 So an implementation that does not act on `influence` is held today to `resultHash`, `requestBinding`, `headerNames`,
 `responses`, `operations`, whose `receive` cases act on nothing, `rules`' `peerCertificates` and `unsafeEndpoints`,
-which hold no extension, and the twelve cases of `rules` whose `actsOn` is empty: `influenceItems`' "enforce, at a
+which hold no extension, and the thirteen cases of `rules` whose `actsOn` is empty: `influenceItems`' "enforce, at a
 service that does not act on influence", `handshakeErrors`' "a partner that acts on no extension lists none",
-`egress`' "an egress that does not act on influence: the block names nothing", less its `added`, the influence entry
-that egress records for the partner's reply, and the nine receiver cases whose names end "at a service that acts on no
-extension", three of `requests`, four of `servedUnverified`, one of `attestation` and one of `refusals`, which hold
-the core's receiver rules at a service that acts on nothing. The file has no case yet that acts on nothing for a
-partner's calls. An implementation that acts on `influence` MUST pass the extension's cases too.
+`partnerTrustedRecord`'s "a partner that acts on no extension allows no guarded write or trusted record, and reads no
+item", less its `publicWrite` and `trustedRecord`, the answers of an implementation with the extension's rules deployed
+without it, `egress`' "an egress that does not act on influence: the block names nothing", less its `added`, the
+influence entry that egress records for the partner's reply, and the nine receiver cases whose names end "at a service
+that acts on no extension", three of `requests`, four of `servedUnverified`, one of `attestation` and one of
+`refusals`, which hold the core's receiver rules at a service that acts on nothing. An implementation that acts on
+`influence` MUST pass the extension's cases too.
 
 `v4.json` is self-contained: every case carries its inputs, and keys and policies are named and defined in the file. Its
 `about` field says how its keys, leaf salts and padding are derived, and how each policy's `rootId` and each handshake
@@ -489,12 +491,12 @@ header: every refusal, and every `refusals` and `boundaryRefusals` case among th
 
 | Kind | Shape | What it pins |
 |---|---|---|
-| `requests` | receiver | A request at the receiver ([verification.md](verification.md#http-requests-and-responses)): the nonce key `[rid, last svc, last rcv, "req"]`, which other directions', hops' and operations' keys do not spend, and each unreadable header: a chain (`CHAIN_MISSING`), a proof (no proof, so `PATH_NOT_ALLOWED`) and blocks (`EXTENSION_MISMATCH`), and no `X-Path-Extensions` where a stamp's `ext` is not `""` (`EXTENSION_MISMATCH`); and at a service that acts on no extension, a verified request handed `{}` and attested, and the same refusals of blocks that do not decode and of no header where a stamp's `ext` is not `""`. |
+| `requests` | receiver | A request at the receiver ([verification.md](verification.md#http-requests-and-responses)): the nonce key `[rid, last svc, last rcv, "req"]`, which other directions', hops' and operations' keys do not spend, and each unreadable header: a chain (`CHAIN_MISSING`), a proof (no proof, so `PATH_NOT_ALLOWED`) and blocks (`EXTENSION_MISMATCH`), and no `X-Path-Extensions` where a stamp's `ext` is not `""` (`EXTENSION_MISMATCH`); and at a service that acts on no extension, a verified request handed `{}` and attested, and the same refusals of blocks that do not decode and of no header where a stamp's `ext` is not `""`. And check 9c met: a last block requiring `influence`, served under `enforce` at a service that acts on it, the twin of `servedUnverified`'s refusal at one that acts on no extension. |
 | `influenceItems` | receiver | An item on a request's block that does not read as an entry, at a service that acts on `influence` ([influence.md](influence.md#entries)): `400 INFLUENCE_MISMATCH` in either mode, verified or not, at a service that verifies only to attest, at one with no verifier and at a hop that is off; `403` where verification refuses first; an origin carries none, so has none to read; and a service that does not act on `influence` reads no item and serves the request. |
-| `servedUnverified` | receiver | Check 9a at a service about to serve a request it did not verify ([verification.md](verification.md#http-requests-and-responses)): in audit mode after a failure, blocks that do not match their stamps, none where a stamp's `ext` is not `""`, and blocks that do not decode or are JSON `null`, each `400 EXTENSION_MISMATCH`, and a block altered refused the same way at a service that verifies only to attest, at one with no verifier and at a hop that is off; blocks that match, served with their items handed on as not verified; where the chain did not read, blocks that read as an array served with nothing handed on, and an object refused; check 9c following the mode; and an origin, which carries no blocks. At a service that acts on no extension: blocks that match after an audit failure, served with `{}` handed on; a block altered, refused after an audit failure and with no verifier; and a last block requiring `influence`, `403 EXTENSION_REQUIRED` under `enforce`. |
+| `servedUnverified` | receiver | Check 9a at a service about to serve a request it did not verify ([verification.md](verification.md#http-requests-and-responses)): in audit mode after a failure, blocks that do not match their stamps, none where a stamp's `ext` is not `""`, and blocks that do not decode or are JSON `null`, each `400 EXTENSION_MISMATCH`, while a header of spaces and tabs is no header ([wire.md](wire.md#http)), and a block altered refused the same way at a service that verifies only to attest, at one with no verifier and at a hop that is off; blocks that match, served with their items handed on as not verified; where the chain did not read, blocks that read as an array served with nothing handed on, and an object refused; check 9c following the mode; and an origin, which carries no blocks. At a service that acts on no extension: blocks that match after an audit failure, served with `{}` handed on; a block altered, refused after an audit failure and with no verifier; and a last block requiring `influence`, `403 EXTENSION_REQUIRED` under `enforce`. |
 | `attestation` | receiver | Who attests: only a chain that passed the live order at that service, whether or not it verifies requests under a mode; never a refusal, an audit failure, a forged or unsigned chain, a service with no verifier or an origin. A hop that is off attests nothing either, which `trustedRecord`'s case "a hop that is off" records in its `attests`. A service that acts on no extension attests as one that does: here under no mode, and in `requests`' verified case under `enforce`. |
 | `peerCertificates` | table | The peer under mTLS: `svc` is the subject's one common name, a UTF8String or PrintableString, read as encoded and compared as it is, else `""`; `inst` is the address the connection came from. |
-| `sessionHeader` | partner | `X-Path-Session` ([sessions.md](sessions.md#over-http)): no header is an unsafe session that believes nothing; an unsafe session applies no check to the blocks a call carries; an id is the call's only when the same issuer and name opened it, so an unknown id, another peer's, the same name under another issuer, no certificate, one naming no single service and a stamp made in another session are `SESSION_UNKNOWN`. |
+| `sessionHeader` | partner | `X-Path-Session` ([sessions.md](sessions.md#over-http)): no header is an unsafe session that believes nothing, and so is a header of spaces and tabs, the call's `session` in its `header` form ([wire.md](wire.md#http)); an unsafe session applies no check to the blocks a call carries; an id is the call's only when the same issuer and name opened it, so an unknown id, another peer's, the same name under another issuer, no certificate, one naming no single service and a stamp made in another session are `SESSION_UNKNOWN`. |
 | `sessionRegistry` | partner | Sessions by id: a handshake replaces none, a peer holds at most N and loses its least recently used, replicas sharing a certificate are one peer, another peer's handshakes evict none, a session idle for the idle period expires and a call starts that period again, and a handshake that opens no session changes none. |
 | `unsafeEndpoints` | table | An endpoint is `<METHOD> <path pattern>` by the dispatched handler's pattern, and a `HEAD` is refused wherever its `GET` is. |
 | `handshakeErrors` | partner | The handshake endpoint: `INVALID_PARAMS` for a body that is not JSON or not a readable request (a `null` or missing keyring window, a client root with no window, a keyring naming a service that is not a route node and a missing `clientKeyringSig` included, each body otherwise in JCS member order), `NO_SESSION` for one that opens none (a 15-byte nonce, a 63-byte root signature) and for no client certificate or one naming no single service; a request that opens an attested and an unsafe session; and the reply's `extensions`, empty from a partner that acts on none. |
@@ -504,7 +506,7 @@ header: every refusal, and every `refusals` and `boundaryRefusals` case among th
 | `refusals` | receiver | What a refusal carries, in a mesh: the code alone, even where the result names a suspect, at a service that acts on no extension too. |
 | `boundaryRefusals` | partner | The same at the boundary: the partner's refusals, a block other than its stamp commits to and blocks that cannot be read included (`EXTENSION_MISMATCH`: a partner has no audit mode), an item that is not an entry (`400 INFLUENCE_MISMATCH`), and an unsafe session's switched-off endpoints refused `UNSAFE_SESSION`, with no session header too. |
 | `trustedRecord` | receiver | Trusted records ([influence.md](influence.md#trusted-records)): a verified chain every stamp of which names `influence`, and no `third-party` or `local-untrusted` content, counting what the handler reads; `private`, `public` and owners do not count. A guarded public write on a verified chain whose origin's block does not name `influence`, or is a pass-along block, is `INFLUENCE_DENIED` whatever the entries say ([influence.md](influence.md#the-every-stamp-rule)). The partner kinds' `trustedRecord` covers a call in an unsafe session, and `partnerTrustedRecord` the same rule at the boundary. |
-| `partnerTrustedRecord` | partner | The same rule at the boundary: an attested call qualifies only with no `third-party` or `local-untrusted` content, counting what the handler reads, and a boundary block that names `influence`, with nothing included; `private`, `public` and owners do not count. And the owner-aware rule over the boundary block's entries ([influence.md](influence.md#blinded-influence)): a guarded public write from a call holding `third-party` content beside alice's private data is `INFLUENCE_DENIED` to bob's destination and `OK` to alice's. |
+| `partnerTrustedRecord` | partner | The same rule at the boundary: an attested call qualifies only with no `third-party` or `local-untrusted` content, counting what the handler reads, and a boundary block that names `influence`, with nothing included; `private`, `public` and owners do not count. And the owner-aware rule over the boundary block's entries ([influence.md](influence.md#blinded-influence)): a guarded public write from a call holding `third-party` content beside alice's private data is `INFLUENCE_DENIED` to bob's destination and `OK` to alice's. Each stamp's block holds what the egress sends, the entries blinded for that call. In an unsafe session nothing is handed on, and the owner-aware rule reads what the handler read: `third-party` content beside alice's private data is `INFLUENCE_DENIED` to bob's destination, a public page `OK`, whatever the call carries ([influence.md](influence.md#what-the-rules-read)). A partner that acts on no extension is handed `{}`, denies the write and the trusted record, and serves an item that is not an entry unread. |
 
 A **receiver** case enters `request` (`method`, `target`, `headers`, `body`) `uses` times at `service`: its `svc`
 and `inst`, whether it is an `origin`, and whether it has a `verifier`, pinned to `material`. Every service holds
@@ -529,9 +531,10 @@ read as `peerCertificates` reads one, with its issuer for the session's binding;
 `handshake` posts the request `handshakes` names, as its JCS bytes in `handshakeBodies`, or `body`; `as` names the
 session it opens, since the partner chooses the id. It expects the `status`, the `error` of a `400`, and the reply's
 `sessionStatus`, `disabled` and `extensions` of a `200`. A `call` names its session as `{"of": <as>}`,
-`{"id": <literal id>}`, or null for no `X-Path-Session`. Its `stamp`, when present, is a boundary stamp signed with
-`key` as the step runs, in the session its `sess` names, binding the call's method, its target and the stamp's own
-`body`, and committing to the stamp's `block`; `proofHeader` and `extensionsHeader` go as given. `routePattern` is
+`{"id": <literal id>}`, `{"header": <value>}`, an `X-Path-Session` value sent as written, or null for no
+`X-Path-Session`. Its `stamp`, when present, is a boundary stamp signed with `key` as the step runs, in the session
+its `sess` names, binding the call's method, its target and the stamp's own `body`, and committing to the stamp's
+`block`; `proofHeader` and `extensionsHeader` go as given. `routePattern` is
 the pattern of the handler the call reaches, which an unsafe session's switched-off endpoints are matched against.
 It expects the `refusal`, whether the call is `attested`, what the handler is `handedOn`, as a receiver case records
 it, and `trustedRecord`, null for a refusal. A `call` may carry `read`, what the handler reads after the call is

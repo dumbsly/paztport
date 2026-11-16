@@ -164,7 +164,8 @@ final class VectorsHttpRules {
             + " partner picks the id; it expects the HTTP `status`, the `error`, and for a session opened its"
             + " `sessionStatus`, its `disabled` endpoints and the `extensions` the reply lists. A call step sends"
             + " `method` `target` with `body` from the client certificate `peer`, naming its `session` by a"
-            + " handshake's `as` (`of`), as a literal (`id`), or not at all (null), with `proofHeader` and"
+            + " handshake's `as` (`of`), as a literal (`id`), as an `X-Path-Session` value sent as written"
+            + " (`header`), or not at all (null), with `proofHeader` and"
             + " `extensionsHeader` as given; its `stamp`, when there is one, is a boundary stamp with the fields"
             + " given, signed as the step runs with the key `key`, in the session its `sess` names, over the binding"
             + " of the call's method and target with the stamp's own `body`, and committing to `block`. A call may"
@@ -186,7 +187,9 @@ final class VectorsHttpRules {
             + " and the session its stamp was made in, each the position of the handshake whose reply issued it, its"
             + " stamps without `sess` and `sig`, its proof and its `blocks`), and the entries the request `added` at"
             + " the egress. A boundary block's entries are blinded under the boundary key as `boundaryInfluence` pins"
-            + " it.";
+            + " it, for the partner `psp`, the egress `payment` and the rid of the stamp that commits to the block:"
+            + " in an egress case, and in `partnerTrustedRecord`'s stamps, which carry what a partner receives. The"
+            + " other partner kinds' stamps carry entries as a hop inside the mesh records them.";
 
     private VectorsHttpRules() {
     }
@@ -786,6 +789,11 @@ final class VectorsHttpRules {
         a.add(expect(actingOnNothing("no extensions header where the stamps commit to blocks", Service.PAYMENT,
                 "enforce", Chains.request(headers(HttpWire.encodeChain(ch.owned.chain()), proof, null), PAY)),
                 refused(403, ReasonCode.EXTENSION_MISMATCH)));
+        // servedUnverified's last case at a service that acts on influence: check 9c reads the service's own actsOn,
+        // so the last block's requirement is met and the request is served.
+        a.add(expect(receiverCase("enforce, a last block requiring influence, at a service that acts on influence",
+                Service.PAYMENT, "enforce", ch.request(ch.requiringInfluence)),
+                served(true, handed(List.of()), true, ReasonCode.OK, true)));
         return a;
     }
 
@@ -890,10 +898,17 @@ final class VectorsHttpRules {
                 ch.request(ch.forgedOwned)), served(false, obj(), false, null, null)));
         a.add(expect(actingOnNothing("audit after a bad signature, orders' block altered", Service.PAYMENT, "audit",
                 ch.request(ch.forgedOwned.altered(NAMED))), refused(400, ReasonCode.EXTENSION_MISMATCH)));
-        a.add(expect(actingOnNothing("no verifier, orders' block altered", Service.NO_VERIFIER, null,
+        a.add(expect(actingOnNothing("a service with no verifier, orders' block altered", Service.NO_VERIFIER, null,
                 ch.request(hidden)), refused(400, ReasonCode.EXTENSION_MISMATCH)));
         a.add(expect(actingOnNothing("enforce, a last block requiring influence", Service.PAYMENT, "enforce",
                 ch.request(ch.requiringInfluence)), refused(403, ReasonCode.EXTENSION_REQUIRED)));
+        // The third case with the extensions header present but holding only spaces and tabs: a header's value is
+        // read without HTTP's optional whitespace, and one left empty is an absent header (wire.md, Paztport's
+        // headers).
+        a.add(expect(receiverCase("audit after a bad signature, an extensions header of spaces and tabs, every ext"
+                + " empty", Service.PAYMENT, "audit", Chains.request(headers(bare, proof, " \t "), PAY)),
+                served(false, handed(stamp("gateway", null), stamp("orders", null)), false,
+                        ReasonCode.INFLUENCE_DENIED, false)));
         return a;
     }
 

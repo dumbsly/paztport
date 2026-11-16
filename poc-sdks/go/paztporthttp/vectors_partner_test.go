@@ -31,8 +31,8 @@ func TestPartnerRulesVectors(t *testing.T) {
 		name  string
 		cases int
 	}{
-		{"sessionHeader", 10}, {"sessionRegistry", 6}, {"handshakeErrors", 15}, {"sessionExpiry", 3},
-		{"boundaryRefusals", 7}, {"partnerTrustedRecord", 8},
+		{"sessionHeader", 11}, {"sessionRegistry", 6}, {"handshakeErrors", 15}, {"sessionExpiry", 3},
+		{"boundaryRefusals", 7}, {"partnerTrustedRecord", 10},
 	}
 	refusals := map[string]bool{}
 	writes := map[reason.Code]bool{}
@@ -322,7 +322,8 @@ func callOutcome(refusal string, attested bool) string {
 }
 
 // sessionRef returns the session id ref names: one a handshake opened as {"of": <as>}, a literal
-// {"id": <id>}, or "" for null, which sends no X-Path-Session.
+// {"id": <id>}, or "" for null, which sends no X-Path-Session; or {"header": <value>}, the X-Path-Session
+// value a call sends as written, which the partner reads.
 func (sc *partnerScript) sessionRef(t *testing.T, ref vectors.Node) string {
 	t.Helper()
 	switch {
@@ -330,6 +331,8 @@ func (sc *partnerScript) sessionRef(t *testing.T, ref vectors.Node) string {
 		return ""
 	case ref.Has("id"):
 		return ref.Get("id").Str()
+	case ref.Has("header"):
+		return ref.Get("header").Str()
 	}
 	id, ok := sc.opened[ref.Get("of").Str()]
 	if !ok {

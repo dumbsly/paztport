@@ -143,6 +143,11 @@ final class VectorsHttpPartner {
         return obj().put("id", literal);
     }
 
+    /** An {@code X-Path-Session} value a call sends as written, which may name no session at all. */
+    static JsonNode header(String value) {
+        return obj().put("header", value);
+    }
+
     /** A block as a case holds it, its items in the vectors' member order. */
     private static JsonNode blockJson(Block block) {
         return tree(block.toJson());
@@ -188,12 +193,18 @@ final class VectorsHttpPartner {
             return this;
         }
 
+        /** The rid the next boundary stamp gets. */
+        String nextRid() {
+            return "rid-b-" + (rids + 1);
+        }
+
         /** A boundary stamp from payment, in {@code sess}, over {@code body} and committing to {@code block}. */
         ObjectNode stamp(long at, JsonNode sess, String key, byte[] body, Block block) {
             ObjectNode st = obj();
             st.put("svc", "payment");
             st.put("inst", "pay-1");
-            st.put("rid", "rid-b-" + ++rids);
+            st.put("rid", nextRid());
+            rids++;
             st.put("ts", at - 100);
             st.set("sess", sess);
             st.put("rcv", "psp");
@@ -314,6 +325,34 @@ final class VectorsHttpPartner {
         return e;
     }
 
+    /** As {@link #unsafe()}, for a call that also asks about a guarded public write: its reason. */
+    static ObjectNode unsafe(ReasonCode publicWrite) {
+        ObjectNode e = obj();
+        e.putNull("refusal");
+        e.put("attested", false);
+        e.putNull("handedOn");
+        e.put("publicWrite", publicWrite.name());
+        e.put("trustedRecord", false);
+        return e;
+    }
+
+    /**
+     * A call served in an attested session at a partner that acts on no extension: it is handed nothing under any
+     * name, {@code publicWrite} is the reason a guarded public write gets where the call asks (null where it does
+     * not), and no trusted record may be written.
+     */
+    static ObjectNode attestedActingOnNothing(ReasonCode publicWrite) {
+        ObjectNode e = obj();
+        e.putNull("refusal");
+        e.put("attested", true);
+        e.set("handedOn", obj());
+        if (publicWrite != null) {
+            e.put("publicWrite", publicWrite.name());
+        }
+        e.put("trustedRecord", false);
+        return e;
+    }
+
     /** A refused call: nothing handed on, and no handler to ask. */
     static ObjectNode refused(int status, ReasonCode reason) {
         ObjectNode e = obj();
@@ -368,6 +407,13 @@ final class VectorsHttpPartner {
         ObjectNode call = other.charge(NOW + 1_000, "shop", of("s2"));
         ((ObjectNode) call.get("stamp")).set("sess", of("s1"));
         a.add(other.call(NOW + 1_000, call, refused(ReasonCode.SESSION_UNKNOWN)).c);
+        // The first case with the header present but holding only spaces and tabs: a header's value is read without
+        // HTTP's optional whitespace, and one left empty is an absent header (wire.md, Paztport's headers).
+        Script blank = new Script("a header of spaces and tabs is no header: an unsafe session, and nothing it"
+                + " carries is believed", partner(), shop).handshake(NOW, "shop", "shop", "s1", opened("attested"));
+        ObjectNode blankCall = blank.charge(NOW + 1_000, "shop", null);
+        blankCall.set("session", header(" \t "));
+        a.add(blank.call(NOW + 1_000, blankCall, unsafe()).c);
         return a;
     }
 
@@ -526,7 +572,8 @@ final class VectorsHttpPartner {
     /**
      * influence.md, trusted records, at the boundary: an attested call qualifies only when its one stamp names
      * influence and holds no third-party or local-untrusted content, nor does what the handler reads once it is
-     * accepted.
+     * accepted. Each stamp's block holds what the egress sends, the entries blinded for that call, as the partner
+     * receives them; what the handler reads is the partner's own.
      */
     static ArrayNode partnerTrustedRecord(Fixtures fx) {
         Material shop = fx.material("shop");
@@ -548,6 +595,8 @@ final class VectorsHttpPartner {
         a.add(trustedScript("a boundary block that does not name influence, and a public read", shop, null,
                 publicRead, false));
         a.add(ownerAwareScript(shop));
+        a.add(unsafeWriteScript(shop, publicRead));
+        a.add(actingOnNothingScript(shop, publicRead));
         return a;
     }
 
@@ -561,28 +610,75 @@ final class VectorsHttpPartner {
         Script s = new Script("third-party content beside alice's private data, written publicly to bob's"
                 + " destination, then to alice's", partner(), shop).handshake(NOW, "shop", "shop", "s1",
                         opened("attested"));
-        Block steered = Influence.block(STEERED, List.of());
-        ObjectNode toBob = s.charge(NOW + 1_000, "shop", of("s1"), steered);
+        List<InfluenceEntry> toBobSent = sent(STEERED, s.nextRid());
+        ObjectNode toBob = s.charge(NOW + 1_000, "shop", of("s1"), Influence.block(toBobSent, List.of()));
         toBob.put("destinationOwner", VectorsHttpRules.DESTINATION_OWNER);
-        s.call(NOW + 1_000, toBob, attested(STEERED, ReasonCode.INFLUENCE_DENIED, false));
-        ObjectNode toAlice = s.charge(NOW + 2_000, "shop", of("s1"), steered);
+        s.call(NOW + 1_000, toBob, attested(toBobSent, ReasonCode.INFLUENCE_DENIED, false));
+        List<InfluenceEntry> toAliceSent = sent(STEERED, s.nextRid());
+        ObjectNode toAlice = s.charge(NOW + 2_000, "shop", of("s1"), Influence.block(toAliceSent, List.of()));
         toAlice.put("destinationOwner", "alice");
-        return s.call(NOW + 2_000, toAlice, attested(STEERED, ReasonCode.OK, false)).c;
+        return s.call(NOW + 2_000, toAlice, attested(toAliceSent, ReasonCode.OK, false)).c;
     }
 
     /**
-     * One attested session from peer shop and a call in it whose stamp's block names influence with {@code stamped},
-     * or names nothing where it is null, then {@code read}.
+     * influence.md, What the rules read, in an unsafe session: nothing is handed on, and a guarded public write asked
+     * about is decided by the owner-aware rule over what the handler read. A handler that read third-party content
+     * beside alice's private data is denied a write to bob's destination, though its call carried only alice's and
+     * public content; one that read a public page is allowed it, though its call carried the third-party content.
+     * Neither may write a trusted record.
+     */
+    private static ObjectNode unsafeWriteScript(Material shop, List<InfluenceEntry> publicRead) {
+        Script s = new Script("an unsafe session: a public write is judged on what the handler read, third-party"
+                + " content beside alice's private data to bob's destination, then a public page", partner(), shop)
+                .handshake(NOW, "shop", "no-root", "u1", opened("unsafe"));
+        ObjectNode readSteered = s.charge(NOW + 1_000, "shop", of("u1"),
+                Influence.block(sent(OWNED, s.nextRid()), List.of()));
+        readSteered.set("read", entriesJson(STEERED));
+        readSteered.put("destinationOwner", VectorsHttpRules.DESTINATION_OWNER);
+        s.call(NOW + 1_000, readSteered, unsafe(ReasonCode.INFLUENCE_DENIED));
+        ObjectNode readPublic = s.charge(NOW + 2_000, "shop", of("u1"),
+                Influence.block(sent(STEERED, s.nextRid()), List.of()));
+        readPublic.set("read", entriesJson(publicRead));
+        readPublic.put("destinationOwner", VectorsHttpRules.DESTINATION_OWNER);
+        return s.call(NOW + 2_000, readPublic, unsafe(ReasonCode.OK)).c;
+    }
+
+    /**
+     * influence.md, Entries and The owner-aware rule, at a partner that acts on no extension: an attested call is
+     * handed nothing, so a guarded public write is denied and no trusted record may be written, where a partner
+     * acting on influence would allow both (the case "private and public content with owners, and a public read",
+     * and alice's destination). It reads no item, so a call whose block holds an item that is not an entry is served.
+     */
+    private static ObjectNode actingOnNothingScript(Material shop, List<InfluenceEntry> publicRead) {
+        ObjectNode actsOnNothing = partner();
+        putSettings(actsOnNothing, ExtensionSettings.NONE);
+        Script s = new Script("a partner that acts on no extension allows no guarded write or trusted record, and"
+                + " reads no item", actsOnNothing, shop)
+                .handshake(NOW, "shop", "shop", "s1", opened("attested", List.of()));
+        ObjectNode owned = s.charge(NOW + 1_000, "shop", of("s1"),
+                Influence.block(sent(OWNED, s.nextRid()), List.of()));
+        owned.set("read", entriesJson(publicRead));
+        owned.put("destinationOwner", "alice");
+        s.call(NOW + 1_000, owned, attestedActingOnNothing(ReasonCode.INFLUENCE_DENIED));
+        return s.call(NOW + 2_000, s.charge(NOW + 2_000, "shop", of("s1"),
+                Block.of(Map.of(Influence.NAME, List.of("\"not an entry\"")), List.of())),
+                attestedActingOnNothing(null)).c;
+    }
+
+    /**
+     * One attested session from peer shop and a call in it whose stamp's block names influence with what the egress
+     * sends for {@code stamped}, or names nothing where it is null, then {@code read}.
      */
     private static ObjectNode trustedScript(String name, Material shop, List<InfluenceEntry> stamped,
             List<InfluenceEntry> read, boolean trusted) {
         Script s = new Script(name, partner(), shop).handshake(NOW, "shop", "shop", "s1", opened("attested"));
+        List<InfluenceEntry> received = stamped == null ? null : sent(stamped, s.nextRid());
         ObjectNode call = s.charge(NOW + 1_000, "shop", of("s1"),
-                stamped == null ? Block.EMPTY : Influence.block(stamped, List.of()));
+                received == null ? Block.EMPTY : Influence.block(received, List.of()));
         if (!read.isEmpty()) {
             call.set("read", entriesJson(read));
         }
-        return s.call(NOW + 1_000, call, attested(stamped, trusted)).c;
+        return s.call(NOW + 1_000, call, attested(received, trusted)).c;
     }
 
     /** verification.md, what a refusal carries, at the boundary: the partner's refusals, the unsafe gate's included. */
@@ -700,13 +796,19 @@ final class VectorsHttpPartner {
         return e;
     }
 
-    /** The session id a reference names: one a handshake opened, a literal id, or none. */
+    /**
+     * The session id a reference names: one a handshake opened, a literal id, or none; or the {@code X-Path-Session}
+     * value a call sends as written, which the partner reads.
+     */
     private static String sessionId(JsonNode ref, Map<String, String> opened) {
         if (ref.isNull()) {
             return null;
         }
         if (ref.has("id")) {
             return ref.get("id").asText();
+        }
+        if (ref.has("header")) {
+            return ref.get("header").asText();
         }
         String sess = opened.get(ref.get("of").asText());
         if (sess == null) {
@@ -909,8 +1011,15 @@ final class VectorsHttpPartner {
 
     /** The boundary block naming influence with {@code held} blinded, requiring {@code requires} of the partner. */
     private static Block blinded(List<InfluenceEntry> held, String... requires) {
-        return Influence.block(BoundaryInfluence.reduce(held, BOUNDARY_KEY, RID, "psp", "payment"),
-                List.of(requires));
+        return Influence.block(sent(held, RID), List.of(requires));
+    }
+
+    /**
+     * What the egress, payment, sends the partner psp for {@code held} on the call with rid {@code rid}: one entry per
+     * class and owner, blinded under {@link #BOUNDARY_KEY} (influence.md, Blinded influence).
+     */
+    private static List<InfluenceEntry> sent(List<InfluenceEntry> held, String rid) {
+        return BoundaryInfluence.reduce(held, BOUNDARY_KEY, rid, "psp", "payment");
     }
 
     private static InfluenceEntry fromPartner(int status, byte[] body) {

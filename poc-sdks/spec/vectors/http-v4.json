@@ -1328,7 +1328,7 @@
     "proofRoute" : "gateway/orders#reserve"
   } ],
   "rules" : {
-    "about" : "The HTTP rules the spec requires of a receiver, a caller, a partner and an egress, each case an input and the answer the spec gives. A key is looked up by name here, then in this file's top-level `keys`, then in v4.json; each new one is derived by v4.json's rule. A `material` is one organisation's policy key (by name), its signed root and signed keyring, each with its notAfter, the proofs of its routes and, for a partner, its entry service and reply certificate. Each root's tree has depth 1, its two routes filling both leaves with salts by v4.json's rule, so it has no padding; its rootId is \"v\" and the first 12 hex digits of SHA-256(utf8(\"paztport-http-v3-vector-root:\" + tree)), for the vectors only. `handshakes` holds handshake requests on the shop's material, each nonce the first 16 bytes (15 for `short-nonce`) of SHA-256(utf8(\"paztport-http-v3-vector-nonce:\" + name)), base64url, and `handshakeBodies` each request's JCS bytes; `peers` holds client certificates, each with the address it connects from. Bodies and certificates are hex, and headers are their values as sent. A receiver case enters `request` at `service` `uses` times against one nonce cache that already holds `spent`, each key the JCS text of its array of strings, the service's verifier, when it has one, pinned to `material`, and `expected` is the last entry's answer. The service acts on the extensions in `actsOn` and carries the names in `allowedExtensions` (null for unset, which carries any name), with a verifier or without one. Its `mode` is `enforce` or `audit`; `off`, a hop that verifies requests but whose deployment has switched it off; or null, a service that verifies no requests under a mode. Unless its name says otherwise, a case's chain is gateway's stamp to orders, then orders' to payment, and each hop's block names `influence`, with `[]` when the hop added nothing. The answer is the `refusal` (null when the request is served); `verified`, whether the request is served as having passed the live order at this service (false for every refusal); `handedOn`, what the service is handed, null for nothing, else one member per name in `actsOn` ({} where `actsOn` is empty), each an array of {svc, items}, one per stamp, items null where the stamp's block does not name the extension; and `attests`. Then the handler, having read the entries in `read`, asks two questions, at a service that acts on `influence`, as every receiver here does unless its `actsOn` says otherwise: `publicWrite`, the reason a guarded public write to a destination whose owner is `destinationOwner` gets; and `trustedRecord`, whether a trusted record may be written. A refused request runs no handler, and a service that does not act on `influence` asks neither question, so both are null then; work outside any request (a null `request`) asks only for the trusted record. A caller case is `caller` calling payment after `inbound`, the gateway's stamp, which came with the blocks `inboundBlocks`, its own block holding the entries in `added`, on `material`, holding the tables of the top-level `operations` that `caller.operations` names, as a caller that acts on `actsOn` and carries `allowedExtensions`, with a verifier exactly when `caller.verifier` is true; payment answers with `response`, and `expected` is the `rcv` of the stamp the caller signed, the check's `reason` (null where the caller has no verifier), whether the caller `refused` the response, and the `influence` entries the response adds. A partner case runs `steps` in order against one partner on `material`, which pins the policy keys `pinned`, takes the egress services `clientOrigins` as allowed origins, switches off `unsafeDisabled` for unsafe sessions, keeps at most `maxSessionsPerPeer` sessions per peer, each until no call has used it for `sessionIdleMs`, and acts on `actsOn` and carries `allowedExtensions` as a receiver does; its clock reads each step's `at`. A handshake step posts, from the client certificate `peer`, the `handshakeBodies` entry its `request` names, or `body` where `request` is null, and `as` names the session it opens, since the partner picks the id; it expects the HTTP `status`, the `error`, and for a session opened its `sessionStatus`, its `disabled` endpoints and the `extensions` the reply lists. A call step sends `method` `target` with `body` from the client certificate `peer`, naming its `session` by a handshake's `as` (`of`), as a literal (`id`), or not at all (null), with `proofHeader` and `extensionsHeader` as given; its `stamp`, when there is one, is a boundary stamp with the fields given, signed as the step runs with the key `key`, in the session its `sess` names, over the binding of the call's method and target with the stamp's own `body`, and committing to `block`. A call may carry `read`, what the handler reads once it is accepted, and `destinationOwner`, which has the handler ask about a guarded public write as a receiver case's does. It expects the `refusal` (an unsafe session's switched-off endpoint, by `routePattern`, included), whether it is served `attested`, `handedOn` as a receiver case records it, `publicWrite` where the call carries `destinationOwner`, and `trustedRecord`, both null for a refusal. An egress case enters `inbound`, a receiver case's inputs (null for work outside any request), at the egress `egress`, which acts on `actsOn` and carries `allowedExtensions` as a receiver does, requires `requires` of the partner and goes on without them when `continueWithout` is true, and posts each of `posts` to `partnerScript`: a partner that answers each full handshake with the next of `handshakes` (`attested` or `unsafe`, a genuine reply on the `psp` material; `notFound`, a 404; `wrongKey`, a reply signed by and naming `stranger-policy`), the replacement as `replacement` says, every reply listing `extensions`, and each call with the next of `calls`. It expects each post's `outcome` (`answered`, with the `status` and whether the session was `attested`; `refused` by the egress's guard, nothing sent; `withheld`, no call made in a session that does not meet the requirement; `failed`, no session), all the partner `received` in order (a handshake, whether it had a client root; a call, its session and the session its stamp was made in, each the position of the handshake whose reply issued it, its stamps without `sess` and `sig`, its proof and its `blocks`), and the entries the request `added` at the egress. A boundary block's entries are blinded under the boundary key as `boundaryInfluence` pins it.",
+    "about" : "The HTTP rules the spec requires of a receiver, a caller, a partner and an egress, each case an input and the answer the spec gives. A key is looked up by name here, then in this file's top-level `keys`, then in v4.json; each new one is derived by v4.json's rule. A `material` is one organisation's policy key (by name), its signed root and signed keyring, each with its notAfter, the proofs of its routes and, for a partner, its entry service and reply certificate. Each root's tree has depth 1, its two routes filling both leaves with salts by v4.json's rule, so it has no padding; its rootId is \"v\" and the first 12 hex digits of SHA-256(utf8(\"paztport-http-v3-vector-root:\" + tree)), for the vectors only. `handshakes` holds handshake requests on the shop's material, each nonce the first 16 bytes (15 for `short-nonce`) of SHA-256(utf8(\"paztport-http-v3-vector-nonce:\" + name)), base64url, and `handshakeBodies` each request's JCS bytes; `peers` holds client certificates, each with the address it connects from. Bodies and certificates are hex, and headers are their values as sent. A receiver case enters `request` at `service` `uses` times against one nonce cache that already holds `spent`, each key the JCS text of its array of strings, the service's verifier, when it has one, pinned to `material`, and `expected` is the last entry's answer. The service acts on the extensions in `actsOn` and carries the names in `allowedExtensions` (null for unset, which carries any name), with a verifier or without one. Its `mode` is `enforce` or `audit`; `off`, a hop that verifies requests but whose deployment has switched it off; or null, a service that verifies no requests under a mode. Unless its name says otherwise, a case's chain is gateway's stamp to orders, then orders' to payment, and each hop's block names `influence`, with `[]` when the hop added nothing. The answer is the `refusal` (null when the request is served); `verified`, whether the request is served as having passed the live order at this service (false for every refusal); `handedOn`, what the service is handed, null for nothing, else one member per name in `actsOn` ({} where `actsOn` is empty), each an array of {svc, items}, one per stamp, items null where the stamp's block does not name the extension; and `attests`. Then the handler, having read the entries in `read`, asks two questions, at a service that acts on `influence`, as every receiver here does unless its `actsOn` says otherwise: `publicWrite`, the reason a guarded public write to a destination whose owner is `destinationOwner` gets; and `trustedRecord`, whether a trusted record may be written. A refused request runs no handler, and a service that does not act on `influence` asks neither question, so both are null then; work outside any request (a null `request`) asks only for the trusted record. A caller case is `caller` calling payment after `inbound`, the gateway's stamp, which came with the blocks `inboundBlocks`, its own block holding the entries in `added`, on `material`, holding the tables of the top-level `operations` that `caller.operations` names, as a caller that acts on `actsOn` and carries `allowedExtensions`, with a verifier exactly when `caller.verifier` is true; payment answers with `response`, and `expected` is the `rcv` of the stamp the caller signed, the check's `reason` (null where the caller has no verifier), whether the caller `refused` the response, and the `influence` entries the response adds. A partner case runs `steps` in order against one partner on `material`, which pins the policy keys `pinned`, takes the egress services `clientOrigins` as allowed origins, switches off `unsafeDisabled` for unsafe sessions, keeps at most `maxSessionsPerPeer` sessions per peer, each until no call has used it for `sessionIdleMs`, and acts on `actsOn` and carries `allowedExtensions` as a receiver does; its clock reads each step's `at`. A handshake step posts, from the client certificate `peer`, the `handshakeBodies` entry its `request` names, or `body` where `request` is null, and `as` names the session it opens, since the partner picks the id; it expects the HTTP `status`, the `error`, and for a session opened its `sessionStatus`, its `disabled` endpoints and the `extensions` the reply lists. A call step sends `method` `target` with `body` from the client certificate `peer`, naming its `session` by a handshake's `as` (`of`), as a literal (`id`), as an `X-Path-Session` value sent as written (`header`), or not at all (null), with `proofHeader` and `extensionsHeader` as given; its `stamp`, when there is one, is a boundary stamp with the fields given, signed as the step runs with the key `key`, in the session its `sess` names, over the binding of the call's method and target with the stamp's own `body`, and committing to `block`. A call may carry `read`, what the handler reads once it is accepted, and `destinationOwner`, which has the handler ask about a guarded public write as a receiver case's does. It expects the `refusal` (an unsafe session's switched-off endpoint, by `routePattern`, included), whether it is served `attested`, `handedOn` as a receiver case records it, `publicWrite` where the call carries `destinationOwner`, and `trustedRecord`, both null for a refusal. An egress case enters `inbound`, a receiver case's inputs (null for work outside any request), at the egress `egress`, which acts on `actsOn` and carries `allowedExtensions` as a receiver does, requires `requires` of the partner and goes on without them when `continueWithout` is true, and posts each of `posts` to `partnerScript`: a partner that answers each full handshake with the next of `handshakes` (`attested` or `unsafe`, a genuine reply on the `psp` material; `notFound`, a 404; `wrongKey`, a reply signed by and naming `stranger-policy`), the replacement as `replacement` says, every reply listing `extensions`, and each call with the next of `calls`. It expects each post's `outcome` (`answered`, with the `status` and whether the session was `attested`; `refused` by the egress's guard, nothing sent; `withheld`, no call made in a session that does not meet the requirement; `failed`, no session), all the partner `received` in order (a handshake, whether it had a client root; a call, its session and the session its stamp was made in, each the position of the handshake whose reply issued it, its stamps without `sess` and `sig`, its proof and its `blocks`), and the entries the request `added` at the egress. A boundary block's entries are blinded under the boundary key as `boundaryInfluence` pins it, for the partner `psp`, the egress `payment` and the rid of the stamp that commits to the block: in an egress case, and in `partnerTrustedRecord`'s stamps, which carry what a partner receives. The other partner kinds' stamps carry entries as a hop inside the mesh records them.",
     "keys" : {
       "shop-policy" : {
         "pub" : "MCowBQYDK2VwAyEAkvqcFAuVpfdZRbtdb253j0G4CVyQ6CnyyQLa6hdWHTc",
@@ -2320,6 +2320,54 @@
         "attests" : false,
         "publicWrite" : null,
         "trustedRecord" : null
+      }
+    }, {
+      "name" : "enforce, a last block requiring influence, at a service that acts on influence",
+      "material" : "shop",
+      "service" : {
+        "svc" : "payment",
+        "inst" : "pay-1",
+        "origin" : false,
+        "verifier" : true
+      },
+      "actsOn" : [ "influence" ],
+      "allowedExtensions" : null,
+      "allowedOrigins" : [ "gateway" ],
+      "mode" : "enforce",
+      "request" : {
+        "method" : "POST",
+        "target" : "/pay",
+        "headers" : {
+          "X-Path-Chain" : "W3siYmluZCI6ImJpbmQtZ2F0ZXdheS10by1vcmRlcnMiLCJleHQiOiJYLWpqdkYwWFJjQ0ZtSGFrNkl3UjNHNHZWWHJQamR2Tmp3QThRZzRaang4IiwiaW5zdCI6Imd3LTEiLCJwcmV2IjoiIiwicmN2Ijoib3JkZXJzIiwicmlkIjoicmlkLXJ1bGVzLTEiLCJzZXNzIjoiIiwic2lnIjoiS0pGTjBRaGFGZkw5S0VHRFljQm1SUkgtYnp2NEtsa3dRaEdSbC1TMGFxT0x4eHFfLVpGWTMwcjhsVmlTMDE5UzBkWnB0SEZhYUtEbGszcDJhbGRvRFEiLCJzdmMiOiJnYXRld2F5IiwidHMiOjE3NjcyMjU1OTg1MDAsInYiOjR9LHsiYmluZCI6Ik5XZUl2RHY0d0k2aUZhU2V2RWxYa2lCblVNbk0wcU9EdnphSEpDcmNxNmciLCJleHQiOiJ6cHJ4VXFJR0pGcXZuMU00TFZOeTBFdWtFQ215ZjNIaWhubmxrTjdVc29FIiwiaW5zdCI6Im9yZC0xIiwicHJldiI6IktKRk4wUWhhRmZMOUtFR0RZY0JtUlJILWJ6djRLbGt3UWhHUmwtUzBhcU9MeHhxXy1aRlkzMHI4bFZpUzAxOVMwZFpwdEhGYWFLRGxrM3AyYWxkb0RRIiwicmN2IjoicGF5bWVudCIsInJpZCI6InJpZC1ydWxlcy0xIiwic2VzcyI6IiIsInNpZyI6ImZpY05EMkxUYldwZG5qLXZORFpjeGp5YXMxbllBalZ3anI3T2g2ZEN2SkhvcFlRXzI0eThsa1VGWmFQT0hMbVkyMTAyVURzY1ZFb3NIa0ZvdVBJQUN3Iiwic3ZjIjoib3JkZXJzIiwidHMiOjE3NjcyMjU1OTk1MDAsInYiOjR9XQ",
+          "X-Path-Proof" : "eyJkaXJzIjoiTCIsImxlYWZTYWx0IjoiQ3V1dWdTMmVmSFpPNnBIVFBlc09ndyIsInJvb3RJZCI6InY4NTc1ZjAyYzg3MDYiLCJzaWJsaW5ncyI6WyJuMWpKRFhPb1NaRXctMGVlczVKckU1YzNuMndpSURBckd6X090eklSRFJVIl19",
+          "X-Path-Extensions" : "W3siaXRlbXMiOnsiaW5mbHVlbmNlIjpbXX0sInJlcXVpcmVzIjpbXX0seyJpdGVtcyI6eyJpbmZsdWVuY2UiOltdfSwicmVxdWlyZXMiOlsiaW5mbHVlbmNlIl19XQ"
+        },
+        "body" : "7b22616d6f756e74223a3130307d"
+      },
+      "peer" : null,
+      "now" : 1767225600000,
+      "callMaxAgeMs" : 5000,
+      "runMaxAgeMs" : 1800000,
+      "nonceTtlMs" : 15000,
+      "spent" : [ ],
+      "uses" : 1,
+      "read" : [ ],
+      "destinationOwner" : "bob",
+      "expected" : {
+        "refusal" : null,
+        "verified" : true,
+        "handedOn" : {
+          "influence" : [ {
+            "svc" : "gateway",
+            "items" : [ ]
+          }, {
+            "svc" : "orders",
+            "items" : [ ]
+          } ]
+        },
+        "attests" : true,
+        "publicWrite" : "OK",
+        "trustedRecord" : true
       }
     } ],
     "influenceItems" : [ {
@@ -3649,7 +3697,7 @@
         "trustedRecord" : null
       }
     }, {
-      "name" : "no verifier, orders' block altered, at a service that acts on no extension",
+      "name" : "a service with no verifier, orders' block altered, at a service that acts on no extension",
       "material" : "shop",
       "service" : {
         "svc" : "payment",
@@ -3733,6 +3781,54 @@
         "attests" : false,
         "publicWrite" : null,
         "trustedRecord" : null
+      }
+    }, {
+      "name" : "audit after a bad signature, an extensions header of spaces and tabs, every ext empty",
+      "material" : "shop",
+      "service" : {
+        "svc" : "payment",
+        "inst" : "pay-1",
+        "origin" : false,
+        "verifier" : true
+      },
+      "actsOn" : [ "influence" ],
+      "allowedExtensions" : null,
+      "allowedOrigins" : [ "gateway" ],
+      "mode" : "audit",
+      "request" : {
+        "method" : "POST",
+        "target" : "/pay",
+        "headers" : {
+          "X-Path-Chain" : "W3siYmluZCI6ImJpbmQtZ2F0ZXdheS10by1vcmRlcnMiLCJleHQiOiIiLCJpbnN0IjoiZ3ctMSIsInByZXYiOiIiLCJyY3YiOiJvcmRlcnMiLCJyaWQiOiJyaWQtcnVsZXMtMSIsInNlc3MiOiIiLCJzaWciOiIyUGpLSkRvNmZrUk15Q1czYzlIVzEtTGpaYk84OS14emNHbGlVSHlOMl84NnNBSXZyM2U5NGZmaXhnRE5tQzROSkc2d29TUXF2SDdldnk0eUxObDJDZyIsInN2YyI6ImdhdGV3YXkiLCJ0cyI6MTc2NzIyNTU5ODUwMCwidiI6NH0seyJiaW5kIjoiTldlSXZEdjR3STZpRmFTZXZFbFhraUJuVU1uTTBxT0R2emFISkNyY3E2ZyIsImV4dCI6IiIsImluc3QiOiJvcmQtMSIsInByZXYiOiIyUGpLSkRvNmZrUk15Q1czYzlIVzEtTGpaYk84OS14emNHbGlVSHlOMl84NnNBSXZyM2U5NGZmaXhnRE5tQzROSkc2d29TUXF2SDdldnk0eUxObDJDZyIsInJjdiI6InBheW1lbnQiLCJyaWQiOiJyaWQtcnVsZXMtMSIsInNlc3MiOiIiLCJzaWciOiJyTlNRX1dJdUFuNktnV3R3ZGI3WlpjNTVtTUt1X0l5a3k3czNXNEM4S2h6dnpXby1MVHNvRkJuR0FUdkt0c1hPcnltb25Gb0phSE1tOUx2bUE3Q1VDZyIsInN2YyI6Im9yZGVycyIsInRzIjoxNzY3MjI1NTk5NTAwLCJ2Ijo0fV0",
+          "X-Path-Proof" : "eyJkaXJzIjoiTCIsImxlYWZTYWx0IjoiQ3V1dWdTMmVmSFpPNnBIVFBlc09ndyIsInJvb3RJZCI6InY4NTc1ZjAyYzg3MDYiLCJzaWJsaW5ncyI6WyJuMWpKRFhPb1NaRXctMGVlczVKckU1YzNuMndpSURBckd6X090eklSRFJVIl19",
+          "X-Path-Extensions" : " \t "
+        },
+        "body" : "7b22616d6f756e74223a3130307d"
+      },
+      "peer" : null,
+      "now" : 1767225600000,
+      "callMaxAgeMs" : 5000,
+      "runMaxAgeMs" : 1800000,
+      "nonceTtlMs" : 15000,
+      "spent" : [ ],
+      "uses" : 1,
+      "read" : [ ],
+      "destinationOwner" : "bob",
+      "expected" : {
+        "refusal" : null,
+        "verified" : false,
+        "handedOn" : {
+          "influence" : [ {
+            "svc" : "gateway",
+            "items" : null
+          }, {
+            "svc" : "orders",
+            "items" : null
+          } ]
+        },
+        "attests" : false,
+        "publicWrite" : "INFLUENCE_DENIED",
+        "trustedRecord" : false
       }
     } ],
     "attestation" : [ {
@@ -5150,6 +5246,86 @@
           "attested" : false,
           "handedOn" : null,
           "trustedRecord" : null
+        }
+      } ]
+    }, {
+      "name" : "a header of spaces and tabs is no header: an unsafe session, and nothing it carries is believed",
+      "partner" : {
+        "material" : "psp",
+        "pinned" : [ "shop-policy" ],
+        "clientOrigins" : [ "payment" ],
+        "unsafeDisabled" : [ "POST /refund", "GET /statements/{id}" ],
+        "maxSessionsPerPeer" : 16,
+        "sessionIdleMs" : 900000,
+        "callMaxAgeMs" : 5000,
+        "runMaxAgeMs" : 5000,
+        "nonceTtlMs" : 15000,
+        "actsOn" : [ "influence" ],
+        "allowedExtensions" : null,
+        "start" : 1767225600000
+      },
+      "steps" : [ {
+        "at" : 1767225600000,
+        "handshake" : {
+          "peer" : "shop",
+          "request" : "shop",
+          "body" : null
+        },
+        "as" : "s1",
+        "expected" : {
+          "status" : 200,
+          "error" : null,
+          "sessionStatus" : "attested",
+          "disabled" : [ ],
+          "extensions" : [ "influence" ]
+        }
+      }, {
+        "at" : 1767225601000,
+        "call" : {
+          "peer" : "shop",
+          "session" : {
+            "header" : " \t "
+          },
+          "method" : "POST",
+          "target" : "/charge",
+          "routePattern" : "/charge",
+          "body" : "7b22636861726765223a3130307d",
+          "stamp" : {
+            "svc" : "payment",
+            "inst" : "pay-1",
+            "rid" : "rid-b-1",
+            "ts" : 1767225600900,
+            "sess" : {
+              "of" : "s1"
+            },
+            "rcv" : "psp",
+            "key" : "payment",
+            "body" : "7b22636861726765223a3130307d",
+            "block" : {
+              "items" : {
+                "influence" : [ {
+                  "cls" : "public",
+                  "src" : "http:catalogue",
+                  "h" : "h-catalogue-1"
+                }, {
+                  "cls" : "private",
+                  "src" : "http:orders",
+                  "h" : "h-order-1",
+                  "cid" : "cid-order-1",
+                  "owner" : "alice"
+                } ]
+              },
+              "requires" : [ ]
+            }
+          },
+          "proofHeader" : "eyJkaXJzIjoiUiIsImxlYWZTYWx0IjoiY2pweTUzaUNFQ01YaDJ0QnVZVmV2dyIsInJvb3RJZCI6InY4NTc1ZjAyYzg3MDYiLCJzaWJsaW5ncyI6WyJTLUZkQW90SGUxeXkxT1dRVEx2ZWh4eUxpcmJ2STZWVVhEWnNPa19wZ2ZzIl19",
+          "extensionsHeader" : "W3siaXRlbXMiOnsiaW5mbHVlbmNlIjpbeyJjbHMiOiJwdWJsaWMiLCJoIjoiaC1jYXRhbG9ndWUtMSIsInNyYyI6Imh0dHA6Y2F0YWxvZ3VlIn0seyJjaWQiOiJjaWQtb3JkZXItMSIsImNscyI6InByaXZhdGUiLCJoIjoiaC1vcmRlci0xIiwib3duZXIiOiJhbGljZSIsInNyYyI6Imh0dHA6b3JkZXJzIn1dfSwicmVxdWlyZXMiOltdfV0"
+        },
+        "expected" : {
+          "refusal" : null,
+          "attested" : false,
+          "handedOn" : null,
+          "trustedRecord" : false
         }
       } ]
     } ],
@@ -11528,16 +11704,15 @@
               "items" : {
                 "influence" : [ {
                   "cls" : "third-party",
-                  "src" : "ticket:t-1",
-                  "h" : "h-ticket-1",
-                  "cid" : "cid-ticket-1"
+                  "src" : "boundary:payment",
+                  "h" : "-U6lxRv_Bdsjxd7lS_cVeiQW_zQAgfEKg1w-IyQwNrU"
                 } ]
               },
               "requires" : [ ]
             }
           },
           "proofHeader" : "eyJkaXJzIjoiUiIsImxlYWZTYWx0IjoiY2pweTUzaUNFQ01YaDJ0QnVZVmV2dyIsInJvb3RJZCI6InY4NTc1ZjAyYzg3MDYiLCJzaWJsaW5ncyI6WyJTLUZkQW90SGUxeXkxT1dRVEx2ZWh4eUxpcmJ2STZWVVhEWnNPa19wZ2ZzIl19",
-          "extensionsHeader" : "W3siaXRlbXMiOnsiaW5mbHVlbmNlIjpbeyJjaWQiOiJjaWQtdGlja2V0LTEiLCJjbHMiOiJ0aGlyZC1wYXJ0eSIsImgiOiJoLXRpY2tldC0xIiwic3JjIjoidGlja2V0OnQtMSJ9XX0sInJlcXVpcmVzIjpbXX1d"
+          "extensionsHeader" : "W3siaXRlbXMiOnsiaW5mbHVlbmNlIjpbeyJjbHMiOiJ0aGlyZC1wYXJ0eSIsImgiOiItVTZseFJ2X0Jkc2p4ZDdsU19jVmVpUVdfelFBZ2ZFS2cxdy1JeVF3TnJVIiwic3JjIjoiYm91bmRhcnk6cGF5bWVudCJ9XX0sInJlcXVpcmVzIjpbXX1d"
         },
         "expected" : {
           "refusal" : null,
@@ -11547,9 +11722,8 @@
               "svc" : "payment",
               "items" : [ {
                 "cls" : "third-party",
-                "src" : "ticket:t-1",
-                "h" : "h-ticket-1",
-                "cid" : "cid-ticket-1"
+                "src" : "boundary:payment",
+                "h" : "-U6lxRv_Bdsjxd7lS_cVeiQW_zQAgfEKg1w-IyQwNrU"
               } ]
             } ]
           },
@@ -11613,15 +11787,15 @@
               "items" : {
                 "influence" : [ {
                   "cls" : "local-untrusted",
-                  "src" : "http:search",
-                  "h" : "h-search-1"
+                  "src" : "boundary:payment",
+                  "h" : "uw5NrmRyeHenAfZtzcN6INKBGIkZBKPPAxEF3Bnc6Og"
                 } ]
               },
               "requires" : [ ]
             }
           },
           "proofHeader" : "eyJkaXJzIjoiUiIsImxlYWZTYWx0IjoiY2pweTUzaUNFQ01YaDJ0QnVZVmV2dyIsInJvb3RJZCI6InY4NTc1ZjAyYzg3MDYiLCJzaWJsaW5ncyI6WyJTLUZkQW90SGUxeXkxT1dRVEx2ZWh4eUxpcmJ2STZWVVhEWnNPa19wZ2ZzIl19",
-          "extensionsHeader" : "W3siaXRlbXMiOnsiaW5mbHVlbmNlIjpbeyJjbHMiOiJsb2NhbC11bnRydXN0ZWQiLCJoIjoiaC1zZWFyY2gtMSIsInNyYyI6Imh0dHA6c2VhcmNoIn1dfSwicmVxdWlyZXMiOltdfV0"
+          "extensionsHeader" : "W3siaXRlbXMiOnsiaW5mbHVlbmNlIjpbeyJjbHMiOiJsb2NhbC11bnRydXN0ZWQiLCJoIjoidXc1TnJtUnllSGVuQWZadHpjTjZJTktCR0lrWkJLUFBBeEVGM0JuYzZPZyIsInNyYyI6ImJvdW5kYXJ5OnBheW1lbnQifV19LCJyZXF1aXJlcyI6W119XQ"
         },
         "expected" : {
           "refusal" : null,
@@ -11631,8 +11805,8 @@
               "svc" : "payment",
               "items" : [ {
                 "cls" : "local-untrusted",
-                "src" : "http:search",
-                "h" : "h-search-1"
+                "src" : "boundary:payment",
+                "h" : "uw5NrmRyeHenAfZtzcN6INKBGIkZBKPPAxEF3Bnc6Og"
               } ]
             } ]
           },
@@ -11695,22 +11869,21 @@
             "block" : {
               "items" : {
                 "influence" : [ {
-                  "cls" : "public",
-                  "src" : "http:catalogue",
-                  "h" : "h-catalogue-1"
-                }, {
                   "cls" : "private",
-                  "src" : "http:orders",
-                  "h" : "h-order-1",
-                  "cid" : "cid-order-1",
+                  "src" : "boundary:payment",
+                  "h" : "o-oCR628LHpiiY79eSPCsfjM2WyB8sLzGkmVPoItVgg",
                   "owner" : "alice"
+                }, {
+                  "cls" : "public",
+                  "src" : "boundary:payment",
+                  "h" : "yoABHNuEn9Fyg58VhQiHze_wcgofX8jWoEN5CJkranA"
                 } ]
               },
               "requires" : [ ]
             }
           },
           "proofHeader" : "eyJkaXJzIjoiUiIsImxlYWZTYWx0IjoiY2pweTUzaUNFQ01YaDJ0QnVZVmV2dyIsInJvb3RJZCI6InY4NTc1ZjAyYzg3MDYiLCJzaWJsaW5ncyI6WyJTLUZkQW90SGUxeXkxT1dRVEx2ZWh4eUxpcmJ2STZWVVhEWnNPa19wZ2ZzIl19",
-          "extensionsHeader" : "W3siaXRlbXMiOnsiaW5mbHVlbmNlIjpbeyJjbHMiOiJwdWJsaWMiLCJoIjoiaC1jYXRhbG9ndWUtMSIsInNyYyI6Imh0dHA6Y2F0YWxvZ3VlIn0seyJjaWQiOiJjaWQtb3JkZXItMSIsImNscyI6InByaXZhdGUiLCJoIjoiaC1vcmRlci0xIiwib3duZXIiOiJhbGljZSIsInNyYyI6Imh0dHA6b3JkZXJzIn1dfSwicmVxdWlyZXMiOltdfV0",
+          "extensionsHeader" : "W3siaXRlbXMiOnsiaW5mbHVlbmNlIjpbeyJjbHMiOiJwcml2YXRlIiwiaCI6Im8tb0NSNjI4TEhwaWlZNzllU1BDc2ZqTTJXeUI4c0x6R2ttVlBvSXRWZ2ciLCJvd25lciI6ImFsaWNlIiwic3JjIjoiYm91bmRhcnk6cGF5bWVudCJ9LHsiY2xzIjoicHVibGljIiwiaCI6InlvQUJITnVFbjlGeWc1OFZoUWlIemVfd2Nnb2ZYOGpXb0VONUNKa3JhbkEiLCJzcmMiOiJib3VuZGFyeTpwYXltZW50In1dfSwicmVxdWlyZXMiOltdfV0",
           "read" : [ {
             "cls" : "third-party",
             "src" : "ticket:t-1",
@@ -11725,15 +11898,14 @@
             "influence" : [ {
               "svc" : "payment",
               "items" : [ {
-                "cls" : "public",
-                "src" : "http:catalogue",
-                "h" : "h-catalogue-1"
-              }, {
                 "cls" : "private",
-                "src" : "http:orders",
-                "h" : "h-order-1",
-                "cid" : "cid-order-1",
+                "src" : "boundary:payment",
+                "h" : "o-oCR628LHpiiY79eSPCsfjM2WyB8sLzGkmVPoItVgg",
                 "owner" : "alice"
+              }, {
+                "cls" : "public",
+                "src" : "boundary:payment",
+                "h" : "yoABHNuEn9Fyg58VhQiHze_wcgofX8jWoEN5CJkranA"
               } ]
             } ]
           },
@@ -11796,22 +11968,21 @@
             "block" : {
               "items" : {
                 "influence" : [ {
-                  "cls" : "public",
-                  "src" : "http:catalogue",
-                  "h" : "h-catalogue-1"
-                }, {
                   "cls" : "private",
-                  "src" : "http:orders",
-                  "h" : "h-order-1",
-                  "cid" : "cid-order-1",
+                  "src" : "boundary:payment",
+                  "h" : "o-oCR628LHpiiY79eSPCsfjM2WyB8sLzGkmVPoItVgg",
                   "owner" : "alice"
+                }, {
+                  "cls" : "public",
+                  "src" : "boundary:payment",
+                  "h" : "yoABHNuEn9Fyg58VhQiHze_wcgofX8jWoEN5CJkranA"
                 } ]
               },
               "requires" : [ ]
             }
           },
           "proofHeader" : "eyJkaXJzIjoiUiIsImxlYWZTYWx0IjoiY2pweTUzaUNFQ01YaDJ0QnVZVmV2dyIsInJvb3RJZCI6InY4NTc1ZjAyYzg3MDYiLCJzaWJsaW5ncyI6WyJTLUZkQW90SGUxeXkxT1dRVEx2ZWh4eUxpcmJ2STZWVVhEWnNPa19wZ2ZzIl19",
-          "extensionsHeader" : "W3siaXRlbXMiOnsiaW5mbHVlbmNlIjpbeyJjbHMiOiJwdWJsaWMiLCJoIjoiaC1jYXRhbG9ndWUtMSIsInNyYyI6Imh0dHA6Y2F0YWxvZ3VlIn0seyJjaWQiOiJjaWQtb3JkZXItMSIsImNscyI6InByaXZhdGUiLCJoIjoiaC1vcmRlci0xIiwib3duZXIiOiJhbGljZSIsInNyYyI6Imh0dHA6b3JkZXJzIn1dfSwicmVxdWlyZXMiOltdfV0",
+          "extensionsHeader" : "W3siaXRlbXMiOnsiaW5mbHVlbmNlIjpbeyJjbHMiOiJwcml2YXRlIiwiaCI6Im8tb0NSNjI4TEhwaWlZNzllU1BDc2ZqTTJXeUI4c0x6R2ttVlBvSXRWZ2ciLCJvd25lciI6ImFsaWNlIiwic3JjIjoiYm91bmRhcnk6cGF5bWVudCJ9LHsiY2xzIjoicHVibGljIiwiaCI6InlvQUJITnVFbjlGeWc1OFZoUWlIemVfd2Nnb2ZYOGpXb0VONUNKa3JhbkEiLCJzcmMiOiJib3VuZGFyeTpwYXltZW50In1dfSwicmVxdWlyZXMiOltdfV0",
           "read" : [ {
             "cls" : "local-untrusted",
             "src" : "http:search",
@@ -11825,15 +11996,14 @@
             "influence" : [ {
               "svc" : "payment",
               "items" : [ {
-                "cls" : "public",
-                "src" : "http:catalogue",
-                "h" : "h-catalogue-1"
-              }, {
                 "cls" : "private",
-                "src" : "http:orders",
-                "h" : "h-order-1",
-                "cid" : "cid-order-1",
+                "src" : "boundary:payment",
+                "h" : "o-oCR628LHpiiY79eSPCsfjM2WyB8sLzGkmVPoItVgg",
                 "owner" : "alice"
+              }, {
+                "cls" : "public",
+                "src" : "boundary:payment",
+                "h" : "yoABHNuEn9Fyg58VhQiHze_wcgofX8jWoEN5CJkranA"
               } ]
             } ]
           },
@@ -11896,22 +12066,21 @@
             "block" : {
               "items" : {
                 "influence" : [ {
-                  "cls" : "public",
-                  "src" : "http:catalogue",
-                  "h" : "h-catalogue-1"
-                }, {
                   "cls" : "private",
-                  "src" : "http:orders",
-                  "h" : "h-order-1",
-                  "cid" : "cid-order-1",
+                  "src" : "boundary:payment",
+                  "h" : "o-oCR628LHpiiY79eSPCsfjM2WyB8sLzGkmVPoItVgg",
                   "owner" : "alice"
+                }, {
+                  "cls" : "public",
+                  "src" : "boundary:payment",
+                  "h" : "yoABHNuEn9Fyg58VhQiHze_wcgofX8jWoEN5CJkranA"
                 } ]
               },
               "requires" : [ ]
             }
           },
           "proofHeader" : "eyJkaXJzIjoiUiIsImxlYWZTYWx0IjoiY2pweTUzaUNFQ01YaDJ0QnVZVmV2dyIsInJvb3RJZCI6InY4NTc1ZjAyYzg3MDYiLCJzaWJsaW5ncyI6WyJTLUZkQW90SGUxeXkxT1dRVEx2ZWh4eUxpcmJ2STZWVVhEWnNPa19wZ2ZzIl19",
-          "extensionsHeader" : "W3siaXRlbXMiOnsiaW5mbHVlbmNlIjpbeyJjbHMiOiJwdWJsaWMiLCJoIjoiaC1jYXRhbG9ndWUtMSIsInNyYyI6Imh0dHA6Y2F0YWxvZ3VlIn0seyJjaWQiOiJjaWQtb3JkZXItMSIsImNscyI6InByaXZhdGUiLCJoIjoiaC1vcmRlci0xIiwib3duZXIiOiJhbGljZSIsInNyYyI6Imh0dHA6b3JkZXJzIn1dfSwicmVxdWlyZXMiOltdfV0",
+          "extensionsHeader" : "W3siaXRlbXMiOnsiaW5mbHVlbmNlIjpbeyJjbHMiOiJwcml2YXRlIiwiaCI6Im8tb0NSNjI4TEhwaWlZNzllU1BDc2ZqTTJXeUI4c0x6R2ttVlBvSXRWZ2ciLCJvd25lciI6ImFsaWNlIiwic3JjIjoiYm91bmRhcnk6cGF5bWVudCJ9LHsiY2xzIjoicHVibGljIiwiaCI6InlvQUJITnVFbjlGeWc1OFZoUWlIemVfd2Nnb2ZYOGpXb0VONUNKa3JhbkEiLCJzcmMiOiJib3VuZGFyeTpwYXltZW50In1dfSwicmVxdWlyZXMiOltdfV0",
           "read" : [ {
             "cls" : "public",
             "src" : "http:faq",
@@ -11925,15 +12094,14 @@
             "influence" : [ {
               "svc" : "payment",
               "items" : [ {
-                "cls" : "public",
-                "src" : "http:catalogue",
-                "h" : "h-catalogue-1"
-              }, {
                 "cls" : "private",
-                "src" : "http:orders",
-                "h" : "h-order-1",
-                "cid" : "cid-order-1",
+                "src" : "boundary:payment",
+                "h" : "o-oCR628LHpiiY79eSPCsfjM2WyB8sLzGkmVPoItVgg",
                 "owner" : "alice"
+              }, {
+                "cls" : "public",
+                "src" : "boundary:payment",
+                "h" : "yoABHNuEn9Fyg58VhQiHze_wcgofX8jWoEN5CJkranA"
               } ]
             } ]
           },
@@ -12154,23 +12322,21 @@
             "block" : {
               "items" : {
                 "influence" : [ {
-                  "cls" : "private",
-                  "src" : "http:orders",
-                  "h" : "h-order-1",
-                  "cid" : "cid-order-1",
-                  "owner" : "alice"
-                }, {
                   "cls" : "third-party",
-                  "src" : "ticket:t-1",
-                  "h" : "h-ticket-1",
-                  "cid" : "cid-ticket-1"
+                  "src" : "boundary:payment",
+                  "h" : "-U6lxRv_Bdsjxd7lS_cVeiQW_zQAgfEKg1w-IyQwNrU"
+                }, {
+                  "cls" : "private",
+                  "src" : "boundary:payment",
+                  "h" : "o-oCR628LHpiiY79eSPCsfjM2WyB8sLzGkmVPoItVgg",
+                  "owner" : "alice"
                 } ]
               },
               "requires" : [ ]
             }
           },
           "proofHeader" : "eyJkaXJzIjoiUiIsImxlYWZTYWx0IjoiY2pweTUzaUNFQ01YaDJ0QnVZVmV2dyIsInJvb3RJZCI6InY4NTc1ZjAyYzg3MDYiLCJzaWJsaW5ncyI6WyJTLUZkQW90SGUxeXkxT1dRVEx2ZWh4eUxpcmJ2STZWVVhEWnNPa19wZ2ZzIl19",
-          "extensionsHeader" : "W3siaXRlbXMiOnsiaW5mbHVlbmNlIjpbeyJjaWQiOiJjaWQtb3JkZXItMSIsImNscyI6InByaXZhdGUiLCJoIjoiaC1vcmRlci0xIiwib3duZXIiOiJhbGljZSIsInNyYyI6Imh0dHA6b3JkZXJzIn0seyJjaWQiOiJjaWQtdGlja2V0LTEiLCJjbHMiOiJ0aGlyZC1wYXJ0eSIsImgiOiJoLXRpY2tldC0xIiwic3JjIjoidGlja2V0OnQtMSJ9XX0sInJlcXVpcmVzIjpbXX1d",
+          "extensionsHeader" : "W3siaXRlbXMiOnsiaW5mbHVlbmNlIjpbeyJjbHMiOiJ0aGlyZC1wYXJ0eSIsImgiOiItVTZseFJ2X0Jkc2p4ZDdsU19jVmVpUVdfelFBZ2ZFS2cxdy1JeVF3TnJVIiwic3JjIjoiYm91bmRhcnk6cGF5bWVudCJ9LHsiY2xzIjoicHJpdmF0ZSIsImgiOiJvLW9DUjYyOExIcGlpWTc5ZVNQQ3Nmak0yV3lCOHNMekdrbVZQb0l0VmdnIiwib3duZXIiOiJhbGljZSIsInNyYyI6ImJvdW5kYXJ5OnBheW1lbnQifV19LCJyZXF1aXJlcyI6W119XQ",
           "destinationOwner" : "bob"
         },
         "expected" : {
@@ -12180,16 +12346,14 @@
             "influence" : [ {
               "svc" : "payment",
               "items" : [ {
-                "cls" : "private",
-                "src" : "http:orders",
-                "h" : "h-order-1",
-                "cid" : "cid-order-1",
-                "owner" : "alice"
-              }, {
                 "cls" : "third-party",
-                "src" : "ticket:t-1",
-                "h" : "h-ticket-1",
-                "cid" : "cid-ticket-1"
+                "src" : "boundary:payment",
+                "h" : "-U6lxRv_Bdsjxd7lS_cVeiQW_zQAgfEKg1w-IyQwNrU"
+              }, {
+                "cls" : "private",
+                "src" : "boundary:payment",
+                "h" : "o-oCR628LHpiiY79eSPCsfjM2WyB8sLzGkmVPoItVgg",
+                "owner" : "alice"
               } ]
             } ]
           },
@@ -12222,22 +12386,20 @@
               "items" : {
                 "influence" : [ {
                   "cls" : "private",
-                  "src" : "http:orders",
-                  "h" : "h-order-1",
-                  "cid" : "cid-order-1",
+                  "src" : "boundary:payment",
+                  "h" : "WjRqssl6BszJqaLawSzSN8pRU2zXdybPktlsbbfh5lg",
                   "owner" : "alice"
                 }, {
                   "cls" : "third-party",
-                  "src" : "ticket:t-1",
-                  "h" : "h-ticket-1",
-                  "cid" : "cid-ticket-1"
+                  "src" : "boundary:payment",
+                  "h" : "lVxXsw_lGfWsfx9uxXMjW-V7Cgoa_PlSya0J8NOqtUU"
                 } ]
               },
               "requires" : [ ]
             }
           },
           "proofHeader" : "eyJkaXJzIjoiUiIsImxlYWZTYWx0IjoiY2pweTUzaUNFQ01YaDJ0QnVZVmV2dyIsInJvb3RJZCI6InY4NTc1ZjAyYzg3MDYiLCJzaWJsaW5ncyI6WyJTLUZkQW90SGUxeXkxT1dRVEx2ZWh4eUxpcmJ2STZWVVhEWnNPa19wZ2ZzIl19",
-          "extensionsHeader" : "W3siaXRlbXMiOnsiaW5mbHVlbmNlIjpbeyJjaWQiOiJjaWQtb3JkZXItMSIsImNscyI6InByaXZhdGUiLCJoIjoiaC1vcmRlci0xIiwib3duZXIiOiJhbGljZSIsInNyYyI6Imh0dHA6b3JkZXJzIn0seyJjaWQiOiJjaWQtdGlja2V0LTEiLCJjbHMiOiJ0aGlyZC1wYXJ0eSIsImgiOiJoLXRpY2tldC0xIiwic3JjIjoidGlja2V0OnQtMSJ9XX0sInJlcXVpcmVzIjpbXX1d",
+          "extensionsHeader" : "W3siaXRlbXMiOnsiaW5mbHVlbmNlIjpbeyJjbHMiOiJwcml2YXRlIiwiaCI6IldqUnFzc2w2QnN6SnFhTGF3U3pTTjhwUlUyelhkeWJQa3Rsc2JiZmg1bGciLCJvd25lciI6ImFsaWNlIiwic3JjIjoiYm91bmRhcnk6cGF5bWVudCJ9LHsiY2xzIjoidGhpcmQtcGFydHkiLCJoIjoibFZ4WHN3X2xHZldzZng5dXhYTWpXLVY3Q2dvYV9QbFN5YTBKOE5PcXRVVSIsInNyYyI6ImJvdW5kYXJ5OnBheW1lbnQifV19LCJyZXF1aXJlcyI6W119XQ",
           "destinationOwner" : "alice"
         },
         "expected" : {
@@ -12248,19 +12410,288 @@
               "svc" : "payment",
               "items" : [ {
                 "cls" : "private",
-                "src" : "http:orders",
-                "h" : "h-order-1",
-                "cid" : "cid-order-1",
+                "src" : "boundary:payment",
+                "h" : "WjRqssl6BszJqaLawSzSN8pRU2zXdybPktlsbbfh5lg",
                 "owner" : "alice"
               }, {
                 "cls" : "third-party",
-                "src" : "ticket:t-1",
-                "h" : "h-ticket-1",
-                "cid" : "cid-ticket-1"
+                "src" : "boundary:payment",
+                "h" : "lVxXsw_lGfWsfx9uxXMjW-V7Cgoa_PlSya0J8NOqtUU"
               } ]
             } ]
           },
           "publicWrite" : "OK",
+          "trustedRecord" : false
+        }
+      } ]
+    }, {
+      "name" : "an unsafe session: a public write is judged on what the handler read, third-party content beside alice's private data to bob's destination, then a public page",
+      "partner" : {
+        "material" : "psp",
+        "pinned" : [ "shop-policy" ],
+        "clientOrigins" : [ "payment" ],
+        "unsafeDisabled" : [ "POST /refund", "GET /statements/{id}" ],
+        "maxSessionsPerPeer" : 16,
+        "sessionIdleMs" : 900000,
+        "callMaxAgeMs" : 5000,
+        "runMaxAgeMs" : 5000,
+        "nonceTtlMs" : 15000,
+        "actsOn" : [ "influence" ],
+        "allowedExtensions" : null,
+        "start" : 1767225600000
+      },
+      "steps" : [ {
+        "at" : 1767225600000,
+        "handshake" : {
+          "peer" : "shop",
+          "request" : "no-root",
+          "body" : null
+        },
+        "as" : "u1",
+        "expected" : {
+          "status" : 200,
+          "error" : null,
+          "sessionStatus" : "unsafe",
+          "disabled" : [ "POST /refund", "GET /statements/{id}" ],
+          "extensions" : [ "influence" ]
+        }
+      }, {
+        "at" : 1767225601000,
+        "call" : {
+          "peer" : "shop",
+          "session" : {
+            "of" : "u1"
+          },
+          "method" : "POST",
+          "target" : "/charge",
+          "routePattern" : "/charge",
+          "body" : "7b22636861726765223a3130307d",
+          "stamp" : {
+            "svc" : "payment",
+            "inst" : "pay-1",
+            "rid" : "rid-b-1",
+            "ts" : 1767225600900,
+            "sess" : {
+              "of" : "u1"
+            },
+            "rcv" : "psp",
+            "key" : "payment",
+            "body" : "7b22636861726765223a3130307d",
+            "block" : {
+              "items" : {
+                "influence" : [ {
+                  "cls" : "private",
+                  "src" : "boundary:payment",
+                  "h" : "o-oCR628LHpiiY79eSPCsfjM2WyB8sLzGkmVPoItVgg",
+                  "owner" : "alice"
+                }, {
+                  "cls" : "public",
+                  "src" : "boundary:payment",
+                  "h" : "yoABHNuEn9Fyg58VhQiHze_wcgofX8jWoEN5CJkranA"
+                } ]
+              },
+              "requires" : [ ]
+            }
+          },
+          "proofHeader" : "eyJkaXJzIjoiUiIsImxlYWZTYWx0IjoiY2pweTUzaUNFQ01YaDJ0QnVZVmV2dyIsInJvb3RJZCI6InY4NTc1ZjAyYzg3MDYiLCJzaWJsaW5ncyI6WyJTLUZkQW90SGUxeXkxT1dRVEx2ZWh4eUxpcmJ2STZWVVhEWnNPa19wZ2ZzIl19",
+          "extensionsHeader" : "W3siaXRlbXMiOnsiaW5mbHVlbmNlIjpbeyJjbHMiOiJwcml2YXRlIiwiaCI6Im8tb0NSNjI4TEhwaWlZNzllU1BDc2ZqTTJXeUI4c0x6R2ttVlBvSXRWZ2ciLCJvd25lciI6ImFsaWNlIiwic3JjIjoiYm91bmRhcnk6cGF5bWVudCJ9LHsiY2xzIjoicHVibGljIiwiaCI6InlvQUJITnVFbjlGeWc1OFZoUWlIemVfd2Nnb2ZYOGpXb0VONUNKa3JhbkEiLCJzcmMiOiJib3VuZGFyeTpwYXltZW50In1dfSwicmVxdWlyZXMiOltdfV0",
+          "read" : [ {
+            "cls" : "private",
+            "src" : "http:orders",
+            "h" : "h-order-1",
+            "cid" : "cid-order-1",
+            "owner" : "alice"
+          }, {
+            "cls" : "third-party",
+            "src" : "ticket:t-1",
+            "h" : "h-ticket-1",
+            "cid" : "cid-ticket-1"
+          } ],
+          "destinationOwner" : "bob"
+        },
+        "expected" : {
+          "refusal" : null,
+          "attested" : false,
+          "handedOn" : null,
+          "publicWrite" : "INFLUENCE_DENIED",
+          "trustedRecord" : false
+        }
+      }, {
+        "at" : 1767225602000,
+        "call" : {
+          "peer" : "shop",
+          "session" : {
+            "of" : "u1"
+          },
+          "method" : "POST",
+          "target" : "/charge",
+          "routePattern" : "/charge",
+          "body" : "7b22636861726765223a3130307d",
+          "stamp" : {
+            "svc" : "payment",
+            "inst" : "pay-1",
+            "rid" : "rid-b-2",
+            "ts" : 1767225601900,
+            "sess" : {
+              "of" : "u1"
+            },
+            "rcv" : "psp",
+            "key" : "payment",
+            "body" : "7b22636861726765223a3130307d",
+            "block" : {
+              "items" : {
+                "influence" : [ {
+                  "cls" : "private",
+                  "src" : "boundary:payment",
+                  "h" : "WjRqssl6BszJqaLawSzSN8pRU2zXdybPktlsbbfh5lg",
+                  "owner" : "alice"
+                }, {
+                  "cls" : "third-party",
+                  "src" : "boundary:payment",
+                  "h" : "lVxXsw_lGfWsfx9uxXMjW-V7Cgoa_PlSya0J8NOqtUU"
+                } ]
+              },
+              "requires" : [ ]
+            }
+          },
+          "proofHeader" : "eyJkaXJzIjoiUiIsImxlYWZTYWx0IjoiY2pweTUzaUNFQ01YaDJ0QnVZVmV2dyIsInJvb3RJZCI6InY4NTc1ZjAyYzg3MDYiLCJzaWJsaW5ncyI6WyJTLUZkQW90SGUxeXkxT1dRVEx2ZWh4eUxpcmJ2STZWVVhEWnNPa19wZ2ZzIl19",
+          "extensionsHeader" : "W3siaXRlbXMiOnsiaW5mbHVlbmNlIjpbeyJjbHMiOiJwcml2YXRlIiwiaCI6IldqUnFzc2w2QnN6SnFhTGF3U3pTTjhwUlUyelhkeWJQa3Rsc2JiZmg1bGciLCJvd25lciI6ImFsaWNlIiwic3JjIjoiYm91bmRhcnk6cGF5bWVudCJ9LHsiY2xzIjoidGhpcmQtcGFydHkiLCJoIjoibFZ4WHN3X2xHZldzZng5dXhYTWpXLVY3Q2dvYV9QbFN5YTBKOE5PcXRVVSIsInNyYyI6ImJvdW5kYXJ5OnBheW1lbnQifV19LCJyZXF1aXJlcyI6W119XQ",
+          "read" : [ {
+            "cls" : "public",
+            "src" : "http:faq",
+            "h" : "h-faq-1"
+          } ],
+          "destinationOwner" : "bob"
+        },
+        "expected" : {
+          "refusal" : null,
+          "attested" : false,
+          "handedOn" : null,
+          "publicWrite" : "OK",
+          "trustedRecord" : false
+        }
+      } ]
+    }, {
+      "name" : "a partner that acts on no extension allows no guarded write or trusted record, and reads no item",
+      "partner" : {
+        "material" : "psp",
+        "pinned" : [ "shop-policy" ],
+        "clientOrigins" : [ "payment" ],
+        "unsafeDisabled" : [ "POST /refund", "GET /statements/{id}" ],
+        "maxSessionsPerPeer" : 16,
+        "sessionIdleMs" : 900000,
+        "callMaxAgeMs" : 5000,
+        "runMaxAgeMs" : 5000,
+        "nonceTtlMs" : 15000,
+        "actsOn" : [ ],
+        "allowedExtensions" : null,
+        "start" : 1767225600000
+      },
+      "steps" : [ {
+        "at" : 1767225600000,
+        "handshake" : {
+          "peer" : "shop",
+          "request" : "shop",
+          "body" : null
+        },
+        "as" : "s1",
+        "expected" : {
+          "status" : 200,
+          "error" : null,
+          "sessionStatus" : "attested",
+          "disabled" : [ ],
+          "extensions" : [ ]
+        }
+      }, {
+        "at" : 1767225601000,
+        "call" : {
+          "peer" : "shop",
+          "session" : {
+            "of" : "s1"
+          },
+          "method" : "POST",
+          "target" : "/charge",
+          "routePattern" : "/charge",
+          "body" : "7b22636861726765223a3130307d",
+          "stamp" : {
+            "svc" : "payment",
+            "inst" : "pay-1",
+            "rid" : "rid-b-1",
+            "ts" : 1767225600900,
+            "sess" : {
+              "of" : "s1"
+            },
+            "rcv" : "psp",
+            "key" : "payment",
+            "body" : "7b22636861726765223a3130307d",
+            "block" : {
+              "items" : {
+                "influence" : [ {
+                  "cls" : "private",
+                  "src" : "boundary:payment",
+                  "h" : "o-oCR628LHpiiY79eSPCsfjM2WyB8sLzGkmVPoItVgg",
+                  "owner" : "alice"
+                }, {
+                  "cls" : "public",
+                  "src" : "boundary:payment",
+                  "h" : "yoABHNuEn9Fyg58VhQiHze_wcgofX8jWoEN5CJkranA"
+                } ]
+              },
+              "requires" : [ ]
+            }
+          },
+          "proofHeader" : "eyJkaXJzIjoiUiIsImxlYWZTYWx0IjoiY2pweTUzaUNFQ01YaDJ0QnVZVmV2dyIsInJvb3RJZCI6InY4NTc1ZjAyYzg3MDYiLCJzaWJsaW5ncyI6WyJTLUZkQW90SGUxeXkxT1dRVEx2ZWh4eUxpcmJ2STZWVVhEWnNPa19wZ2ZzIl19",
+          "extensionsHeader" : "W3siaXRlbXMiOnsiaW5mbHVlbmNlIjpbeyJjbHMiOiJwcml2YXRlIiwiaCI6Im8tb0NSNjI4TEhwaWlZNzllU1BDc2ZqTTJXeUI4c0x6R2ttVlBvSXRWZ2ciLCJvd25lciI6ImFsaWNlIiwic3JjIjoiYm91bmRhcnk6cGF5bWVudCJ9LHsiY2xzIjoicHVibGljIiwiaCI6InlvQUJITnVFbjlGeWc1OFZoUWlIemVfd2Nnb2ZYOGpXb0VONUNKa3JhbkEiLCJzcmMiOiJib3VuZGFyeTpwYXltZW50In1dfSwicmVxdWlyZXMiOltdfV0",
+          "read" : [ {
+            "cls" : "public",
+            "src" : "http:faq",
+            "h" : "h-faq-1"
+          } ],
+          "destinationOwner" : "alice"
+        },
+        "expected" : {
+          "refusal" : null,
+          "attested" : true,
+          "handedOn" : { },
+          "publicWrite" : "INFLUENCE_DENIED",
+          "trustedRecord" : false
+        }
+      }, {
+        "at" : 1767225602000,
+        "call" : {
+          "peer" : "shop",
+          "session" : {
+            "of" : "s1"
+          },
+          "method" : "POST",
+          "target" : "/charge",
+          "routePattern" : "/charge",
+          "body" : "7b22636861726765223a3130307d",
+          "stamp" : {
+            "svc" : "payment",
+            "inst" : "pay-1",
+            "rid" : "rid-b-2",
+            "ts" : 1767225601900,
+            "sess" : {
+              "of" : "s1"
+            },
+            "rcv" : "psp",
+            "key" : "payment",
+            "body" : "7b22636861726765223a3130307d",
+            "block" : {
+              "items" : {
+                "influence" : [ "not an entry" ]
+              },
+              "requires" : [ ]
+            }
+          },
+          "proofHeader" : "eyJkaXJzIjoiUiIsImxlYWZTYWx0IjoiY2pweTUzaUNFQ01YaDJ0QnVZVmV2dyIsInJvb3RJZCI6InY4NTc1ZjAyYzg3MDYiLCJzaWJsaW5ncyI6WyJTLUZkQW90SGUxeXkxT1dRVEx2ZWh4eUxpcmJ2STZWVVhEWnNPa19wZ2ZzIl19",
+          "extensionsHeader" : "W3siaXRlbXMiOnsiaW5mbHVlbmNlIjpbIm5vdCBhbiBlbnRyeSJdfSwicmVxdWlyZXMiOltdfV0"
+        },
+        "expected" : {
+          "refusal" : null,
+          "attested" : true,
+          "handedOn" : { },
           "trustedRecord" : false
         }
       } ]
