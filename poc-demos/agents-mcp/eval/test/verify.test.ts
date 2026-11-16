@@ -6,8 +6,8 @@ import { cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, wri
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  bindLocalTool, buildTree, decode, encode, generateKeyPair, itemsUnder, keyringSigningBytes, makeBlock, mintOrigin, NO_EXTENSIONS, randomBytes,
-  readBlocks, readChain, readKeyring, readProof, readLocalDecision, readRoot, readSessionReply, readSessionRequest, readToken, sign, signRoot,
+  bindLocalTool, buildTree, decode, deriveSessionId, encode, generateKeyPair, itemsUnder, keyringSigningBytes, makeBlock, mintOrigin, NO_EXTENSIONS, randomBytes,
+  readBlocks, readChain, readKeyring, readProof, readLocalDecision, readRoot, readSessionReply, readSessionRequest, readToken, rootSigningBytes, sign, signRoot,
   signSessionReply, signStamp, writeToken, type ExtensionSettings,
 } from "@paztport/core";
 import { bindMcpCall, stampToolCall } from "@paztport/mcp";
@@ -518,6 +518,44 @@ describe("verifyEvidence: fix round 1", { timeout: 30_000 }, () => {
     expect(r.ok).toBe(false);
     expect(results(r.items, "session")).toEqual(["BAD_SESSION"]);
     expect(results(r.items, "call").every((x) => x === "NO_SESSION")).toBe(true);
+  });
+
+  it("aSignedClientRootThatDoesNotDecodeProvesNoRoute", () => {
+    // the client policy key signs the root's text, so text that does not decode can stand in an attested handshake:
+    // the session is attested and the root proves no route, as Go's and Java's callConfig give. The demo's policy key
+    // is not kept, so the request is signed under a fresh one, which only the server's reply vouches for offline; the
+    // session id moves with it, so the reply and each call are signed again over the new one.
+    const policy = generateKeyPair();
+    const entryKey = readFileSync(join(demo, "server/mcp-entry.key"), "utf8").trim();
+    const withRootText = (rootText: (root: string) => string) => verifyEvidence(write(genuine, (rs) => {
+      const s = rs.find((x) => x.type === "session");
+      const request = readSessionRequest(s.request);
+      const text = rootText(request.clientRoot!.root);
+      const notAfter = request.clientRoot!.notAfter;
+      const clientRoot = { ...request.clientRoot!, root: text, sig: encode(sign(policy.privateKey, rootSigningBytes(request.clientRoot!.rootId, text, notAfter))) };
+      const ringSig = encode(sign(policy.privateKey, keyringSigningBytes(policy.publicKey, request.clientKeyring, request.clientKeyringNotAfter)));
+      const signed = { ...request, clientRoot, clientPolicyKey: policy.publicKey, clientKeyringSig: ringSig };
+      s.request = tokenOf(signed);
+      const { sig: _sig, ...reply } = readSessionReply(s.reply);
+      const sess = deriveSessionId(clientRoot.sig, reply.serverRoot!.sig, signed.nonce, reply.nonce, signed);
+      s.reply = tokenOf(signSessionReply({ ...reply, sess }, entryKey));
+      for (const c of rs.filter((x) => x.type === "call")) {
+        const meta = c.params._meta;
+        const [origin, hop] = readChain(meta["paztport/chain"]);
+        const { sig: _o, v: _ov, ...originFields } = origin!;
+        const { sig: _h, v: _hv, ...hopFields } = hop!;
+        const o = signStamp({ ...originFields, sess }, material().sessionKey);
+        meta["paztport/chain"] = writeToken([o, signStamp({ ...hopFields, sess, prev: o.sig }, material().piKey)]);
+      }
+    }));
+    // signed again over the root as it was, every call still verifies
+    const same = withRootText((root) => root);
+    expect(results(same.items, "session")).toEqual(["OK"]);
+    expect(results(same.items, "call")).toEqual(["OK", "OK", "OK", "OK"]);
+    const r = withRootText(() => "not base64url!");
+    expect(results(r.items, "session")).toEqual(["OK"]);
+    expect(results(r.items, "call")).toEqual(["PATH_NOT_ALLOWED", "PATH_NOT_ALLOWED", "PATH_NOT_ALLOWED", "PATH_NOT_ALLOWED"]);
+    expect(r.ok).toBe(false);
   });
 
   it("responseWithoutCallFails", () => {
