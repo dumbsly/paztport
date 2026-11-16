@@ -207,7 +207,9 @@ package's exports imports from it, so the core's verifier carries influence's it
   an unsafe session). Each entry has `src` `server:<serverId>` and `h` the result hash. The MCP client's
   `readToolResult` builds what a result adds with it, so an application never turns labels into entries itself.
 - **Blocks.** `influenceBlock(items, requires?)` builds a block that names `influence` with the entries a hop adds
-  or the labels a responder attaches, as written; `[]` names it with nothing to add.
+  or the labels a responder attaches, as written; `[]` names it with nothing to add. `influenceEntry(cls, src, h,
+  owner?, cid?)` builds a client's own entry, refusing what Java's constructor refuses: a class that is not one of the
+  four, an empty `owner`, and a lone surrogate or a noncharacter in any member.
 
 `v4.json`'s member `influence` pins these functions: its replay calls `entryOf`, `labelOf`, `publicWriteRefused`,
 `decideVerifiedCall`, `readRequestInfluence`, `responseEntries` and `recordedCallReason`.

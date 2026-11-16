@@ -5,6 +5,7 @@
 // items in blocks without reading them; this folder reads them, from what the verifier hands over.
 
 import type { JsonObject, JsonValue } from "../encoding/json.ts";
+import { isProtocolText } from "../encoding/json-rules.ts";
 import { exactly, object, str } from "../internal/fields.ts";
 import { makeBlock, type Block } from "../stamp/block.ts";
 import type { ContentLabel } from "./label.ts";
@@ -56,6 +57,29 @@ export function entryOf(item: JsonValue): InfluenceEntry {
   const entry: InfluenceEntry = { cls: classOf(o), src: str(o, "src"), h: str(o, "h") };
   if (Object.hasOwn(o, "cid")) entry.cid = str(o, "cid");
   const owner = ownerOf(o);
+  if (owner !== undefined) entry.owner = owner;
+  return entry;
+}
+
+/**
+ * A client's own entry, checked as Java's constructor checks one: `cls` one of the four classes, `src` and `h`
+ * strings, an `owner`, when given, non-empty, and no lone surrogate or noncharacter in any string, since the entry's
+ * JCS could not carry one. Throws an Error naming what it refuses. An absent `owner` or `cid` is left out of the
+ * entry, not set to undefined, so the entry writes as the object `entryOf` reads.
+ */
+export function influenceEntry(
+  cls: InfluenceClass, src: string, h: string, owner?: string, cid?: string,
+): InfluenceEntry {
+  if (!(CLASSES as readonly string[]).includes(cls)) throw new Error("cls is not an influence class");
+  if (typeof src !== "string" || typeof h !== "string") throw new Error("an influence entry needs src and h");
+  if (owner === "") throw new Error("an influence entry's owner is empty");
+  for (const text of [src, h, cid, owner]) {
+    if (text !== undefined && (typeof text !== "string" || !isProtocolText(text))) {
+      throw new Error("a lone surrogate or noncharacter in an influence entry");
+    }
+  }
+  const entry: InfluenceEntry = { cls, src, h };
+  if (cid !== undefined) entry.cid = cid;
   if (owner !== undefined) entry.owner = owner;
   return entry;
 }

@@ -4,6 +4,7 @@
 import {
   bindResult,
   influenceClasses,
+  influenceEntry,
   type InfluenceClass,
   type InfluenceEntry,
 } from "@paztport/core";
@@ -41,17 +42,17 @@ export class InfluenceStore {
    */
   recordClasses(src: string, classes: InfluenceClass[], contentHash: string): void {
     for (const cls of classes) {
-      this.all.push({ cls, src, h: contentHash });
+      this.all.push(influenceEntry(cls, src, contentHash));
     }
   }
 
   recordUntrusted(src: string, contentHash: string): void {
-    this.all.push({ cls: "local-untrusted", src, h: contentHash });
+    this.all.push(influenceEntry("local-untrusted", src, contentHash));
   }
 
   /** Content whose sources cannot be traced, so it may hold anything: private and local-untrusted. */
   recordUnknown(src: string, contentHash: string): void {
-    this.all.push({ cls: "private", src, h: contentHash }, { cls: "local-untrusted", src, h: contentHash });
+    this.all.push(influenceEntry("private", src, contentHash), influenceEntry("local-untrusted", src, contentHash));
   }
 
   classes(): Set<InfluenceClass> {

@@ -22,7 +22,7 @@ export * from "./stamp/block.ts";
 export * from "./verify/nonce.ts";
 export * from "./verify/extensions.ts";
 export {
-  entryOf, INFLUENCE, influenceBlock, influenceClasses, type InfluenceClass, type InfluenceEntry,
+  entryOf, INFLUENCE, influenceBlock, influenceClasses, influenceEntry, type InfluenceClass, type InfluenceEntry,
 } from "./influence/influence.ts";
 export * from "./influence/label.ts";
 export * from "./influence/request.ts";

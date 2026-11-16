@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { canonicalize } from "../../src/encoding/jcs.ts";
 import type { JsonValue } from "../../src/encoding/json.ts";
 import {
-  entryOf, INFLUENCE, influenceBlock, influenceClasses, type InfluenceEntry,
+  entryOf, INFLUENCE, influenceBlock, influenceClasses, influenceEntry, type InfluenceClass, type InfluenceEntry,
 } from "../../src/influence/influence.ts";
 import { commitBlock, itemsUnder } from "../../src/stamp/block.ts";
 
@@ -34,6 +34,37 @@ describe("entryOf", () => {
     ["an empty owner", { cls: "private", h: "x", owner: "", src: "s" }],
   ])("refuses %s", (_name, item) => {
     expect(() => entryOf(item as JsonValue)).toThrow(Error);
+  });
+});
+
+describe("influenceEntry", () => {
+  it("buildsTheEntryEntryOfReads", () => {
+    const full = influenceEntry("private", "github:acme/app#42", "h1", "alice", "cid-1");
+    expect(full).toEqual({ cls: "private", src: "github:acme/app#42", h: "h1", cid: "cid-1", owner: "alice" });
+    expect(entryOf(JSON.parse(canonicalize(full)) as JsonValue)).toEqual(full);
+    // an absent member is left out, not written as undefined, so the entry's JCS is the literal's
+    const bare = influenceEntry("local-untrusted", "local:read", "h2");
+    expect(Object.keys(bare)).toEqual(["cls", "src", "h"]);
+    expect(canonicalize(bare)).toBe(canonicalize({ cls: "local-untrusted", src: "local:read", h: "h2" }));
+    expect(Object.keys(influenceEntry("public", "s", "h", undefined, "c"))).toEqual(["cls", "src", "h", "cid"]);
+  });
+
+  // what Java's constructor refuses: a member missing, an empty owner, a lone surrogate or a noncharacter; and, since
+  // a class here is a string, one that is not a class
+  it("influenceEntryRefusesWhatJavaRefuses", () => {
+    const refused: [string, () => InfluenceEntry][] = [
+      ["a lone surrogate in src", () => influenceEntry("public", "web:\uD800", "h")],
+      ["a noncharacter in h", () => influenceEntry("public", "s", "\uFFFE")],
+      ["a noncharacter in owner", () => influenceEntry("private", "s", "h", "\uFDD0")],
+      ["a lone surrogate in cid", () => influenceEntry("public", "s", "h", undefined, "\uDC00")],
+      ["an unknown class", () => influenceEntry("secret" as InfluenceClass, "s", "h")],
+      ["an empty owner", () => influenceEntry("private", "s", "h", "")],
+      ["no src", () => influenceEntry("public", undefined as unknown as string, "h")],
+      ["a number as h", () => influenceEntry("public", "s", 7 as unknown as string)],
+    ];
+    for (const [name, build] of refused) expect(build, name).toThrow(Error);
+    // a surrogate pair is well-formed text
+    expect(influenceEntry("public", "web:\uD83D\uDE00", "h").src).toBe("web:\u{1F600}");
   });
 });
 
