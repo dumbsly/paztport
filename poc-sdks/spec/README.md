@@ -67,12 +67,10 @@ Design choices:
 ## Conformance
 
 The spec describes version 4. The TypeScript SDK speaks it over MCP, and `v4.json` records it. Java's `paztport-core`
-speaks it too, and Java's `paztport-http` speaks it over HTTP, which `http-v4.json` records. The Go SDK's core (every package
-but `paztporthttp` and its two packages) speaks it too, but for the MCP profile. Go's `paztporthttp` packages are between
-versions: they stamp version 4 through the core, keep version 3's HTTP behaviour behind stopgaps, and their tests, which
-replay `http-v3.json`, do not pass until the next plan. `v3.json` and `http-v3.json` record version 3: where those two files differ from
-the four spec files above, they describe version 3, and the spec files give version 4. No SDK replays `v3.json` any
-more; it stays, frozen, until the close.
+speaks it too, and Java's `paztport-http` speaks it over HTTP, which `http-v4.json` records. The Go SDK speaks it too,
+over HTTP in `paztporthttp` and its two packages, but for the MCP profile. `v3.json` and `http-v3.json` record version 3:
+where those two files differ from the four spec files above, they describe version 3, and the spec files give version 4.
+No SDK replays either any more; both stay, frozen, until the close.
 
 `vectors/` holds language-neutral vectors, so every implementation of a version is held to one set of recorded
 answers.
@@ -80,11 +78,11 @@ answers.
 | File | Covers | Replayed by |
 |---|---|---|
 | [`v4.json`](#v4json) | Version 4: stamps and blocks, the live and offline verifiers and sessions, the [MCP profile](#the-mcp-profile), and the extension `influence` in its member `influence` | Written and replayed by TypeScript (`@paztport/core` for the session id, the prompt and response bindings, the block commitment and the Merkle tree, and `@paztport/mcp` for the rest). Replayed by Java (`paztport-core`) and by Go (`poc-sdks/go`, its core) for every section but the MCP profile's, `influence.response` and the `influence.request` cases whose `served` is not empty. |
-| [`v3.json`](#v3json) | Version 3: stamps, the live and offline verifiers, influence and sessions | No SDK: Go's core moved to version 4 and replays `v4.json`, and the file stays, frozen, until the close. Go's `paztporthttp` tests still read its policies, which `http-v3.json`'s cases name, until the next plan. TypeScript's replay of `v4.json` reads it only to compare the sections version 4 left as they were ([below](#v4json)). |
-| [`http-v4.json`](#http-v4json) | Version 4 over HTTP | Written and replayed by Java (`paztport-http`), every section, and by Go's core for `operations` but its `receive` cases, and `boundaryInfluence`. Go's `paztporthttp` tests replay `http-v3.json` until the next plan moves them to version 4. The TypeScript SDK does not speak HTTP and does not replay it. |
-| [`http-v3.json`](#http-v3json) | Version 3 over HTTP | Go's `paztporthttp` tests (`poc-sdks/go`), every section, until the next plan moves them to version 4; they do not pass until then. Java does not replay it, and the TypeScript SDK does not speak HTTP. |
+| [`v3.json`](#v3json) | Version 3: stamps, the live and offline verifiers, influence and sessions | No SDK: Go's core moved to version 4 and replays `v4.json`, and the file stays, frozen, until the close. TypeScript's replay of `v4.json` reads it only to compare the sections version 4 left as they were ([below](#v4json)). |
+| [`http-v4.json`](#http-v4json) | Version 4 over HTTP | Written and replayed by Java (`paztport-http`), every section, and replayed by Go (`poc-sdks/go`), every section: `paztporthttp` and its two packages, and the core for `operations` but its `receive` cases, and `boundaryInfluence`. The TypeScript SDK does not speak HTTP and does not replay it. |
+| [`http-v3.json`](#http-v3json) | Version 3 over HTTP | No SDK: Java's `paztport-http` and Go's `paztporthttp` moved to version 4 and replay `http-v4.json`, and the file stays, frozen, until the close. The TypeScript SDK does not speak HTTP. |
 | [`events.json`](#eventsjson) | Responder events | Written and replayed by Java (`paztport-core`), and replayed by TypeScript (`@paztport/core`) and Go (`poc-sdks/go`). |
-| [`json.json`](#jsonjson) | Reading and writing JSON ([wire.md](wire.md#json)) | TypeScript (`@paztport/core`, and `@paztport/mcp` for `toolsCall`), every section but the `http` cases of `bindings`, and Java (`paztport-core`, and `paztport-http` for `http`) and Go (`poc-sdks/go`) for every section but `jcs` and the MCP profile's `bindings` (`toolsCall`, `result`, `localTool`), which belong to the [MCP profile](#the-mcp-profile); Go replays the `http` bindings only in `paztporthttp/wire`, whose tests do not pass until the next plan. |
+| [`json.json`](#jsonjson) | Reading and writing JSON ([wire.md](wire.md#json)) | TypeScript (`@paztport/core`, and `@paztport/mcp` for `toolsCall`), every section but the `http` cases of `bindings`, and Java (`paztport-core`, and `paztport-http` for `http`) and Go (`poc-sdks/go`) for every section but `jcs` and the MCP profile's `bindings` (`toolsCall`, `result`, `localTool`), which belong to the [MCP profile](#the-mcp-profile); Go replays the `http` bindings in `paztporthttp/wire`. |
 | [`ed25519.json`](#ed25519json) | The [signature rule](wire.md#signatures) | Written by a generator in `@paztport/core`'s tests, and replayed in full by TypeScript (`@paztport/core`), Java (`paztport-core`) and Go (`poc-sdks/go`). |
 
 | Part | Java SDK | TypeScript SDK | Go SDK |
@@ -94,8 +92,8 @@ answers.
 | Local steps ([the MCP profile](#the-mcp-profile)) | no | yes | no |
 | The extension `influence` in v4 (`v4.json`'s `influence`) | core | yes | core |
 | v3: stamps, the live and offline verifiers, influence and sessions | no | no | no |
-| v4 over HTTP | yes | no | no: between versions until the next plan (the core replays `operations` but its `receive` cases, and `boundaryInfluence`) |
-| v3 over HTTP | no | no | no: between versions until the next plan |
+| v4 over HTTP | yes | no | yes |
+| v3 over HTTP | no | no | no |
 | Operations over HTTP: reading tables, naming operations and their keys | yes | no | yes |
 | Operations over HTTP: confirming them from the receiver's routing | yes | no | no |
 | Responder events | yes | yes | yes |
@@ -430,8 +428,9 @@ cd poc-sdks/java && mvn -q -pl core,http test -Dtest=VectorsHttpV4Export -Dpaztp
 
 ### http-v3.json
 
-`http-v3.json` records version 3 over HTTP, which Go's `paztporthttp` tests replay until the next plan. Its exporter left
-the repository when Java's `paztport-http` moved to version 4; its `about` still names Java as its writer.
+`http-v3.json` records version 3 over HTTP, which Go's `paztporthttp` implemented until it moved to version 4; no SDK
+replays it now. Its exporter left the repository when Java's `paztport-http` moved to version 4; its `about` still
+names Java as its writer.
 
 - `resultHash`: the HTTP result hash.
 - `requestBinding`: the request binding with and without a query.
@@ -581,10 +580,10 @@ header: every refusal, and every `refusals` and `boundaryRefusals` case among th
 
 | Kind | Shape | What it pins |
 |---|---|---|
-| `requests` | receiver | A request at the receiver ([verification.md](verification.md#http-requests-and-responses)): the nonce key `[rid, last svc, last rcv, "req"]`, which other directions', hops' and operations' keys do not spend, and each unreadable header: a chain (`CHAIN_MISSING`), a proof (no proof, so `PATH_NOT_ALLOWED`) and blocks (`EXTENSION_MISMATCH`), and no `X-Path-Extensions` where a stamp's `ext` is not `""` (`EXTENSION_MISMATCH`). |
+| `requests` | receiver | A request at the receiver ([verification.md](verification.md#http-requests-and-responses)): the nonce key `[rid, last svc, last rcv, "req"]`, which other directions', hops' and operations' keys do not spend, and each unreadable header: a chain (`CHAIN_MISSING`), a proof (no proof, so `PATH_NOT_ALLOWED`) and blocks (`EXTENSION_MISMATCH`), and no `X-Path-Extensions` where a stamp's `ext` is not `""` (`EXTENSION_MISMATCH`); and at a service that acts on no extension, a verified request handed `{}` and attested, and the same refusals of blocks that do not decode and of no header where a stamp's `ext` is not `""`. |
 | `influenceItems` | receiver | An item on a request's block that does not read as an entry, at a service that acts on `influence` ([influence.md](influence.md#entries)): `400 INFLUENCE_MISMATCH` in either mode, verified or not, at a service that verifies only to attest, at one with no verifier and at a hop that is off; `403` where verification refuses first; an origin carries none, so has none to read; and a service that does not act on `influence` reads no item and serves the request. |
-| `servedUnverified` | receiver | Check 9a at a service about to serve a request it did not verify ([verification.md](verification.md#http-requests-and-responses)): in audit mode after a failure, blocks that do not match their stamps, none where a stamp's `ext` is not `""`, and blocks that do not decode or are JSON `null`, each `400 EXTENSION_MISMATCH`, and a block altered refused the same way at a service that verifies only to attest, at one with no verifier and at a hop that is off; blocks that match, served with their items handed on as not verified; where the chain did not read, blocks that read as an array served with nothing handed on, and an object refused; check 9c following the mode; and an origin, which carries no blocks. |
-| `attestation` | receiver | Who attests: only a chain that passed the live order at that service, whether or not it verifies requests under a mode; never a refusal, an audit failure, a forged or unsigned chain, a service with no verifier or an origin. A hop that is off attests nothing either, which `trustedRecord`'s case "a hop that is off" records in its `attests`. |
+| `servedUnverified` | receiver | Check 9a at a service about to serve a request it did not verify ([verification.md](verification.md#http-requests-and-responses)): in audit mode after a failure, blocks that do not match their stamps, none where a stamp's `ext` is not `""`, and blocks that do not decode or are JSON `null`, each `400 EXTENSION_MISMATCH`, and a block altered refused the same way at a service that verifies only to attest, at one with no verifier and at a hop that is off; blocks that match, served with their items handed on as not verified; where the chain did not read, blocks that read as an array served with nothing handed on, and an object refused; check 9c following the mode; and an origin, which carries no blocks. At a service that acts on no extension: blocks that match after an audit failure, served with `{}` handed on; a block altered, refused after an audit failure and with no verifier; and a last block requiring `influence`, `403 EXTENSION_REQUIRED` under `enforce`. |
+| `attestation` | receiver | Who attests: only a chain that passed the live order at that service, whether or not it verifies requests under a mode; never a refusal, an audit failure, a forged or unsigned chain, a service with no verifier or an origin. A hop that is off attests nothing either, which `trustedRecord`'s case "a hop that is off" records in its `attests`. A service that acts on no extension attests as one that does: here under no mode, and in `requests`' verified case under `enforce`. |
 | `peerCertificates` | table | The peer under mTLS: `svc` is the subject's one common name, a UTF8String or PrintableString, read as encoded and compared as it is, else `""`; `inst` is the address the connection came from. |
 | `sessionHeader` | partner | `X-Path-Session` ([sessions.md](sessions.md#over-http)): no header is an unsafe session that believes nothing; an unsafe session applies no check to the blocks a call carries; an id is the call's only when the same issuer and name opened it, so an unknown id, another peer's, the same name under another issuer, no certificate, one naming no single service and a stamp made in another session are `SESSION_UNKNOWN`. |
 | `sessionRegistry` | partner | Sessions by id: a handshake replaces none, a peer holds at most N and loses its least recently used, replicas sharing a certificate are one peer, another peer's handshakes evict none, a session idle for the idle period expires and a call starts that period again, and a handshake that opens no session changes none. |
@@ -593,7 +592,7 @@ header: every refusal, and every `refusals` and `boundaryRefusals` case among th
 | `egress` | egress | The egress's steps 1 to 7 ([sessions.md](sessions.md#between-organisations)): nothing sent, the handshake included, unless the chain passed the live order there; one boundary stamp and no internal one; blinded influence and the boundary route's proof; nothing but the session id in an unsafe session; the replacement after a 404 or a reply under another key, unsafe whatever it says, and a call that fails when the replacement is answered 404 too; each reply recorded as one `local-untrusted` entry; a session dropped after `SESSION_UNKNOWN`; the requirement: calls in an attested session whose reply lists every required name, each boundary block requiring them, and none after a reply that does not list one, which is not followed by the replacement, nor in an unsafe session or the replacement's; with the switch, calls after a reply that lists one of two required names, requiring that one, and in an unsafe session with nothing but the session id; and what the boundary block names ([influence.md](influence.md#blinded-influence)): `influence` with `[]` where every internal stamp names it and no influence is held, and nothing where one does not or the egress does not act on it. |
 | `callerInfluence` | caller | A response at the caller ([influence.md](influence.md#content-labels)): each label of a response that verifies and names `influence` becomes an entry with `src` `http:<target>` and `h` the result hash, the target the receiver's policy name without any operation, also when the caller holds the receiver's table (the case's `operations`) and its stamp names one; a response that names `influence` with no label adds nothing; any other response adds exactly one `local-untrusted` entry, and one refused at check 9c is also `refused`. The cases with a table run on the `shop-operations` material, whose root covers `gateway/orders/payment#pay` and payment's table. |
 | `sessionExpiry` | partner | A session's calls are `POLICY_EXPIRED` once the client's root or keyring passes its `notAfter`, and verify at it; a handshake after it is unsafe; and a partner whose own material lapses opens new sessions unsafe and keeps verifying the earlier ones ([sessions.md](sessions.md#status)). |
-| `refusals` | receiver | What a refusal carries, in a mesh: the code alone, even where the result names a suspect. |
+| `refusals` | receiver | What a refusal carries, in a mesh: the code alone, even where the result names a suspect, at a service that acts on no extension too. |
 | `boundaryRefusals` | partner | The same at the boundary: the partner's refusals, a block other than its stamp commits to and blocks that cannot be read included (`EXTENSION_MISMATCH`: a partner has no audit mode), an item that is not an entry (`400 INFLUENCE_MISMATCH`), and an unsafe session's switched-off endpoints refused `UNSAFE_SESSION`, with no session header too. |
 | `trustedRecord` | receiver | Trusted records ([influence.md](influence.md#trusted-records)): a verified chain every stamp of which names `influence`, and no `third-party` or `local-untrusted` content, counting what the handler reads; `private`, `public` and owners do not count. A guarded public write on a verified chain whose origin's block does not name `influence`, or is a pass-along block, is `INFLUENCE_DENIED` whatever the entries say ([influence.md](influence.md#the-every-stamp-rule)). The partner kinds' `trustedRecord` covers a call in an unsafe session, and `partnerTrustedRecord` the same rule at the boundary. |
 | `partnerTrustedRecord` | partner | The same rule at the boundary: an attested call qualifies only with no `third-party` or `local-untrusted` content, counting what the handler reads, and a boundary block that names `influence`, with nothing included; `private`, `public` and owners do not count. And the owner-aware rule over the boundary block's entries ([influence.md](influence.md#blinded-influence)): a guarded public write from a call holding `third-party` content beside alice's private data is `INFLUENCE_DENIED` to bob's destination and `OK` to alice's. |
@@ -660,12 +659,12 @@ the response check's `reason` (null when the caller has no verifier and checks n
 Some rules are not pinned by vectors and are tested in each HTTP SDK (`paztport-http`, `paztporthttp`): the startup
 checks of a partner's and an egress's own material, the [wire limit](wire.md#limits), 256 KiB, on a handshake body,
 clearing a session after `POLICY_EXPIRED`, the egress's own idle period, and the egress labelling its own response to
-its caller `local-untrusted`, since a handler may relay what the partner said. `paztport-http` also tests the
+its caller `local-untrusted`, since a handler may relay what the partner said. Each also tests the
 [writer's limit](wire.md#writing) on the blocks it sends: a caller whose blocks token would pass 256 KiB signs and
 sends nothing, and a responder whose `X-Path-Response` would pass it leaves the answer unattested, which its caller
-counts as one `local-untrusted` entry ([influence.md](influence.md#content-labels)). It tests too that a service's
+counts as one `local-untrusted` entry ([influence.md](influence.md#content-labels)). Each tests too that a service's
 `actsOn` and `allowedExtensions` are one configuration, whether or not it has a verifier
-([verification.md](verification.md#the-live-order)): a builder given settings that differ from its verifier's is
-refused.
+([verification.md](verification.md#the-live-order)): settings that differ from the verifier's are refused, by Java's
+builder at `build()` and by Go's receiver and caller, which panic.
 
 Cases may be added at any time. A recorded answer changes only with a protocol change.

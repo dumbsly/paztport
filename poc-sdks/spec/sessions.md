@@ -225,7 +225,7 @@ unsafe reply.
 
 ### Over HTTP
 
-The Java and Go SDKs carry the handshake over HTTP, in the version each SDK speaks
+The Java and Go SDKs carry the handshake over HTTP, in version 4
 ([conformance](README.md#conformance)). The request and the reply are the same JSON objects, and the session is
 the same.
 
@@ -403,7 +403,7 @@ When a request crosses from one organisation to another, the receiving organisat
 the sender's internal chain, which is the map the protocol keeps private. A boundary attestation crosses
 instead. The Java SDK implements this section over HTTP, in `BoundaryClient` for the sender and in partner mode
 for the partner, and the Go SDK in `boundary.Egress` for the sender and `paztporthttp.Sessions` for the partner,
-each in the version it speaks ([conformance](README.md#conformance)); the TypeScript SDK does not. Implementations
+both in version 4 ([conformance](README.md#conformance)); the TypeScript SDK does not. Implementations
 that bridge two organisations MUST follow it.
 
 **The sender's egress service.** The sender's last internal hop before the boundary is its egress service. It

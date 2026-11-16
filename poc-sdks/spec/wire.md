@@ -598,9 +598,9 @@ a service attests only a chain that verified there, and an origin never attests
 | `prev` | The request's last `sig`. |
 | `sig` | The answering service's signature over the stamp's [signed bytes](#fields-and-signed-bytes), as for any stamp. |
 
-[verification.md](verification.md#http-requests-and-responses) says how each side checks these. The Java SDK
-speaks version 4 over HTTP, and `http-v4.json` pins it; the Go SDK speaks version 3, and `http-v3.json` pins that,
-until it moves.
+[verification.md](verification.md#http-requests-and-responses) says how each side checks these. The Java and Go SDKs
+speak version 4 over HTTP, and `http-v4.json` pins it; `http-v3.json` records version 3 over HTTP, which no SDK speaks
+any more ([conformance](README.md#conformance)).
 
 ## The Merkle tree
 
