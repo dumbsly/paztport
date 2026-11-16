@@ -123,11 +123,16 @@ class PublicWritesTest {
                 .chain();
     }
 
-    /** Asks the trusted-record question in a scope whose chain verified, holding {@code entries}. */
+    /**
+     * Asks the trusted-record question in a scope whose chain verified and was handed on with its one stamp naming
+     * influence and holding nothing, the service having added {@code entries}.
+     */
     private boolean trustedWith(InfluenceEntry... entries) {
+        List<Stamp> chain = chain("rid-1");
         try (RequestContext.Scope scope = RequestContext.open()) {
             RequestContext.actOn(ACTS);
-            RequestContext.markVerified(chain("rid-1"));
+            RequestContext.markVerified(chain);
+            RequestContext.handOn(new HandOver(true, chain, List.of(Influence.block(List.of(), List.of())), ACTS));
             RequestContext.addInfluence(entries);
             return writes.shapedOnlyByTrusted();
         }
@@ -146,6 +151,19 @@ class PublicWritesTest {
             RequestContext.setInboundChain(chain("rid-1"));
             assertFalse(writes.shapedOnlyByTrusted());
         }
+    }
+
+    // A trusted record needs a verified hand-over in which every stamp names influence (spec influence.md, Trusted
+    // records). A receiver never marks a chain verified without handing it on, so only a state set by hand reaches
+    // this, and it writes no record.
+    @Test
+    void aVerifiedChainWithNothingHandedOnWritesNoTrustedRecord() {
+        try (RequestContext.Scope scope = RequestContext.open()) {
+            RequestContext.actOn(ACTS);
+            RequestContext.markVerified(chain("rid-1"));
+            assertFalse(writes.shapedOnlyByTrusted());
+        }
+        assertTrue(trustedWith(), "the same chain, handed on");
     }
 
     @Test

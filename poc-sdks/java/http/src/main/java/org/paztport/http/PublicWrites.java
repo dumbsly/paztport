@@ -109,18 +109,20 @@ public final class PublicWrites {
      * a destination owner. Never true at a service that does not act on {@code influence}. {@link #decide} cannot
      * answer this, since it judges whose private data a write carries,
      * and a record written at the behest of untrusted text carries none: a hijacked model's charge would register
-     * its own card to whoever it names. True only inside a scope whose chain verified at this hop, so that the
-     * influence is the one the caller vouched for; only when every item handed on reads and every stamp handed on
-     * names influence, since a hop that does not may have read anything (spec influence.md, The every-stamp rule);
-     * and only when what it was handed and what the service added hold no {@code third-party} and no
+     * its own card to whoever it names. True only inside a scope whose chain verified at this hop and was handed on,
+     * so that the influence is the one the caller vouched for; only when every item handed on reads and every stamp
+     * handed on names influence, since a hop that does not may have read anything (spec influence.md, The every-stamp
+     * rule); and only when what it was handed and what the service added hold no {@code third-party} and no
      * {@code local-untrusted} entry. Logs one {@code PAZTPORT_TRACE decision} line with {@code rule=trusted-record}.
      */
     public boolean shapedOnlyByTrusted() {
         HandOver handedOn = RequestContext.handedOn();
         RequestInfluence shown = shown(handedOn == null ? null : handedOn.under(Influence.NAME),
                 RequestContext.added());
-        boolean trusted = rulesDecide(handedOn) && RequestContext.verifiedChain() != null && shown.reads()
-                && shown.everyStampNames()
+        // A trusted record needs a verified hand-over in which every stamp names influence (spec influence.md, Trusted
+        // records): where nothing was handed on there is no stamp to name it, so none is written.
+        boolean trusted = rulesDecide(handedOn) && handedOn != null && RequestContext.verifiedChain() != null
+                && shown.reads() && shown.everyStampNames()
                 && InfluenceRule.shapedOnlyByTrusted(shown.entries().stream().map(InfluenceEntry::fact).toList());
         if (TRACE.isInfoEnabled()) {
             TRACE.info(DecisionLine.of(receiver, "trusted-record",
