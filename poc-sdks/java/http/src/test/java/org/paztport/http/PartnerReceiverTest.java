@@ -25,6 +25,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.paztport.core.crypto.Crypto;
 import org.paztport.core.encoding.Base64Url;
+import org.paztport.core.influence.Influence;
 import org.paztport.core.influence.InfluenceClass;
 import org.paztport.core.influence.InfluenceEntry;
 import org.paztport.core.policy.KeyringFile;
@@ -32,8 +33,11 @@ import org.paztport.core.policy.PolicyBuilder;
 import org.paztport.core.session.ReplyCert;
 import org.paztport.core.session.SessionRequest;
 import org.paztport.core.session.Sessions;
+import org.paztport.core.stamp.Block;
 import org.paztport.core.stamp.Stamp;
 import org.paztport.core.stamp.Stamper;
+import org.paztport.core.verify.ExtensionSettings;
+import org.paztport.core.verify.HandOver;
 import org.paztport.core.verify.Peer;
 import org.paztport.core.verify.ReasonCode;
 import org.paztport.http.wire.HttpWire;
@@ -55,6 +59,11 @@ class PartnerReceiverTest {
     private static final List<InfluenceEntry> INFLUENCE = List.of(
             new InfluenceEntry(InfluenceClass.THIRD_PARTY, "http:tickets", "h-ticket", "cid-1", null),
             new InfluenceEntry(InfluenceClass.PRIVATE, "http:orders", "h-order", "cid-2", "alice"));
+    /** The egress's boundary block: it acts on influence, so it names it with the (blinded) entries it sends. */
+    private static final Block BLOCK = Influence.block(INFLUENCE, List.of());
+    /** The partner acts on influence and carries no other name. */
+    private static final ExtensionSettings PARTNER = ExtensionSettings.of(Set.of(Influence.NAME),
+            Set.of(Influence.NAME));
 
     private final KeyPair shopPolicy = Crypto.generateEd25519KeyPair();
     private final KeyPair shopKey = Crypto.generateEd25519KeyPair();
@@ -79,6 +88,7 @@ class PartnerReceiverTest {
             .clientOrigins(Set.of("orders"))
             .unsafeDisabled(List.of("POST /refund"))
             .callMaxAgeMs(5000)
+            .extensions(PARTNER)
             .build();
     private final PartnerReceiver receiver = new PartnerReceiver(sessions, "psp");
 
@@ -114,18 +124,23 @@ class PartnerReceiverTest {
                 Sessions.newNonce()), SHOP_CA, "orders").sess();
     }
 
-    /** A call from the shop's egress in {@code sess}, stamped for {@code body} and carrying {@link #INFLUENCE}. */
+    /** A call from the shop's egress in {@code sess}, stamped for {@code body} and carrying {@link #BLOCK}. */
     private Map<String, String> boundary(String sess, String rid, byte[] body) {
+        return boundary(sess, rid, body, BLOCK);
+    }
+
+    /** The same, its boundary stamp committing to {@code block}, which travels as its one block. */
+    private Map<String, String> boundary(String sess, String rid, byte[] body, Block block) {
         List<Stamp> internal = new Stamper("gateway", "gw-1", Crypto.generateEd25519KeyPair().getPrivate(), true,
-                () -> rid, System::currentTimeMillis).next(null, "orders", "unused", List.of(), null).chain();
+                () -> rid, System::currentTimeMillis).next(null, "orders", "unused", Block.EMPTY, null).chain();
         Stamper.Stamped stamped = new Stamper("orders", "orders-1", shopKey.getPrivate(), false, () -> "unused",
                 System::currentTimeMillis).boundary(internal, sess, "psp", RequestBinding.compute("POST", "/charge",
-                        body), INFLUENCE, shopBuilt.bundles().get("orders"));
+                        body), block, shopBuilt.bundles().get("orders"));
         Map<String, String> headers = new HashMap<>();
         headers.put(PaztportHeaders.SESSION, sess);
         headers.put(PaztportHeaders.CHAIN, HttpWire.encodeChain(stamped.chain()));
         headers.put(PaztportHeaders.PROOF, HttpWire.encodeProof(stamped.proof()));
-        headers.put(PaztportHeaders.INFLUENCE, HttpWire.encodeInfluence(INFLUENCE));
+        headers.put(PaztportHeaders.EXTENSIONS, HttpWire.encodeBlocks(List.of(block)));
         return headers;
     }
 
@@ -166,9 +181,51 @@ class PartnerReceiverTest {
         assertTrue(accepted.attested());
         assertEquals(1, accepted.verifiedChain().size(), "the boundary stamp alone");
         assertEquals("rid-1", accepted.verifiedChain().get(0).rid());
-        assertEquals(INFLUENCE, accepted.influence(), "owners included");
         assertEquals(List.of("PAZTPORT_TRACE request rid=rid-1 reason=OK receiver=psp ✓ peer=orders (mTLS) "
                 + "classes=private,third-party session=attested"), traceLines());
+    }
+
+    @Test
+    void anAttestedCallHandsOverItsOneBlock() {
+        String sess = attestedSession();
+
+        PartnerAccepted accepted = receiver.accept(charge(boundary(sess, "rid-1", REFUND), REFUND),
+                cert(SHOP_CA, "orders"));
+
+        assertTrue(accepted.handOver().verified());
+        assertEquals(List.of(new HandOver.StampItems("orders",
+                INFLUENCE.stream().map(InfluenceEntry::toJson).toList())), accepted.handOver().under(Influence.NAME),
+                "owners included");
+        assertEquals(List.of(BLOCK), accepted.blocks());
+    }
+
+    /** sessions.md, Over HTTP: in an unsafe session nothing is believed, so nothing is handed on and no block read. */
+    @Test
+    void anUnsafeCallHandsNothingOverWhateverItsBlocks() {
+        String sess = sessions.open(SessionRequest.of(null, pub(shopPolicy), shopKeyring, Sessions.newNonce()),
+                SHOP_CA, "orders").sess();
+        Map<String, String> altered = boundary(sess, "rid-1", REFUND);
+        altered.put(PaztportHeaders.EXTENSIONS, HttpWire.encodeBlocks(List.of(Influence.block(List.of(), List.of()))));
+
+        PartnerAccepted accepted = receiver.accept(charge(altered, REFUND), cert(SHOP_CA, "orders"));
+
+        assertNull(accepted.refusal(), "served: check 9a does not reach an unsafe session");
+        assertFalse(accepted.attested());
+        assertNull(accepted.handOver());
+        assertNull(accepted.blocks());
+    }
+
+    /** The partner's settings reach its session verifiers: a name outside its allowed list is check 9b's. */
+    @Test
+    void aPartnerVerifiesWithItsOwnSettings() {
+        String sess = attestedSession();
+        Block example = Block.of(Map.of("example", List.of("1")), List.of());
+
+        PartnerAccepted accepted = receiver.accept(charge(boundary(sess, "rid-1", REFUND, example), REFUND),
+                cert(SHOP_CA, "orders"));
+
+        assertEquals(403, accepted.refusal().status());
+        assertEquals("{\"reason\":\"EXTENSION_NOT_ALLOWED\"}", text(accepted.refusal()));
     }
 
     @Test
@@ -196,9 +253,75 @@ class PartnerReceiverTest {
         assertNull(accepted.refusal());
         assertFalse(accepted.attested());
         assertNull(accepted.verifiedChain());
-        assertEquals(List.of(), accepted.influence());
+        assertNull(accepted.handOver());
         assertEquals(List.of("PAZTPORT_TRACE request rid=rid-1 reason=- receiver=psp peer=orders (mTLS) "
                 + "session=unsafe"), traceLines());
+    }
+
+    // A blank header is read as no header, as every Paztport header is (spec wire.md, HTTP): it asks for nothing an
+    // absent one does not, since a caller can always leave the header out.
+    @Test
+    void aBlankSessionHeaderIsNoHeader() {
+        Map<String, String> call = boundary(attestedSession(), "rid-1", REFUND);
+        for (String blank : List.of("", " ", "\t")) {
+            traces.list.clear();
+            call.put(PaztportHeaders.SESSION, blank);
+
+            PartnerAccepted accepted = receiver.accept(charge(call, REFUND), cert(SHOP_CA, "orders"));
+
+            String shown = "[" + blank + "]";
+            assertNull(accepted.refusal(), shown);
+            assertFalse(accepted.attested(), shown);
+            assertNull(accepted.verifiedChain(), shown);
+            assertNull(accepted.handOver(), shown);
+            assertNull(accepted.result(), shown);
+            assertEquals(List.of("PAZTPORT_TRACE request rid=rid-1 reason=- receiver=psp peer=orders (mTLS) "
+                    + "session=unsafe"), traceLines(), shown);
+        }
+    }
+
+    // Only spaces and tabs are blank: a no-break space or a vertical tab is a value, and names no session.
+    @Test
+    void aSessionHeaderOfNbspNamesNoSession() {
+        Map<String, String> call = boundary(attestedSession(), "rid-1", REFUND);
+        for (String value : List.of("\u00a0", "\u000b")) {
+            call.put(PaztportHeaders.SESSION, value);
+
+            PartnerAccepted accepted = receiver.accept(charge(call, REFUND), cert(SHOP_CA, "orders"));
+
+            String shown = String.format("U+%04X", (int) value.charAt(0));
+            assertNotNull(accepted.refusal(), shown + " is a value, never taken as unsafe");
+            assertEquals(403, accepted.refusal().status(), shown);
+            assertEquals("{\"reason\":\"SESSION_UNKNOWN\"}", text(accepted.refusal()), shown);
+            assertFalse(accepted.attested(), shown);
+        }
+    }
+
+    // The spaces and tabs around a value are not part of it, as HTTP reads every field value.
+    @Test
+    void aLiveSessionIdWrappedInSpacesAndTabsNamesThatSession() {
+        String sess = attestedSession();
+        Map<String, String> call = boundary(sess, "rid-1", REFUND);
+        call.put(PaztportHeaders.SESSION, " \t" + sess + "\t ");
+
+        PartnerAccepted accepted = receiver.accept(charge(call, REFUND), cert(SHOP_CA, "orders"));
+
+        assertNull(accepted.refusal());
+        assertTrue(accepted.attested());
+        assertEquals(ReasonCode.OK, accepted.result().reason());
+    }
+
+    @Test
+    void anUnknownSessionIdIsStillRefused() {
+        attestedSession(); // the peer holds a live session, but not the one it names
+
+        PartnerAccepted accepted = receiver.accept(charge(boundary("no-such-session", "rid-1", REFUND), REFUND),
+                cert(SHOP_CA, "orders"));
+
+        assertNotNull(accepted.refusal(), "an id that names no session is never taken as unsafe");
+        assertEquals(403, accepted.refusal().status());
+        assertEquals("{\"reason\":\"SESSION_UNKNOWN\"}", text(accepted.refusal()));
+        assertFalse(accepted.attested());
     }
 
     @Test
@@ -211,7 +334,7 @@ class PartnerReceiverTest {
 
         assertNull(accepted.refusal());
         assertFalse(accepted.attested());
-        assertEquals(List.of(), accepted.influence());
+        assertNull(accepted.handOver());
     }
 
     // Naming a session that is not this peer's is refused, never stepped down to unsafe.
@@ -264,5 +387,18 @@ class PartnerReceiverTest {
                 cert(SHOP_CA, "orders"));
         assertNotNull(unknown.refusal());
         assertNull(unknown.result(), "the unknown-session result the trace line builds is not exposed");
+    }
+
+    @Test
+    void anItemThatIsNotAnEntryIs400InfluenceMismatch() {
+        String sess = attestedSession();
+        Block unread = Block.of(Map.of(Influence.NAME, List.of("\"not an entry\"")), List.of());
+
+        PartnerAccepted accepted = receiver.accept(charge(boundary(sess, "rid-1", REFUND, unread), REFUND),
+                cert(SHOP_CA, "orders"));
+
+        assertEquals(400, accepted.refusal().status());
+        assertEquals("{\"reason\":\"INFLUENCE_MISMATCH\"}", text(accepted.refusal()));
+        assertFalse(accepted.attested(), "an item that does not read is believed by no one");
     }
 }

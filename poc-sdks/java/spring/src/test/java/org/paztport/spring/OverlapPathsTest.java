@@ -24,6 +24,7 @@ import org.paztport.core.crypto.Crypto;
 import org.paztport.core.policy.KeyringFile;
 import org.paztport.core.policy.PolicyBuilder;
 import org.paztport.core.policy.SignedRoot;
+import org.paztport.core.stamp.Block;
 import org.paztport.core.stamp.Chains;
 import org.paztport.core.stamp.Stamper;
 import org.paztport.core.verify.ReasonCode;
@@ -98,8 +99,8 @@ class OverlapPathsTest {
     /** What the verifier says to a first hop from gateway to orders, signed by {@code key}, proven by {@code root}. */
     private ReasonCode verdict(Verifier verifier, KeyPair key, PolicyBuilder.Result root, String rid) {
         Stamper.Stamped sent = new Stamper("gateway", "gw-1", key.getPrivate(), true, () -> rid,
-                System::currentTimeMillis).next(null, "orders", "b", List.of(), root.bundles().get("gateway"));
-        return verifier.verify(new VerifyInput(Chains.toJson(sent.chain()), "b", "[]", sent.proof().toJson(),
+                System::currentTimeMillis).next(null, "orders", "b", Block.EMPTY, root.bundles().get("gateway"));
+        return verifier.verify(new VerifyInput(Chains.toJson(sent.chain()), "b", null, sent.proof().toJson(),
                 "orders", true, rid + "|gateway|orders|req", null)).reason();
     }
 

@@ -15,7 +15,7 @@ class ResponderEventTest {
 
     private static final List<String> ALLOWED = List.of("CHAIN_MISSING", "BAD_ORIGIN", "BAD_SIGNATURE", "BROKEN_LINK",
             "EXPIRED", "RID_MISMATCH", "BINDING_MISMATCH", "REPLAY", "PATH_NOT_ALLOWED", "SESSION_UNKNOWN",
-            "CLIENT_PATH_NOT_ALLOWED", "INFLUENCE_MISMATCH", "PEER_MISMATCH");
+            "CLIENT_PATH_NOT_ALLOWED", "EXTENSION_MISMATCH", "PEER_MISMATCH");
 
     private static ResponderEvent of(String reason, String svc, String inst, boolean audit) {
         return new ResponderEvent(reason, svc, inst, "r", audit, 1L, "e");
@@ -31,9 +31,9 @@ class ResponderEventTest {
 
     @Test
     void attributableRefusesEveryOtherReason() {
-        for (String reason : List.of("OK", "INFLUENCE_DENIED", "UNSAFE_SESSION", "POLICY_EXPIRED", "SCOPE_DENIED",
-                "UNCHECKABLE", "TIME_MISMATCH", "OUTSIDE_SESSION", "NOT_A_CODE", "", "path_not_allowed",
-                "PATH_NOT_ALLOWED ")) {
+        for (String reason : List.of("OK", "INFLUENCE_DENIED", "UNSAFE_SESSION", "INFLUENCE_MISMATCH",
+                "EXTENSION_NOT_ALLOWED", "EXTENSION_REQUIRED", "POLICY_EXPIRED", "SCOPE_DENIED", "UNCHECKABLE",
+                "TIME_MISMATCH", "OUTSIDE_SESSION", "NOT_A_CODE", "", "path_not_allowed", "PATH_NOT_ALLOWED ")) {
             assertFalse(of(reason, "search", "search-1", false).attributable(), "[" + reason + "]");
         }
     }

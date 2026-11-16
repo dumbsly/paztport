@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import {
-  buildPolicy, canonicalize, decode, encode, generateKeyPair, readSessionReply, sign, signReplyCert, signKeyring, signRoot, utf8, verifyRoot,
+  buildPolicy, canonicalize, decode, encode, extensionSettings, generateKeyPair, readSessionReply, sign, signReplyCert, signKeyring, signRoot, utf8, verifyRoot,
   verifySessionReply,
 } from "@paztport/core";
 import { McpServerSession, type ServerPolicy, type SessionRules } from "@paztport/mcp";
@@ -52,12 +52,12 @@ function serverSetup(): { cfg: ServerPolicy; policyPrivateKey: string } {
 const serverConfig = (): ServerPolicy => serverSetup().cfg;
 
 const RESULT: CallToolResult = { content: [{ type: "text", text: "hello" }] };
-const CALL = { rid: "rid-1", callId: "call-1", name: "list_issues", args: { owner: "o", repo: "r" }, caller: "pi" };
+const CALL = { rid: "rid-1", callId: "call-1", name: "list_issues", args: { owner: "o", repo: "r" } };
 
 describe("loadServerConfig", () => {
   const dirs: string[] = [];
   afterAll(() => dirs.forEach((d) => rmSync(d, { recursive: true, force: true })));
-  it("loadServerConfigReadsPolicyToolOutput", () => {
+  it("loadServerConfigReadsPolicyToolOutput", async () => {
     const dir = mkdtempSync(join(tmpdir(), "paztport-cfg-"));
     dirs.push(dir);
     const tool = (f: string) => join(import.meta.dirname, "../../node_modules/@paztport/policy-tool/src", f);
@@ -79,15 +79,21 @@ describe("loadServerConfig", () => {
     expect(cfg.signedRoot.notAfter).toEqual(expect.any(Number));
     expect(cfg.keyringNotAfter).toEqual(expect.any(Number));
     // the loaded config drives a full handshake and a verifiable response
-    const srv = new McpServerSession(cfg, RULES, Date.now);
+    const srv = new McpServerSession(cfg, RULES, extensionSettings(["influence"]), Date.now);
     const client = makeClient();
     const reply = readSessionReply(srv.openSession(sessionParams(client.request())).reply);
     expect(reply.status).toBe("attested");
     expect(client.acceptReply(reply, cfg.policyPublicKey)).toBe(true);
     expect(reply.serverReplyCert).toEqual(cfg.replyCert);
     expect(reply.serverKeyringNotAfter).toBe(cfg.keyringNotAfter);
-    const out = srv.attest(srv.session()!, RESULT, CALL, "public");
-    expect(client.verify(out, { rid: CALL.rid, toolCallId: CALL.callId }, reply.serverKeyring, reply.serverRoot!).reason).toBe("OK");
+    // the response is attested by handleToolCall, the one place that records the class it serves
+    const params = client.callParams(CALL.name, CALL.args, [], { rid: CALL.rid, callId: CALL.callId });
+    const out = await srv.handleToolCall(params, { isWrite: false, publicDestination: false }, "enforce", () => ({ result: RESULT, cls: "public" }));
+    expect(out.verdict).toBe("OK");
+    expect(srv.session()!.served).toEqual(new Set(["public"]));
+    const v = client.verify(out.result, { rid: CALL.rid, callId: CALL.callId }, reply.serverKeyring, reply.serverRoot!);
+    expect(v.reason).toBe("OK");
+    expect(v.entries.map((e) => e.cls)).toEqual(["public"]);
   });
 
   /** The proof bundle file the policy tool writes for mcp-entry, holding `proof` for the server's route. */
@@ -263,7 +269,7 @@ describe("loadServerConfig", () => {
   });
   it("aLoadedConfigsReplyVerifiesUnderTheEntryKeyNotThePolicyKey", () => {
     const cfg = loadServerConfig(writeDir(serverConfig()));
-    const srv = new McpServerSession(cfg, RULES, Date.now);
+    const srv = new McpServerSession(cfg, RULES, extensionSettings(["influence"]), Date.now);
     const client = makeClient();
     const req = client.request();
     const reply = readSessionReply(srv.openSession(sessionParams(req)).reply);

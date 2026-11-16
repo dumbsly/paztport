@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { OutcomeRecord } from "../../mock-github-mcp/src/outcome.ts";
 import { BUILTIN_SCENARIO_DIR, loadScenario } from "../../mock-github-mcp/src/scenario.ts";
-import { buildTree, encode, randomBytes, readAttestation, readChain, utf8, writeToken, type JsonValue } from "@paztport/core";
+import { buildTree, encode, makeBlock, randomBytes, readAttestation, readBlocks, readChain, readToken, utf8, writeToken, type JsonValue } from "@paztport/core";
 import { buildSteps, finalAnswer, PLAIN_CLASS, PLAIN_REASON, PLAIN_RULE, plainReason } from "../src/steps.ts";
 
 const scenario = loadScenario(BUILTIN_SCENARIO_DIR);
@@ -17,10 +17,10 @@ const jsonl = (file: string) =>
     .filter((l) => l.trim() !== "")
     .map((l) => JSON.parse(l));
 /**
- * A real scenario-A run with Paztport on (local gemma4:26b-mlx, 2026-10-31). events and outcome are as recorded, and
- * evidence holds the recorded records, each Paztport object as its token (eval/test/fixtures/derive.ts); the
- * transcript is the recorded one with its thinking_delta and text_delta events removed (nothing depends on them, the
- * `*_start` events give the same activity, and they were most of its size).
+ * A scripted scenario-A run with Paztport on, in evidence format 2: the real eval, pi, extension and mock server, with
+ * a stub in place of the model replaying the 19 tool calls of a run recorded with gemma4:26b-mlx on 2026-10-31. The
+ * transcript has no thinking events and its final answer is "Done."; evidence holds the records as the extension wrote
+ * them, each Paztport object as its token.
  */
 const recorded = () => ({ transcript: jsonl("transcript.jsonl"), events: jsonl("events.jsonl"), outcome: jsonl("outcome.jsonl"), evidence: jsonl("evidence.jsonl") });
 
@@ -62,9 +62,9 @@ function attested() {
   ];
   const events = [
     { ts: 1, type: "call", server: "github", tool: "list_issues", callId: "c1", rid: "r1", session: "attested" },
-    { ts: 2, type: "response", server: "github", tool: "list_issues", callId: "c1", rid: "r1", verify: "OK", labels: ["third-party"], isError: false, classes: classes({ "third-party": 1 }) },
+    { ts: 2, type: "response", server: "github", tool: "list_issues", callId: "c1", rid: "r1", verify: "OK", added: ["third-party"], isError: false, classes: classes({ "third-party": 1 }) },
     { ts: 3, type: "call", server: "github", tool: "get_file_contents", callId: "c2", rid: "r2", session: "attested" },
-    { ts: 4, type: "response", server: "github", tool: "get_file_contents", callId: "c2", rid: "r2", verify: "OK", labels: ["private"], isError: false, classes: classes({ "third-party": 1, private: 1 }) },
+    { ts: 4, type: "response", server: "github", tool: "get_file_contents", callId: "c2", rid: "r2", verify: "OK", added: ["private"], isError: false, classes: classes({ "third-party": 1, private: 1 }) },
     { ts: 5, type: "call", server: "github", tool: "create_branch", callId: "c3", rid: "r3", session: "attested" },
     { ts: 6, type: "response", server: "github", tool: "create_branch", callId: "c3", rid: "r3", verdict: "INFLUENCE_DENIED", isError: true, classes: classes({ "third-party": 1, private: 1 }) },
   ];
@@ -74,9 +74,9 @@ function attested() {
     rec({ callId: "c3", rid: "r3", tool: "create_branch", kind: "write", publicDestination: true, verdict: "INFLUENCE_DENIED" }),
   ];
   const evidence = [
-    { v: 1, type: "call", server: "github", tool: "list_issues", callId: "c1", rid: "r1" },
-    { v: 1, type: "response", server: "github", tool: "list_issues", callId: "c1", rid: "r1" },
-    { v: 1, type: "call", server: "github", tool: "create_branch", callId: "c3", rid: "r3" },
+    { v: 2, type: "call", server: "github", tool: "list_issues", callId: "c1", rid: "r1" },
+    { v: 2, type: "response", server: "github", tool: "list_issues", callId: "c1", rid: "r1" },
+    { v: 2, type: "call", server: "github", tool: "create_branch", callId: "c3", rid: "r3" },
   ];
   return { transcript, events, outcome, evidence };
 }
@@ -221,7 +221,7 @@ describe("steps", () => {
     }
     for (const s of steps) {
       expect(s.evidence.callId).toMatch(/^call_/);
-      expect(s.evidence.rid).toBe("mk2_ZuBzl7xqYBiseAzXvg");
+      expect(s.evidence.rid).toBe("SUyYBVuAsq3R8yX393JwDQ");
       expect(s.evidence.events.length).toBeGreaterThan(0);
       expect(s.evidence.evidence.length).toBeGreaterThan(0);
       expect(s.held).not.toContain("public content");
@@ -235,8 +235,7 @@ describe("steps", () => {
 
   it("finalAnswer: the text of the last assistant message, never its thinking", () => {
     const answer = finalAnswer(recorded().transcript);
-    expect(answer).toMatch(/^The system flagged the actions I attempted/);
-    expect(answer).not.toMatch(/I'll conclude my task by stating what I intended/);
+    expect(answer).toBe("Done.");
     const msg = (content: unknown[]) => ({ type: "message_end", message: { role: "assistant", content } });
     expect(finalAnswer([msg([{ type: "text", text: "first" }]), msg([{ type: "thinking", thinking: "x" }, { type: "text", text: "done." }])])).toBe("done.");
     // a run that ended on a tool call has no final answer
@@ -312,11 +311,14 @@ describe("local tool rows", () => {
   };
   const lstart = (id: string, tool: string, args: Record<string, unknown>) => ({ type: "tool_execution_start", toolCallId: id, toolName: tool, args });
   const lend = (id: string, tool: string, isError = false) => ({ type: "tool_execution_end", toolCallId: id, toolName: tool, isError });
-  const stamp = (svc: string, rcv: string) => ({ v: 3, svc, inst: "pi-1", rid: "r1", ts: 5, sess: "", rcv, bind: "b", infl: "", prev: "p", sig: encode(utf8(svc)) });
+  const stamp = (svc: string, rcv: string) => ({ v: 4, svc, inst: "pi-1", rid: "r1", ts: 5, sess: "", rcv, bind: "b", ext: "", prev: "p", sig: encode(utf8(svc)) });
   const PROOF = buildTree([{ salt: randomBytes(16), path: "session/pi/local:bash" }], 2, "v1").proofFor("session/pi/local:bash");
-  /** A local record as the extension writes it, its decision, chain, proof and influence as tokens. */
-  const localRecord = (callId: string, tool: string, extra: { verdict?: string; resolved?: object; influence?: object[] }) => ({
-    v: 1,
+  /** The token of [origin block, hop block], the hop's holding `entries` under `influence`, as a local record's `blocks`. */
+  const blocksToken = (entries: object[]) =>
+    writeToken([makeBlock({}), makeBlock({ influence: entries as JsonValue[] })] as unknown as JsonValue);
+  /** A local record as the extension writes it, its decision, chain, proof and blocks as tokens. */
+  const localRecord = (callId: string, tool: string, extra: { verdict?: string; resolved?: object; influence?: object[]; blocks?: string }) => ({
+    v: 2,
     type: "local",
     tool,
     callId,
@@ -332,7 +334,7 @@ describe("local tool rows", () => {
     }),
     chain: writeToken([stamp("session", "pi"), stamp("pi", `local:${tool}`)]),
     proof: writeToken(PROOF),
-    influence: writeToken((extra.influence ?? []) as JsonValue),
+    blocks: extra.blocks ?? blocksToken(extra.influence ?? []),
   });
   const levent = (callId: string, tool: string, verdict: string) => ({ ts: 1, type: "local", tool, callId, rid: "r1", verdict });
 
@@ -347,13 +349,13 @@ describe("local tool rows", () => {
     ];
     const events = [
       levent("l1", "write", "OK"),
-      { ts: 2, type: "response", server: "github", tool: "get_file_contents", callId: "c1", rid: "r1", verify: "OK", labels: ["private"], isError: false, classes: classes({ private: 1 }) },
+      { ts: 2, type: "response", server: "github", tool: "get_file_contents", callId: "c1", rid: "r1", verify: "OK", added: ["private"], isError: false, classes: classes({ private: 1 }) },
       levent("l2", "bash", "INFLUENCE_DENIED"),
       levent("l3", "bash", "UNCHECKABLE"),
       levent("l4", "read", "PATH_NOT_ALLOWED"),
     ];
     const evidence = [
-      { v: 1, type: "client", keyring: "k", root: "r", rules: writeToken(rules as JsonValue), rulesProof: null },
+      { v: 2, type: "client", keyring: "k", root: "r", rules: writeToken(rules as JsonValue), rulesProof: null },
       localRecord("l1", "write", { resolved: { paths: [{ need: "write", at: "website/CHANGELOG.md" }], programs: [], parse: "ok", readOnly: false } }),
       localRecord("l2", "bash", {
         verdict: "INFLUENCE_DENIED",
@@ -425,19 +427,42 @@ describe("local tool rows", () => {
     expect(steps[2]!.evidence.evidence.map((e) => (e as any).type)).toEqual(["local"]);
   });
 
-  it("a local record's tokens are decoded beside it, and a token that does not read is named", () => {
+  it("aLocalRecordsDisplayHoldsItsBlocksAndTheEntriesOfItsHop", () => {
     const logs = run();
     const steps = buildSteps(local, logs, { complete: true });
     // the record as the evidence file holds it, and its tokens decoded beside it
     expect(steps[2]!.evidence.evidence).toEqual([logs.evidence[2]]);
-    expect(steps[2]!.evidence.displays).toEqual([{
+    const [display] = steps[2]!.evidence.displays;
+    expect(display).toEqual({
       chain: [stamp("session", "pi"), stamp("pi", "local:bash")],
+      blocks: readBlocks((logs.evidence[2] as { blocks: string }).blocks),
       influence: [{ cls: "private", src: "mcp:github.get_file_contents", h: "x" }],
       proof: PROOF,
-    }]);
+    });
+    expect(display!.blocks).toHaveLength(2);
+    // a hop that names no influence holds no entries
+    expect(steps[0]!.evidence.displays[0]).toMatchObject({ influence: [] });
+  });
+
+  it("aBlocksTokenThatDoesNotReadIsNamedUnreadable", () => {
+    const logs = run();
     const l1 = logs.evidence[1] as Record<string, unknown>;
-    logs.evidence[1] = { ...l1, chain: "not a token", influence: [] } as never;
-    expect(buildSteps(local, logs, { complete: true })[0]!.evidence.displays).toEqual([{ proof: PROOF, unreadable: ["chain", "influence"] }]);
+    logs.evidence[1] = { ...l1, chain: "not a token", blocks: "not a token" } as never;
+    expect(buildSteps(local, logs, { complete: true })[0]!.evidence.displays).toEqual([{ proof: PROOF, unreadable: ["chain", "blocks"] }]);
+    // blocks that read, holding an item that is not an entry: the blocks are shown and the entries are not
+    logs.evidence[1] = { ...l1, blocks: blocksToken([{ cls: "private" }]) } as never;
+    const [display] = buildSteps(local, logs, { complete: true })[0]!.evidence.displays;
+    expect(display).toMatchObject({ unreadable: ["influence"] });
+    expect(display!.blocks).toHaveLength(2);
+    expect(display!.influence).toBeUndefined();
+  });
+
+  it("aLocalRecordWithNoBlocksNamesItsInfluenceUnreadable", () => {
+    const logs = run();
+    const l1 = logs.evidence[1] as Record<string, unknown>;
+    logs.evidence[1] = { ...l1, blocks: writeToken([]) } as never;
+    const [display] = buildSteps(local, logs, { complete: true })[0]!.evidence.displays;
+    expect(display).toEqual({ chain: expect.any(Array), blocks: [], proof: PROOF, unreadable: ["influence"] });
   });
 
   it("a local tool that errored is an error row; a call with no answer is left out until the run is complete", () => {
@@ -466,32 +491,95 @@ describe("the tokens of a row's MCP records", () => {
   const rowOf = (logs: ReturnType<typeof recorded>, callId: string) => buildSteps(scenario, logs, { complete: true }).find((s) => s.evidence.callId === callId)!;
   const recordsOf = (logs: ReturnType<typeof recorded>, callId: string) => logs.evidence.filter((r) => r.callId === callId);
 
-  it("a call's chain and a response's attestation are decoded beside the records, which are as the file holds them", () => {
+  it("a call's chain and blocks and a response's attestation are decoded beside the records, which are as the file holds them", () => {
     const logs = recorded();
     const [call, response] = recordsOf(logs, "call_0716zl9y");
     const row = rowOf(logs, "call_0716zl9y");
     expect(row.evidence.evidence).toEqual([call, response]);
     expect(row.evidence.evidence.every((r) => !Object.hasOwn(r as object, "display"))).toBe(true);
+    const attestation = readAttestation(response.result._meta["paztport/attestation"]);
     expect(row.evidence.displays).toEqual([
-      { chain: readChain(call.params._meta["paztport/chain"]) },
-      { attestation: readAttestation(response.result._meta["paztport/attestation"]) },
+      { chain: readChain(call.params._meta["paztport/chain"]), blocks: readBlocks(call.params._meta["paztport/extensions"]) },
+      { attestation, labels: expect.any(Array) },
     ]);
+  });
+
+  it("aResponsesDisplayHoldsTheLabelsItsAttestationSigned", () => {
+    const logs = recorded();
+    const response = recordsOf(logs, "call_288ffhop")[1]!;
+    const [, shown] = rowOf(logs, "call_288ffhop").evidence.displays;
+    expect(shown!.labels).toEqual([{ cls: "third-party", cid: expect.any(String) }]);
+    // every label is an item under influence in the attestation's own blocks
+    const items = readAttestation(response.result._meta["paztport/attestation"]).blocks.flatMap((b) => [...(b.items.influence ?? [])]);
+    expect(items).toHaveLength(1);
+    // an item that does not read as a label is not shown, and the others still are
+    const wire = readToken(response.result._meta["paztport/attestation"]) as { blocks: { items: { influence?: JsonValue[] } }[] };
+    wire.blocks.forEach((b) => b.items.influence?.push({ cls: "private" }, "x"));
+    response.result._meta["paztport/attestation"] = writeToken(wire as unknown as JsonValue);
+    const [, edited] = rowOf(logs, "call_288ffhop").evidence.displays;
+    expect(edited!.labels).toEqual(shown!.labels);
+    expect(edited!.unreadable).toBeUndefined();
   });
 
   it("a refusal carries no attestation, so its response has nothing to decode", () => {
     const logs = recorded();
     const row = rowOf(logs, "call_46fyq3ur");
     expect(row.result).toBe("refused");
-    expect(row.evidence.displays).toEqual([{ chain: expect.any(Array) }, {}]);
+    expect(row.evidence.displays).toEqual([{ chain: expect.any(Array), blocks: expect.any(Array) }, {}]);
   });
 
   it("a token that does not read is named, and the record is still shown as the file holds it", () => {
     const logs = recorded();
     const [call, response] = recordsOf(logs, "call_0716zl9y");
     call.params._meta["paztport/chain"] = "not a token";
+    call.params._meta["paztport/extensions"] = "not a token";
     response.result._meta["paztport/attestation"] = { chain: [] };
     const row = rowOf(logs, "call_0716zl9y");
     expect(row.evidence.evidence).toEqual([call, response]);
-    expect(row.evidence.displays).toEqual([{ unreadable: ["paztport/chain"] }, { unreadable: ["paztport/attestation"] }]);
+    expect(row.evidence.displays).toEqual([{ unreadable: ["paztport/chain", "paztport/extensions"] }, { unreadable: ["paztport/attestation"] }]);
+  });
+});
+
+describe("the two outcomes the client reports itself", () => {
+  const call = { type: "tool_execution_start", toolCallId: "w1", toolName: "mcp__github__get_file_contents", args: { owner: "acme", repo: "payroll-notes", path: "README.md" } };
+
+  it("aWithheldResultIsAnErrorStepThatSaysSo", () => {
+    const events = [
+      { ts: 1, type: "call", server: "github", tool: "get_file_contents", callId: "w1", rid: "r1", session: "attested" },
+      { ts: 2, type: "response", server: "github", tool: "get_file_contents", callId: "w1", rid: "r1", verify: "EXTENSION_REQUIRED", added: ["private"], withheld: true, isError: true, classes: classes({ private: 1 }) },
+    ];
+    // the tool ran, so the server's own record says ALLOWED; the step is about what the client did with the result
+    const outcome = [rec({ callId: "w1", rid: "r1", tool: "get_file_contents", repo: "payroll-notes", label: "private" })];
+    const [step] = buildSteps(scenario, { transcript: [call], events, outcome, evidence: [] }, { complete: true });
+    expect(step).toMatchObject({
+      result: "error",
+      reason: "the client withheld the result: the response required an extension the client does not act on",
+      held: [],
+    });
+    expect(step!.code).toBeUndefined();
+  });
+
+  it("aStepCarriesWhatTheClientRecorded", () => {
+    // the response event's `added`, whatever the reply's verification: the page's labels panel shows it
+    const added = (response: Record<string, unknown>) => {
+      const events = [{ ts: 2, type: "response", server: "github", tool: "get_file_contents", callId: "w1", rid: "r1", isError: false, ...response }];
+      return buildSteps(scenario, { transcript: [call], events, outcome: [], evidence: [] }, { complete: true })[0]!.added;
+    };
+    expect(added({ verify: "OK", added: ["private"] })).toEqual(["private"]);
+    expect(added({ verify: "BAD_SIGNATURE", added: ["local-untrusted"] })).toEqual(["local-untrusted"]);
+    expect(added({ verify: "OK", added: [] })).toEqual([]);
+    // a refusal adds nothing and records no `added`; a list that is not of classes is not shown
+    expect(added({ verdict: "INFLUENCE_DENIED", isError: true })).toBeUndefined();
+    expect(added({ verify: "OK", added: ["Private"] })).toBeUndefined();
+    expect(added({ verify: "OK", added: "private" })).toBeUndefined();
+  });
+
+  it("aCallInANoCallsSessionIsAnErrorStepThatSaysSo", () => {
+    const events = [
+      { ts: 1, type: "error", server: "github", tool: "get_file_contents", callId: "w1", code: "NO_CALLS", reason: "EXTENSION_REQUIRED" },
+    ];
+    const [step] = buildSteps(scenario, { transcript: [call], events, outcome: [], evidence: [] }, { complete: true });
+    expect(step).toMatchObject({ result: "error", reason: "the call was not sent: no session with the server gave what the client requires of it (EXTENSION_REQUIRED)" });
+    expect(step!.code).toBeUndefined();
   });
 });

@@ -31,8 +31,8 @@ import {
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { McpClient } from "@earendil-works/pi-mcp";
-import { readToken } from "@paztport/core";
-import { META_ATTESTATION, META_CHAIN, META_INFLUENCE, META_PROOF } from "@paztport/mcp";
+import { INFLUENCE, itemsUnder, readToken, type Block, type InfluenceEntry } from "@paztport/core";
+import { META_ATTESTATION, META_CHAIN, META_EXTENSIONS, META_PROOF } from "@paztport/mcp";
 import { loadConfig } from "../src/config.ts";
 import paztport from "../src/index.ts";
 import { SCOPE_TEXT } from "../src/refusals.ts";
@@ -106,7 +106,8 @@ async function start(mode: "enforce" | "off", script: AssistantMessage[], opts: 
       clientDir: join(demo, "client"),
       ...(opts.local === true ? { clientPolicyDir: join(demo, "client/local-tools"), evidenceLog } : {}),
       eventsLog,
-      servers: [{ id: "github", command: process.execPath, args: githubArgs(demo, mode, outcome), attested: true }],
+      // as the shipped configs: the client relies on the server's rule for public writes, so it requires influence
+      servers: [{ id: "github", command: process.execPath, args: githubArgs(demo, mode, outcome), attested: true, requires: ["influence"] }],
     }),
   );
   const cwd = mkdtempSync(join(tmp, "workspace-"));
@@ -213,9 +214,9 @@ describe("pi session end to end", { timeout: 60_000 }, () => {
   it("exampleConfigLoads", () => {
     const config = loadConfig(join(import.meta.dirname, "../examples/paztport.config.json"));
     expect(config.mode).toBe("enforce");
-    expect(config.servers.map((s) => [s.id, s.attested, s.pin])).toEqual([
-      ["github", true, "/path/to/paztport/poc-demos/agents-mcp/.demo/client/server-policy.pub"],
-      ["docs", false, undefined],
+    expect(config.servers.map((s) => [s.id, s.attested, s.pin, s.requires, s.continueWithoutRequired])).toEqual([
+      ["github", true, "/path/to/paztport/poc-demos/agents-mcp/.demo/client/server-policy.pub", ["influence"], undefined],
+      ["docs", false, undefined, undefined, undefined],
     ]);
   });
 
@@ -330,12 +331,12 @@ describe("pi session end to end", { timeout: 60_000 }, () => {
     expect(run.contexts).toHaveLength(4);
     expect(toolResults(run)).toHaveLength(3);
 
-    // Signatures, chains, proofs, influence commitments and attestations from the wire, the
+    // Signatures, chains, proofs, blocks and attestations from the wire, the
     // paztport/ keys they sit under, and everything in the client key files. The rid and the verdict
     // code are left out: details carry them by design (the refusal text names the code), and pi hands
     // a tool result's details to the provider layer: the faux model sees them, while pi-ai's
     // Anthropic and OpenAI converters send only the content.
-    const secretKeys = new Set(["sig", META_CHAIN, META_PROOF, META_INFLUENCE, META_ATTESTATION]);
+    const secretKeys = new Set(["sig", META_CHAIN, META_PROOF, META_EXTENSIONS, META_ATTESTATION]);
     const readTokenOr = (v: string): unknown => {
       try {
         return readToken(v);
@@ -363,7 +364,7 @@ describe("pi session end to end", { timeout: 60_000 }, () => {
     wire.forEach((v) => collect(v, false));
     const sigs = secrets.size;
     expect(sigs).toBeGreaterThan(10);
-    expect([...metaKeys]).toEqual(expect.arrayContaining([META_CHAIN, META_PROOF, META_INFLUENCE, META_ATTESTATION, "paztport/verdict"]));
+    expect([...metaKeys]).toEqual(expect.arrayContaining([META_CHAIN, META_PROOF, META_EXTENSIONS, META_ATTESTATION, "paztport/verdict"]));
     const client = join(demo, "client");
     for (const f of readdirSync(client)) {
       if (f === "local-tools") continue; // the rules-bearing policy copy (root and proofs only; no keys)
@@ -543,14 +544,16 @@ describe("pi session end to end", { timeout: 60_000 }, () => {
     await tainted.session.prompt(PROMPT);
 
     const locals = (run: Run) => records(run.evidenceLog).filter((r) => r.type === "local").map(readLocalRecord);
+    /** The entries a local record's step block holds: the session's influence when the gate checked the call. */
+    const held = (r: Record<string, any>) => itemsUnder((r.blocks as Block[])[1]!, INFLUENCE) as unknown as InfluenceEntry[];
     expect(locals(control).map((r) => [r.tool, r.verdict])).toEqual([["write", "OK"]]);
-    expect(locals(control)[0]!.influence.map((e: { cls: string }) => e.cls)).toEqual(["private"]);
+    expect(held(locals(control)[0]!).map((e) => e.cls)).toEqual(["private"]);
     expect(locals(tainted).map((r) => [r.tool, r.verdict])).toEqual([
       ["read", "OK"],
       ["write", "INFLUENCE_DENIED"],
     ]);
     const denied = locals(tainted)[1]!;
-    expect(denied.influence).toContainEqual(expect.objectContaining({ cls: "local-untrusted", src: "server:local:read" }));
+    expect(held(denied)).toContainEqual(expect.objectContaining({ cls: "local-untrusted", src: "local:read" }));
     expect(textOf(toolResults(tainted).at(-1)!)).toBe(UNSAFE_TEXT);
     expect(readFileSync(join(tainted.cwd, "website/CHANGELOG.md"), "utf8")).toBe(LOCAL_FILES["website/CHANGELOG.md"]);
   });

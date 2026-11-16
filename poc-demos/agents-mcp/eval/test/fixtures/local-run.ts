@@ -68,7 +68,7 @@ export async function localRun(demo: string, runDir: string, opts: { rules?: boo
     await conn.connect();
     const ts = Date.now();
     runs.start(LOCAL_PROMPT, ts);
-    evidence.write({ v: 1, type: "run", rid: runs.current()!.rid, ts, prompt: LOCAL_PROMPT });
+    evidence.write({ v: 2, type: "run", rid: runs.current()!.rid, ts, prompt: LOCAL_PROMPT });
     gate.check("read", { path: "website/README.md" }, "l_read");
     // what the extension's tool_result handler records for an allowed local read
     const labels = gate.labelsFor("l_read");

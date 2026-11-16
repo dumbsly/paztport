@@ -81,7 +81,7 @@ func attributableReason(r string) bool {
 	case string(reason.ChainMissing), string(reason.BadOrigin), string(reason.BadSignature),
 		string(reason.BrokenLink), string(reason.Expired), string(reason.RIDMismatch),
 		string(reason.BindingMismatch), string(reason.Replay), string(reason.PathNotAllowed),
-		string(reason.SessionUnknown), clientPathNotAllowed, string(reason.InfluenceMismatch),
+		string(reason.SessionUnknown), clientPathNotAllowed, string(reason.ExtensionMismatch),
 		string(reason.PeerMismatch):
 		return true
 	}

@@ -14,7 +14,7 @@ import { checkRun, hasEvidenceFile, reusedLocalSignatures, withProblems, type Ru
 import { checkModelAvailable, OFF_MODE_COPY, parseModel, prepareAgentDir, runOnce, type ModelRef, type RunMode, type RunResult, type RunSpec } from "./runner.ts";
 import { redactPaths, withRealPath } from "./redact.ts";
 import { renderSummary } from "./report.ts";
-import { readLocalFacts, scoreRunFile, summarize, usableRecords, type ModeSummary, type ScoredRun } from "./score.ts";
+import { readLocalFacts, readSessionFacts, scoreRunFile, summarize, usableRecords, type ModeSummary, type ScoredRun } from "./score.ts";
 export { usableRecords };
 import { pinFingerprint, verifyEvidence, verifyResultsDir, type VerifyReport } from "./verify.ts";
 
@@ -279,7 +279,7 @@ export async function runEval(opts: EvalOptions, deps: EvalDeps = {}): Promise<R
         }
         const logFile = join(runDir, "outcome.jsonl");
         const localFacts = scenario.localTools ? readLocalFacts(runDir, scenario, result.canary, mode) : undefined;
-        const scored: StoredRun = scoreRunFile(logFile, result, index, dir, join(runDir, "transcript.jsonl"), localFacts);
+        const scored: StoredRun = scoreRunFile(logFile, result, index, dir, join(runDir, "transcript.jsonl"), localFacts, readSessionFacts(runDir));
         if (scored.outcome === "error" && scored.reason === undefined) {
           scored.reason =
             thrown ??

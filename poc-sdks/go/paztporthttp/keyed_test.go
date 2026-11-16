@@ -11,7 +11,6 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/dumbsly/paztport/poc-sdks/go/influence"
 	"github.com/dumbsly/paztport/poc-sdks/go/paztporthttp"
 	"github.com/dumbsly/paztport/poc-sdks/go/paztporthttp/wire"
 	"github.com/dumbsly/paztport/poc-sdks/go/policy"
@@ -125,7 +124,7 @@ func (p keyedPolicy) toOrders(t testing.TB, rid, named, target string) paztporth
 	if err != nil {
 		t.Fatal(err)
 	}
-	chain, proof, err := gw.Next(nil, named, bind, nil, p.bundle)
+	chain, proof, err := gw.Next(nil, named, bind, stamp.EmptyBlock, p.bundle)
 	if err != nil {
 		t.Fatalf("gateway: %v", err)
 	}
@@ -161,8 +160,8 @@ func wantRefusal(t *testing.T, a paztporthttp.Accepted, code reason.Code) {
 	}
 }
 
-// TestKeyedOperationSpendsItsItemKey spends <rid>|<svc>|<rcv>|<key>|req for a request to a keyed
-// operation.
+// TestKeyedOperationSpendsItsItemKey spends the JCS text of [rid, svc, rcv, key, "req"] for a request to a
+// keyed operation.
 func TestKeyedOperationSpendsItsItemKey(t *testing.T) {
 	p := newKeyedPolicy(t, "gateway/orders#reserve")
 	nonces := newRecordingNonces()
@@ -172,7 +171,7 @@ func TestKeyedOperationSpendsItsItemKey(t *testing.T) {
 	if a.Refusal != nil || !a.Verified {
 		t.Fatalf("Accept = refusal %+v, verified %v", a.Refusal, a.Verified)
 	}
-	if want := []string{"rid-1|gateway|orders#reserve|A1|req"}; !slices.Equal(nonces.asked, want) {
+	if want := []string{`["rid-1","gateway","orders#reserve","A1","req"]`}; !slices.Equal(nonces.asked, want) {
 		t.Fatalf("nonce keys %q, want %q", nonces.asked, want)
 	}
 }
@@ -241,7 +240,7 @@ func TestKeyedBareChainSpendsBareKey(t *testing.T) {
 	if a.Refusal != nil {
 		t.Fatalf("Refusal = %+v", a.Refusal)
 	}
-	if want := []string{"rid-1|gateway|orders|req"}; !slices.Equal(nonces.asked, want) {
+	if want := []string{`["rid-1","gateway","orders","req"]`}; !slices.Equal(nonces.asked, want) {
 		t.Fatalf("nonce keys %q, want %q", nonces.asked, want)
 	}
 	if d, ok := a.Delivery(); !ok || d.Key != "" {
@@ -325,11 +324,11 @@ func (p keyedPolicy) attested(t testing.TB, o paztporthttp.Outbound) string {
 	t.Helper()
 	ord := &stamp.Stamper{Svc: "orders", Inst: "ord-1", Key: p.ord, Now: func() int64 { return keyedNow }}
 	hash := wire.ResultHash(200, []byte("held"))
-	s, err := ord.Respond(o.Sent, hash, o.Sent[0].RID, nil)
+	s, err := ord.Respond(o.Sent, hash, o.Sent[0].RID, stamp.EmptyBlock)
 	if err != nil {
 		t.Fatalf("Respond: %v", err)
 	}
-	h, err := wire.EncodeResponse(s, []influence.Label(nil))
+	h, err := wire.EncodeResponse(s, stamp.EmptyBlock)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -342,7 +341,7 @@ func TestCallerKeyedCallCarriesKey(t *testing.T) {
 	p := newKeyedPolicy(t, "gateway/orders#reserve")
 	nonces, signed := newRecordingNonces(), 0
 	c := p.callerFor(t, nonces, &signed, ordersKeyed(t))
-	o, err := c.Stamp("POST", "/items/A1/reserve", "orders", nil, nil, nil)
+	o, err := c.Stamp("POST", "/items/A1/reserve", "orders", nil, paztporthttp.Inbound{}, nil)
 	if err != nil {
 		t.Fatalf("Stamp: %v", err)
 	}
@@ -353,7 +352,7 @@ func TestCallerKeyedCallCarriesKey(t *testing.T) {
 	if err != nil || got.Check == nil || !got.Check.Result.OK() {
 		t.Fatalf("Check = %+v, %v, want OK", got, err)
 	}
-	if want := []string{"rid-1|orders#reserve|A1|resp"}; !slices.Equal(nonces.asked, want) {
+	if want := []string{`["rid-1","orders#reserve","A1","resp"]`}; !slices.Equal(nonces.asked, want) {
 		t.Fatalf("nonce keys %q, want %q", nonces.asked, want)
 	}
 }
@@ -364,7 +363,7 @@ func TestCallerKeyedCallWithoutValueIsRefused(t *testing.T) {
 	p := newKeyedPolicy(t, "gateway/orders#reserve")
 	signed := 0
 	c := p.callerFor(t, newRecordingNonces(), &signed, ordersKeyed(t))
-	o, err := c.Stamp("POST", "/items/%41/reserve", "orders", nil, nil, nil)
+	o, err := c.Stamp("POST", "/items/%41/reserve", "orders", nil, paztporthttp.Inbound{}, nil)
 	if err == nil {
 		t.Fatalf("Stamp = %+v, want an error", o)
 	}
@@ -393,7 +392,7 @@ func TestCallerBareCallerKeepsOncePerTree(t *testing.T) {
 		t.Fatal(err)
 	}
 	c := p.callerFor(t, nonces, &signed, other)
-	o, err := c.Stamp("POST", "/items/A1/reserve", "orders", nil, nil, nil)
+	o, err := c.Stamp("POST", "/items/A1/reserve", "orders", nil, paztporthttp.Inbound{}, nil)
 	if err != nil {
 		t.Fatalf("Stamp: %v", err)
 	}
@@ -404,7 +403,7 @@ func TestCallerBareCallerKeepsOncePerTree(t *testing.T) {
 	if err != nil || got.Check == nil || !got.Check.Result.OK() {
 		t.Fatalf("Check = %+v, %v, want OK", got, err)
 	}
-	if want := []string{"rid-1|orders|resp"}; !slices.Equal(nonces.asked, want) {
+	if want := []string{`["rid-1","orders","resp"]`}; !slices.Equal(nonces.asked, want) {
 		t.Fatalf("nonce keys %q, want %q", nonces.asked, want)
 	}
 }
@@ -418,7 +417,7 @@ func TestCallerTableOfAnotherServiceIsRefused(t *testing.T) {
 	payment := ordersKeyed(t)
 	payment.Service = "payment"
 	c.Operations = map[string]policy.OperationTable{"orders": payment}
-	o, err := c.Stamp("POST", "/items/A1/reserve", "orders", nil, nil, nil)
+	o, err := c.Stamp("POST", "/items/A1/reserve", "orders", nil, paztporthttp.Inbound{}, nil)
 	if err == nil {
 		t.Fatalf("Stamp = %+v, want an error", o)
 	}
@@ -437,7 +436,7 @@ func TestCallerOperationTableMatching(t *testing.T) {
 	signed := 0
 	c := p.callerFor(t, newRecordingNonces(), &signed, ordersKeyed(t))
 	for _, receiver := range []string{"orders", "orders#createOrder"} {
-		o, err := c.Stamp("POST", "/orders", receiver, nil, nil, nil)
+		o, err := c.Stamp("POST", "/orders", receiver, nil, paztporthttp.Inbound{}, nil)
 		if err != nil || o.Sent[0].Rcv != "orders#createOrder" || o.Key != "" {
 			t.Fatalf("Stamp to %s = rcv %v, key %q, %v", receiver, o.Sent, o.Key, err)
 		}
@@ -449,7 +448,7 @@ func TestCallerOperationTableMatching(t *testing.T) {
 		{"POST", "/orders", "orders#reserve"},
 		{"POST", "/items/A1/reserve", "orders#createOrder"},
 	} {
-		if o, err := c.Stamp(tc.method, tc.target, tc.receiver, nil, nil, nil); err == nil {
+		if o, err := c.Stamp(tc.method, tc.target, tc.receiver, nil, paztporthttp.Inbound{}, nil); err == nil {
 			t.Errorf("Stamp(%s %s to %s) = %+v, want an error", tc.method, tc.target, tc.receiver, o)
 		}
 	}

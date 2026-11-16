@@ -31,6 +31,7 @@ import org.paztport.core.policy.MerkleProof;
 import org.paztport.core.policy.PolicyBuilder;
 import org.paztport.core.policy.ProofBundle;
 import org.paztport.core.policy.Routes;
+import org.paztport.core.stamp.Block;
 import org.paztport.core.stamp.Stamp;
 import org.paztport.core.stamp.Stamper;
 import org.paztport.http.wire.RequestBinding;
@@ -106,12 +107,12 @@ public class PrimitivesBenchmark {
         Stamper gatewayStamper = stamper("gateway", gateway.getPrivate(), true);
         Stamper ordersStamper = stamper("orders", orders.getPrivate(), false);
         Stamper.Stamped toOrders = gatewayStamper.next(List.of(), "orders",
-                RequestBinding.compute("POST", "/orders", utf8("{\"item\":\"widget\"}")), List.of(), gatewayBundle);
+                RequestBinding.compute("POST", "/orders", utf8("{\"item\":\"widget\"}")), Block.EMPTY, gatewayBundle);
         payMethod = "POST";
         payTarget = "/pay";
         payBody = utf8("{\"amount\":100}");
         Stamper.Stamped toPayment = ordersStamper.next(toOrders.chain(), "payment",
-                RequestBinding.compute(payMethod, payTarget, payBody), List.of(), ordersBundle);
+                RequestBinding.compute(payMethod, payTarget, payBody), Block.EMPTY, ordersBundle);
         require(toPayment.chain().size() == 2, "the chain at payment has two stamps");
 
         route = Routes.join(List.of("gateway", "orders", "payment"));

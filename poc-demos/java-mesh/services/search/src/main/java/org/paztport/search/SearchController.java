@@ -22,8 +22,8 @@ public class SearchController {
 
     @GetMapping("/search")
     public Map<String, Object> search(@RequestParam(required = false, defaultValue = "") String q) {
-        // Remember the chain we were legitimately handed, for the attack demo.
-        stolenChains.record(RequestContext.inboundChain());
+        // Remember the chain we were legitimately handed, and its blocks, for the attack demo.
+        stolenChains.record(RequestContext.inboundChain(), RequestContext.inboundBlocks());
         return Map.of("query", q, "results", List.of());
     }
 }

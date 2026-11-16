@@ -684,7 +684,7 @@ async function realRun(spec: RunSpec, demo = spec.demoDir): Promise<void> {
     await conn.connect();
     runs.start("fix the typo", Date.now());
     const rid = runs.current()!.rid;
-    evidence.write({ v: 1, type: "run", rid, ts: Date.now(), prompt: "fix the typo" });
+    evidence.write({ v: 2, type: "run", rid, ts: Date.now(), prompt: "fix the typo" });
     await conn.call("list_issues", { owner: "acme", repo: "website" }, "toolu_a");
     await conn.call("get_file_contents", { owner: "acme", repo: "payroll-notes", path: "README.md" }, "toolu_c");
     await conn.call("create_branch", { owner: "acme", repo: "website", branch: "leak" }, "toolu_d");
@@ -813,7 +813,7 @@ describe("verification", { timeout: 120_000 }, () => {
 
   it("anEvidenceFileWithOnlyTheRunRecordIsNotEvidence", async () => {
     // Paztport off, and Paztport on that ended before a session: only the unsigned run record was written
-    const runOnly = JSON.stringify({ v: 1, type: "run", rid: "r", ts: 1, prompt: "p" }) + "\n";
+    const runOnly = JSON.stringify({ v: 2, type: "run", rid: "r", ts: 1, prompt: "p" }) + "\n";
     const o = opts({ runs: 1, modes: ["off", "on"] });
     const { fn } = stub((spec) => {
       writeFileSync(join(spec.runDir, "evidence.jsonl"), runOnly);
@@ -844,7 +844,7 @@ describe("verification", { timeout: 120_000 }, () => {
 
   it("anOnRunWhoseFileHoldsOnlyTheRunRecordIsNotSaidToHaveNoFile", async () => {
     const o = opts({ runs: 1, modes: ["on"] });
-    const { fn } = stub((spec) => writeFileSync(join(spec.runDir, "evidence.jsonl"), JSON.stringify({ v: 1, type: "run", rid: "r", ts: 1, prompt: "p" }) + "\n"));
+    const { fn } = stub((spec) => writeFileSync(join(spec.runDir, "evidence.jsonl"), JSON.stringify({ v: 2, type: "run", rid: "r", ts: 1, prompt: "p" }) + "\n"));
     const r = await runEval(o, { fetch: offline, runOnce: fn, log: quiet });
     expect(r.runs[0]!.verify!.status).toBe("failed");
     expect(r.runs[0]!.verify!.problems.join(" ")).toMatch(/evidence\.jsonl has no signed records/);
@@ -1193,6 +1193,22 @@ describe("recheckResultsDir", { timeout: 120_000 }, () => {
     expect(rc.runs[0]!.verify!.status).toBe("failed");
     expect(rc.verify).toMatchObject({ ok: 0, failed: 1 });
     expect(rc.disagreements).toEqual(expect.arrayContaining(['results.json says on-001\'s evidence check was "verified"; the files say "did not verify"', "results.json says 1 runs verified; the files say 0"]));
+  });
+
+  it("aRunWhoseSessionWasNotAttestedRechecksAsTheStoredErrorWithoutAScenario", async () => {
+    // an on-run whose client made no call (its server did not list what it required): the eval stores an error, and
+    // the folder rechecked with no scenario reads the same events log and agrees
+    const o = opts({ runs: 1, modes: ["on"] });
+    const { fn } = stub((spec) => {
+      const event = { ts: 1, type: "session", server: "github", status: "no-calls", reason: "EXTENSION_REQUIRED" };
+      writeFileSync(join(spec.runDir, "events.jsonl"), JSON.stringify(event) + "\n");
+    }, noRecords);
+    const r = await runEval(o, { runOnce: fn, fetch: offline, log: quiet });
+    const reason = "the client got no attested session with the server (no-calls, EXTENSION_REQUIRED): its calls were not sent, or went unattested";
+    expect(r.runs[0]).toMatchObject({ outcome: "error", harnessFault: false, reason });
+    const rc = recheckResultsDir(o.outDir, stored(o.outDir));
+    expect(rc.runs[0]).toMatchObject({ outcome: "error", harnessFault: false, reason });
+    expect(rc.disagreements).toEqual([]);
   });
 
   it("aRunFolderResultsJsonLeavesOutIsFlagged", async () => {

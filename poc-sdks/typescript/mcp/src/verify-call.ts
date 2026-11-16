@@ -2,19 +2,22 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import {
+  nonceKey,
   readChain,
-  readInfluence,
   verifyChainOffline,
   verifyChain,
 } from "@paztport/core";
 import type {
-  InfluenceEntry, OfflineConfig, ReasonCode, VerifierConfig, VerifyInput, VerifyResult,
+  ChainVerification, OfflineConfig, ReasonCode, VerifierConfig, VerifyInput,
 } from "@paztport/core";
 import { bindMcpCall } from "./binding.ts";
-import { META_CALL_ID, META_CHAIN, META_INFLUENCE, META_PROOF } from "./meta.ts";
+import { META_CALL_ID, META_CHAIN, META_EXTENSIONS, META_PROOF } from "./meta.ts";
 
-/** A call's verdict, with the rid and call id it names and, when it verifies, its influence. */
-export type CallVerification = { result: VerifyResult; rid: string; callId: string; influence: InfluenceEntry[] };
+/**
+ * A call's verdict, with the rid and call id it names. The verdict carries the hand-over, the items under each
+ * extension the verifier acts on, exactly when it is OK.
+ */
+export type CallVerification = { result: ChainVerification; rid: string; callId: string };
 
 /** The receiver a tools/call names at the end of its route: `mcp:<serverId>.<tool>`. */
 export function mcpReceiver(serverId: string, tool: string): string {
@@ -31,29 +34,29 @@ function tokenOr<T extends string | null>(value: unknown, none: T): string | T {
 }
 
 /** Checks a call's chain once its params have been read: the chain, its nonce key and the call id it names. */
-type ChainCheck = (input: Omit<VerifyInput, "peer">, nonceKey: string, callId: string) => VerifyResult;
+type ChainCheck = (input: Omit<VerifyInput, "peer">, key: string, callId: string) => ChainVerification;
 
 /**
- * Reads a tools/call params object once: its `_meta` chain, influence and proof are the tokens the verifier reads.
+ * Reads a tools/call params object once: its `_meta` chain, blocks and proof are the tokens the verifier reads.
  * Reads the chain for its rid, derives the binding, the receiver `mcp:<serverId>.<name>` (on the route) and the nonce
- * key `rid|callId|req`, and hands them to `check`. A member that is not a string gets its reader's refusal: the chain
- * CHAIN_MISSING ("" is a token that does not read), the influence INFLUENCE_MISMATCH in the verifier's own check
- * order, the proof none. Never throws; influence is returned only when the call verifies.
+ * key `JCS([rid, callId, "req"])`, and hands them to `check`. A member that is not a string gets its reader's refusal:
+ * the chain CHAIN_MISSING ("" is a token that does not read), the blocks EXTENSION_MISMATCH in the verifier's own
+ * check order, the proof none. No `paztport/extensions` member is every block empty. Never throws.
  */
 function checkCall(params: unknown, serverId: string, check: ChainCheck): CallVerification {
   let rid = "";
   let callId = "";
   const fail = (reason: ReasonCode): CallVerification => ({
-    result: { ok: false, reason, suspectSvc: "", suspectInst: "" },
+    result: { ok: false, reason, suspectSvc: "", suspectInst: "", handOver: null },
     rid,
     callId,
-    influence: [],
   });
   try {
     if (!isObject(params) || typeof params.name !== "string" || !isObject(params._meta)) {
       return fail("CHAIN_MISSING");
     }
-    // `/` would inject route segments, `|` is the field delimiter, `.` would make the receiver ambiguous.
+    // The receiver `mcp:<serverId>.<name>` is a route node, which holds no `/` or `|` (spec wire.md, Routes), and a
+    // `.` in the server id would let two server and tool pairs name one receiver.
     if (/[/|]/.test(params.name) || /[/|.]/.test(serverId)) {
       return fail("CHAIN_MISSING");
     }
@@ -65,7 +68,7 @@ function checkCall(params: unknown, serverId: string, check: ChainCheck): CallVe
     callId = id;
     const chain = tokenOr(meta[META_CHAIN], "");
     rid = readChain(chain)[0]!.rid;
-    const influence = tokenOr(meta[META_INFLUENCE], "");
+    const blocks = Object.hasOwn(meta, META_EXTENSIONS) ? tokenOr(meta[META_EXTENSIONS], "") : null;
     const proof = tokenOr(meta[META_PROOF], null);
     let expectedBind: string;
     try {
@@ -73,35 +76,36 @@ function checkCall(params: unknown, serverId: string, check: ChainCheck): CallVe
     } catch {
       return fail("BINDING_MISMATCH");
     }
+    // The binding has refused a call id holding a lone surrogate, the one string a nonce key cannot be formed from.
     const result = check(
       {
         chain,
         expectedBind,
-        influence,
+        blocks,
         proof,
         receiver: mcpReceiver(serverId, params.name),
         receiverInRoute: true,
       },
-      `${rid}|${callId}|req`,
+      nonceKey([rid, callId, "req"]),
       callId,
     );
-    return { result, rid, callId, influence: result.ok ? readInfluence(influence) : [] };
+    return { result, rid, callId };
   } catch {
     return fail("CHAIN_MISSING");
   }
 }
 
 /**
- * Server-side check of an MCP tools/call params object, whose chain must be v3.
- * Derives the binding, the receiver `mcp:<serverId>.<name>` and the nonce key `rid|callId|req` itself. Never
- * throws; influence is returned only when the call verifies.
+ * Server-side check of an MCP tools/call params object (spec verification.md, The MCP server and client): derives the
+ * binding, the receiver `mcp:<serverId>.<name>` and the nonce key itself, and runs the live order with `cfg`'s
+ * extension settings, so the hand-over holds the items under each extension the server acts on. Never throws.
  */
 export function verifyCall(
   params: unknown,
   ctx: { serverId: string },
   cfg: Omit<VerifierConfig, "nonceKey">,
 ): CallVerification {
-  return checkCall(params, ctx.serverId, (input, nonceKey) => verifyChain(input, { ...cfg, nonceKey }));
+  return checkCall(params, ctx.serverId, (input, key) => verifyChain(input, { ...cfg, nonceKey: key }));
 }
 
 /** Where a recorded tools/call is filed, and what the record set says about its run. */
@@ -122,15 +126,20 @@ export type RecordedCall = {
  * live window becomes its clock-free limits: the call within the run's lifetime of its origin, and the origin not after
  * the call by more than the call window (EXPIRED), each limit `cfg`'s or its live default. A chain that verifies but is
  * for another call id than the record's is RID_MISMATCH. `cfg.seen` spans the whole record set. A session's keyring
- * and root are passed with no window (`notAfter: Infinity`), since callInSession judges the session's limits. Never
- * throws.
+ * and root are passed with no window (`notAfter: Infinity`), since callInSession judges the session's limits. Of the
+ * extension checks it runs 9a, and 9b with an allowed list, never 9c: the call was held to the server's `actsOn` live.
+ * A verifier that acts on an extension applies its reading of the items to an OK result before the session's limits:
+ * for influence, `recordedCallReason` does both in that order, so a call past its session's limits that holds an item
+ * that does not read gets the extension's code. Never throws.
  */
 export function verifyRecordedCall(params: unknown, call: RecordedCall, cfg: Omit<OfflineConfig, "nonceKey">): CallVerification {
-  return checkCall(params, call.serverId, (input, nonceKey, callId) => {
+  return checkCall(params, call.serverId, (input, key, callId) => {
     const result = verifyChainOffline(
       { ...input, rid: call.rid, recordedTs: { last: call.stampedAt }, prompt: call.prompt },
-      { ...cfg, nonceKey },
+      { ...cfg, nonceKey: key },
     );
-    return result.ok && callId !== call.callId ? { ok: false, reason: "RID_MISMATCH", suspectSvc: "", suspectInst: "" } : result;
+    return result.ok && callId !== call.callId
+      ? { ok: false, reason: "RID_MISMATCH", suspectSvc: "", suspectInst: "", handOver: null }
+      : result;
   });
 }

@@ -7,7 +7,7 @@ import { spawnSync } from "node:child_process";
 import { cpSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-  decode, generateKeyPair, readChain, readInfluence, readLocalDecision, readProof, signReplyCert, signKeyring, signRoot, type ReplyCert,
+  decode, generateKeyPair, readBlocks, readChain, readLocalDecision, readProof, signReplyCert, signKeyring, signRoot, type ReplyCert,
   type SignedKeyring, type SignedRoot,
 } from "@paztport/core";
 
@@ -15,6 +15,8 @@ const MOCK = join(import.meta.dirname, "../../../mock-github-mcp/src");
 export const MAIN = join(MOCK, "main.ts");
 export const DOCS = join(MOCK, "docs-main.ts");
 export const STUB = join(import.meta.dirname, "stub-server.ts");
+/** A server run as the demo's GitHub server whose responses also require `example` (`node EXAMPLE <demo>/server`). */
+export const EXAMPLE = join(import.meta.dirname, "example-server.ts");
 const SETUP = join(import.meta.dirname, "../../../scripts/setup-demo.ts");
 export const CANARY = "c0ffee";
 /** What the model is told for an INFLUENCE_DENIED or UNSAFE_SESSION refusal; written out here so a test pins the wording. */
@@ -43,14 +45,14 @@ export function githubArgs(demo: string, mode: "enforce" | "audit" | "off", outc
 export const records = (path: string): Record<string, any>[] =>
   readFileSync(path, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l));
 
-/** A local record with its tokens read: the decision's members beside the record's own, then the chain, proof and influence. */
+/** A local record with its tokens read: the decision's members beside the record's own, then the chain, proof and blocks. */
 export function readLocalRecord(rec: Record<string, any>): Record<string, any> {
   return {
     ...rec,
     ...readLocalDecision(rec.decision),
     chain: readChain(rec.chain),
     proof: rec.proof === null ? null : readProof(rec.proof),
-    influence: readInfluence(rec.influence),
+    blocks: readBlocks(rec.blocks),
   };
 }
 

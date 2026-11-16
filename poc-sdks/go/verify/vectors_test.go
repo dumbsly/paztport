@@ -12,42 +12,75 @@ import (
 
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/b64"
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/vectors"
+	"github.com/dumbsly/paztport/poc-sdks/go/internal/vectors/handover"
 	"github.com/dumbsly/paztport/poc-sdks/go/policy"
 	"github.com/dumbsly/paztport/poc-sdks/go/reason"
 	"github.com/dumbsly/paztport/poc-sdks/go/verify"
 )
 
-// TestVectors replays v3.json's verify cases. Each builds its Config directly, with a fixed clock and a
-// fresh MemoryNonceCache of the case's nonceTtlMs, runs the verifier uses times against that one cache,
-// and expects the last result. A case reads only its tokens, never the readable values beside them. A case
-// that carries keyrings or roots gives the pinning factory's policyNotAfter for them: the earlier of the
-// latest keyring notAfter and the latest root notAfter.
+// The core's replays of v4.json live in stamp, verify, offline, session, policy and keys. As spec/README.md's
+// Conformance section says of the SDKs that do not implement it, the MCP profile's sections are not replayed:
+// recordedLocalStep, responseAttestation, sessionParams, sessionResult, bindMcpCall and bindResult. The member
+// influence, the extension's sections, is replayed by the influence package, and its recordedCall by offline.
+
+// TestVectors replays v4.json's verify cases. Each builds its Config directly, with a fixed clock, a fresh
+// MemoryNonceCache of the case's nonceTtlMs and the extension settings the case gives, runs the verifier uses times
+// against that one cache, each use sent by its peer, and expects the last result, its hand-over included. A case
+// reads only its tokens, never the readable values beside them. A case that carries keyrings or roots gives the
+// pinning factory's policyNotAfter for them: the earlier of the latest keyring notAfter and the latest root notAfter.
 func TestVectors(t *testing.T) {
-	v3 := vectors.Load(t, "v3.json")
-	cases := v3.Get("verify")
-	if cases.Len() == 0 {
-		t.Fatal("v3.json has no verify case")
+	v4 := vectors.Load(t, "v4.json")
+	cases := v4.Get("verify")
+	if cases.Len() != 90 {
+		t.Fatalf("v4.json has %d verify cases, want 90", cases.Len())
+	}
+	// The codes the section exists for, from its data, so that a filtered run still checks they occur.
+	occur := map[reason.Code]bool{}
+	cases.Each(func(_ string, c vectors.Node) { occur[reason.Code(c.Get("expected").Get("reason").Str())] = true })
+	for _, code := range []reason.Code{
+		reason.ExtensionMismatch, reason.ExtensionNotAllowed, reason.ExtensionRequired, reason.PeerMismatch,
+	} {
+		if !occur[code] {
+			t.Fatalf("no verify case expects %s", code)
+		}
 	}
 	cases.Each(func(name string, c vectors.Node) {
 		t.Run(name, func(t *testing.T) {
 			c := c.With(t)
 			if c.Has("keyrings") || c.Has("roots") {
 				policyNotAfter := c.Get("policyNotAfter").Int()
-				got := pinnedNotAfter(keyrings(t, c, policyNotAfter), roots(t, v3.With(t), c, policyNotAfter))
+				got := pinnedNotAfter(keyrings(t, c, policyNotAfter), roots(t, v4.With(t), c, policyNotAfter))
 				if got != policyNotAfter {
 					t.Fatalf("the members give policyNotAfter %d, the case %d", got, policyNotAfter)
 				}
 			}
-			got := replay(t, v3.With(t), c)
-			want := expected(c)
-			if got != want {
-				t.Fatalf("Verify = %+v, want %+v", got, want)
-			}
-			if got.OK() != (want.Reason == reason.OK) {
+			got := replay(t, v4.With(t), c)
+			matches(t, got, c)
+			if got.OK() != (got.Reason == reason.OK) {
 				t.Fatalf("OK() = %t for %s", got.OK(), got.Reason)
 			}
 		})
 	})
+}
+
+// matches checks got against what case c expects: its reason and suspect, and its hand-over, which is null for
+// none, and otherwise verified and as handover.Expected reads it.
+func matches(t *testing.T, got verify.Result, c vectors.Node) {
+	t.Helper()
+	if plain, want := withoutHandOver(got), expected(c); plain != want {
+		t.Fatalf("Verify = %+v, want %+v", plain, want)
+	}
+	want := handover.Expected(t, c.Get("expected").Get("handOver").Raw())
+	if want != nil && (got.HandOver == nil || !got.HandOver.Verified()) {
+		t.Fatalf("Verify handed over %v, want a verified hand-over", got.HandOver)
+	}
+	handover.Match(t, "Verify", got.HandOver, want)
+}
+
+// withoutHandOver returns r without its hand-over, for comparing the rest with ==.
+func withoutHandOver(r verify.Result) verify.Result {
+	r.HandOver = nil
+	return r
 }
 
 // TestVectorsReadTheOptionalArrays checks that the replay reads the keyrings and roots a case may carry,
@@ -57,8 +90,8 @@ func TestVectors(t *testing.T) {
 // keyring that holds a signer's key the chain is BAD_SIGNATURE, and with another policy's root in place of
 // the one the proof comes from it is PATH_NOT_ALLOWED; so it is under a root past its window.
 func TestVectorsReadTheOptionalArrays(t *testing.T) {
-	v3 := vectors.Load(t, "v3.json")
-	v3.Get("verify").Each(func(name string, c vectors.Node) {
+	v4 := vectors.Load(t, "v4.json")
+	v4.Get("verify").Each(func(name string, c vectors.Node) {
 		if c.Has("keyrings") || c.Has("roots") {
 			return // already written as arrays: TestVectors replays it
 		}
@@ -66,14 +99,12 @@ func TestVectorsReadTheOptionalArrays(t *testing.T) {
 			t.Run(name+", split "+strconv.FormatBool(split), func(t *testing.T) {
 				c := c.With(t)
 				window := string(c.Get("policyNotAfter").Raw())
-				if got, want := replay(t, v3.With(t), asArrays(c, window, split)), expected(c); got != want {
-					t.Fatalf("Verify = %+v, want %+v", got, want)
-				}
+				matches(t, replay(t, v4.With(t), asArrays(c, window, split)), c)
 			})
 		}
 	})
 	var ok vectors.Node
-	v3.Get("verify").Each(func(name string, c vectors.Node) {
+	v4.Get("verify").Each(func(name string, c vectors.Node) {
 		if name == "mcp call ok" {
 			ok = c
 		}
@@ -88,21 +119,21 @@ func TestVectorsReadTheOptionalArrays(t *testing.T) {
 	}
 	short := split.Rewrite([]string{"keyrings"},
 		vectors.Member{Name: "keyrings", Text: "[" + strings.Join(some, ", ") + "]"})
-	if got := replay(t, v3, short); got.Reason != reason.BadSignature {
+	if got := replay(t, v4, short); got.Reason != reason.BadSignature {
 		t.Errorf("without the second keyring: Verify = %+v, want BAD_SIGNATURE", got)
 	}
 	elsewhere := asArrays(ok, window, false).Rewrite([]string{"roots"},
 		vectors.Member{Name: "roots", Text: `[{"policy": "server", "notAfter": ` + window + `}]`})
-	if got := replay(t, v3, elsewhere); got.Reason != reason.PathNotAllowed {
+	if got := replay(t, v4, elsewhere); got.Reason != reason.PathNotAllowed {
 		t.Errorf("under another policy's root: Verify = %+v, want PATH_NOT_ALLOWED", got)
 	}
 	past := strconv.FormatInt(ok.Get("now").Int()-1, 10)
-	if got := replay(t, v3, asArrays(ok, past, false)); got.Reason != reason.BadSignature {
+	if got := replay(t, v4, asArrays(ok, past, false)); got.Reason != reason.BadSignature {
 		t.Errorf("under members past their windows: Verify = %+v, want BAD_SIGNATURE", got)
 	}
 	lapsed := asArrays(ok, window, false).Rewrite([]string{"roots"},
 		vectors.Member{Name: "roots", Text: `[{"policy": "client", "notAfter": ` + past + `}]`})
-	if got := replay(t, v3, lapsed); got.Reason != reason.PathNotAllowed {
+	if got := replay(t, v4, lapsed); got.Reason != reason.PathNotAllowed {
 		t.Errorf("under a root past its window: Verify = %+v, want PATH_NOT_ALLOWED", got)
 	}
 }
@@ -111,9 +142,9 @@ func TestVectorsReadTheOptionalArrays(t *testing.T) {
 // root has no notAfter, a shape the format gives only offline cases, rather than pinning it with a window
 // of its own choosing.
 func TestVectorsRefuseALiveMemberWithNoWindow(t *testing.T) {
-	v3 := vectors.Load(t, "v3.json")
+	v4 := vectors.Load(t, "v4.json")
 	var ok vectors.Node
-	v3.Get("verify").Each(func(name string, c vectors.Node) {
+	v4.Get("verify").Each(func(name string, c vectors.Node) {
 		if name == "mcp call ok" {
 			ok = c
 		}
@@ -131,7 +162,7 @@ func TestVectorsRefuseALiveMemberWithNoWindow(t *testing.T) {
 		want string
 	}{
 		{"a keyring", func(tb testing.TB) { keyrings(tb, keyringless.With(tb), single) }, "keyrings[0] has no"},
-		{"a root", func(tb testing.TB) { roots(tb, v3.With(tb), rootless.With(tb), single) }, "roots[0] has no"},
+		{"a root", func(tb testing.TB) { roots(tb, v4.With(tb), rootless.With(tb), single) }, "roots[0] has no"},
 	} {
 		if got := fatal(t, tt.pin); !strings.Contains(got, tt.want) {
 			t.Errorf("%s with no notAfter: the replay failed with %q, want %q", tt.name, got, tt.want)
@@ -182,14 +213,16 @@ func pinnedNotAfter(keyrings []verify.PinnedKeyring, roots []verify.PinnedRoot) 
 	return min(latestKeyring, latestRoot)
 }
 
-// replay runs case c of v3.json's verify section and returns the last result.
-func replay(t *testing.T, v3, c vectors.Node) verify.Result {
+// replay runs case c of v4.json's verify section and returns the last result. Its settings act on the case's
+// actsOn and, where allowedExtensions is not null, carry only those names; each use is sent by the case's peer, or
+// by peers[i] for use i.
+func replay(t *testing.T, v4, c vectors.Node) verify.Result {
 	t.Helper()
-	p := v3.Get("policies").Get(c.Get("policy").Str())
+	p := v4.Get("policies").Get(c.Get("policy").Str())
 	now, policyNotAfter := c.Get("now").Int(), c.Get("policyNotAfter").Int()
 	cfg := verify.Config{
 		Keyrings:       keyrings(t, c, policyNotAfter),
-		Roots:          roots(t, v3, c, policyNotAfter),
+		Roots:          roots(t, v4, c, policyNotAfter),
 		PolicyNotAfter: policyNotAfter,
 		AllowedOrigins: c.Get("allowedOrigins").Strs(),
 		Sess:           c.Get("sess").Str(),
@@ -197,11 +230,12 @@ func replay(t *testing.T, v3, c vectors.Node) verify.Result {
 		Now:            func() int64 { return now },
 		CallMaxAgeMs:   c.Get("callMaxAgeMs").Int(),
 		RunMaxAgeMs:    c.Get("runMaxAgeMs").Int(),
+		Extensions:     handover.Settings(t, c.Get("actsOn").Raw(), c.Get("allowedExtensions").Raw()),
 	}
 	in := verify.Input{
 		Chain:           optional(c.Get("chainToken")),
 		ExpectedBind:    optional(c.Get("expectedBind")),
-		Influence:       optional(c.Get("influenceToken")),
+		Blocks:          optional(c.Get("blocksToken")),
 		Receiver:        c.Get("receiver").Str(),
 		ReceiverInRoute: c.Get("receiverInRoute").Bool(),
 		NonceKey:        optional(c.Get("nonceKey")),
@@ -210,16 +244,26 @@ func replay(t *testing.T, v3, c vectors.Node) verify.Result {
 		tok := p.Get("proofTokens").Get(route.Str()).Str()
 		in.Proof = &tok
 	}
-	if peer := c.Get("peer"); !peer.IsNull() {
-		in.Peer = &verify.Peer{Svc: peer.Get("svc").Str(), Inst: peer.Get("inst").Str()}
-	}
 	uses := c.Get("uses").Int()
 	if uses < 1 {
 		t.Fatalf("the case runs %d times", uses)
 	}
+	if c.Has("peers") && (c.Has("peer") || int64(c.Get("peers").Len()) != uses) {
+		t.Fatalf("the case gives peers and peer, or %d peers for %d uses", c.Get("peers").Len(), uses)
+	}
 	v := verify.New(cfg)
 	var got verify.Result
-	for range uses {
+	for i := range uses {
+		var peer vectors.Node
+		if c.Has("peers") {
+			peer = c.Get("peers").Index(int(i))
+		} else {
+			peer = c.Get("peer")
+		}
+		in.Peer = nil
+		if !peer.IsNull() {
+			in.Peer = &verify.Peer{Svc: peer.Get("svc").Str(), Inst: peer.Get("inst").Str()}
+		}
 		var err error
 		if got, err = v.Verify(t.Context(), in); err != nil {
 			t.Fatalf("Verify: %v", err)
@@ -260,15 +304,15 @@ func keyrings(t testing.TB, c vectors.Node, single int64) []verify.PinnedKeyring
 // roots returns the roots case c pins: its roots, each a policy's root until its own notAfter, which a
 // live member always has; otherwise its policy's root, until single. With roots, policy names only where
 // the case's proof comes from.
-func roots(t testing.TB, v3, c vectors.Node, single int64) []verify.PinnedRoot {
+func roots(t testing.TB, v4, c vectors.Node, single int64) []verify.PinnedRoot {
 	t.Helper()
 	if !c.Has("roots") {
-		return []verify.PinnedRoot{pinnedRoot(t, v3, c.Get("policy").Str(), single)}
+		return []verify.PinnedRoot{pinnedRoot(t, v4, c.Get("policy").Str(), single)}
 	}
 	var out []verify.PinnedRoot
 	for i := range c.Get("roots").Len() {
 		r := c.Get("roots").Index(i)
-		out = append(out, pinnedRoot(t, v3, r.Get("policy").Str(), window(t, r, "roots", i)))
+		out = append(out, pinnedRoot(t, v4, r.Get("policy").Str(), window(t, r, "roots", i)))
 	}
 	return out
 }
@@ -278,16 +322,16 @@ func keyring(t testing.TB, ring vectors.Node) policy.Keyring {
 	t.Helper()
 	k := policy.Keyring{}
 	for _, svc := range ring.Names() {
-		_, pub := vectors.V3Key(t, ring.Get(svc).Str())
+		_, pub := vectors.VectorKey(t, ring.Get(svc).Str())
 		k[svc] = pub
 	}
 	return k
 }
 
-// pinnedRoot returns the root of v3.json's policy name, until notAfter.
-func pinnedRoot(t testing.TB, v3 vectors.Node, name string, notAfter int64) verify.PinnedRoot {
+// pinnedRoot returns the root of v4.json's policy name, until notAfter.
+func pinnedRoot(t testing.TB, v4 vectors.Node, name string, notAfter int64) verify.PinnedRoot {
 	t.Helper()
-	p := v3.Get("policies").Get(name)
+	p := v4.Get("policies").Get(name)
 	root, err := b64.Decode(p.Get("root").Str())
 	if err != nil {
 		t.Fatalf("the policy's root: %v", err)

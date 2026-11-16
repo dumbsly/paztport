@@ -16,7 +16,9 @@ import (
 
 	"github.com/dumbsly/paztport/poc-sdks/go/influence"
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/b64"
+	"github.com/dumbsly/paztport/poc-sdks/go/internal/json"
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/vectors"
+	"github.com/dumbsly/paztport/poc-sdks/go/internal/vectors/handover"
 	"github.com/dumbsly/paztport/poc-sdks/go/keys"
 	"github.com/dumbsly/paztport/poc-sdks/go/paztporthttp"
 	"github.com/dumbsly/paztport/poc-sdks/go/paztporthttp/boundary"
@@ -28,29 +30,35 @@ import (
 )
 
 // TestEgressVectors replays the rules' egress cases: each enters its inbound request at the egress's
-// receiver, then sends each of its posts through the egress to a scripted partner, feeding the partner's
-// answers back until the exchange ends. It compares each post's outcome, everything the partner received,
-// in order, and the request's influence afterwards, normalised; and every stamp the partner received must
-// verify under the key the egress's keyring holds for its signer.
+// receiver, under the inbound's settings, then sends each of its posts through the egress, under the egress's
+// own settings and requirement, to a scripted partner, feeding the partner's answers back until the exchange
+// ends. Each post is begun with what the request added at the egress so far, the answers to the posts before
+// it. It compares each post's outcome, everything the partner received, in order, the blocks of each call
+// included, and what the request added; and every stamp the partner received must verify under the key the
+// egress's keyring holds for its signer. Each of the four outcomes must occur.
 func TestEgressVectors(t *testing.T) {
 	cases := vectors.Rules(t).Get("egress")
-	if cases.Len() != 12 {
-		t.Fatalf("the rules have %d egress cases, want 12", cases.Len())
+	if cases.Len() != 22 {
+		t.Fatalf("the rules have %d egress cases, want 22", cases.Len())
 	}
+	outcomes := map[string]int{}
 	cases.Each(func(name string, c vectors.Node) {
 		t.Run(name, func(t *testing.T) {
 			c := c.With(t)
 			e, a, partner := egressCase(t, c)
-			infl := a.Influence
+			var added []influence.Entry
 			var posts []string
 			c.Get("posts").Each(func(_ string, p vectors.Node) {
 				var out string
-				out, infl = post(t, e, a, infl, p.Get("path").Str(), p.Get("body").With(t).Hex(), partner)
+				out, added = post(t, e, a, added, p.Get("path").Str(), p.Get("body").With(t).Hex(), partner)
 				posts = append(posts, out)
 			})
 			e2 := c.Get("expected")
 			var wantPosts []string
-			e2.Get("posts").Each(func(_ string, p vectors.Node) { wantPosts = append(wantPosts, expectedPost(p)) })
+			e2.Get("posts").Each(func(_ string, p vectors.Node) {
+				wantPosts = append(wantPosts, expectedPost(p))
+				outcomes[p.Get("outcome").Str()]++
+			})
 			if !slices.Equal(posts, wantPosts) {
 				t.Errorf("posts:\ngot  %q\nwant %q", posts, wantPosts)
 			}
@@ -60,29 +68,50 @@ func TestEgressVectors(t *testing.T) {
 			if !slices.Equal(got, want) {
 				t.Errorf("received:\ngot  %s\nwant %s", strings.Join(got, "\n     "), strings.Join(want, "\n     "))
 			}
-			if got, want := influence.Normalise(infl), entries(e2.Get("influence")); !slices.Equal(got, want) {
-				t.Errorf("influence:\ngot  %+v\nwant %+v", got, want)
+			if want := entries(e2.Get("added")); !slices.Equal(added, want) {
+				t.Errorf("added:\ngot  %+v\nwant %+v", added, want)
 			}
 		})
 	})
+	for _, o := range []string{"answered", "refused", "withheld", "failed"} {
+		if outcomes[o] == 0 {
+			t.Errorf("no egress case ends %s", o)
+		}
+	}
 }
 
-// post sends one post through e for the request a accepted, under its influence infl so far, answering
-// each step from partner, and returns the outcome, as an egress case writes it, and the influence after.
-func post(t testing.TB, e *boundary.Egress, a paztporthttp.Accepted, infl []influence.Entry, path string,
+// post sends one post through e for the request a accepted, with what the request added at the egress so far,
+// added, answering each step from partner, and returns the outcome, as an egress case writes it, and what the
+// request has added after it.
+func post(t testing.TB, e *boundary.Egress, a paztporthttp.Accepted, added []influence.Entry, path string,
 	body []byte, partner *scriptedPartner,
 ) (string, []influence.Entry) {
 	t.Helper()
-	x, step, err := e.Begin(a, infl, path, body)
+	x, step, err := e.Begin(a, added, path, body)
 	if err != nil {
-		if !errors.Is(err, boundary.ErrNotVerified) || x != nil || !reflect.DeepEqual(step, boundary.Step{}) {
-			t.Fatalf("Begin = %v, %+v, %v; want ErrNotVerified and nothing to send, or no error", x, step, err)
+		if x != nil || !reflect.DeepEqual(step, boundary.Step{}) {
+			t.Fatalf("Begin = %v, %+v, %v; want nothing to send with its error", x, step, err)
 		}
-		return "refused", infl
+		switch {
+		case errors.Is(err, boundary.ErrNotVerified):
+			return "refused", added
+		case errors.Is(err, boundary.ErrRequirementUnmet):
+			return "withheld", added
+		}
+		t.Fatalf("Begin: %v; want ErrNotVerified, ErrRequirementUnmet or no error", err)
 	}
 	for more := true; more; {
 		status, answer := partner.serve(t, step)
 		step, more, err = x.Answer(status, answer)
+		if errors.Is(err, boundary.ErrRequirementUnmet) {
+			if more || !reflect.DeepEqual(step, boundary.Step{}) {
+				t.Fatalf("Answer = %+v, %v, %v; want nothing more to send with its error", step, more, err)
+			}
+			if out, done := x.Result(); !done || !out.Failed || !slices.Equal(out.Influence, added) {
+				t.Fatalf("a withheld call ended %+v, %v; want failed with nothing added", out, done)
+			}
+			return "withheld", added
+		}
 		if err != nil {
 			t.Fatalf("Answer: %v", err)
 		}
@@ -92,8 +121,8 @@ func post(t testing.TB, e *boundary.Egress, a paztporthttp.Accepted, infl []infl
 		t.Fatal("Result: the exchange has not ended")
 	}
 	if out.Failed {
-		if !slices.Equal(out.Influence, infl) {
-			t.Fatalf("a failed exchange changed the influence to %+v", out.Influence)
+		if !slices.Equal(out.Influence, added) {
+			t.Fatalf("a failed exchange changed what the request added to %+v", out.Influence)
 		}
 		return "failed", out.Influence
 	}
@@ -111,8 +140,8 @@ func expectedPost(p vectors.Node) string {
 }
 
 // egressCase returns case c's egress, configured from its egress member, the request its inbound
-// member enters at the egress's receiver (the zero Accepted when it is null: no request at all), and its
-// scripted partner.
+// member enters at the egress's receiver under the inbound's own settings (the zero Accepted when it is null: no
+// request at all), and its scripted partner.
 func egressCase(t *testing.T, c vectors.Node) (*boundary.Egress, paztporthttp.Accepted, *scriptedPartner) {
 	t.Helper()
 	g := c.Get("egress")
@@ -122,7 +151,7 @@ func egressCase(t *testing.T, c vectors.Node) (*boundary.Egress, paztporthttp.Ac
 	var a paztporthttp.Accepted
 	if !in.IsNull() {
 		now = in.Get("now").Int()
-		a = acceptInbound(t, in)
+		a = acceptInbound(t, in, handover.Settings(t, in.Get("actsOn").Raw(), in.Get("allowedExtensions").Raw()))
 	}
 	e, err := boundary.New(egressConfig(t, g, func() int64 { return now }))
 	if err != nil {
@@ -135,11 +164,13 @@ func egressCase(t *testing.T, c vectors.Node) (*boundary.Egress, paztporthttp.Ac
 	})
 	p := newScriptedPartner(t, g.Get("material").Str(), now,
 		script.Get("handshakes").Strs(), script.Get("replacement").Str(), calls...)
+	p.extensions = script.Get("extensions").Strs()
 	return e, a, p
 }
 
 // egressConfig returns the configuration egress member g describes, its material read from its files'
-// text by the SDK's own readers, its stamper and its own clock at now.
+// text by the SDK's own readers, its stamper and its own clock at now, its own extension settings, which are
+// not its receiver's, and what it requires of the partner.
 func egressConfig(t testing.TB, g vectors.Node, now func() int64) boundary.Config {
 	t.Helper()
 	svc := g.Get("svc").Str()
@@ -150,6 +181,10 @@ func egressConfig(t testing.TB, g vectors.Node, now func() int64) boundary.Confi
 	key, err := b64.Decode(g.Get("boundaryKey").Str())
 	if err != nil {
 		t.Fatalf("boundaryKey: %v", err)
+	}
+	need, err := session.NewRequirement(g.Get("requires").Strs(), g.Get("continueWithout").Bool())
+	if err != nil {
+		t.Fatalf("NewRequirement: %v", err)
 	}
 	return boundary.Config{
 		Stamper: &stamp.Stamper{
@@ -165,12 +200,14 @@ func egressConfig(t testing.TB, g vectors.Node, now func() int64) boundary.Confi
 		BoundaryKey:      key,
 		IdleMs:           g.Get("sessionIdleMs").Int(),
 		Now:              now,
+		Extensions:       handover.Settings(t, g.Get("actsOn").Raw(), g.Get("allowedExtensions").Raw()),
+		Requirement:      need,
 	}
 }
 
-// acceptInbound enters receiver case in's request at its service once, as the egress's own receiver,
-// and returns what it accepted. The egress cases' requests are all served, never refused.
-func acceptInbound(t testing.TB, in vectors.Node) paztporthttp.Accepted {
+// acceptInbound enters receiver case in's request at its service once, as the egress's own receiver, under the
+// extension settings ext, and returns what it accepted. The egress cases' requests are all served, never refused.
+func acceptInbound(t testing.TB, in vectors.Node, ext verify.Extensions) paztporthttp.Accepted {
 	t.Helper()
 	s := in.Get("service")
 	svc := s.Get("svc").Str()
@@ -183,6 +220,7 @@ func acceptInbound(t testing.TB, in vectors.Node) paztporthttp.Accepted {
 			Svc: svc, Inst: s.Get("inst").Str(), Key: priv, Origin: origin,
 			NewRID: func() string { return "unused" }, Now: func() int64 { return now },
 		},
+		Extensions: ext,
 	}
 	if s.Get("verifier").Bool() {
 		m := vectors.RulesMaterial(t, in.Get("material").Str())
@@ -194,6 +232,7 @@ func acceptInbound(t testing.TB, in vectors.Node) paztporthttp.Accepted {
 			Now:            func() int64 { return now },
 			CallMaxAgeMs:   in.Get("callMaxAgeMs").Int(),
 			RunMaxAgeMs:    in.Get("runMaxAgeMs").Int(),
+			Extensions:     ext,
 		})
 		if err != nil {
 			t.Fatalf("Pinned: %v", err)
@@ -246,7 +285,8 @@ var unsafeDisabled = []string{"POST /refund", "GET /statements/{id}"}
 // the entry-key form from the psp material, whose status the partner's own session.Status gives with the
 // shop's policy key pinned or not; notFound, a 404; wrongKey, a reply in the policy-key form signed by and
 // naming stranger-policy. One with no client root is answered as replacement says, signed genuinely, its
-// status as the script says whatever session.Status would give. Each call takes the next of calls. It
+// status as the script says whatever session.Status would give. Every reply lists extensions, none unless the
+// test sets them. Each call takes the next of calls. It
 // records everything it receives and the session id each reply issued; anything the script has no answer
 // for is answered 500 and fails the case. It is safe for concurrent use.
 type scriptedPartner struct {
@@ -270,6 +310,8 @@ type scriptedPartner struct {
 	egressKeys map[string]string
 	// sessFor, when set, gives the id a reply issues in place of the one the handshake derives.
 	sessFor func(derived string) string
+	// extensions are the extensions every reply lists, sorted.
+	extensions []string
 }
 
 // scriptedAnswer is an answer to a call.
@@ -382,14 +424,14 @@ func (p *scriptedPartner) reply(t testing.TB, req session.Request, answer string
 	r := session.Reply{
 		ServerRoot: &p.root, ServerPolicyKey: p.policyKey, ServerKeyring: p.keyring.Services,
 		ServerKeyringSig: &p.keyring.Sig, ServerKeyringNotAfter: &p.keyring.NotAfter, ServerReplyCert: &p.cert,
-		Nonce: nonce, Sess: sess, Status: answer, Disabled: []string{},
+		Nonce: nonce, Sess: sess, Status: answer, Disabled: []string{}, Extensions: p.extensions,
 	}
 	key := p.entryKey
 	switch answer {
 	case "wrongKey":
 		r = session.Reply{
 			ServerRoot: &p.root, ServerPolicyKey: p.strangerPK, ServerKeyring: p.keyring.Services,
-			Nonce: nonce, Sess: sess, Status: session.StatusAttested, Disabled: []string{},
+			Nonce: nonce, Sess: sess, Status: session.StatusAttested, Disabled: []string{}, Extensions: p.extensions,
 		}
 		key = p.stranger
 	case session.StatusAttested, session.StatusUnsafe:
@@ -466,19 +508,19 @@ func (p *scriptedPartner) render(t testing.TB) []string {
 			}
 			proof = renderProof(pr)
 		}
-		infl := "null"
-		if tok, ok := h[wire.Influence]; ok {
-			es, err := influence.ReadEntries(tok)
+		blocks := "null"
+		if tok, ok := h[wire.Extensions]; ok {
+			bs, err := stamp.ReadBlocks(tok)
 			if err != nil {
-				t.Fatalf("a call's influence does not read: %v", err)
+				t.Fatalf("a call's blocks do not read: %v", err)
 			}
-			infl = fmt.Sprintf("%+v", es)
+			blocks = renderBlocks(bs)
 		}
 		session := "null"
 		if id, ok := h[wire.Session]; ok {
 			session = p.index(id)
 		}
-		out = append(out, renderCall("POST", r.step.Path, r.step.Body, session, stamps, stampSession, proof, infl))
+		out = append(out, renderCall("POST", r.step.Path, r.step.Body, session, stamps, stampSession, proof, blocks))
 	}
 	return out
 }
@@ -489,7 +531,7 @@ func headerMap(t testing.TB, hs []wire.Header) map[string]string {
 	m := map[string]string{}
 	for _, h := range hs {
 		switch h.Name {
-		case "Content-Type", wire.Session, wire.Chain, wire.Proof, wire.Influence:
+		case "Content-Type", wire.Session, wire.Chain, wire.Proof, wire.Extensions:
 		default:
 			t.Errorf("a step has the header %q", h.Name)
 		}
@@ -549,12 +591,12 @@ func expectedReceived(t testing.TB, r vectors.Node) string {
 		chain := make(stamp.Chain, n.Len())
 		for i := range chain {
 			s := n.Index(i)
-			if s.Get("v").Int() != 3 {
+			if s.Get("v").Int() != stamp.Version {
 				t.Fatalf("an expected stamp has v %d", s.Get("v").Int())
 			}
 			chain[i] = stamp.Stamp{
 				Svc: s.Get("svc").Str(), Inst: s.Get("inst").Str(), RID: s.Get("rid").Str(), TS: s.Get("ts").Int(),
-				Rcv: s.Get("rcv").Str(), Bind: s.Get("bind").Str(), Infl: s.Get("infl").Str(), Prev: s.Get("prev").Str(),
+				Rcv: s.Get("rcv").Str(), Bind: s.Get("bind").Str(), Ext: s.Get("ext").Str(), Prev: s.Get("prev").Str(),
 			}
 		}
 		return renderStamps(chain)
@@ -564,15 +606,44 @@ func expectedReceived(t testing.TB, r vectors.Node) string {
 		n.Get("siblings").Each(func(_ string, s vectors.Node) { pr.Siblings = append(pr.Siblings, unb64(t, s)) })
 		return renderProof(pr)
 	})
-	infl := nullOr(c.Get("influence"), func(n vectors.Node) string { return fmt.Sprintf("%+v", entries(n)) })
+	blocks := nullOr(c.Get("blocks"), func(n vectors.Node) string {
+		bs, err := stamp.ParseBlocks(canonical(t, n))
+		if err != nil {
+			t.Fatalf("an expected call's blocks: %v", err)
+		}
+		return renderBlocks(bs)
+	})
 	return renderCall(c.Get("method").Str(), c.Get("path").Str(), c.Get("body").With(t).Hex(),
-		nullOr(c.Get("session"), index), stamps, nullOr(c.Get("stampSession"), index), proof, infl)
+		nullOr(c.Get("session"), index), stamps, nullOr(c.Get("stampSession"), index), proof, blocks)
 }
 
 // renderCall writes one received call.
-func renderCall(method, path string, body []byte, session, stamps, stampSession, proof, infl string) string {
-	return fmt.Sprintf("call %s %s body=%x session=%s stamps=%s stampSession=%s proof=%s influence=%s",
-		method, path, body, session, stamps, stampSession, proof, infl)
+func renderCall(method, path string, body []byte, session, stamps, stampSession, proof, blocks string) string {
+	return fmt.Sprintf("call %s %s body=%x session=%s stamps=%s stampSession=%s proof=%s blocks=%s",
+		method, path, body, session, stamps, stampSession, proof, blocks)
+}
+
+// renderBlocks writes blocks as their wire bytes, an array of each block's JCS bytes.
+func renderBlocks(bs stamp.Blocks) string {
+	parts := make([]string, len(bs))
+	for i, b := range bs {
+		parts[i] = string(b.Wire())
+	}
+	return "[" + strings.Join(parts, ",") + "]"
+}
+
+// canonical returns the canonical text of the value n holds.
+func canonical(t testing.TB, n vectors.Node) []byte {
+	t.Helper()
+	v, err := json.ReadFile(n.Raw())
+	if err != nil {
+		t.Fatalf("the vector's text: %v", err)
+	}
+	b, err := json.Wire(v)
+	if err != nil {
+		t.Fatalf("the vector's value has no canonical text: %v", err)
+	}
+	return b
 }
 
 // renderStamps writes stamps with their sess and sig left out: the partner chose the id, and sig covers

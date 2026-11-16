@@ -2,11 +2,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { canonicalize } from "../encoding/jcs.ts";
-import { influenceClasses, readInfluence } from "../influence/influence.ts";
-import { decideLocalCall, type LocalVerdict } from "../influence/local-decision.ts";
-import { localReceiver, localStepBind, readLocalDecision, type LocalDecision } from "../influence/local-step.ts";
+import { INFLUENCE, influenceClasses } from "../influence/influence.ts";
+import { readRequestInfluence } from "../influence/request.ts";
+import { decideLocalCall, type LocalVerdict } from "../local/local-decision.ts";
+import { localReceiver, localStepBind, readLocalDecision, type LocalDecision } from "../local/local-step.ts";
 import { isNotAfter } from "../policy/validity.ts";
 import { rulesHash, type LocalRules } from "../policy/local-rules.ts";
+import { itemsUnder, readBlocks } from "../stamp/block.ts";
+import { NO_EXTENSIONS } from "../verify/extensions.ts";
+import { nonceKey } from "../verify/nonce.ts";
 import type { ReasonCode } from "../verify/reason.ts";
 import { verifyChainOffline, type Signers } from "./verify-offline.ts";
 
@@ -24,8 +28,8 @@ export type RecordedLocalStep = {
   chain: string;
   /** The route's proof's token, null when the route is not listed. */
   proof: string | null;
-  /** The influence list's token. */
-  influence: string;
+  /** The token of the chain's blocks, one per stamp; null when none was recorded: every block empty. */
+  blocks: string | null;
 };
 
 /** The client's material a step is checked against, which the caller has already checked under the client policy key. */
@@ -55,21 +59,23 @@ function within(window: number, at: number): boolean {
 }
 
 /**
- * Checks a recorded local step (verification.md §Offline verification, MCP profile), the first failure being its
+ * Checks a recorded local step (verification.md, Offline verification, MCP profile), the first failure being its
  * result:
  * 1. the step binds its call and decision (BINDING_MISMATCH when the decision does not read, is for another call, or
  *    they can't be bound);
  * 2. its chain, by the offline chain verifier with `signers` (the origin service then the client hop, both on the
- *    client's one instance), `sess = ""`, the client's root and keyring, the receiver `local:<tool>` in the route and
- *    the nonce key `<rid>|<callId>|local`, spent in `seen`; an unproven route is how the gate's refusal of an unlisted
- *    tool verifies, so PATH_NOT_ALLOWED goes on; the step is within `cfg.runMaxAgeMs` of the run's origin and the
- *    origin within `cfg.callMaxAgeMs` of it, each limit its live default when omitted (EXPIRED);
- * 3. at the step's `ts`, the client's root and keyring are no later than their `notAfter` (POLICY_EXPIRED);
- * 4. the route verdict and proof it recorded are what its chain proves (PROOF_MISMATCH);
- * 5. the rules hash it signed is the client's (RULES_MISMATCH);
- * 6. the decision it signed, what was resolved and the verdict, is the one the signed rules give for what it recorded
- *    (VERDICT_MISMATCH).
- * The step's fields are read as typed: the caller reads them from its own record format first.
+ *    client's one instance), `sess = ""`, the client's root and keyring, its blocks, the receiver `local:<tool>` in the
+ *    route and the nonce key `JCS([rid, callId, "local"])`, spent in `seen`; an unproven route is how the gate's
+ *    refusal of an unlisted tool verifies, so PATH_NOT_ALLOWED goes on; the step is within `cfg.runMaxAgeMs` of the
+ *    run's origin and the origin within `cfg.callMaxAgeMs` of it, each limit its live default when omitted (EXPIRED);
+ * 3. every item under `influence` in the step's blocks reads as an entry (INFLUENCE_MISMATCH);
+ * 4. at the step's `ts`, the client's root and keyring are no later than their `notAfter` (POLICY_EXPIRED);
+ * 5. the route verdict and proof it recorded are what its chain proves (PROOF_MISMATCH);
+ * 6. the rules hash it signed is the client's (RULES_MISMATCH);
+ * 7. the decision it signed, what was resolved and the verdict, is the one the signed rules give for what it recorded,
+ *    under the classes of those entries (VERDICT_MISMATCH).
+ * The step's fields are read as typed: the caller reads them from its own record format first. Never throws for
+ * anything in them.
  */
 export function verifyRecordedLocalStep(
   step: RecordedLocalStep,
@@ -89,17 +95,27 @@ export function verifyRecordedLocalStep(
       return fail("BINDING_MISMATCH");
     }
     bind = localStepBind({
-      toolName: step.tool, toolCallId: step.callId, input: step.input, resolved: decision.resolved,
+      toolName: step.tool, callId: step.callId, input: step.input, resolved: decision.resolved,
       verdict: decision.verdict, listed: decision.routeAllowed, rulesHash: decision.rulesHash,
     });
   } catch {
     return fail("BINDING_MISMATCH");
   }
+  // The call id is the decision's, which was read from a token, so only a rid can hold what the key cannot be formed
+  // from: a lone surrogate, which the local tool binding does not cover. No stamp read from a token carries such a
+  // rid, so the chain check refuses it by its rid check at the latest and never reaches the key; nothing is spent in
+  // `seen` for it.
+  let key: string | undefined;
+  try {
+    key = nonceKey([step.rid, step.callId, "local"]);
+  } catch {
+    key = undefined;
+  }
   const chain = verifyChainOffline(
     {
       chain: step.chain,
       expectedBind: bind,
-      influence: step.influence,
+      blocks: step.blocks,
       proof: step.proof,
       receiver: localReceiver(step.tool),
       receiverInRoute: true,
@@ -113,9 +129,11 @@ export function verifyRecordedLocalStep(
       roots: [{ root: client.root, rootId: client.rootId, notAfter: Infinity }],
       allowedOrigins: signers.svcs.slice(0, 1),
       sess: "",
-      seen: cfg.seen,
-      nonceKey: `${step.rid}|${step.callId}|local`,
+      seen: key === undefined ? new Set() : cfg.seen,
+      nonceKey: key ?? "",
       signers,
+      // the step's items are read below, where the route is not proven too, so the verifier hands nothing over
+      extensions: NO_EXTENSIONS,
       ...(cfg.runMaxAgeMs !== undefined ? { runMaxAgeMs: cfg.runMaxAgeMs } : {}),
       ...(cfg.callMaxAgeMs !== undefined ? { callMaxAgeMs: cfg.callMaxAgeMs } : {}),
     },
@@ -123,6 +141,20 @@ export function verifyRecordedLocalStep(
   if (chain.reason !== "OK" && chain.reason !== "PATH_NOT_ALLOWED") {
     return fail(chain.reason);
   }
+  if (key === undefined) {
+    // only a rid that is absent altogether, which the typed record cannot hold, defaults to the origin's and gets here
+    return fail("RID_MISMATCH");
+  }
+  // The extension's reading of the items, once check 9a has matched the blocks to the stamps the step signed, and
+  // before the step's POLICY_EXPIRED check and those after it (verification.md, Offline verification, row 9). No
+  // token is every block empty. Check 9a has read the blocks, one per stamp, and check 3 that each stamp is by its
+  // service in `signers`, so this read does not throw and names each block's signer.
+  const blocks = step.blocks === null ? [] : readBlocks(step.blocks);
+  const read = readRequestInfluence(blocks.map((b, i) => ({ svc: signers.svcs[i]!, items: itemsUnder(b, INFLUENCE) })));
+  if (!read.reads) {
+    return fail(read.reason);
+  }
+  const classes = influenceClasses(read.entries);
   // judged at the step's own signed time, now that the chain check has tied `now` to its last stamp's ts
   if (!within(client.rootNotAfter, step.now) || !within(client.keyringNotAfter, step.now)) {
     return fail("POLICY_EXPIRED");
@@ -136,8 +168,6 @@ export function verifyRecordedLocalStep(
   }
   // the gate's own rule, applied to what it recorded: with the route not listed or no rules it resolves nothing
   const resolved = decision.resolved;
-  // the chain committed to the influence, so its token reads
-  const classes = influenceClasses(readInfluence(step.influence));
   const expected = decideLocalCall({
     routeAllowed: decision.routeAllowed, rules: client.rules, classes, resolve: () => resolved,
   });

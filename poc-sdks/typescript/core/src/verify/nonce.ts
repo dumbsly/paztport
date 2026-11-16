@@ -1,6 +1,22 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
+import { canonicalize } from "../encoding/jcs.ts";
+
+/**
+ * A chain's key in the replay cache: the JCS text of `parts`, an array of strings, each written as RFC 8785 writes
+ * strings, as for hashed content, since a key is the verifier's own text and never travels (spec verification.md,
+ * Freshness and replay). JCS escapes every string and keeps the elements apart, so no part needs a rule against a
+ * delimiter. A noncharacter is written as itself. Throws on a part that is not a string, and a TypeError on a lone
+ * surrogate, which has no UTF-8 form.
+ */
+export function nonceKey(parts: readonly string[]): string {
+  for (const part of parts) {
+    if (typeof part !== "string") throw new Error("a nonce key part that is not a string");
+  }
+  return canonicalize([...parts]);
+}
+
 /** Bounded replay cache: remembers keys for ttlMs, evicting expired ones on each call. */
 export class NonceCache {
   readonly ttlMs: number;

@@ -6,19 +6,19 @@ import { cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, wri
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  bindLocalTool, buildTree, decode, encode, generateKeyPair, keyringSigningBytes, randomBytes, readChain, readInfluence,
-  readKeyring, readLocalDecision, readRoot, readSessionReply, readSessionRequest, readToken, sign, signRoot, signSessionReply, signStamp,
-  writeToken,
+  bindLocalTool, buildTree, decode, deriveSessionId, encode, generateKeyPair, itemsUnder, keyringSigningBytes, makeBlock, mintOrigin, NO_EXTENSIONS, randomBytes,
+  readBlocks, readChain, readKeyring, readProof, readLocalDecision, readRoot, readSessionReply, readSessionRequest, readToken, rootSigningBytes, sign, signRoot,
+  signSessionReply, signStamp, writeToken, type ExtensionSettings,
 } from "@paztport/core";
-import { bindMcpCall } from "@paztport/mcp";
+import { bindMcpCall, stampToolCall } from "@paztport/mcp";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ServerConnection } from "../../pi-extension/src/connection.ts";
 import { EventLog } from "../../pi-extension/src/events.ts";
 import { clientRecord, EvidenceLog } from "../../pi-extension/src/evidence.ts";
 import { InfluenceStore } from "../../pi-extension/src/influence.ts";
-import { loadClientMaterial, type ClientMaterial } from "../../pi-extension/src/keys.ts";
+import { loadClientMaterial, PI_SVC, type ClientMaterial } from "../../pi-extension/src/keys.ts";
 import { LocalGate } from "../../pi-extension/src/local/gate.ts";
-import { RunState } from "../../pi-extension/src/runs.ts";
+import { ORIGIN_BLOCK, RunState } from "../../pi-extension/src/runs.ts";
 import { githubArgs, resignDemo, setupDemo, type DemoWindows } from "../../pi-extension/test/helpers/demo.ts";
 import { verifyClient, verifyLocal } from "../src/verify-local.ts";
 import { pinFingerprint, verifyEvidence, verifyResultsDir, type VerifyItem } from "../src/verify.ts";
@@ -40,8 +40,11 @@ beforeAll(async () => {
 }, 60_000);
 afterAll(() => rmSync(tmp, { recursive: true, force: true }));
 
-/** A real attested run against the mock server (the demo keys in `dir`): three reads, then a write the server refuses. */
-async function produce(pin = join(demo, "client/server-policy.pub"), dir = demo): Promise<string[]> {
+/**
+ * A real attested run against the mock server (the demo keys in `dir`): three reads, then a write the server refuses.
+ * `extensions` are those the client acts on (the extension's own by default).
+ */
+async function produce(pin = join(demo, "client/server-policy.pub"), dir = demo, extensions?: ExtensionSettings): Promise<string[]> {
   const evidencePath = join(tmp, `gen-${n++}.jsonl`);
   const evidence = new EvidenceLog(evidencePath);
   const runs = new RunState();
@@ -54,12 +57,13 @@ async function produce(pin = join(demo, "client/server-policy.pub"), dir = demo)
     new EventLog(join(tmp, `events-${n++}.jsonl`)),
     undefined,
     evidence,
+    extensions,
   );
   try {
     await conn.connect();
     runs.start(PROMPT, Date.now());
     const rid = runs.current()!.rid;
-    evidence.write({ v: 1, type: "run", rid, ts: Date.now(), prompt: PROMPT });
+    evidence.write({ v: 2, type: "run", rid, ts: Date.now(), prompt: PROMPT });
     await conn.call("list_issues", { owner: "acme", repo: "website" }, "toolu_a");
     await conn.call("search_repositories", { query: "user:acme" }, "toolu_b");
     await conn.call("get_file_contents", { owner: "acme", repo: "payroll-notes", path: "README.md" }, "toolu_c");
@@ -108,12 +112,24 @@ describe("verifyEvidence", { timeout: 30_000 }, () => {
   it("tamperedLabelFails", () => {
     const r = verifyEvidence(write(genuine, (rs) => {
       const meta = rs.find((x) => x.type === "response" && x.callId === "toolu_c").result._meta;
-      meta["paztport/attestation"] = changed(meta["paztport/attestation"], (att) => { att.labels[0].cls = "public"; });
+      meta["paztport/attestation"] = changed(meta["paztport/attestation"], (att) => { att.blocks[1].items.influence[0].cls = "public"; });
     }));
     expect(r.ok).toBe(false);
-    const item = r.items.find((i) => i.callId === "toolu_c" && i.type === "response")!;
-    expect(item.result).not.toBe("OK");
-    expect(item.result).not.toBe("REFUSED");
+    // an edited label breaks the commitment of the stamp that signed its block
+    expect(r.items.find((i) => i.callId === "toolu_c" && i.type === "response")!.result).toBe("EXTENSION_MISMATCH");
+  });
+
+  it("aWithheldResponseRecordStillVerifiesAsItsChainDoes", async () => {
+    // a client that acts on no extension withholds every labelled response live (check 9c), and marks each record so;
+    // offline check 9c is not run, so each verifies as its chain does, and the member is not read
+    const lines = await produce(undefined, undefined, NO_EXTENSIONS);
+    const withheld = lines.map((l) => JSON.parse(l)).filter((r) => r.type === "response" && r.withheld === true);
+    expect(withheld.length).toBeGreaterThan(0);
+    const r = verifyEvidence(write(lines));
+    expect(r.ok).toBe(true);
+    for (const rec of withheld) {
+      expect(r.items.find((i) => i.type === "response" && i.callId === rec.callId)!.result, rec.callId).toBe("OK");
+    }
   });
 
   it("tamperedResultTextFails", () => {
@@ -180,6 +196,19 @@ describe("verifyEvidence", { timeout: 30_000 }, () => {
     expect(results(r.items, "session")).toEqual(["BAD_SESSION"]);
   });
 
+  it("aNoCallsSessionRecordIsBadSession", () => {
+    // the client recorded a sound attested reply as one it makes no call in (its reply did not list an extension the
+    // client required): verify judges the session the client concluded, so it is BAD_SESSION and the file fails
+    const r = verifyEvidence(write(genuine, (rs) => {
+      const s = rs.find((x) => x.type === "session");
+      s.status = "no-calls";
+      s.reason = "EXTENSION_REQUIRED";
+    }));
+    expect(r.ok).toBe(false);
+    expect(results(r.items, "session")).toEqual(["BAD_SESSION"]);
+    expect(results(r.items, "call")).toEqual(["NO_SESSION", "NO_SESSION", "NO_SESSION", "NO_SESSION"]);
+  });
+
   it("callWithNoResponseIsReportedNotFailed", () => {
     const lines = genuine.filter((l) => !(JSON.parse(l).type === "response" && JSON.parse(l).callId === "toolu_c" ));
     const r = verifyEvidence(write(lines));
@@ -242,7 +271,95 @@ describe("verifyEvidence", { timeout: 30_000 }, () => {
   });
 });
 
-describe("verifyEvidence: fix round 1", { timeout: 30_000 }, () => {
+describe("verifyEvidence: evidence format 2", { timeout: 30_000 }, () => {
+  const callOf = (rs: any[], id: string) => rs.find((x) => x.type === "call" && x.callId === id);
+
+  /** The records of `genuine` written as an earlier version of the demo wrote them: format 1, protocol version 3. */
+  const asFormat1 = (rs: any[]) => { for (const r of rs) r.v = 1; };
+
+  it("aFormat1FileIsRefusedWithOneReason", () => {
+    const path = write(genuine, asFormat1);
+    const r = verifyEvidence(path);
+    expect(r).toEqual({
+      file: path,
+      ok: false,
+      items: [{ line: 0, type: "file", result: "UNREADABLE" }],
+      pins: [],
+      problem: "evidence format 1, written for protocol version 3 by an earlier version of this demo; this verify reads format 2",
+    });
+    const cli = spawnSync(process.execPath, [MAIN, path], { encoding: "utf8" });
+    expect(cli.stdout).toBe(`FAIL ${path}: ${r.problem}\n`);
+    expect(cli.status).toBe(1);
+  });
+
+  it("aFormat1FileInAResultsFolderIsRefusedAsOneFile", () => {
+    const dir = join(tmp, `results-${n++}`);
+    mkdirSync(join(dir, "runs/on-001"), { recursive: true });
+    cpSync(write(genuine, asFormat1), join(dir, "runs/on-001/evidence.jsonl"));
+    const reports = verifyResultsDir(dir);
+    expect(reports.map((x) => [x.file, x.ok, x.items.length])).toEqual([["runs/on-001/evidence.jsonl", false, 1]]);
+    expect(reports[0]!.problem).toMatch(/^evidence format 1/);
+  });
+
+  it("aRecordOfAnotherFormatAmongFormat2IsAnUnreadableLine", () => {
+    // only a file with no format 2 record is refused whole: one stray record is judged as a line that cannot be read
+    const r = verifyEvidence(write(genuine, (rs) => { rs.find((x) => x.type === "run").v = 1; }));
+    expect(r.problem).toBeUndefined();
+    const runLine = genuine.findIndex((l) => JSON.parse(l).type === "run") + 1;
+    expect(r.items.filter((i) => i.result === "UNREADABLE").map((i) => [i.line, i.type])).toEqual([[runLine, "line"]]);
+  });
+
+  it("aCallWhoseBlockHoldsAnItemThatIsNotAnEntryIsInfluenceMismatch", () => {
+    // stamped with the client's own keys, so the chain verifies; only the reading of `influence` refuses it
+    const material = loadClientMaterial(join(demo, "client"));
+    const r = verifyEvidence(write(genuine, (rs) => {
+      const rec = callOf(rs, "toolu_a");
+      const meta = rec.params._meta;
+      const [origin] = readChain(meta["paztport/chain"]);
+      const hop = readChain(meta["paztport/chain"])[1]!;
+      const minted = mintOrigin(
+        { svc: origin!.svc, rid: origin!.rid, ts: origin!.ts, bind: origin!.bind, sess: origin!.sess, inst: origin!.inst, rcv: origin!.rcv, block: ORIGIN_BLOCK },
+        material.sessionKey,
+      );
+      rec.params._meta = stampToolCall(
+        { name: rec.params.name, args: rec.params.arguments, callId: rec.callId },
+        {
+          origin: minted,
+          originBlock: ORIGIN_BLOCK,
+          svc: PI_SVC,
+          inst: hop.inst,
+          privateKey: material.piKey,
+          ts: rec.now,
+          block: makeBlock({ influence: [{ cls: "private" }] }, []),
+          requires: [],
+          proof: readProof(meta["paztport/proof"]),
+          serverId: rec.server,
+        },
+      );
+    }));
+    expect(r.ok).toBe(false);
+    expect(r.items.find((i) => i.type === "call" && i.callId === "toolu_a")!.result).toBe("INFLUENCE_MISMATCH");
+    expect(results(r.items, "call").filter((x) => x === "OK")).toHaveLength(3);
+  });
+
+  it("aCallWithAnEditedExtensionsTokenIsExtensionMismatch", () => {
+    // removing the entries the call carried would make a later write look allowed; the stamp commits to the block
+    const r = verifyEvidence(write(genuine, (rs) => {
+      const meta = callOf(rs, "toolu_c").params._meta;
+      meta["paztport/extensions"] = changed(meta["paztport/extensions"], (blocks) => { blocks[1].items.influence = []; });
+    }));
+    expect(r.ok).toBe(false);
+    expect(r.items.find((i) => i.type === "call" && i.callId === "toolu_c")!.result).toBe("EXTENSION_MISMATCH");
+  });
+
+  it("aCallWithItsExtensionsTokenRemovedIsExtensionMismatch", () => {
+    // no token is every block empty, which the hop's stamp over a block of entries does not match
+    const r = verifyEvidence(write(genuine, (rs) => { delete callOf(rs, "toolu_c").params._meta["paztport/extensions"]; }));
+    expect(r.items.find((i) => i.type === "call" && i.callId === "toolu_c")!.result).toBe("EXTENSION_MISMATCH");
+  });
+});
+
+describe("verifyEvidence: replay, handshakes, chains and client roots, responses, refusals, run records and the pin", { timeout: 30_000 }, () => {
   const material = () => loadClientMaterial(join(demo, "client"));
   const callOf = (rs: any[], id: string) => rs.find((x) => x.type === "call" && x.callId === id);
   const responseOf = (rs: any[], id: string) => rs.find((x) => x.type === "response" && x.callId === id);
@@ -403,6 +520,83 @@ describe("verifyEvidence: fix round 1", { timeout: 30_000 }, () => {
     expect(results(r.items, "call").every((x) => x === "NO_SESSION")).toBe(true);
   });
 
+  /**
+   * Signs the session request in `rs` again under the client policy key `policy`, its root's text given by
+   * `rootText`, and returns the signed request. The demo's policy key is not kept, so a request under another key is
+   * one only the server's reply vouches for offline; the session id moves with it, so the reply (with the server's
+   * entry key) and each call are signed again over the new one.
+   */
+  function signUnderClientKey(rs: any[], policy: { publicKey: string; privateKey: string }, rootText = (root: string) => root) {
+    const entryKey = readFileSync(join(demo, "server/mcp-entry.key"), "utf8").trim();
+    const s = rs.find((x) => x.type === "session");
+    const request = readSessionRequest(s.request);
+    const text = rootText(request.clientRoot!.root);
+    const notAfter = request.clientRoot!.notAfter;
+    const clientRoot = { ...request.clientRoot!, root: text, sig: encode(sign(policy.privateKey, rootSigningBytes(request.clientRoot!.rootId, text, notAfter))) };
+    const ringSig = encode(sign(policy.privateKey, keyringSigningBytes(policy.publicKey, request.clientKeyring, request.clientKeyringNotAfter)));
+    const signed = { ...request, clientRoot, clientPolicyKey: policy.publicKey, clientKeyringSig: ringSig };
+    s.request = tokenOf(signed);
+    const { sig: _sig, ...reply } = readSessionReply(s.reply);
+    const sess = deriveSessionId(clientRoot.sig, reply.serverRoot!.sig, signed.nonce, reply.nonce, signed);
+    s.reply = tokenOf(signSessionReply({ ...reply, sess }, entryKey));
+    for (const c of rs.filter((x) => x.type === "call")) {
+      const meta = c.params._meta;
+      const [origin, hop] = readChain(meta["paztport/chain"]);
+      const { sig: _o, v: _ov, ...originFields } = origin!;
+      const { sig: _h, v: _hv, ...hopFields } = hop!;
+      const o = signStamp({ ...originFields, sess }, material().sessionKey);
+      meta["paztport/chain"] = writeToken([o, signStamp({ ...hopFields, sess, prev: o.sig }, material().piKey)]);
+    }
+    return signed;
+  }
+
+  it("aSignedClientRootThatDoesNotDecodeProvesNoRoute", () => {
+    // the client policy key signs the root's text, so text that does not decode can stand in an attested handshake:
+    // the session is attested and the root proves no route, as Go's and Java's callConfig give
+    const policy = generateKeyPair();
+    const withRootText = (rootText: (root: string) => string) => verifyEvidence(write(genuine, (rs) => {
+      signUnderClientKey(rs, policy, rootText);
+    }));
+    // signed again over the root as it was, every call still verifies
+    const same = withRootText((root) => root);
+    expect(results(same.items, "session")).toEqual(["OK"]);
+    expect(results(same.items, "call")).toEqual(["OK", "OK", "OK", "OK"]);
+    const r = withRootText(() => "not base64url!");
+    expect(results(r.items, "session")).toEqual(["OK"]);
+    expect(results(r.items, "call")).toEqual(["PATH_NOT_ALLOWED", "PATH_NOT_ALLOWED", "PATH_NOT_ALLOWED", "PATH_NOT_ALLOWED"]);
+    expect(r.ok).toBe(false);
+  });
+
+  it("aSessionUnderAnotherClientPolicyKeyThanTheClientRecordIsBadSession", () => {
+    // an evidence file is one client's: a session another pinned client opened, which the server attested, must not
+    // stand beside this client's record, so its calls are judged as a bad session's
+    const policy = generateKeyPair();
+    const beside = (record: (request: ReturnType<typeof signUnderClientKey>) => object) => verifyEvidence(write(genuine, (rs) => {
+      rs.unshift(record(signUnderClientKey(rs, policy)));
+    }));
+    const another = beside(() => clientRecord(material()));
+    expect(results(another.items, "session")).toEqual(["BAD_SESSION"]);
+    expect(results(another.items, "call")).toEqual(["NO_SESSION", "NO_SESSION", "NO_SESSION", "NO_SESSION"]);
+    expect(another.ok).toBe(false);
+    // the same session beside a client record under its own key (its responses, signed over the old session id, are
+    // not this test's)
+    const its = beside((request) => ({
+      v: 2,
+      type: "client",
+      keyring: writeToken({ notAfter: request.clientKeyringNotAfter, policy: policy.publicKey, services: request.clientKeyring, sig: request.clientKeyringSig }),
+      root: writeToken(request.clientRoot),
+      rules: null,
+      rulesProof: null,
+    }));
+    expect(results(its.items, "client")).toEqual(["OK"]);
+    expect(results(its.items, "session")).toEqual(["OK"]);
+    expect(results(its.items, "call")).toEqual(["OK", "OK", "OK", "OK"]);
+    // and the genuine session beside the demo's own client record
+    const genuineWithClient = verifyEvidence(write(genuine, (rs) => { rs.unshift(clientRecord(material())); }));
+    expect(bad(genuineWithClient.items)).toEqual([]);
+    expect(results(genuineWithClient.items, "session")).toEqual(["OK"]);
+  });
+
   it("responseWithoutCallFails", () => {
     const r = verifyEvidence(write(genuine, (rs) => rs.splice(rs.indexOf(callOf(rs, "toolu_a")), 1)));
     expect(r.ok).toBe(false);
@@ -434,7 +628,7 @@ describe("verifyEvidence: fix round 1", { timeout: 30_000 }, () => {
   });
 
   it("onlyForgedRefusalsIsNotOk", () => {
-    const refusal = (callId: string) => ({ v: 1, type: "response", server: "github", tool: "create_branch", callId, rid: "r", now: 1, result: { isError: true, content: [{ type: "text", text: "Paztport refused this call: INFLUENCE_DENIED" }], _meta: { "paztport/verdict": writeToken({ reason: "INFLUENCE_DENIED" }) } } });
+    const refusal = (callId: string) => ({ v: 2, type: "response", server: "github", tool: "create_branch", callId, rid: "r", now: 1, result: { isError: true, content: [{ type: "text", text: "Paztport refused this call: INFLUENCE_DENIED" }], _meta: { "paztport/verdict": writeToken({ reason: "INFLUENCE_DENIED" }) } } });
     const lines = [genuine.find((l) => JSON.parse(l).type === "session")!, JSON.stringify(refusal("x")), JSON.stringify(refusal("y"))];
     const r = verifyEvidence(write(lines));
     expect(r.ok).toBe(false);
@@ -891,7 +1085,9 @@ describe("verifyEvidence: keyring and root lifetimes", { timeout: 60_000 }, () =
 });
 
 describe("verifyEvidence: the demo page's recorded run is unchanged", () => {
-  // A real attested run that the demo page replays: its report, item by item, is the one pinned beside it.
+  // The attested run the demo page replays, from a scripted run: the real eval, pi, extension and mock server, with a
+  // stub in place of the model replaying the tool calls of a run recorded with gemma4:26b-mlx on 2026-10-31
+  // (fixtures/record.ts). Its report, item by item, is the one pinned beside it.
   const FIXTURE = join(import.meta.dirname, "../../demo-ui/test/fixtures/recorded-on-run");
 
   it("recordedOnRunReportIsUnchanged", () => {
@@ -901,8 +1097,10 @@ describe("verifyEvidence: the demo page's recorded run is unchanged", () => {
 });
 
 describe("verifyEvidence: the pinned results folder is unchanged", { timeout: 30_000 }, () => {
-  // A real attested run, a copy with one call's repo changed, a copy cut down to its run record and an off run, with the
-  // reports and CLI output verify gave for them.
+  // The on and off runs of a scripted run: the real eval, pi, extension and mock server, with a stub in place of the
+  // model replaying the tool calls of a run recorded with gemma4:26b-mlx on 2026-10-31 (fixtures/record.ts). The on
+  // run, a copy with one call's repo changed, a copy cut down to its run record and the off run, with the reports and
+  // CLI output verify gave for them.
   const FIXTURE = join(import.meta.dirname, "fixtures/eval-results");
   const expected = (name: string) => readFileSync(join(FIXTURE, name), "utf8");
 
@@ -967,7 +1165,10 @@ describe("verifyEvidence: signed local steps", { timeout: 60_000 }, () => {
     expect(["l_read", "l_outside", "l_note", "l_route", "l_uncheck", "l_leak"].map((id) => decisionOf(localOf(rs, id)).verdict)).toEqual(["OK", "SCOPE_DENIED", "OK", "PATH_NOT_ALLOWED", "UNCHECKABLE", "INFLUENCE_DENIED"]);
     expect(decisionOf(localOf(rs, "l_outside")).resolved.paths).toEqual([{ need: "read", at: "outside" }]);
     expect(localOf(rs, "l_route").proof).toBeNull();
-    expect(readInfluence(localOf(rs, "l_leak").influence).map((e) => e.src)).toContain("server:local:read");
+    // the hop's block holds the entries the gate saw, under `influence`; the origin's holds none
+    const [origin, hop] = readBlocks(localOf(rs, "l_leak").blocks);
+    expect(itemsUnder(origin!, "influence")).toEqual([]);
+    expect((itemsUnder(hop!, "influence") as any[]).map((e) => e.src)).toContain("local:read");
   });
 
   it("aRecordWhoseObjectsAreNotTokensFailsClosed", () => {
@@ -984,7 +1185,7 @@ describe("verifyEvidence: signed local steps", { timeout: 60_000 }, () => {
     const valueCall = { ...call, params: { ...call.params, _meta: Object.fromEntries(meta) } };
     const { decision, ...local } = localOf(rs, "l_read");
     const { callId: _id, ...decided } = readToken(decision) as Record<string, unknown>;
-    const valueLocal = { ...local, ...decided, chain: valueOf(local.chain), proof: valueOf(local.proof), influence: valueOf(local.influence) };
+    const valueLocal = { ...local, ...decided, chain: valueOf(local.chain), proof: valueOf(local.proof), blocks: valueOf(local.blocks) };
     // the attestation of toolu_c's response and the verdict of toolu_d's refusal, each as its value
     const valueResult = (x: any) => ({
       ...x,
@@ -994,7 +1195,7 @@ describe("verifyEvidence: signed local steps", { timeout: 60_000 }, () => {
     const client = rs.find((x) => x.type === "client");
     const ring = readKeyring(client.keyring);
     const valueClient = {
-      v: 1, type: "client", keyring: ring.services, keyringSig: ring.sig, keyringNotAfter: ring.notAfter, policyPublicKey: ring.policy,
+      v: 2, type: "client", keyring: ring.services, keyringSig: ring.sig, keyringNotAfter: ring.notAfter, policyPublicKey: ring.policy,
       signedRoot: readRoot(client.root), rules: valueOf(client.rules), rulesProof: valueOf(client.rulesProof),
     };
     const inValueForm = (x: any) =>
@@ -1056,14 +1257,25 @@ describe("verifyEvidence: signed local steps", { timeout: 60_000 }, () => {
     expect(localResult(verifyEvidence(write(localLines, (rs) => decide(localOf(rs, "l_read"), (d) => { d.verdict = "MAYBE"; }))), "l_read")).toBe("BINDING_MISMATCH");
   });
 
-  it("tamperedInfluenceFails", () => {
-    // dropping the private entry would make the public write look allowed
+  it("aLocalRecordWithAnEntryRemovedIsExtensionMismatch", () => {
+    // dropping the private entry from the hop's block would make the public write look allowed; the stamp commits to the block
     const r = verifyEvidence(write(localLines, (rs) => {
       const rec = localOf(rs, "l_leak");
-      rec.influence = retoken(rec.influence, (influence: any) => influence.filter((e: any) => e.cls !== "private"));
+      rec.blocks = changed(rec.blocks, (blocks) => {
+        blocks[1].items.influence = blocks[1].items.influence.filter((e: any) => e.cls !== "private");
+      });
     }));
     expect(r.ok).toBe(false);
-    expect(localResult(r, "l_leak")).toBe("INFLUENCE_MISMATCH");
+    expect(localResult(r, "l_leak")).toBe("EXTENSION_MISMATCH");
+  });
+
+  it("aLocalRecordWithItsBlocksSwappedIsExtensionMismatch", () => {
+    const r = verifyEvidence(write(localLines, (rs) => {
+      const rec = localOf(rs, "l_leak");
+      rec.blocks = retoken(rec.blocks, (blocks: any) => [blocks[1], blocks[0]]);
+    }));
+    expect(r.ok).toBe(false);
+    expect(localResult(r, "l_leak")).toBe("EXTENSION_MISMATCH");
   });
 
   it("tamperedRulesFolderFails", () => {
@@ -1312,13 +1524,13 @@ describe("verifyEvidence: signed local steps", { timeout: 60_000 }, () => {
     expect(localResult(origin, "l_read")).toBe("BAD_ORIGIN");
   });
 
-  it("aStepWithAStampWhoseVersionIsNotThreeIsChainMissing", () => {
+  it("aStepWithAStampWhoseVersionIsNotFourIsChainMissing", () => {
     const recs: any[] = localLines.map((l) => JSON.parse(l));
     const client = verifyClient(recs.find((x) => x.type === "client"), []);
     const run = recs.find((x) => x.type === "run");
     const runOf = (rid: string) => (rid === run.rid ? { prompt: run.prompt as string, ts: new Set<number>([run.ts]) } : undefined);
     const rec = structuredClone(localOf(recs, "l_read"));
-    for (const v of [1, 2, 4]) {
+    for (const v of [1, 2, 3]) {
       for (const at of [[0], [1], [0, 1]]) {
         const odd = structuredClone(rec);
         rechain(odd, (c) => { for (const i of at) c[i].v = v; });
@@ -1402,7 +1614,7 @@ describe("verifyEvidence: signed local steps", { timeout: 60_000 }, () => {
     evidence.write(clientRecord(material));
     const ts = Date.now();
     runs.start(PROMPT, ts);
-    evidence.write({ v: 1, type: "run", rid: runs.current()!.rid, ts, prompt: PROMPT });
+    evidence.write({ v: 2, type: "run", rid: runs.current()!.rid, ts, prompt: PROMPT });
     const gate = new LocalGate({
       mode: "enforce",
       material,
@@ -1440,7 +1652,7 @@ describe("verifyEvidence: signed local steps", { timeout: 60_000 }, () => {
   it("aCallsOwnPrivateReadsCountAndTheRecordVerifies", () => {
     const material = privateClient();
     const tainted = gateRun((gate, influence) => {
-      influence.recordClasses("github", ["third-party"], "h1");
+      influence.recordClasses("server:github", ["third-party"], "h1");
       gate.check("bash", { command: "cat priv/x > website/leak.md" }, "l_copy");
     }, { material });
     expect(decisionOf(localOf(tainted.map((l) => JSON.parse(l)), "l_copy")).verdict).toBe("INFLUENCE_DENIED");
@@ -1456,7 +1668,7 @@ describe("verifyEvidence: signed local steps", { timeout: 60_000 }, () => {
   it("aCallsOwnUnlabelledReadsAddNothingAndTheRecordVerifies", () => {
     // private in the session; the call reads an unlabelled folder, whose content the model never saw, into a public one
     const lines = gateRun((gate, influence) => {
-      influence.recordClasses("github", ["private"], "h1");
+      influence.recordClasses("server:github", ["private"], "h1");
       gate.check("bash", { command: "cat notes/n.md > website/y.md" }, "l_copy");
     });
     expect(decisionOf(localOf(lines.map((l) => JSON.parse(l)), "l_copy")).verdict).toBe("OK");

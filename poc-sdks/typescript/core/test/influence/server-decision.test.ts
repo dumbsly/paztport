@@ -2,78 +2,71 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import type { InfluenceClass } from "../../src/influence/influence.ts";
-import type { InfluenceFact } from "../../src/influence/influence-rule.ts";
-import { decideServerCall, publicWriteDecision } from "../../src/influence/server-decision.ts";
+import type { JsonValue } from "../../src/encoding/json.ts";
+import type { InfluenceClass, InfluenceEntry } from "../../src/influence/influence.ts";
+import { decideVerifiedCall } from "../../src/influence/server-decision.ts";
+import type { StampItems } from "../../src/verify/extensions.ts";
 
-const DISABLED = ["create_branch", "create_or_update_file", "push_files", "create_pull_request", "add_issue_comment"];
-const fact = (cls: InfluenceClass, owner?: string): InfluenceFact => (owner === undefined ? { cls } : { cls, owner });
+const entry = (cls: InfluenceClass, owner?: string): InfluenceEntry =>
+  ({ cls, src: "web:example.com", h: "h1", ...(owner === undefined ? {} : { owner }) });
+/** A label, which a request's block must not take for an entry. */
+const LABEL: JsonValue = { cls: "private", cid: "c1" };
 
-const write = (over: Partial<Parameters<typeof decideServerCall>[0]> = {}) =>
-  decideServerCall({
-    tool: "create_branch",
-    isWrite: true,
-    publicDestination: true,
-    attested: true,
-    served: [],
-    clientInfluence: [],
-    disabledWhenUnsafe: DISABLED,
-    ...over,
-  });
+/** The hand-over of a two-stamp chain, the origin naming influence with nothing and the hop holding `items`. */
+const named = (...items: JsonValue[]): StampItems[] => [{ svc: "session", items: [] }, { svc: "pi", items }];
 
-describe("publicWriteDecision", () => {
-  it("decidesOnlyAWriteToAPublicDestination", () => {
-    const bad = [fact("private"), fact("third-party")];
-    expect(publicWriteDecision(true, true, bad)).toBe("INFLUENCE_DENIED");
-    expect(publicWriteDecision(false, true, bad)).toBe("OK");
-    expect(publicWriteDecision(true, false, bad)).toBe("OK");
-    expect(publicWriteDecision(true, true, [fact("third-party")])).toBe("OK");
-  });
-  it("takesTheDestinationOwner", () => {
-    const mine = [fact("third-party"), fact("private", "alice")];
-    expect(publicWriteDecision(true, true, mine, "alice")).toBe("OK");
-    expect(publicWriteDecision(true, true, mine, "bob")).toBe("INFLUENCE_DENIED");
-  });
-});
+const write = (stamps: StampItems[], over: Partial<Parameters<typeof decideVerifiedCall>[1]> = {}) =>
+  decideVerifiedCall(stamps, { isWrite: true, publicDestination: true, served: [], ...over }).verdict;
 
-describe("decideServerCall", () => {
-  it("clientInfluenceAloneDecides", () => {
-    expect(write({ clientInfluence: [fact("private"), fact("third-party")] })).toBe("INFLUENCE_DENIED");
-    expect(write({ clientInfluence: [fact("private"), fact("local-untrusted")] })).toBe("INFLUENCE_DENIED");
-    expect(write({ clientInfluence: [fact("third-party"), fact("public")] })).toBe("OK");
-    expect(write()).toBe("OK");
+describe("decideVerifiedCall", () => {
+  it("theRequestsInfluenceAloneDecides", () => {
+    expect(write(named(entry("private"), entry("third-party")))).toBe("INFLUENCE_DENIED");
+    expect(write(named(entry("private"), entry("local-untrusted")))).toBe("INFLUENCE_DENIED");
+    expect(write(named(entry("third-party"), entry("public")))).toBe("OK");
+    expect(write(named())).toBe("OK");
   });
   it("servedClassesCountWhenTheClientOmitsThem", () => {
-    expect(write({ served: new Set<InfluenceClass>(["private"]), clientInfluence: [fact("third-party")] })).toBe("INFLUENCE_DENIED");
-    expect(write({ served: ["private"] })).toBe("OK");
-    expect(write({ served: ["private", "third-party"] })).toBe("INFLUENCE_DENIED");
+    const served = new Set<InfluenceClass>(["private"]);
+    expect(write(named(entry("third-party")), { served })).toBe("INFLUENCE_DENIED");
+    expect(write(named(), { served: ["private"] })).toBe("OK");
+    expect(write(named(), { served: ["private", "third-party"] })).toBe("INFLUENCE_DENIED");
   });
   it("theOwnerOfPrivateDataMustBeTheDestinationOwner", () => {
-    const mine = [fact("third-party"), fact("private", "alice")];
-    expect(write({ clientInfluence: mine, destinationOwner: "alice" })).toBe("OK");
-    expect(write({ clientInfluence: mine, destinationOwner: "bob" })).toBe("INFLUENCE_DENIED");
+    const mine = named(entry("third-party"), entry("private", "alice"));
+    expect(write(mine, { destinationOwner: "alice" })).toBe("OK");
+    expect(write(mine, { destinationOwner: "bob" })).toBe("INFLUENCE_DENIED");
   });
   it("aServedPrivateClassHasNoOwnerSoItIsRefused", () => {
-    expect(write({ served: ["private"], clientInfluence: [fact("third-party")], destinationOwner: "alice" })).toBe("INFLUENCE_DENIED");
+    const stamps = named(entry("third-party"));
+    expect(write(stamps, { served: ["private"], destinationOwner: "alice" })).toBe("INFLUENCE_DENIED");
   });
   it("onlyPublicWritesAreDecided", () => {
     const served: InfluenceClass[] = ["private", "third-party"];
-    expect(write({ served, publicDestination: false })).toBe("OK");
-    expect(write({ served, tool: "list_issues", isWrite: false })).toBe("OK");
+    expect(write(named(), { served, publicDestination: false })).toBe("OK");
+    expect(write(named(), { served, isWrite: false })).toBe("OK");
   });
-  it("anAttestedSessionIgnoresTheUnsafeGate", () => {
-    expect(DISABLED).toContain("create_branch");
-    expect(write()).toBe("OK");
+  it("aStampThatDoesNotNameInfluenceRefusesAPublicWrite", () => {
+    const passAlong: StampItems[] = [{ svc: "session", items: [] }, { svc: "pi", items: null }];
+    expect(write(passAlong)).toBe("INFLUENCE_DENIED");
+    // a read is not decided by the every-stamp rule
+    expect(write(passAlong, { isWrite: false })).toBe("OK");
+    expect(write(passAlong, { publicDestination: false })).toBe("OK");
   });
-  it("theUnsafeGateRefusesListedTools", () => {
-    expect(write({ attested: false })).toBe("UNSAFE_SESSION");
-    expect(write({ attested: false, publicDestination: false })).toBe("UNSAFE_SESSION");
-    expect(write({ attested: false, tool: "list_issues", isWrite: false })).toBe("OK");
+  it("noStampToReadDoesNotRefuseButWhatTheServerServedStillCounts", () => {
+    expect(write([])).toBe("OK");
+    expect(write([], { served: ["private", "third-party"] })).toBe("INFLUENCE_DENIED");
   });
-  it("aWriteLeftOutOfTheUnsafeListIsUngated", () => {
-    const bad = [fact("private"), fact("third-party")];
-    const disabledWhenUnsafe = ["create_pull_request"];
-    expect(write({ attested: false, served: ["private", "third-party"], clientInfluence: bad, disabledWhenUnsafe })).toBe("OK");
-    expect(write({ attested: false, tool: "create_pull_request", disabledWhenUnsafe })).toBe("UNSAFE_SESSION");
+  it("anItemThatIsNotAnEntryIsInfluenceMismatchNamingItsSigner", () => {
+    const opts = { isWrite: true, publicDestination: true, served: [] };
+    expect(decideVerifiedCall(named(entry("third-party"), LABEL), opts))
+      .toEqual({ verdict: "INFLUENCE_MISMATCH", signer: "pi" });
+    // a read too: the items are checked before the rule, whatever the call does
+    expect(write(named(LABEL), { isWrite: false })).toBe("INFLUENCE_MISMATCH");
+  });
+  it("theItemCheckComesBeforeTheEveryStampRule", () => {
+    // the block before the bad item does not name influence, which alone would refuse the write
+    const stamps: StampItems[] = [{ svc: "session", items: null }, { svc: "pi", items: [LABEL] }];
+    expect(decideVerifiedCall(stamps, { isWrite: true, publicDestination: true, served: [] }))
+      .toEqual({ verdict: "INFLUENCE_MISMATCH", signer: "pi" });
   });
 });

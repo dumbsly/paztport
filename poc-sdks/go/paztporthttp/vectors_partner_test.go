@@ -9,27 +9,34 @@ import (
 
 	"github.com/dumbsly/paztport/poc-sdks/go/influence"
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/vectors"
+	"github.com/dumbsly/paztport/poc-sdks/go/internal/vectors/handover"
 	"github.com/dumbsly/paztport/poc-sdks/go/keys"
 	"github.com/dumbsly/paztport/poc-sdks/go/paztporthttp"
 	"github.com/dumbsly/paztport/poc-sdks/go/paztporthttp/wire"
 	"github.com/dumbsly/paztport/poc-sdks/go/policy"
+	"github.com/dumbsly/paztport/poc-sdks/go/reason"
 	"github.com/dumbsly/paztport/poc-sdks/go/session"
 	"github.com/dumbsly/paztport/poc-sdks/go/stamp"
 	"github.com/dumbsly/paztport/poc-sdks/go/verify"
 )
 
-// TestPartnerRulesVectors replays the partner kinds of http-v3.json's rules: each case runs its steps against
-// one partner, its clock set to each step's at. A handshake is served by Sessions.ServeHandshake; a call is
-// decided by Sessions.Accept, and then, as an adapter does, an unsafe session's switched-off endpoints are
-// refused before the handler runs.
+// TestPartnerRulesVectors replays the partner kinds of http-v4.json's rules: each case runs its steps against
+// one partner, its clock set to each step's at and its settings the case's. A handshake is served by
+// Sessions.ServeHandshake; a call is decided by Sessions.Accept, and then, as an adapter does, an unsafe
+// session's switched-off endpoints are refused before the handler runs. Each step's outcome is compared, the items
+// a call hands on with handedOn, and, where a step asks them, the reason a guarded public write to the call's
+// destinationOwner gets and whether a trusted record may be written, once the handler has read the call's read.
 func TestPartnerRulesVectors(t *testing.T) {
 	kinds := []struct {
 		name  string
 		cases int
 	}{
-		{"sessionHeader", 9}, {"sessionRegistry", 6}, {"handshakeErrors", 14}, {"sessionExpiry", 3},
-		{"boundaryRefusals", 6}, {"partnerTrustedRecord", 5},
+		{"sessionHeader", 11}, {"sessionRegistry", 6}, {"handshakeErrors", 15}, {"sessionExpiry", 3},
+		{"boundaryRefusals", 7}, {"partnerTrustedRecord", 10},
 	}
+	refusals := map[string]bool{}
+	writes := map[reason.Code]bool{}
+	records := map[bool]bool{}
 	for _, kind := range kinds {
 		t.Run(kind.name, func(t *testing.T) {
 			cases := vectors.Rules(t).Get(kind.name)
@@ -38,10 +45,35 @@ func TestPartnerRulesVectors(t *testing.T) {
 			}
 			cases.Each(func(name string, c vectors.Node) {
 				t.Run(name, func(t *testing.T) {
-					runPartnerScript(t, c.With(t))
+					got := runPartnerScript(t, c.With(t))
+					for _, refusal := range got.refusals {
+						refusals[refusal] = true
+					}
+					for _, write := range got.writes {
+						writes[write] = true
+					}
+					for _, record := range got.records {
+						records[record] = true
+					}
 				})
 			})
 		})
+	}
+	// The codes the version adds at a partner: blocks the boundary stamp does not commit to, and an item that
+	// does not read at a partner acting on influence.
+	for _, want := range []string{`403 {"reason":"EXTENSION_MISMATCH"}`, `400 {"reason":"INFLUENCE_MISMATCH"}`} {
+		if !refusals[want] {
+			t.Errorf("no partner call is refused %s", want)
+		}
+	}
+	// The owner-aware rule at the boundary denies as well as allows.
+	for _, want := range []reason.Code{reason.OK, reason.InfluenceDenied} {
+		if !writes[want] {
+			t.Errorf("no partner call's public write is %s", want)
+		}
+	}
+	if !records[true] || !records[false] {
+		t.Errorf("the partner calls' trusted records are %v; want both granted and refused", records)
 	}
 }
 
@@ -54,9 +86,17 @@ type partnerScript struct {
 	opened   map[string]string
 }
 
+// scriptRun is what a partner case's calls gave: the refusals they were answered with, the reasons the public
+// writes they asked about got, and the trusted records they were asked for, granted or not.
+type scriptRun struct {
+	refusals []string
+	writes   []reason.Code
+	records  []bool
+}
+
 // runPartnerScript runs partner case c's steps in order and fails t at the first whose outcome is not
 // its expected.
-func runPartnerScript(t *testing.T, c vectors.Node) {
+func runPartnerScript(t *testing.T, c vectors.Node) scriptRun {
 	t.Helper()
 	p := c.Get("partner")
 	sc := &partnerScript{now: p.Get("start").Int(), opened: map[string]string{}}
@@ -71,6 +111,7 @@ func runPartnerScript(t *testing.T, c vectors.Node) {
 	if steps.Len() == 0 {
 		t.Fatal("the case has no steps")
 	}
+	var run scriptRun
 	for i := range steps.Len() {
 		step := steps.Index(i)
 		sc.now = step.Get("at").Int()
@@ -79,13 +120,56 @@ func runPartnerScript(t *testing.T, c vectors.Node) {
 			got = sc.handshake(t, step)
 			want = expectedHandshake(step.Get("expected"))
 		} else {
-			got = sc.call(t, step.Get("call"))
-			want = expectedCall(t, step.Get("expected"))
+			var served *paztporthttp.PartnerAccepted
+			got, served = sc.call(t, step.Get("call"))
+			e := step.Get("expected")
+			want = expectedCall(t, e)
+			var h *verify.HandOver
+			if served != nil {
+				h = served.HandOver
+			}
+			handover.Match(t, fmt.Sprintf("step %d", i), h, handover.Expected(t, e.Get("handedOn").Raw()))
+			if h != nil && !h.Verified() {
+				t.Errorf("step %d: the hand-over is not verified", i)
+			}
+			if r := e.Get("refusal"); !r.IsNull() {
+				refusal := fmt.Sprintf("%d %s", r.Get("status").Int(), r.Get("body").With(t).Hex())
+				run.refusals = append(run.refusals, refusal)
+			}
+			call := step.Get("call")
+			var read []influence.Entry
+			if call.Has("read") {
+				read = entries(call.Get("read"))
+			}
+			// A call that names a destination owner asks about a guarded public write, and only such a call.
+			if call.Has("destinationOwner") != e.Has("publicWrite") {
+				t.Fatalf("step %d: destinationOwner and publicWrite come together", i)
+			}
+			if call.Has("destinationOwner") && !e.Get("publicWrite").IsNull() {
+				if served == nil {
+					t.Fatalf("step %d: a refused call is asked about a public write", i)
+				}
+				owner, code := call.Get("destinationOwner").Str(), reason.Code(e.Get("publicWrite").Str())
+				if got := served.PublicWrite(read, owner); got != code {
+					t.Errorf("step %d: PublicWrite(%v, %q) = %s, want %s", i, read, owner, got, code)
+				}
+				run.writes = append(run.writes, code)
+			}
+			if r := e.Get("trustedRecord"); !r.IsNull() {
+				if served == nil {
+					t.Fatalf("step %d: a refused call is asked for a trusted record", i)
+				}
+				if got := served.TrustedRecord(read); got != r.Bool() {
+					t.Errorf("step %d: TrustedRecord(%v) = %v, want %v", i, read, got, r.Bool())
+				}
+				run.records = append(run.records, r.Bool())
+			}
 		}
 		if got != want {
 			t.Fatalf("step %d: got %s\nwant %s", i, got, want)
 		}
 	}
+	return run
 }
 
 // partnerConfig returns the configuration partner p describes, its material read from its files' text by
@@ -126,6 +210,7 @@ func partnerConfig(t testing.TB, p vectors.Node, now func() int64) paztporthttp.
 		IdleMs:         p.Get("sessionIdleMs").Int(),
 		CallMaxAgeMs:   p.Get("callMaxAgeMs").Int(),
 		RunMaxAgeMs:    p.Get("runMaxAgeMs").Int(),
+		Extensions:     handover.Settings(t, p.Get("actsOn").Raw(), p.Get("allowedExtensions").Raw()),
 		Nonces:         verify.NewMemoryNonceCache(p.Get("nonceTtlMs").Int()),
 		Now:            now,
 	}
@@ -144,7 +229,7 @@ func (sc *partnerScript) handshake(t *testing.T, step vectors.Node) string {
 	}
 	a := sc.sessions.ServeHandshake(body, partnerPeer(t, h.Get("peer")))
 	if a.Status != 200 {
-		return handshakeOutcome(a.Status, string(a.Body), "null", "null")
+		return handshakeOutcome(a.Status, string(a.Body), "null", "null", "null")
 	}
 	r, err := session.ParseReply(a.Body)
 	if err != nil {
@@ -153,13 +238,13 @@ func (sc *partnerScript) handshake(t *testing.T, step vectors.Node) string {
 	if as := step.Get("as"); !as.IsNull() {
 		sc.opened[as.Str()] = r.Sess
 	}
-	return handshakeOutcome(a.Status, "null", r.Status, fmt.Sprintf("%q", r.Disabled))
+	return handshakeOutcome(a.Status, "null", r.Status, fmt.Sprintf("%q", r.Disabled), fmt.Sprintf("%q", r.Extensions))
 }
 
 // expectedHandshake returns a handshake step's expected, in the shape of handshakeOutcome: the body of a
 // 400 is exactly {"error":"<code>"}.
 func expectedHandshake(e vectors.Node) string {
-	body, status, disabled := "null", "null", "null"
+	body, status, disabled, extensions := "null", "null", "null", "null"
 	if !e.Get("error").IsNull() {
 		body = `{"error":"` + e.Get("error").Str() + `"}`
 	}
@@ -169,16 +254,21 @@ func expectedHandshake(e vectors.Node) string {
 	if !e.Get("disabled").IsNull() {
 		disabled = fmt.Sprintf("%q", e.Get("disabled").Strs())
 	}
-	return handshakeOutcome(int(e.Get("status").Int()), body, status, disabled)
+	if !e.Get("extensions").IsNull() {
+		extensions = fmt.Sprintf("%q", e.Get("extensions").Strs())
+	}
+	return handshakeOutcome(int(e.Get("status").Int()), body, status, disabled, extensions)
 }
 
-func handshakeOutcome(status int, body, sessionStatus, disabled string) string {
-	return fmt.Sprintf("{status: %d, body: %s, sessionStatus: %s, disabled: %s}", status, body, sessionStatus, disabled)
+func handshakeOutcome(status int, body, sessionStatus, disabled, extensions string) string {
+	return fmt.Sprintf("{status: %d, body: %s, sessionStatus: %s, disabled: %s, extensions: %s}", status, body,
+		sessionStatus, disabled, extensions)
 }
 
 // call makes a call step's request as the peer it names, its boundary stamp signed now in the session the
-// stamp names, and returns its outcome in the shape of expectedCall.
-func (sc *partnerScript) call(t *testing.T, c vectors.Node) string {
+// stamp names, and returns its outcome in the shape of expectedCall, with what Accept decided for a call that is
+// served, or nil for one refused.
+func (sc *partnerScript) call(t *testing.T, c vectors.Node) (string, *paztporthttp.PartnerAccepted) {
 	t.Helper()
 	req := paztporthttp.InboundRequest{
 		Method: c.Get("method").Str(),
@@ -192,8 +282,8 @@ func (sc *partnerScript) call(t *testing.T, c vectors.Node) string {
 	if h := c.Get("proofHeader"); !h.IsNull() {
 		req.Proof = h.Str()
 	}
-	if h := c.Get("influenceHeader"); !h.IsNull() {
-		req.Influence = h.Str()
+	if h := c.Get("extensionsHeader"); !h.IsNull() {
+		req.Extensions = h.Str()
 	}
 	a, err := sc.sessions.Accept(t.Context(), req, partnerPeer(t, c.Get("peer")))
 	if err != nil {
@@ -206,23 +296,15 @@ func (sc *partnerScript) call(t *testing.T, c vectors.Node) string {
 		refusal = &r
 	}
 	if refusal != nil {
-		if a.Attested || a.Chain != nil || len(a.Influence) != 0 {
+		if a.Attested || a.Inbound.Chain != nil || a.Inbound.Blocks != nil || a.HandOver != nil {
 			t.Fatalf("a refusal carries what a served call does: %+v", a)
 		}
-		return callOutcome(fmt.Sprintf("%d %s", refusal.Status, refusal.Body), false, nil, false)
+		return callOutcome(fmt.Sprintf("%d %s", refusal.Status, refusal.Body), false), nil
 	}
-	if a.Attested != (a.Chain != nil) {
-		t.Fatalf("Attested is %v with chain %v", a.Attested, a.Chain)
+	if a.Attested != (a.Inbound.Chain != nil) || len(a.Inbound.Blocks) != len(a.Inbound.Chain) {
+		t.Fatalf("Attested is %v with Inbound %+v", a.Attested, a.Inbound)
 	}
-	return callOutcome("null", a.Attested, a.Influence, a.TrustedRecord(readOf(c)))
-}
-
-// readOf returns what call step c's handler reads once the call is accepted: its read, or none.
-func readOf(c vectors.Node) []influence.Entry {
-	if !c.Has("read") {
-		return nil
-	}
-	return entries(c.Get("read"))
+	return callOutcome("null", a.Attested), &a
 }
 
 // expectedCall returns a call step's expected, in the shape of callOutcome.
@@ -232,16 +314,16 @@ func expectedCall(t *testing.T, e vectors.Node) string {
 	if r := e.Get("refusal"); !r.IsNull() {
 		refusal = fmt.Sprintf("%d %s", r.Get("status").Int(), r.Get("body").With(t).Hex())
 	}
-	return callOutcome(refusal, e.Get("attested").Bool(), entries(e.Get("influence")), e.Get("trustedRecord").Bool())
+	return callOutcome(refusal, e.Get("attested").Bool())
 }
 
-func callOutcome(refusal string, attested bool, infl []influence.Entry, trusted bool) string {
-	return fmt.Sprintf("{refusal: %s, attested: %v, influence: %+v, trustedRecord: %v}", refusal, attested, infl,
-		trusted)
+func callOutcome(refusal string, attested bool) string {
+	return fmt.Sprintf("{refusal: %s, attested: %v}", refusal, attested)
 }
 
 // sessionRef returns the session id ref names: one a handshake opened as {"of": <as>}, a literal
-// {"id": <id>}, or "" for null, which sends no X-Path-Session.
+// {"id": <id>}, or "" for null, which sends no X-Path-Session; or {"header": <value>}, the X-Path-Session
+// value a call sends as written, which the partner reads.
 func (sc *partnerScript) sessionRef(t *testing.T, ref vectors.Node) string {
 	t.Helper()
 	switch {
@@ -249,6 +331,8 @@ func (sc *partnerScript) sessionRef(t *testing.T, ref vectors.Node) string {
 		return ""
 	case ref.Has("id"):
 		return ref.Get("id").Str()
+	case ref.Has("header"):
+		return ref.Get("header").Str()
 	}
 	id, ok := sc.opened[ref.Get("of").Str()]
 	if !ok {
@@ -259,7 +343,7 @@ func (sc *partnerScript) sessionRef(t *testing.T, ref vectors.Node) string {
 
 // boundaryChain returns the X-Path-Chain value of the one boundary stamp st describes, signed now with
 // its key: in the session its sess names, binding the call's method and target and the stamp's own body,
-// and committing to the stamp's influence.
+// and committing to the stamp's block.
 func (sc *partnerScript) boundaryChain(t *testing.T, st vectors.Node, method, target string) string {
 	t.Helper()
 	bind, err := wire.Bind(method, target, st.Get("body").With(t).Hex())
@@ -270,17 +354,13 @@ func (sc *partnerScript) boundaryChain(t *testing.T, st vectors.Node, method, ta
 }
 
 // signBoundary returns the X-Path-Chain value of the one boundary stamp st describes, in session sess and
-// binding bind, signed now with its key and committing to the stamp's influence.
+// binding bind, signed now with its key and committing to the stamp's block.
 func signBoundary(t testing.TB, st vectors.Node, sess, bind string) string {
 	t.Helper()
-	infl, err := influence.Commit(entries(st.Get("influence")))
-	if err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
 	key, _ := vectors.RulesKey(t, st.Get("key").Str())
 	s, err := stamp.Sign(stamp.Stamp{
 		Svc: st.Get("svc").Str(), Inst: st.Get("inst").Str(), RID: st.Get("rid").Str(), TS: st.Get("ts").Int(),
-		Sess: sess, Rcv: st.Get("rcv").Str(), Bind: bind, Infl: infl,
+		Sess: sess, Rcv: st.Get("rcv").Str(), Bind: bind, Ext: blockOf(t, st.Get("block")).Commit(),
 	}, key)
 	if err != nil {
 		t.Fatalf("stamp.Sign: %v", err)

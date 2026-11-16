@@ -3,14 +3,22 @@
 
 import { describe, expect, it } from "vitest";
 import {
+  bindResult,
   buildPolicy,
   canonicalize,
   decideServerCall,
   decode,
   earliestNotAfter,
+  EMPTY_BLOCK,
   encode,
   expiryWarnings,
+  extensionSettings,
   generateKeyPair,
+  INFLUENCE,
+  commitBlock,
+  influenceBlock,
+  makeBlock,
+  NO_EXTENSIONS,
   readAttestation,
   readSessionReply,
   readToken,
@@ -33,17 +41,23 @@ import {
   McpServerSession,
   META_ATTESTATION,
   META_CALL_ID,
+  META_EXTENSIONS,
   META_VERDICT,
   readVerdict,
   verifyCall,
   type ServerPolicy,
   type SessionRules,
 } from "../src/index.ts";
-import { CLIENT_NOT_AFTER, CLIENT_POLICY, makeClient, sessionParams, type CallToolResult } from "./helpers/client.ts";
+import {
+  CLIENT_EXTENSIONS, CLIENT_NOT_AFTER, CLIENT_POLICY, makeClient, sessionParams, type CallToolResult,
+} from "./helpers/client.ts";
 
 const RULES: SessionRules = {
   disabledWhenUnsafe: ["create_branch", "create_or_update_file", "push_files", "create_pull_request", "add_issue_comment"],
 };
+
+/** A server that acts on influence. */
+const ACTS = extensionSettings([INFLUENCE]);
 
 const DAY_MS = 86_400_000;
 /** When the server's root and keyring stop being valid: 2100-01-01. */
@@ -99,18 +113,18 @@ describe("checkServerPolicy", () => {
     const cfg = serverConfig();
     expect(() => checkServerPolicy(cfg, Date.now())).not.toThrow();
     expect(() => checkServerPolicy(cfg, cfg.replyCert.notAfter)).not.toThrow();
-    expect(() => new McpServerSession(cfg, RULES, Date.now)).not.toThrow();
+    expect(() => new McpServerSession(cfg, RULES, ACTS, Date.now)).not.toThrow();
   });
   it("refusesAMissingOrEmptyClientOrigins", () => {
     const cfg = serverConfig();
     const { clientOrigins: _omitted, ...without } = cfg;
     for (const [what, policy] of [["missing", without as ServerPolicy], ["empty", { ...cfg, clientOrigins: [] }], ["blank", { ...cfg, clientOrigins: [""] }]] as const) {
       expect(() => checkServerPolicy(policy, Date.now()), what).toThrow("clientOrigins must name at least one origin service");
-      expect(() => new McpServerSession(policy, RULES, Date.now), what).toThrow("clientOrigins must name at least one origin service");
+      expect(() => new McpServerSession(policy, RULES, ACTS, Date.now), what).toThrow("clientOrigins must name at least one origin service");
     }
   });
   it("refusesAMissingOrEmptyClientOriginsRegardlessOfShape", () => {
-    expect(() => new McpServerSession({ ...serverConfig(), clientOrigins: "session" as unknown as string[] }, RULES, Date.now)).toThrow("clientOrigins");
+    expect(() => new McpServerSession({ ...serverConfig(), clientOrigins: "session" as unknown as string[] }, RULES, ACTS, Date.now)).toThrow("clientOrigins");
   });
   it("refusesAKeyringItsPolicyKeyDidNotSign", () => {
     const { cfg } = serverSetup();
@@ -124,7 +138,7 @@ describe("checkServerPolicy", () => {
     };
     for (const [name, policy] of Object.entries(bad)) {
       expect(() => checkServerPolicy(policy, Date.now()), name).toThrow("the keyring is not signed by policyPublicKey");
-      expect(() => new McpServerSession(policy, RULES, Date.now), name).toThrow("the keyring is not signed by policyPublicKey");
+      expect(() => new McpServerSession(policy, RULES, ACTS, Date.now), name).toThrow("the keyring is not signed by policyPublicKey");
     }
   });
   it("refusesAnEntryWithNoKeyringKeyOrAnotherSigningKey", () => {
@@ -138,7 +152,7 @@ describe("checkServerPolicy", () => {
     for (const key of [generateKeyPair().privateKey, cfg.signingKeys["github-tools"]!, "not-a-key"]) {
       const other = { ...cfg, signingKeys: { ...cfg.signingKeys, "mcp-entry": key } };
       expect(() => checkServerPolicy(other, Date.now())).toThrow("signingKeys[mcp-entry] is not the entry's keyring key");
-      expect(() => new McpServerSession(other, RULES, Date.now)).toThrow("signingKeys[mcp-entry] is not the entry's keyring key");
+      expect(() => new McpServerSession(other, RULES, ACTS, Date.now)).toThrow("signingKeys[mcp-entry] is not the entry's keyring key");
     }
     const { "mcp-entry": _k, ...noSigningKey } = cfg.signingKeys;
     expect(() => checkServerPolicy({ ...cfg, signingKeys: noSigningKey }, Date.now())).toThrow("signingKeys[mcp-entry] is not the entry's keyring key");
@@ -157,7 +171,7 @@ describe("checkServerPolicy", () => {
     };
     for (const [name, [replyCert, why]] of Object.entries(forged)) {
       expect(() => checkServerPolicy({ ...cfg, replyCert }, Date.now()), name).toThrow(why);
-      expect(() => new McpServerSession({ ...cfg, replyCert }, RULES, Date.now), name).toThrow(why);
+      expect(() => new McpServerSession({ ...cfg, replyCert }, RULES, ACTS, Date.now), name).toThrow(why);
     }
   });
   it("refusesAKeyringWithoutAWindowAsItRefusesOneThatIsNotAnInteger", () => {
@@ -167,7 +181,7 @@ describe("checkServerPolicy", () => {
     const keyringSig = encode(sign(policyPrivateKey, utf8("paztport-keyring\n" + canonicalize({ policy: cfg.policyPublicKey, services: cfg.keyring }))));
     const noWindow = { ...rest, keyringSig } as ServerPolicy;
     expect(() => checkServerPolicy(noWindow, Date.now())).toThrow("the keyring is not signed by policyPublicKey");
-    expect(() => new McpServerSession(noWindow, RULES, Date.now)).toThrow("the keyring is not signed by policyPublicKey");
+    expect(() => new McpServerSession(noWindow, RULES, ACTS, Date.now)).toThrow("the keyring is not signed by policyPublicKey");
   });
   it("expiredKeyring", () => {
     const { cfg } = serverSetup(undefined, { keyringNotAfter: 5_000 });
@@ -229,7 +243,7 @@ describe("checkServerPolicy", () => {
     const { cfg: c2 } = serverSetup(undefined, { rootNotAfter: 1 });
     expect(() => checkServerPolicy(c2, 2)).toThrow("the root expired at 1 (1970-01-01T00:00:00.001Z)");
     const warned: string[] = [];
-    new McpServerSession(cfg, RULES, Date.now, (m) => warned.push(m));
+    new McpServerSession(cfg, RULES, ACTS, Date.now, (m) => warned.push(m));
     expect(warned.every((m) => !m.includes("keyring"))).toBe(true);
   });
   it("warnsNearExpiry", () => {
@@ -238,7 +252,7 @@ describe("checkServerPolicy", () => {
     const { cfg, policyPrivateKey } = serverSetup(undefined, { keyringNotAfter: near, rootNotAfter: near });
     const warned: string[] = [];
     // the default certificate is long-lived, so only the keyring and root warn
-    new McpServerSession(cfg, RULES, () => now, (m) => warned.push(m));
+    new McpServerSession(cfg, RULES, ACTS, () => now, (m) => warned.push(m));
     expect(warned).toHaveLength(2);
     expect(warned[0]).toContain("keyring");
     expect(warned[0]).toContain(`notAfter ${near} (${new Date(near).toISOString()})`);
@@ -248,21 +262,21 @@ describe("checkServerPolicy", () => {
     const { cfg: farCfg, policyPrivateKey: farKey } = serverSetup();
     const far = { ...farCfg, replyCert: signReplyCert(farCfg.policyPublicKey, "mcp-entry", farCfg.keyring["mcp-entry"]!, now + 30 * DAY_MS, farKey) };
     const quiet: string[] = [];
-    new McpServerSession(far, RULES, () => now, (m) => quiet.push(m));
+    new McpServerSession(far, RULES, ACTS, () => now, (m) => quiet.push(m));
     expect(quiet).toEqual([]);
   });
   it("judgesExpiryAtTheSessionsClock", () => {
     const cfg = serverConfig();
     const { notAfter } = cfg.replyCert;
-    expect(() => new McpServerSession(cfg, RULES, () => notAfter, () => {})).not.toThrow();
-    expect(() => new McpServerSession(cfg, RULES, () => notAfter + 1)).toThrow("replyCert expired at");
+    expect(() => new McpServerSession(cfg, RULES, ACTS, () => notAfter, () => {})).not.toThrow();
+    expect(() => new McpServerSession(cfg, RULES, ACTS, () => notAfter + 1)).toThrow("replyCert expired at");
   });
 });
 
 describe("session handshake", () => {
   it("aRequestObjectAsParamsIsInvalidParams", () => {
     // the request itself, not its token, as a peer that sends values would
-    const srv = new McpServerSession(serverConfig(), RULES, Date.now);
+    const srv = new McpServerSession(serverConfig(), RULES, ACTS, Date.now);
     const request = makeClient().request();
     expect(() => srv.openSession(request)).toThrow(InvalidParams);
     expect(() => srv.openSession({ request })).toThrow(new InvalidParams("member request is not a string"));
@@ -270,20 +284,20 @@ describe("session handshake", () => {
   });
   it("aRequestWithMetaOpensItsSession", () => {
     // MCP allows _meta, such as a progress token, on every request; it is not the request's
-    const srv = new McpServerSession(serverConfig(), RULES, Date.now);
+    const srv = new McpServerSession(serverConfig(), RULES, ACTS, Date.now);
     const { reply } = srv.openSession({ ...sessionParams(makeClient().request()), _meta: { progressToken: 1 } });
     expect(readSessionReply(reply).status).toBe("attested");
     expect(srv.session()?.status).toBe("attested");
   });
   it("aRequestWithAnotherMemberIsInvalidParams", () => {
-    const srv = new McpServerSession(serverConfig(), RULES, Date.now);
+    const srv = new McpServerSession(serverConfig(), RULES, ACTS, Date.now);
     const params = { ...sessionParams(makeClient().request()), other: 1 };
     expect(() => srv.openSession(params)).toThrow(InvalidParams);
     expect(srv.session()).toBeUndefined();
   });
   it("attestedWhenBothRoots", () => {
     const cfg = serverConfig();
-    const srv = new McpServerSession(cfg, RULES, Date.now);
+    const srv = new McpServerSession(cfg, RULES, ACTS, Date.now);
     const reply = handshake(srv, makeClient({ withRoot: true }).request());
     expect(reply.status).toBe("attested");
     expect(reply.disabled).toEqual([]);
@@ -294,7 +308,7 @@ describe("session handshake", () => {
     expect(srv.session()?.status).toBe("attested");
   });
   it("aClientRootAndKeyringWindowSurviveParsing", () => {
-    const srv = new McpServerSession(serverConfig(), RULES, Date.now);
+    const srv = new McpServerSession(serverConfig(), RULES, ACTS, Date.now);
     const req = makeClient().request();
     expect(req.clientRoot!.notAfter).toBe(CLIENT_NOT_AFTER);
     expect(req.clientKeyringNotAfter).toBe(CLIENT_NOT_AFTER);
@@ -303,13 +317,13 @@ describe("session handshake", () => {
     expect(srv.session()!.request.clientKeyringNotAfter).toBe(CLIENT_NOT_AFTER);
   });
   it("aTamperedClientKeyringNotAfterIsUnsafe", () => {
-    const srv = new McpServerSession(serverConfig(), RULES, Date.now);
+    const srv = new McpServerSession(serverConfig(), RULES, ACTS, Date.now);
     const req = makeClient().request();
     expect(handshake(srv, { ...req, clientKeyringNotAfter: CLIENT_NOT_AFTER + 1 }).status).toBe("unsafe");
     expect(handshake(srv, { ...req, clientRoot: { ...req.clientRoot!, notAfter: CLIENT_NOT_AFTER + 1 } }).status).toBe("unsafe");
   });
   it("aMalformedNotAfterOpensNoSession", () => {
-    const srv = new McpServerSession(serverConfig(), RULES, Date.now);
+    const srv = new McpServerSession(serverConfig(), RULES, ACTS, Date.now);
     const good = makeClient().request();
     expect(handshake(srv, good).status).toBe("attested");
     const current = srv.session();
@@ -332,7 +346,7 @@ describe("session handshake", () => {
     expect(srv.session()).toBe(current);
   });
   it("clientMaterialWithoutNotAfterOpensNoSession", () => {
-    const srv = new McpServerSession(serverConfig(), RULES, Date.now);
+    const srv = new McpServerSession(serverConfig(), RULES, ACTS, Date.now);
     const good = makeClient().request();
     expect(handshake(srv, good).status).toBe("attested");
     const current = srv.session();
@@ -345,7 +359,7 @@ describe("session handshake", () => {
     expect(srv.session()).toBe(current);
   });
   it("aRequestValueWithAnExtraMemberIsInvalidParams", () => {
-    const srv = new McpServerSession(serverConfig(), RULES, Date.now);
+    const srv = new McpServerSession(serverConfig(), RULES, ACTS, Date.now);
     const good = makeClient().request();
     const extraInRoot = { ...good, clientRoot: { ...good.clientRoot!, note: "added" } };
     for (const request of [{ ...good, serverEntry: "mcp-entry" }, extraInRoot]) {
@@ -358,7 +372,7 @@ describe("session handshake", () => {
     const T = Date.now() + 60_000;
     for (const [what, opts] of [["keyring", { keyringNotAfter: T }], ["root", { rootNotAfter: T }]] as const) {
       let now = Date.now();
-      const srv = new McpServerSession(serverConfig(), RULES, () => now);
+      const srv = new McpServerSession(serverConfig(), RULES, ACTS, () => now);
       now = T;
       expect(handshake(srv, makeClient(opts).request()).status, `${what} at notAfter`).toBe("attested");
       now = T + 1;
@@ -370,7 +384,7 @@ describe("session handshake", () => {
     for (const [what, windows] of [["keyring", { keyringNotAfter: T }], ["root", { rootNotAfter: T }]] as const) {
       let now = Date.now();
       const { cfg } = serverSetup(["mcp-entry", "github-tools"], windows);
-      const srv = new McpServerSession(cfg, RULES, () => now, () => {});
+      const srv = new McpServerSession(cfg, RULES, ACTS, () => now, () => {});
       const client = makeClient();
       const first = handshake(srv, client.request());
       expect(first.status, what).toBe("attested");
@@ -383,10 +397,12 @@ describe("session handshake", () => {
       const reply = handshake(srv, req);
       expect(reply.status, what).toBe("unsafe");
       expect(reply.disabled, what).toEqual(RULES.disabledWhenUnsafe);
-      const decide = (tool: string, isWrite: boolean) =>
-        decideServerCall({ tool, isWrite, publicDestination: true, attested: srv.session()?.status === "attested", served: srv.session()?.served ?? [], clientInfluence: [], disabledWhenUnsafe: RULES.disabledWhenUnsafe });
-      expect(decide("list_issues", false), what).toBe("OK");
-      expect(decide("create_pull_request", true), what).toBe("UNSAFE_SESSION");
+      const decide = (tool: string) =>
+        decideServerCall({
+          tool, attested: srv.session()?.status === "attested", disabledWhenUnsafe: RULES.disabledWhenUnsafe,
+        });
+      expect(decide("list_issues"), what).toBe("OK");
+      expect(decide("create_pull_request"), what).toBe("UNSAFE_SESSION");
       // and a client judging the reply at that time refuses it, so it takes its replacement path
       expect(verifySessionReply(reply, req, cfg.policyPublicKey, "mcp-entry", now), what).toBe(false);
     }
@@ -396,7 +412,7 @@ describe("session handshake", () => {
     for (const [what, opts] of [["keyring", { keyringNotAfter: T }], ["root", { rootNotAfter: T }]] as const) {
       let now = Date.now();
       const cfg = serverConfig();
-      const srv = new McpServerSession(cfg, RULES, () => now, () => {});
+      const srv = new McpServerSession(cfg, RULES, ACTS, () => now, () => {});
       const client = makeClient(opts);
       const reply = handshake(srv, client.request());
       expect(reply.status, what).toBe("attested");
@@ -405,30 +421,30 @@ describe("session handshake", () => {
       expect(srv.checkCall(client.callParams("list_issues", { owner: "o" }, [], { now: T })).reason, `${what} at notAfter`).toBe("OK");
       now = T + 1;
       const r = srv.checkCall(client.callParams("list_issues", { owner: "o" }, [], { now: T + 1 }));
-      expect({ reason: r.reason, caller: r.caller, influence: r.influence }, `${what} one ms past`).toEqual({ reason: "POLICY_EXPIRED", caller: "", influence: [] });
+      expect({ reason: r.reason, caller: r.caller, handOver: r.handOver }, `${what} one ms past`).toEqual({ reason: "POLICY_EXPIRED", caller: "", handOver: null });
     }
   });
   it("unsafeWithoutClientRootDisablesWrites", () => {
-    const srv = new McpServerSession(serverConfig(), RULES, Date.now);
+    const srv = new McpServerSession(serverConfig(), RULES, ACTS, Date.now);
     const reply = handshake(srv, makeClient({ withRoot: false }).request());
     expect(reply.status).toBe("unsafe");
     expect(reply.disabled).toEqual(RULES.disabledWhenUnsafe);
     expect(srv.session()?.status).toBe("unsafe");
   });
   it("aPinnedClientWithASignedKeyringIsAttested", () => {
-    const srv = new McpServerSession(serverConfig(), RULES, Date.now);
+    const srv = new McpServerSession(serverConfig(), RULES, ACTS, Date.now);
     expect(handshake(srv, makeClient().request()).status).toBe("attested");
   });
   it("anUnpinnedClientKeyIsUnsafe", () => {
-    const srv = new McpServerSession({ ...serverConfig(), pinnedClientKeys: [generateKeyPair().publicKey] }, RULES, Date.now);
+    const srv = new McpServerSession({ ...serverConfig(), pinnedClientKeys: [generateKeyPair().publicKey] }, RULES, ACTS, Date.now);
     const reply = handshake(srv, makeClient().request());
     expect(reply.status).toBe("unsafe");
     expect(reply.disabled).toEqual(RULES.disabledWhenUnsafe);
-    const none = new McpServerSession({ ...serverConfig(), pinnedClientKeys: [] }, RULES, Date.now);
+    const none = new McpServerSession({ ...serverConfig(), pinnedClientKeys: [] }, RULES, ACTS, Date.now);
     expect(handshake(none, makeClient().request()).status).toBe("unsafe");
   });
   it("aRequestWithNoKeyringSignatureIsInvalidParams", () => {
-    const srv = new McpServerSession(serverConfig(), RULES, Date.now);
+    const srv = new McpServerSession(serverConfig(), RULES, ACTS, Date.now);
     const { clientKeyringSig: _sig, ...missing } = makeClient().request();
     for (const request of [missing, { ...missing, clientKeyringSig: null }, { ...missing, clientKeyringSig: "" }, { ...missing, clientKeyringSig: 7 }]) {
       expect(() => handshake(srv, request)).toThrow(InvalidParams);
@@ -437,7 +453,7 @@ describe("session handshake", () => {
   });
   it("replyVerifiesForClient", () => {
     const cfg = serverConfig();
-    const srv = new McpServerSession(cfg, RULES, Date.now);
+    const srv = new McpServerSession(cfg, RULES, ACTS, Date.now);
     const client = makeClient();
     const reply = handshake(srv, client.request());
     expect(client.acceptReply(reply, cfg.policyPublicKey)).toBe(true);
@@ -445,7 +461,7 @@ describe("session handshake", () => {
   });
   it("replyCarriesKeyringSigAndEntrySignature", () => {
     const cfg = serverConfig();
-    const srv = new McpServerSession(cfg, RULES, Date.now);
+    const srv = new McpServerSession(cfg, RULES, ACTS, Date.now);
     const client = makeClient();
     const req = client.request();
     const reply = handshake(srv, req);
@@ -465,14 +481,14 @@ describe("session handshake", () => {
   });
   it("disabledInReplyIsACopy", () => {
     const rules: SessionRules = { disabledWhenUnsafe: ["create_branch"] };
-    const srv = new McpServerSession(serverConfig(), rules, Date.now);
+    const srv = new McpServerSession(serverConfig(), rules, ACTS, Date.now);
     const reply = handshake(srv, makeClient({ withRoot: false }).request());
     reply.disabled.push("list_issues");
     expect(rules.disabledWhenUnsafe).toEqual(["create_branch"]);
     expect(handshake(srv, makeClient({ withRoot: false }).request()).disabled).toEqual(["create_branch"]);
   });
   it("protoKeyInClientKeyringIsOrdinary", () => {
-    const srv = new McpServerSession(serverConfig(), RULES, Date.now);
+    const srv = new McpServerSession(serverConfig(), RULES, ACTS, Date.now);
     const req = JSON.parse(JSON.stringify(makeClient().request()).replace('"clientKeyring":{', '"clientKeyring":{"__proto__":"k",'));
     handshake(srv, req);
     const ring = srv.session()!.request.clientKeyring;
@@ -481,7 +497,7 @@ describe("session handshake", () => {
     expect(Object.keys(ring)).toContain("session");
   });
   it("malformedSessionRequestThrows", () => {
-    const srv = new McpServerSession(serverConfig(), RULES, Date.now);
+    const srv = new McpServerSession(serverConfig(), RULES, ACTS, Date.now);
     for (const bad of [null, "x", {}, { clientRoot: null, clientPolicyKey: 1, clientKeyring: {}, nonce: "n" }, { clientRoot: null, clientPolicyKey: "k", clientKeyring: [], nonce: "n" }, { clientRoot: { rootId: "v" }, clientPolicyKey: "k", clientKeyring: {}, nonce: "n" }]) {
       expect(() => handshake(srv, bad)).toThrow();
     }
@@ -492,7 +508,7 @@ describe("session handshake", () => {
 describe("response attestation", () => {
   function setup() {
     const cfg = serverConfig();
-    const srv = new McpServerSession(cfg, RULES, Date.now);
+    const srv = new McpServerSession(cfg, RULES, ACTS, Date.now);
     const client = makeClient();
     const reply = handshake(srv, client.request());
     expect(client.acceptReply(reply, cfg.policyPublicKey)).toBe(true);
@@ -501,48 +517,59 @@ describe("response attestation", () => {
   it("attestedResponseVerifiesForClient", () => {
     const { srv, client, reply } = setup();
     const out = srv.attest(srv.session()!, RESULT, CALL, "third-party");
-    const v = client.verify(out, { rid: CALL.rid, toolCallId: CALL.callId }, reply.serverKeyring, reply.serverRoot!);
+    const v = client.verify(out, { rid: CALL.rid, callId: CALL.callId }, reply.serverKeyring, reply.serverRoot!);
     expect(v.reason).toBe("OK");
-    expect(v.labels).toHaveLength(1);
-    expect(v.labels[0]!.cls).toBe("third-party");
+    expect(v.entries).toEqual([{ cls: "third-party", src: "server:github", h: bindResult(RESULT), cid: expect.any(String) }]);
     expect(RESULT._meta).toBeUndefined();
+  });
+  it("aResponsesTwoBlocksNameInfluenceAndTheLastHoldsTheLabelAndRequiresIt", () => {
+    const { srv, client, reply } = setup();
+    const out = srv.attest(srv.session()!, RESULT, CALL, "private");
+    const att = readAttestation((out._meta as Record<string, string>)[META_ATTESTATION]!);
+    const plain = att.blocks.map((b) => ({ items: { ...b.items }, requires: b.requires }));
+    expect(plain).toEqual([
+      { items: { [INFLUENCE]: [] }, requires: [] },
+      { items: { [INFLUENCE]: [{ cls: "private", cid: expect.any(String) }] }, requires: [INFLUENCE] },
+    ]);
+    expect(att.chain.map((s) => s.ext)).toEqual(att.blocks.map((b) => commitBlock(b)));
+    const v = client.verify(out, { rid: CALL.rid, callId: CALL.callId }, reply.serverKeyring, reply.serverRoot!, Date.now(), CLIENT_EXTENSIONS);
+    expect(v.reason).toBe("OK");
   });
   it("attestationLabelMatchesClass", () => {
     const { srv } = setup();
     for (const cls of ["third-party", "private", "public", "local-untrusted"] as const) {
       const att = readAttestation((srv.attest(srv.session()!, RESULT, CALL, cls)._meta as Record<string, string>)[META_ATTESTATION]!);
-      expect(att.labels).toHaveLength(1);
-      expect(att.labels[0].cls).toBe(cls);
-      expect(typeof att.labels[0].cid).toBe("string");
-      expect(att.chain.map((s: any) => s.svc)).toEqual(["mcp-entry", "github-tools"]);
+      const labels = att.blocks[1]!.items[INFLUENCE] as { cls: string; cid: string }[];
+      expect(labels).toHaveLength(1);
+      expect(labels[0]!.cls).toBe(cls);
+      expect(typeof labels[0]!.cid).toBe("string");
+      expect(att.chain.map((s) => s.svc)).toEqual(["mcp-entry", "github-tools"]);
     }
+  });
+  it("aServerThatActsOnInfluenceRequiresAClassToAttest", () => {
+    const { srv } = setup();
+    expect(() => srv.attest(srv.session()!, RESULT, CALL)).toThrow("a server that acts on influence needs the class of every result");
   });
   it("theResponseChainEndsAtTheCaller", () => {
     const { srv } = setup();
     const att = readAttestation((srv.attest(srv.session()!, RESULT, { ...CALL, caller: "pi" }, "public")._meta as Record<string, string>)[META_ATTESTATION]!);
-    expect(att.chain.map((s: any) => s.rcv)).toEqual(["github-tools", "pi"]);
-    expect(att.chain.map((s: any) => s.v)).toEqual([3, 3]);
+    expect(att.chain.map((s) => s.rcv)).toEqual(["github-tools", "pi"]);
+    expect(att.chain.map((s) => s.v)).toEqual([4, 4]);
   });
   it("aResponseForAnotherCallerDoesNotVerifyForThisClient", () => {
     const { srv, client, reply } = setup();
     const out = srv.attest(srv.session()!, RESULT, { ...CALL, caller: "other" }, "public");
-    expect(client.verify(out, { rid: CALL.rid, toolCallId: CALL.callId }, reply.serverKeyring, reply.serverRoot!).reason).toBe("BINDING_MISMATCH");
+    expect(client.verify(out, { rid: CALL.rid, callId: CALL.callId }, reply.serverKeyring, reply.serverRoot!).reason).toBe("BINDING_MISMATCH");
   });
-  it("attestRecordsServedClass", () => {
-    const { srv, client } = setup();
-    expect([...srv.session()!.served]).toEqual([]);
+  it("attestLabelsButLeavesTheServedClassesToHandleToolCall", () => {
+    const { srv } = setup();
     srv.attest(srv.session()!, RESULT, CALL, "third-party");
-    srv.attest(srv.session()!, RESULT, { ...CALL, rid: "rid-2", callId: "call-2" }, "private");
-    srv.attest(srv.session()!, RESULT, { ...CALL, rid: "rid-3", callId: "call-3" }, "third-party");
-    expect(srv.session()!.served).toEqual(new Set(["third-party", "private"]));
-    // a new handshake starts a new session with nothing served
-    handshake(srv, client.request());
     expect(srv.session()!.served.size).toBe(0);
   });
   it("replayedResponseIsRejected", () => {
     const { srv, client, reply } = setup();
     const out = srv.attest(srv.session()!, RESULT, CALL, "public");
-    const args = [{ rid: CALL.rid, toolCallId: CALL.callId }, reply.serverKeyring, reply.serverRoot!] as const;
+    const args = [{ rid: CALL.rid, callId: CALL.callId }, reply.serverKeyring, reply.serverRoot!] as const;
     expect(client.verify(out, ...args).reason).toBe("OK");
     expect(client.verify(out, ...args).reason).toBe("REPLAY");
   });
@@ -550,7 +577,7 @@ describe("response attestation", () => {
     const { srv, client, reply } = setup();
     const out = srv.attest(srv.session()!, RESULT, CALL, "private");
     const tampered: CallToolResult = { ...out, content: [{ type: "text", text: "hello, edited" }] };
-    expect(client.verify(tampered, { rid: CALL.rid, toolCallId: CALL.callId }, reply.serverKeyring, reply.serverRoot!).reason).toBe("BINDING_MISMATCH");
+    expect(client.verify(tampered, { rid: CALL.rid, callId: CALL.callId }, reply.serverKeyring, reply.serverRoot!).reason).toBe("BINDING_MISMATCH");
   });
   it("responseIntoOtherSessionRejected", () => {
     const { srv, client: clientA, reply: replyA } = setup();
@@ -559,17 +586,17 @@ describe("response attestation", () => {
     const replyB = handshake(srv, clientB.request());
     expect(clientB.acceptReply(replyB, replyA.serverPolicyKey)).toBe(true);
     expect(replyB.sess).not.toBe(replyA.sess);
-    const v = clientB.verify(outA, { rid: CALL.rid, toolCallId: CALL.callId }, replyB.serverKeyring, replyB.serverRoot!);
+    const v = clientB.verify(outA, { rid: CALL.rid, callId: CALL.callId }, replyB.serverKeyring, replyB.serverRoot!);
     expect(v.reason).not.toBe("OK");
     expect(v.reason).toBe("SESSION_UNKNOWN");
-    expect(v.labels).toEqual([]);
+    expect(v.entries).toEqual([{ cls: "local-untrusted", src: "server:github", h: bindResult(RESULT) }]);
     // the response still verifies in the session it was made for
-    expect(clientA.verify(outA, { rid: CALL.rid, toolCallId: CALL.callId }, replyA.serverKeyring, replyA.serverRoot!).reason).toBe("OK");
+    expect(clientA.verify(outA, { rid: CALL.rid, callId: CALL.callId }, replyA.serverKeyring, replyA.serverRoot!).reason).toBe("OK");
   });
   it("staleResponseIsExpired", () => {
     const { srv, client, reply } = setup();
     const out = srv.attest(srv.session()!, RESULT, CALL, "public");
-    const v = client.verify(out, { rid: CALL.rid, toolCallId: CALL.callId }, reply.serverKeyring, reply.serverRoot!, Date.now() + 60_000);
+    const v = client.verify(out, { rid: CALL.rid, callId: CALL.callId }, reply.serverKeyring, reply.serverRoot!, Date.now() + 60_000);
     expect(v.reason).toBe("EXPIRED");
   });
   it("clientCallParamsVerifyOnServer", () => {
@@ -585,6 +612,7 @@ describe("response attestation", () => {
       nonces: s.nonces,
       now: Date.now(),
       policyNotAfter,
+      extensions: ACTS,
     });
     expect(r.result.reason).toBe("OK");
   });
@@ -595,15 +623,13 @@ describe("response attestation", () => {
     expect(other.sess).not.toBe(srv.session()!.sess);
     const out = srv.attest(other, RESULT, CALL, "private");
     const att = readAttestation((out._meta as Record<string, string>)[META_ATTESTATION]!);
-    expect(att.chain.map((s: any) => s.sess)).toEqual(["verified-session-id", "verified-session-id"]);
-    expect(other.served).toEqual(new Set(["private"]));
-    expect(srv.session()!.served.size).toBe(0);
+    expect(att.chain.map((s) => s.sess)).toEqual(["verified-session-id", "verified-session-id"]);
   });
 });
 
 describe("call check", () => {
   function attested(tools?: string[], over: Partial<ServerPolicy> = {}) {
-    const srv = new McpServerSession({ ...serverConfig(), ...over }, RULES, Date.now);
+    const srv = new McpServerSession({ ...serverConfig(), ...over }, RULES, ACTS, Date.now);
     const client = makeClient({ tools });
     const reply = handshake(srv, client.request());
     expect(client.acceptReply(reply, reply.serverPolicyKey)).toBe(true);
@@ -615,23 +641,24 @@ describe("call check", () => {
     const params = client.callParams("list_issues", { owner: "o", repo: "r" }, []);
     const meta = params._meta as Record<string, unknown>;
     const values = Object.fromEntries(Object.entries(meta).map(([k, v]) => [k, k === META_CALL_ID ? v : readToken(v as string)]));
-    expect(srv.checkCall({ ...params, _meta: values })).toMatchObject({ reason: "CHAIN_MISSING", caller: "", influence: [] });
+    expect(srv.checkCall({ ...params, _meta: values })).toMatchObject({ reason: "CHAIN_MISSING", caller: "", handOver: null });
     const out = await srv.handleToolCall({ ...params, _meta: values }, { isWrite: false, publicDestination: false }, "enforce", () => ({ result: RESULT, cls: "public" }));
     expect(out).toMatchObject({ verdict: "CHAIN_MISSING", ran: false, verified: null });
     // the tokens themselves verify
     expect(srv.checkCall(params).reason).toBe("OK");
   });
   it("checkCallNeedsAnAttestedSession", () => {
-    const srv = new McpServerSession(serverConfig(), RULES, Date.now);
+    const srv = new McpServerSession(serverConfig(), RULES, ACTS, Date.now);
     expect(() => srv.checkCall({ name: "list_issues" })).toThrow(/attested session/);
     handshake(srv, makeClient({ withRoot: false }).request());
     expect(() => srv.checkCall({ name: "list_issues" })).toThrow(/attested session/);
   });
-  it("verifiedCallCarriesItsInfluence", () => {
+  it("aVerifiedCallCarriesItsHandOver", () => {
     const { srv, client } = attested();
     const influence: InfluenceEntry[] = [{ cls: "private", src: "x", h: "h" }];
     const r = srv.checkCall(client.callParams("list_issues", { owner: "o", repo: "r" }, influence, { rid: "rid-9", callId: "call-9" }));
-    expect(r).toMatchObject({ reason: "OK", rid: "rid-9", callId: "call-9", influence });
+    expect(r).toMatchObject({ reason: "OK", rid: "rid-9", callId: "call-9" });
+    expect(r.handOver).toEqual(new Map([[INFLUENCE, [{ svc: "session", items: [] }, { svc: "pi", items: influence }]]]));
     expect(r.session).toBe(srv.session());
   });
   it("aVerifiedCallNamesItsCaller", () => {
@@ -648,7 +675,7 @@ describe("call check", () => {
     const { srv, client } = attested(["list_issues"]);
     const r = srv.checkCall(client.callParams("create_branch", { owner: "o", repo: "r", branch: "x" }, [{ cls: "private", src: "x", h: "h" }]));
     expect(r.reason).toBe("CLIENT_PATH_NOT_ALLOWED");
-    expect(r.influence).toEqual([]);
+    expect(r.handOver).toBeNull();
   });
   it("checkCallUsesThePolicyServerId", () => {
     // the client's calls name mcp:github.<tool> as their receiver, so a server with another id refuses them
@@ -659,7 +686,7 @@ describe("call check", () => {
     const { srv, client } = attested();
     srv.session()!.request.clientRoot!.root = "not base64url!";
     const r = srv.checkCall(client.callParams("list_issues", { owner: "o", repo: "r" }, []));
-    expect(r).toMatchObject({ reason: "CHAIN_MISSING", rid: "", callId: "", influence: [], caller: "" });
+    expect(r).toMatchObject({ reason: "CHAIN_MISSING", rid: "", callId: "", handOver: null, caller: "" });
   });
   it("anOriginOutsideClientOriginsIsBadOrigin", () => {
     const { srv, client } = attested(["list_issues"], { clientOrigins: ["somebody-else"] });
@@ -670,12 +697,12 @@ describe("call check", () => {
     expect(srv.checkCall(client.callParams("list_issues", { owner: "o", repo: "r" }, [])).reason).toBe("OK");
   });
   it("attestSignsThePolicyHops", () => {
-    const srv = new McpServerSession(serverSetup(["edge", "tools"]).cfg, RULES, Date.now);
+    const srv = new McpServerSession(serverSetup(["edge", "tools"]).cfg, RULES, ACTS, Date.now);
     handshake(srv, makeClient().request());
     const att = readAttestation((srv.attest(srv.session()!, RESULT, CALL, "public")._meta as Record<string, string>)[META_ATTESTATION]!);
-    expect(att.chain.map((s: any) => s.svc)).toEqual(["edge", "tools"]);
-    expect(att.chain.map((s: any) => s.inst)).toEqual(["mock-github-1", "mock-github-1"]);
-    expect(att.chain.map((s: any) => s.rcv)).toEqual(["tools", "pi"]);
+    expect(att.chain.map((s) => s.svc)).toEqual(["edge", "tools"]);
+    expect(att.chain.map((s) => s.inst)).toEqual(["mock-github-1", "mock-github-1"]);
+    expect(att.chain.map((s) => s.rcv)).toEqual(["tools", "pi"]);
   });
 });
 
@@ -693,7 +720,7 @@ describe("handleToolCall", () => {
   const verdictOf = (r: object) => readVerdict(meta(r)[META_VERDICT]);
 
   function open(tools: string[], withRoot = true) {
-    const srv = new McpServerSession(serverConfig(), RULES, Date.now);
+    const srv = new McpServerSession(serverConfig(), RULES, ACTS, Date.now);
     const client = makeClient({ tools, withRoot });
     const reply = handshake(srv, client.request());
     client.acceptReply(reply, reply.serverPolicyKey);
@@ -709,7 +736,7 @@ describe("handleToolCall", () => {
     });
     expect(ran).toBe(1);
     expect(out).toMatchObject({ verdict: "OK", ran: true, verified: { reason: "OK", rid: "r-1", callId: "c-1" } });
-    expect(readAttestation(meta(out.result)[META_ATTESTATION]).labels[0]!.cls).toBe("public");
+    expect(readAttestation(meta(out.result)[META_ATTESTATION]).blocks[1]!.items[INFLUENCE]).toEqual([{ cls: "public", cid: expect.any(String) }]);
     expect(meta(out.result)[META_VERDICT]).toBeUndefined();
     expect(srv.session()!.served).toEqual(new Set(["public"]));
   });
@@ -760,6 +787,50 @@ describe("handleToolCall", () => {
     expect(out).toMatchObject({ verdict: "INFLUENCE_DENIED", ran: true });
     expect(verdictOf(out.result)).toEqual({ reason: "INFLUENCE_DENIED", audit: true });
     expect(meta(out.result)[META_ATTESTATION]).toBeDefined();
+  });
+
+  it("theClassesServedAreEveryResultsInTheSession", async () => {
+    const { srv, client } = open(["list_issues"]);
+    const call = (callId: string, cls: "third-party" | "private") =>
+      srv.handleToolCall(client.callParams("list_issues", ARGS, [], { rid: `r-${callId}`, callId }), READ, "enforce", () => ({ result: RESULT, cls }));
+    expect([...srv.session()!.served]).toEqual([]);
+    await call("c-1", "third-party");
+    await call("c-2", "private");
+    await call("c-3", "third-party");
+    expect(srv.session()!.served).toEqual(new Set(["third-party", "private"]));
+    // a new handshake starts a new session with nothing served
+    handshake(srv, client.request());
+    expect(srv.session()!.served.size).toBe(0);
+  });
+
+  it("auditServesTheClassOfACallThatFailedVerification", async () => {
+    // influence.md, Over MCP: every class served, so private data returned unattested still counts
+    const { srv, client } = open(["list_issues", "create_pull_request"]);
+    const params = client.callParams("list_issues", ARGS, []);
+    const failed = await srv.handleToolCall({ ...params, arguments: { owner: "x" } }, READ, "audit", () => ({ result: RESULT, cls: "private" }));
+    expect(failed).toMatchObject({ verdict: "BINDING_MISMATCH", ran: true, verified: null });
+    expect(meta(failed.result)[META_ATTESTATION]).toBeUndefined();
+    expect(srv.session()!.served).toEqual(new Set(["private"]));
+    // a verified public write whose chain holds one local-untrusted entry: refused by the served private class, noted
+    let ran = false;
+    const untrusted: InfluenceEntry[] = [{ cls: "local-untrusted", src: "server:github", h: "h1" }];
+    const write = await srv.handleToolCall(client.callParams("create_pull_request", ARGS, untrusted), PUBLIC_WRITE, "audit", () => {
+      ran = true;
+      return { result: RESULT, cls: "public" };
+    });
+    expect(ran).toBe(true);
+    expect(write).toMatchObject({ verdict: "INFLUENCE_DENIED", ran: true, verified: { reason: "OK" } });
+    expect(verdictOf(write.result)).toEqual({ reason: "INFLUENCE_DENIED", audit: true });
+  });
+
+  it("anUnsafeSessionNeedsNoClass", async () => {
+    const { srv, client } = open(["list_issues"], false);
+    expect(srv.session()!.status).toBe("unsafe");
+    const out = await srv.handleToolCall(client.callParams("list_issues", ARGS, []), READ, "enforce", () => ({ result: RESULT }));
+    expect(out).toMatchObject({ verdict: "OK", ran: true, verified: null });
+    expect(srv.session()!.served.size).toBe(0);
+    const none = await srv.handleToolCall({ name: "list_issues", arguments: ARGS }, READ, "enforce", () => ({ result: RESULT }));
+    expect(none).toMatchObject({ verdict: "OK", ran: true });
   });
 
   it("aFailedChainIsRefusedInEnforceAndNeverAttested", async () => {
@@ -823,8 +894,143 @@ describe("handleToolCall", () => {
   });
 
   it("noHandshakeIsAnUnsafeSession", async () => {
-    const srv = new McpServerSession(serverConfig(), RULES, Date.now);
+    const srv = new McpServerSession(serverConfig(), RULES, ACTS, Date.now);
     const out = await srv.handleToolCall({ name: "create_pull_request", arguments: ARGS }, PUBLIC_WRITE, "enforce", () => ({ result: RESULT, cls: "public" }));
     expect(out).toMatchObject({ verdict: "UNSAFE_SESSION", ran: false });
+  });
+});
+
+describe("a server's extensions", () => {
+  const PUBLIC_WRITE = { isWrite: true, publicDestination: true };
+  const ARGS = { owner: "o", repo: "r" };
+  const meta = (r: object): Record<string, any> => (r as { _meta?: Record<string, any> })._meta ?? {};
+  const run = () => ({ result: RESULT, cls: "public" as const });
+
+  /** A server acting on `extensions` in an attested session with a client, and what it passed to `warn`. */
+  function open(extensions = ACTS) {
+    const warned: string[] = [];
+    const srv = new McpServerSession(serverConfig(), RULES, extensions, Date.now, (m) => warned.push(m));
+    const client = makeClient({ tools: ["list_issues", "create_pull_request"] });
+    const reply = handshake(srv, client.request());
+    expect(client.acceptReply(reply, reply.serverPolicyKey)).toBe(true);
+    return { srv, client, reply, warned };
+  }
+
+  it("theReplyListsWhatTheServerActsOn", () => {
+    expect(open().reply.extensions).toEqual([INFLUENCE]);
+    expect(open(NO_EXTENSIONS).reply.extensions).toEqual([]);
+    // in either status
+    const srv = new McpServerSession(serverConfig(), RULES, ACTS, Date.now);
+    expect(handshake(srv, makeClient({ withRoot: false }).request())).toMatchObject({ status: "unsafe", extensions: [INFLUENCE] });
+  });
+
+  it("aPublicWriteWhoseOriginBlockDoesNotNameInfluenceIsRefusedWhateverTheEntriesSay", async () => {
+    const { srv, client } = open();
+    const trusted: InfluenceEntry[] = [{ cls: "public", src: "x", h: "h" }];
+    const silentOrigin = client.callParams("create_pull_request", ARGS, [], { blocks: [EMPTY_BLOCK, influenceBlock(trusted)] });
+    let ran = false;
+    const out = await srv.handleToolCall(silentOrigin, PUBLIC_WRITE, "enforce", () => ((ran = true), run()));
+    expect(out).toMatchObject({ verdict: "INFLUENCE_DENIED", ran: false, verified: { reason: "OK" } });
+    expect(ran).toBe(false);
+    // a block that only requires influence does not name it either
+    const passAlong = client.callParams("create_pull_request", ARGS, [], {
+      blocks: [makeBlock({}, [INFLUENCE]), influenceBlock(trusted)],
+    });
+    expect((await srv.handleToolCall(passAlong, PUBLIC_WRITE, "enforce", run)).verdict).toBe("INFLUENCE_DENIED");
+    // both naming it, with no untrusted entry, the write runs
+    const named = client.callParams("create_pull_request", ARGS, trusted);
+    expect(await srv.handleToolCall(named, PUBLIC_WRITE, "enforce", run)).toMatchObject({ verdict: "OK", ran: true });
+  });
+
+  it("anItemThatIsNotAnEntryIsInfluenceMismatchAndItsSignerIsLogged", async () => {
+    const { srv, client, warned } = open();
+    const bad = () => client.callParams("create_pull_request", ARGS, [], {
+      blocks: [influenceBlock([]), makeBlock({ [INFLUENCE]: [{ cls: "public", src: "x", h: "h", owner: "" }] })],
+    });
+    let ran = false;
+    const out = await srv.handleToolCall(bad(), PUBLIC_WRITE, "enforce", () => ((ran = true), run()));
+    expect(out).toMatchObject({ verdict: "INFLUENCE_MISMATCH", ran: false, verified: { reason: "OK" } });
+    expect(ran).toBe(false);
+    expect(out.result).toMatchObject({ isError: true, _meta: { [META_VERDICT]: writeToken({ reason: "INFLUENCE_MISMATCH" }) } });
+    expect(warned).toHaveLength(1);
+    expect(warned[0]).toContain("INFLUENCE_MISMATCH");
+    expect(warned[0]).toContain("signed by pi");
+    // in audit the tool runs, and the verdict notes it
+    const audit = await srv.handleToolCall(bad(), PUBLIC_WRITE, "audit", run);
+    expect(audit).toMatchObject({ verdict: "INFLUENCE_MISMATCH", ran: true });
+    expect(readVerdict(meta(audit.result)[META_VERDICT])).toEqual({ reason: "INFLUENCE_MISMATCH", audit: true });
+    expect(warned).toHaveLength(2);
+  });
+
+  it("aCallThatFailsVerificationGetsItsCodeBeforeAnyItemIsRead", async () => {
+    const { srv, client, warned } = open();
+    const params = client.callParams("create_pull_request", ARGS, [], {
+      blocks: [influenceBlock([]), makeBlock({ [INFLUENCE]: ["not an entry"] })],
+    });
+    const out = await srv.handleToolCall({ ...params, arguments: { owner: "x" } }, PUBLIC_WRITE, "enforce", run);
+    expect(out).toMatchObject({ verdict: "BINDING_MISMATCH", ran: false, verified: null });
+    expect(warned).toEqual([]);
+  });
+
+  it("aCallWhoseLastBlockRequiresAnExtensionTheServerDoesNotActOnIsExtensionRequired", async () => {
+    const { srv, client } = open();
+    const params = client.callParams("list_issues", ARGS, [], {
+      blocks: [influenceBlock([]), makeBlock({ [INFLUENCE]: [] }, ["example"])],
+    });
+    const out = await srv.handleToolCall(params, { isWrite: false, publicDestination: false }, "enforce", run);
+    expect(out).toMatchObject({ verdict: "EXTENSION_REQUIRED", ran: false, verified: null });
+  });
+
+  it("aServerThatActsOnNoExtensionRunsAPublicWriteUnderAnyBlocksAndAttestsWithEmptyBlocks", async () => {
+    const { srv, client } = open(NO_EXTENSIONS);
+    const tainted: InfluenceEntry[] = [{ cls: "private", src: "x", h: "h" }, { cls: "third-party", src: "y", h: "h2" }];
+    for (const blocks of [
+      [EMPTY_BLOCK, EMPTY_BLOCK],
+      [influenceBlock([]), influenceBlock(tainted)],
+      [EMPTY_BLOCK, makeBlock({ [INFLUENCE]: ["not an entry"] })],
+    ] as const) {
+      const out = await srv.handleToolCall(
+        client.callParams("create_pull_request", ARGS, [], { blocks }), PUBLIC_WRITE, "enforce", () => ({ result: RESULT }),
+      );
+      expect(out).toMatchObject({ verdict: "OK", ran: true });
+      const att = readAttestation(meta(out.result)[META_ATTESTATION]);
+      expect(att.blocks).toEqual([EMPTY_BLOCK, EMPTY_BLOCK]);
+      expect(att.chain.map((stamp) => stamp.ext)).toEqual(["", ""]);
+    }
+    expect(srv.session()!.served.size).toBe(0);
+    // and in an unsafe session it still refuses what its list disables
+    const unsafe = new McpServerSession(serverConfig(), RULES, NO_EXTENSIONS, Date.now);
+    handshake(unsafe, makeClient({ withRoot: false }).request());
+    const refused = await unsafe.handleToolCall({ name: "create_pull_request", arguments: ARGS }, PUBLIC_WRITE, "enforce", run);
+    expect(refused).toMatchObject({ verdict: "UNSAFE_SESSION", ran: false });
+  });
+
+  it("aServerThatActsOnInfluenceThrowsForAResultWithNoClass", async () => {
+    const { srv, client } = open();
+    const params = client.callParams("list_issues", ARGS, []);
+    await expect(srv.handleToolCall(params, { isWrite: false, publicDestination: false }, "enforce", () => ({ result: RESULT })))
+      .rejects.toThrow("a server that acts on influence needs the class of every result");
+  });
+
+  it("aVerifiedCallWithNoInfluenceInItsHandOverIsAFaultThatRunsNothing", async () => {
+    // only a fault in this SDK reaches it: a check result whose hand-over lacks influence, built by hand
+    const { srv, client } = open();
+    const check = srv.checkCall.bind(srv);
+    srv.checkCall = (params) => ({ ...check(params), handOver: new Map() });
+    let ran = false;
+    for (const mode of ["enforce", "audit"] as const) {
+      await expect(srv.handleToolCall(client.callParams("list_issues", ARGS, []), PUBLIC_WRITE, mode, () => ((ran = true), run())))
+        .rejects.toThrow("a verified call's hand-over holds no influence");
+    }
+    expect(ran).toBe(false);
+    expect(srv.session()!.served.size).toBe(0);
+  });
+
+  it("aCallWithNoBlocksIsEveryBlockEmpty", async () => {
+    const { srv, client } = open();
+    // stamped over empty blocks and sent without the token: at a server that acts on influence no stamp names it
+    const params = client.callParams("create_pull_request", ARGS, [], { blocks: [EMPTY_BLOCK, EMPTY_BLOCK], sent: null });
+    expect(Object.hasOwn(params._meta as object, META_EXTENSIONS)).toBe(false);
+    expect((await srv.handleToolCall(params, PUBLIC_WRITE, "enforce", run)).verdict).toBe("INFLUENCE_DENIED");
   });
 });

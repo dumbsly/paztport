@@ -35,7 +35,7 @@ func RouteOf(c Chain, inRoute bool) string {
 }
 
 // stampMembers are a stamp's member names: every one is required, and no other is allowed.
-var stampMembers = []string{"bind", "infl", "inst", "prev", "rcv", "rid", "sess", "sig", "svc", "ts", "v"}
+var stampMembers = []string{"bind", "ext", "inst", "prev", "rcv", "rid", "sess", "sig", "svc", "ts", "v"}
 
 // ReadChain reads a chain from its token, the base64url of its wire bytes, as ParseChain reads the bytes.
 // A token that is not canonical base64url, or is over the token limit, is CHAIN_MISSING.
@@ -47,17 +47,14 @@ func ReadChain(tok string) (Chain, reason.Code) {
 	return chainFromValue(v)
 }
 
-// ParseChain reads a chain from its wire bytes, as the first two checks of a verifier do, and answers
-// with the stamps and OK, or with no stamps and the reason it refused them:
-//
-//  1. CHAIN_MISSING, unless the bytes are wire bytes, canonical and within the limit, of a non-empty
-//     array whose every item is a stamp: an object of exactly a stamp's eleven members, with v the number
-//     3, ts a protocol integer, every other member a string, and sig canonical base64url;
-//  2. BAD_SIGNATURE, if a signed field of any stamp holds "|".
-//
-// Every stamp is read before any is checked for the delimiter, so a chain with both faults, in whichever
-// stamps, is CHAIN_MISSING. The reader checks sig's encoding, not its length: a sig of the wrong length
-// reads, and fails the signature check that follows. ParseChain never panics, whatever the bytes.
+// ParseChain reads a chain from its wire bytes, as check 1 of a verifier does (verification.md, The live
+// order), and answers with the stamps and OK, or with no stamps and CHAIN_MISSING, unless the bytes are wire
+// bytes, canonical and within the limit, of a non-empty array whose every item is a stamp: an object of exactly
+// a stamp's eleven members, with v the number Version, ts a protocol integer, every other member a string, and
+// sig canonical base64url (wire.md, Stamp field rules). A version 3 stamp, with v 3 or an infl member, does not
+// read. A field holding "|" reads like any other. The reader checks sig's encoding, not its length: a sig of the
+// wrong length reads, and fails the signature check that follows; ext is a string and is never decoded.
+// ParseChain never panics, whatever the bytes.
 func ParseChain(wire []byte) (Chain, reason.Code) {
 	v, err := json.ReadWire(wire)
 	if err != nil {
@@ -79,11 +76,6 @@ func chainFromValue(v json.Value) (Chain, reason.Code) {
 		}
 		c[i] = s
 	}
-	for _, s := range c {
-		if s.fault() != nil {
-			return nil, reason.BadSignature
-		}
-	}
 	return c, reason.OK
 }
 
@@ -91,8 +83,8 @@ func stampFromValue(o json.Value) (Stamp, error) {
 	if err := json.Exactly(o, stampMembers, nil); err != nil {
 		return Stamp{}, err
 	}
-	if v, err := json.Integer(o, "v"); err != nil || v != version {
-		return Stamp{}, errors.New(`the member "v" is not 3`)
+	if v, err := json.Integer(o, "v"); err != nil || v != Version {
+		return Stamp{}, fmt.Errorf(`the member "v" is not %d`, Version)
 	}
 	var s Stamp
 	var err error
@@ -117,7 +109,7 @@ func stampFromValue(o json.Value) (Stamp, error) {
 	if s.Bind, err = json.String(o, "bind"); err != nil {
 		return Stamp{}, err
 	}
-	if s.Infl, err = json.String(o, "infl"); err != nil {
+	if s.Ext, err = json.String(o, "ext"); err != nil {
 		return Stamp{}, err
 	}
 	if s.Prev, err = json.String(o, "prev"); err != nil {

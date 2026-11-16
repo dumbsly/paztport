@@ -326,6 +326,33 @@ describe("demo page", () => {
     }
   });
 
+  it("the labels panel reads the labels the server signed, then the server's own outcome label, and not the events", () => {
+    const app = text("app.js");
+    expect(app).toContain("reply?.display?.labels");
+    expect(app).not.toContain("attestation.labels");
+    expect(app).not.toContain("response?.labels");
+    expect(app).toContain("ev.outcome?.label");
+    expect(app).toContain('unreadable(record, "blocks")');
+  });
+
+  it("aCallWhoseBlocksDoNotReadShowsTheNote", () => {
+    // beside the request chain, as the local panel does for its blocks
+    const app = text("app.js");
+    expect(app).toContain('const blocksNote = unreadable(call, "paztport/extensions") ? unreadableNote("blocks token") : null;');
+    const section = app.slice(app.indexOf('h("h3", {}, "Signed request chain")'), app.indexOf("if (!step.local && (attested || reply))"));
+    expect(section).toContain("blocksNote,");
+  });
+
+  it("theLabelsPanelSaysWhatTheClientRecorded", () => {
+    // from the step's `added`, which steps.ts takes from the response event, shown whether or not the reply verified
+    const app = text("app.js");
+    expect(app).toContain('"What the client recorded: "');
+    expect(app).toContain("Array.isArray(step.added) ? step.added : undefined");
+    expect(app).toContain(': "nothing", ".")');
+    const section = app.slice(app.indexOf('h("h3", {}, "Labels on what the server returned")'), app.indexOf('h("h3", {}, "Signed request chain")'));
+    expect(section).toContain("recorded,");
+  });
+
   it("an off run's local drawer says nothing was checked, and a local run's score names all three sources", () => {
     const app = text("app.js");
     expect(app).toContain("Paztport was off, so nothing was checked.");

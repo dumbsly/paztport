@@ -8,9 +8,13 @@
 // unsafe session), its policy key, its signed keyring and a fresh nonce from [NewNonce]. A server reads it
 // with [ParseRequest] or [ReadRequest], which refuse a malformed request (the server answers Invalid
 // params), checks [OpensSession], decides the session's status with [Status], derives its id with [ID]
-// and signs a [Reply] with [SignReply]. The client then judges the reply's bytes with [CheckReply], whose
-// [Check] is the first of the spec's checks that fails, in the spec's order: the reply reads, it names the
-// pinned policy key, its signature, roots and session id hold, and then its status.
+// and signs a [Reply] with [SignReply]. A reply lists the extensions its server acts on, sorted, in either
+// status. The client then judges the reply's bytes with [CheckReply], whose [Check] is the first of the spec's
+// checks that fails, in the spec's order: the reply reads, it names the pinned policy key, its signature, roots
+// and session id hold, then its status, and last, only for an attested reply, step 5: the reply lists every
+// extension the client's [Requirement] names, or the outcome is [ExtensionRequired]. [Requirement.CallsAfter]
+// says what a client with a requirement may do after each outcome: whether it makes calls in the session at
+// all, and the names each call's block requires.
 //
 // A reply comes in one of two forms, told apart only by which members are present, never by which key
 // verifies. In the entry-key form the reply carries the policy key's signature over the server's keyring
@@ -25,7 +29,8 @@
 //
 // The two sides hold their material to the same windows: a root or keyring counts only once the policy
 // key's signature over it verifies, and only until its notAfter. [AttestedOffline] judges a recorded
-// handshake at the time of the record, where [CheckReply] judges it at the client's clock.
+// handshake at the time of the record, where [CheckReply] judges it at the client's clock; it runs steps 1 to
+// 4 only, since step 5 reads the client's live configuration, which a record does not hold.
 //
 // Times are int64 milliseconds since the Unix epoch.
 package session

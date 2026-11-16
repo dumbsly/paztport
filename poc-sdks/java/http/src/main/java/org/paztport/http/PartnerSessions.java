@@ -25,6 +25,7 @@ import org.paztport.core.session.ReplyCert;
 import org.paztport.core.session.SessionReply;
 import org.paztport.core.session.SessionRequest;
 import org.paztport.core.session.Sessions;
+import org.paztport.core.verify.ExtensionSettings;
 import org.paztport.core.verify.InMemoryNonceCache;
 import org.paztport.core.verify.NonceCache;
 import org.paztport.core.verify.VerifierConfig;
@@ -70,6 +71,10 @@ import org.slf4j.LoggerFactory;
  * {@code POLICY_EXPIRED} once either has passed. Should that verifier not be buildable, the session is unsafe rather
  * than the handshake failing, because the client still has to be told. An unsafe session has no verifier, and its
  * reply lists the endpoints this side has switched off for it.
+ *
+ * <p>This side's extension settings ({@link Builder#extensions}) are stated once: every session verifier carries
+ * them, and every reply, attested or unsafe, lists the extensions it acts on (spec sessions.md, The reply), so a
+ * client that requires an extension of this side can tell whether it may call.
  */
 public final class PartnerSessions {
 
@@ -83,6 +88,11 @@ public final class PartnerSessions {
 
     /** Set once this side has said that its own material lapsed, so that a handshake never says it again. */
     private final AtomicBoolean ownLapseLogged = new AtomicBoolean();
+
+    /** The extension settings of this side, which every session's verifier carries. */
+    ExtensionSettings extensions() {
+        return extensions;
+    }
 
     /**
      * A session a peer opened; {@code verifier} is null when it is unsafe. Only the partner's receiver
@@ -123,6 +133,9 @@ public final class PartnerSessions {
     private final long runMaxAgeMs;
     private final int maxSessionsPerPeer;
     private final long sessionIdleMs;
+    private final ExtensionSettings extensions;
+    /** What every reply lists: the extensions this side acts on, sorted, as the reply's schema needs. */
+    private final List<String> actsOn;
 
     private final ReentrantLock lock = new ReentrantLock();
     /** Every session kept, by id; an expired one stays until a lookup finds it or a handshake sweeps it out. */
@@ -144,11 +157,12 @@ public final class PartnerSessions {
      *     idle session
      * @param maxSessionsPerPeer how many sessions one peer may hold at once; at least 1
      * @param sessionIdleMs how long a session no call has used is kept, in milliseconds; positive
+     * @param extensions the extensions this side acts on and the names its session verifiers carry
      */
     PartnerSessions(SignedRoot ownRoot, KeyringFile ownKeyring, String ownPolicyKey, String ownService,
             PrivateKey ownServiceKey, ReplyCert ownReplyCert, Set<String> pinnedClientKeys, Set<String> clientOrigins,
             List<String> unsafeDisabled, NonceCache nonces, LongSupplier clock, long callMaxAgeMs, long runMaxAgeMs,
-            int maxSessionsPerPeer, long sessionIdleMs) {
+            int maxSessionsPerPeer, long sessionIdleMs, ExtensionSettings extensions) {
         if (maxSessionsPerPeer < 1) {
             throw new IllegalArgumentException("a peer must be allowed at least one session");
         }
@@ -174,6 +188,8 @@ public final class PartnerSessions {
         this.runMaxAgeMs = runMaxAgeMs;
         this.maxSessionsPerPeer = maxSessionsPerPeer;
         this.sessionIdleMs = sessionIdleMs;
+        this.extensions = Objects.requireNonNull(extensions, "extensions");
+        this.actsOn = extensions.actsOn().stream().sorted().toList();
     }
 
     /**
@@ -206,7 +222,7 @@ public final class PartnerSessions {
                 // session pins its client's one keyring and one root.
                 verifier = new Verifier(VerifierConfig.pinned(List.of(req.clientKeyringFile()),
                         List.of(req.clientRoot()), req.clientPolicyKey(), clock.getAsLong(), clientOrigins, sess,
-                        nonces, clock, callMaxAgeMs, runMaxAgeMs));
+                        nonces, clock, callMaxAgeMs, runMaxAgeMs, extensions));
             } catch (IllegalArgumentException e) {
                 verifier = null;
             }
@@ -220,7 +236,7 @@ public final class PartnerSessions {
         // The entry-key form: the status above is this side's own decision, and the entry key signs it.
         return Sessions.signReply(new SessionReply(ownRoot, ownPolicyKey, ownKeyring.services(), ownKeyring.sig(),
                 ownKeyring.notAfter(), ownReplyCert, serverNonce, sess, attested ? "attested" : "unsafe",
-                attested ? List.of() : unsafeDisabled, null), ownServiceKey);
+                attested ? List.of() : unsafeDisabled, actsOn, null), ownServiceKey);
     }
 
     /**
@@ -387,7 +403,8 @@ public final class PartnerSessions {
      * Builds a registry once its material is checked. The partner's own material is required, as are at least one
      * pinned client policy key and one client origin; the rest have defaults: no endpoints switched off in unsafe
      * sessions, {@link #DEFAULT_MAX_SESSIONS_PER_PEER}, {@link #DEFAULT_SESSION_IDLE_MS}, the system clock, a run
-     * age equal to the call age, and a replay cache that remembers for {@link VerifierConfig#nonceTtlFor}.
+     * age equal to the call age, a replay cache that remembers for {@link VerifierConfig#nonceTtlFor}, and
+     * {@link ExtensionSettings#NONE}.
      */
     public static final class Builder {
 
@@ -406,6 +423,7 @@ public final class PartnerSessions {
         private Long runMaxAgeMs;
         private int maxSessionsPerPeer = DEFAULT_MAX_SESSIONS_PER_PEER;
         private long sessionIdleMs = DEFAULT_SESSION_IDLE_MS;
+        private ExtensionSettings extensions = ExtensionSettings.NONE;
 
         private Builder() {
         }
@@ -504,6 +522,16 @@ public final class PartnerSessions {
         }
 
         /**
+         * The extensions this side acts on and the names its session verifiers carry, built and checked by
+         * {@link ExtensionSettings#of}; every reply lists the extensions it acts on. {@link ExtensionSettings#NONE}
+         * unless set.
+         */
+        public Builder extensions(ExtensionSettings extensions) {
+            this.extensions = Objects.requireNonNull(extensions, "extensions");
+            return this;
+        }
+
+        /**
          * The registry, once this side's material is fit to sign replies: in this order, its keyring and root verify
          * under its pin and are current; the keyring holds the entry service; that entry is the service key; the
          * reply certificate verifies under the pin, names that service and that key, and has not expired by the
@@ -557,7 +585,7 @@ public final class PartnerSessions {
                     ? nonces : new InMemoryNonceCache(VerifierConfig.nonceTtlFor(callMaxAgeMs));
             return new PartnerSessions(ownRoot, ownKeyring, ownPolicyKey, ownService, ownServiceKey, ownReplyCert,
                     pinnedClientKeys, clientOrigins, unsafeDisabled, cache, clock, callMaxAgeMs,
-                    runMaxAgeMs != null ? runMaxAgeMs : callMaxAgeMs, maxSessionsPerPeer, sessionIdleMs);
+                    runMaxAgeMs != null ? runMaxAgeMs : callMaxAgeMs, maxSessionsPerPeer, sessionIdleMs, extensions);
         }
 
         /** Whether {@code key} is the private half of {@code publicKey}, by signing a probe; never throws. */

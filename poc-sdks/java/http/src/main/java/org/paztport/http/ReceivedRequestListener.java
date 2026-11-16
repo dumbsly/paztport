@@ -15,5 +15,10 @@ package org.paztport.http;
 @FunctionalInterface
 public interface ReceivedRequestListener {
 
-    void received(String chain, String proof, String influence, String method, String target, byte[] body);
+    /**
+     * @param chain the {@code X-Path-Chain} header
+     * @param proof the {@code X-Path-Proof} header
+     * @param blocks the {@code X-Path-Extensions} header
+     */
+    void received(String chain, String proof, String blocks, String method, String target, byte[] body);
 }

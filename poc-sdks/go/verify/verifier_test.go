@@ -7,13 +7,13 @@ import (
 	"bytes"
 	"context"
 	"crypto/ed25519"
+	"crypto/sha256"
 	"errors"
 	"math"
 	"slices"
 	"strings"
 	"testing"
 
-	"github.com/dumbsly/paztport/poc-sdks/go/influence"
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/b64"
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/vectors"
 	"github.com/dumbsly/paztport/poc-sdks/go/keys"
@@ -28,7 +28,7 @@ const now int64 = 1767225600000
 
 // setup is one request to a verifier: the stamps to sign into its chain, edits made to them before and
 // after signing, the verifier's Config and the rest of the Input. The fixture is the mesh policy of
-// v3.json: gateway, then orders, calling payment.
+// v4.json: gateway, then orders, calling payment, each attaching the empty block, sent with no blocks token.
 type setup struct {
 	t      *testing.T
 	stamps []stamp.Stamp                 // nil for no chain
@@ -44,7 +44,7 @@ func ptr(s string) *string { return &s }
 // mesh returns the fixture's setup, which verifies OK.
 func mesh(t *testing.T) *setup {
 	t.Helper()
-	p := vectors.Load(t, "v3.json").Get("policies").Get("mesh")
+	p := vectors.Load(t, "v4.json").Get("policies").Get("mesh")
 	root, err := b64.Decode(p.Get("root").Str())
 	if err != nil {
 		t.Fatal(err)
@@ -79,7 +79,7 @@ func mesh(t *testing.T) *setup {
 }
 
 func pub(t *testing.T, name string) ed25519.PublicKey {
-	_, pub := vectors.V3Key(t, name)
+	_, pub := vectors.VectorKey(t, name)
 	return pub
 }
 
@@ -117,7 +117,7 @@ func (s *setup) token(t *testing.T) string {
 		if !slices.Contains([]string{"gateway", "orders", "pi", "session"}, name) {
 			name = "pi"
 		}
-		priv, _ := vectors.V3Key(t, name)
+		priv, _ := vectors.VectorKey(t, name)
 		signed, err := stamp.Sign(st, priv)
 		if err != nil {
 			t.Fatalf("Sign: %v", err)
@@ -137,8 +137,62 @@ func (s *setup) token(t *testing.T) string {
 	return b64.Encode(b)
 }
 
-// run verifies the setup's request once.
-func (s *setup) run(t *testing.T) verify.Result {
+// attach makes each stamp i commit to bs[i] and sends bs as the blocks token, as an honest hop does.
+func (s *setup) attach(t *testing.T, bs ...stamp.Block) {
+	t.Helper()
+	for i, b := range bs {
+		s.edit(i, func(st *stamp.Stamp) { st.Ext = b.Commit() })
+	}
+	s.in.Blocks = blocksToken(t, bs...)
+}
+
+// blocksToken returns the token of bs.
+func blocksToken(t *testing.T, bs ...stamp.Block) *string {
+	t.Helper()
+	tok, err := stamp.Blocks(bs).Token()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &tok
+}
+
+// block returns the block naming each extension in items with its items, requiring requires.
+func block(t *testing.T, items map[string][]string, requires ...string) stamp.Block {
+	t.Helper()
+	b, err := stamp.NewBlock(items, requires)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
+
+// example is a block naming the made-up extension example with two items, as v4.json's cases do.
+func example(t *testing.T) stamp.Block {
+	return block(t, map[string][]string{"example": {`{"note":"n1"}`, "7"}})
+}
+
+// settings returns extension settings acting on actsOn and carrying any name.
+func settings(t *testing.T, actsOn ...string) verify.Extensions {
+	t.Helper()
+	e, err := verify.NewExtensions(actsOn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return e
+}
+
+// allowing returns extension settings acting on actsOn and carrying only allowed.
+func allowing(t *testing.T, actsOn, allowed []string) verify.Extensions {
+	t.Helper()
+	e, err := verify.NewExtensionsAllowing(actsOn, allowed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return e
+}
+
+// full verifies the setup's request once and returns the result, its hand-over included.
+func (s *setup) full(t *testing.T) verify.Result {
 	t.Helper()
 	in := s.in
 	if s.stamps != nil {
@@ -148,6 +202,26 @@ func (s *setup) run(t *testing.T) verify.Result {
 	if err != nil {
 		t.Fatalf("Verify: %v", err)
 	}
+	return r
+}
+
+// run verifies the setup's request once, and returns the result less its hand-over, once bare has checked it.
+func (s *setup) run(t *testing.T) verify.Result {
+	t.Helper()
+	return bare(t, s.full(t))
+}
+
+// bare checks that r carries a hand-over exactly when it is OK, a verified one, and returns r without it, so that
+// a test compares the rest with ==.
+func bare(t *testing.T, r verify.Result) verify.Result {
+	t.Helper()
+	if (r.HandOver != nil) != r.OK() {
+		t.Fatalf("a %s result has the hand-over %v", r.Reason, r.HandOver)
+	}
+	if r.HandOver != nil && !r.HandOver.Verified() {
+		t.Fatal("an OK result hands over items as not verified")
+	}
+	r.HandOver = nil
 	return r
 }
 
@@ -185,10 +259,8 @@ var faults = []fault{
 		s.stamps = nil
 		s.in.Chain = ptr("")
 	}},
-	{"a delimiter in rcv", reason.BadSignature, func(s *setup) {
-		s.wire = func(b []byte) []byte {
-			return bytes.Replace(b, []byte(`"rcv":"payment"`), []byte(`"rcv":"pay|ment"`), 1)
-		}
+	{"a stamp of version 3", reason.ChainMissing, func(s *setup) {
+		s.wire = func(b []byte) []byte { return bytes.Replace(b, []byte(`"v":4`), []byte(`"v":3`), 1) }
 	}},
 	{"an origin not allowed", reason.BadOrigin, func(s *setup) { s.cfg.AllowedOrigins = []string{"orders"} }},
 	{"no origins allowed", reason.BadOrigin, func(s *setup) { s.cfg.AllowedOrigins = nil }},
@@ -218,10 +290,20 @@ var faults = []fault{
 	{"a stale call", reason.Expired, func(s *setup) { s.cfg.Now = func() int64 { return now + verify.CallMaxAgeMs } }},
 	{"another binding", reason.BindingMismatch, func(s *setup) { s.in.ExpectedBind = ptr("bind-0") }},
 	{"no expected binding", reason.BindingMismatch, func(s *setup) { s.in.ExpectedBind = nil }},
-	{"an empty influence token", reason.InfluenceMismatch, func(s *setup) { s.in.Influence = ptr("") }},
-	{"influence the stamp does not commit to", reason.InfluenceMismatch, func(s *setup) {
-		s.in.Influence = ptr(entriesToken(s.t, entries))
+	{"blocks that are JSON null", reason.ExtensionMismatch, func(s *setup) { s.in.Blocks = ptr("bnVsbA") }},
+	{"an empty blocks token", reason.ExtensionMismatch, func(s *setup) { s.in.Blocks = ptr("") }},
+	{"a block the stamp does not commit to", reason.ExtensionMismatch, func(s *setup) {
+		s.in.Blocks = blocksToken(s.t, stamp.EmptyBlock, example(s.t))
 	}},
+	{"a name not allowed", reason.ExtensionNotAllowed, func(s *setup) {
+		s.attach(s.t, stamp.EmptyBlock, block(s.t, map[string][]string{"other": {}}))
+		s.cfg.Extensions = allowing(s.t, nil, []string{"example"})
+	}},
+	{"a requirement not acted on", reason.ExtensionRequired, func(s *setup) {
+		s.attach(s.t, stamp.EmptyBlock, block(s.t, nil, "example"))
+	}},
+	{"another peer", reason.PeerMismatch, func(s *setup) { s.in.Peer = &verify.Peer{Svc: "search", Inst: "10.0.0.9"} }},
+	{"a peer with no svc", reason.PeerMismatch, func(s *setup) { s.in.Peer = &verify.Peer{} }},
 	{"no nonce key", reason.Replay, func(s *setup) { s.in.NonceKey = nil }},
 	{"a cache that forgets too soon", reason.Replay, func(s *setup) {
 		s.cfg.Nonces = verify.NewMemoryNonceCache(2*verify.CallMaxAgeMs - 1)
@@ -236,8 +318,6 @@ var faults = []fault{
 	{"no proof", reason.PathNotAllowed, func(s *setup) { s.in.Proof = nil }},
 	{"a route the proof does not prove", reason.PathNotAllowed, func(s *setup) { s.in.ReceiverInRoute = false }},
 	{"a proof for another tree", reason.PathNotAllowed, func(s *setup) { s.cfg.Roots[0].RootID = "v0" }},
-	{"another peer", reason.PeerMismatch, func(s *setup) { s.in.Peer = &verify.Peer{Svc: "search", Inst: "10.0.0.9"} }},
-	{"a peer with no svc", reason.PeerMismatch, func(s *setup) { s.in.Peer = &verify.Peer{} }},
 }
 
 // TestOK pins the fixture: it verifies, and names its last signer.
@@ -277,7 +357,7 @@ func TestOrder(t *testing.T) {
 	pairs := [][2]string{
 		{"policy expired", "no chain"},
 		{"policy expired", "a bad signature"},
-		{"a delimiter in rcv", "an origin not allowed"},
+		{"a stamp of version 3", "an origin not allowed"},
 		{"an origin not allowed", "a bad signature"},
 		{"a bad signature", "an inner rcv for another hop"},
 		{"a broken link", "an inner rcv for another hop"},
@@ -286,12 +366,18 @@ func TestOrder(t *testing.T) {
 		{"another rid", "another session"},
 		{"another session", "a stale call"},
 		{"a stale call", "another binding"},
-		{"another binding", "an empty influence token"},
-		{"an empty influence token", "no nonce key"},
-		{"an empty influence token", "a cache that forgets too soon"},
+		{"another binding", "an empty blocks token"},
+		{"another binding", "a requirement not acted on"},
+		{"an empty blocks token", "another peer"},
+		{"a block the stamp does not commit to", "another peer"},
+		{"a name not allowed", "another peer"},
+		{"a requirement not acted on", "another peer"},
+		{"another peer", "no nonce key"},
+		{"another peer", "a cache that forgets too soon"},
+		{"another peer", "a key already spent"},
+		{"another peer", "no proof"},
 		{"no nonce key", "no proof"},
 		{"a key already spent", "no proof"},
-		{"no proof", "another peer"},
 	}
 	for _, p := range pairs {
 		first, second := byName[p[0]], byName[p[1]]
@@ -309,7 +395,7 @@ func TestOrder(t *testing.T) {
 	}
 }
 
-// TestSignatureThenLink pins check 4's loop: each stamp's signature, then its link, before the next stamp.
+// TestSignatureThenLink pins check 3's loop: each stamp's signature, then its link, before the next stamp.
 func TestSignatureThenLink(t *testing.T) {
 	third := stamp.Stamp{Svc: "pi", Inst: "pi-1", RID: "rid-1", TS: now - 100, Rcv: "payment", Bind: "bind-2"}
 	tests := []struct {
@@ -423,62 +509,6 @@ func TestNegativeWindows(t *testing.T) {
 	}
 }
 
-// entries is influence the fixture's stamps do not commit to.
-var entries = []influence.Entry{{Class: influence.Class("third-party"), Src: "web:example.com", H: "h1"}}
-
-func entriesToken(t *testing.T, es []influence.Entry) string {
-	t.Helper()
-	b, err := influence.EntriesWire(es)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return b64.Encode(b)
-}
-
-func commitment(t *testing.T, es []influence.Entry) string {
-	t.Helper()
-	c, err := influence.Commit(es)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return c
-}
-
-// TestInfluence pins check 9: absent influence is the empty list, an empty token is not absent, and the
-// last stamp commits to the influence that arrived.
-func TestInfluence(t *testing.T) {
-	tests := []struct {
-		name  string
-		infl  func(t *testing.T) string // the last stamp's
-		token func(t *testing.T) *string
-		code  reason.Code
-	}{
-		{"none, absent", none, func(*testing.T) *string { return nil }, reason.OK},
-		{"none, as an empty list", none, func(*testing.T) *string { return ptr(b64.Encode([]byte("[]"))) }, reason.OK},
-		{"none, as an empty token", none, func(*testing.T) *string { return ptr("") }, reason.InfluenceMismatch},
-		{"some, committed", committed, func(t *testing.T) *string { return ptr(entriesToken(t, entries)) }, reason.OK},
-		{"some, absent", committed, func(*testing.T) *string { return nil }, reason.InfluenceMismatch},
-		{"some, not committed", none, func(t *testing.T) *string { return ptr(entriesToken(t, entries)) },
-			reason.InfluenceMismatch},
-		{"some, not wire bytes", committed, func(*testing.T) *string {
-			return ptr(b64.Encode([]byte(`[ {"cls":"third-party","h":"h1","src":"web:example.com"}]`)))
-		}, reason.InfluenceMismatch},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			s := mesh(t)
-			s.stamps[1].Infl = tt.infl(t)
-			s.in.Influence = tt.token(t)
-			if got := s.run(t); got.Reason != tt.code {
-				t.Fatalf("Verify = %+v, want %s", got, tt.code)
-			}
-		})
-	}
-}
-
-func none(*testing.T) string        { return "" }
-func committed(t *testing.T) string { return commitment(t, entries) }
-
 // TestBinding pins check 8: the last stamp's bind equals the expected binding, "" included, and an
 // absent expected binding matches nothing.
 func TestBinding(t *testing.T) {
@@ -506,7 +536,7 @@ func TestBinding(t *testing.T) {
 	}
 }
 
-// TestRoute pins check 11's proof handling.
+// TestRoute pins check 12's proof handling.
 func TestRoute(t *testing.T) {
 	s := mesh(t)
 	p, err := policy.ReadProof(*s.in.Proof)
@@ -540,7 +570,7 @@ func TestRoute(t *testing.T) {
 	}
 }
 
-// TestReplay pins check 10: the second use of a key is a replay, while another key, the empty one
+// TestReplay pins check 11: the second use of a key is a replay, while another key, the empty one
 // included, is not on its first use; and a cache whose TTL is under twice the call window refuses every
 // key, the window's double past int64 included.
 func TestReplay(t *testing.T) {
@@ -605,8 +635,9 @@ func (r *recorder) SeenBefore(_ context.Context, key string, now int64) (bool, e
 
 func (r *recorder) TTL() int64 { return r.ttl }
 
-// TestNonceSpending checks which results spend the nonce key: only those that reach check 10 with a key
-// and a cache that remembers long enough. POLICY_EXPIRED spends none.
+// TestNonceSpending checks which results spend the nonce key: only those that reach check 11 with a key
+// and a cache that remembers long enough. POLICY_EXPIRED spends none, and nor does another peer, which check 10
+// refuses first.
 func TestNonceSpending(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -615,11 +646,13 @@ func TestNonceSpending(t *testing.T) {
 	}{
 		{"OK", func(*setup) {}, true},
 		{"policy expired", func(s *setup) { s.cfg.PolicyNotAfter = now - 1 }, false},
-		{"influence not committed", func(s *setup) { s.in.Influence = ptr("") }, false},
+		{"blocks that do not read", func(s *setup) { s.in.Blocks = ptr("") }, false},
+		{"a requirement not acted on", func(s *setup) { s.attach(s.t, stamp.EmptyBlock, block(s.t, nil, "x")) }, false},
 		{"no nonce key", func(s *setup) { s.in.NonceKey = nil }, false},
 		{"a cache that forgets too soon", func(s *setup) { s.cfg.Nonces.(*recorder).ttl = 2*verify.CallMaxAgeMs - 1 }, false},
 		{"no proof", func(s *setup) { s.in.Proof = nil }, true},
-		{"another peer", func(s *setup) { s.in.Peer = &verify.Peer{Svc: "search"} }, true},
+		{"another peer", func(s *setup) { s.in.Peer = &verify.Peer{Svc: "search"} }, false},
+		{"its signer as the peer", func(s *setup) { s.in.Peer = &verify.Peer{Svc: "orders"} }, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -771,7 +804,7 @@ func signedPolicy(
 	t *testing.T, signer string, keyringNotAfter, rootNotAfter int64,
 ) (policy.KeyringFile, policy.Root, string) {
 	t.Helper()
-	priv, _ := vectors.V3Key(t, signer)
+	priv, _ := vectors.VectorKey(t, signer)
 	policyPub := keys.EncodePublic(priv.Public().(ed25519.PublicKey))
 	services := map[string]string{}
 	for _, svc := range []string{"gateway", "orders", "pi"} {
@@ -951,7 +984,7 @@ func TestPinnedRefuses(t *testing.T) {
 		}, "roots[0]"},
 		{"a root that is not base64url", func(t *testing.T) material {
 			kf, root, pin := good(t)
-			priv, _ := vectors.V3Key(t, "client-policy")
+			priv, _ := vectors.VectorKey(t, "client-policy")
 			root.Root = "not base64url"
 			msg, err := policy.RootSigningBytes(root.RootID, root.Root, root.NotAfter)
 			if err != nil {
@@ -1018,3 +1051,349 @@ func TestPinnedRefuses(t *testing.T) {
 }
 
 func mustRoot(_ policy.KeyringFile, root policy.Root, _ string) policy.Root { return root }
+
+// firstOf breaks the checks makes do, all at once, and expects code, the first in the live order.
+func firstOf(t *testing.T, code reason.Code, makes ...func(*setup)) {
+	t.Helper()
+	s := mesh(t)
+	for _, m := range makes {
+		m(s)
+	}
+	if got, want := s.run(t), s.named(code); got != want {
+		t.Fatalf("Verify = %+v, want %+v", got, want)
+	}
+}
+
+// faultNamed returns how the fault called name is made.
+func faultNamed(t *testing.T, name string) func(*setup) {
+	t.Helper()
+	for _, f := range faults {
+		if f.name == name {
+			return f.make
+		}
+	}
+	t.Fatalf("no fault named %q", name)
+	return nil
+}
+
+// TestBlocksAbsentAndEveryExtEmptyIsOK: no blocks token is one empty block per stamp, which every ext "" matches;
+// a service acting on example is handed one entry per stamp, none of which names it.
+func TestBlocksAbsentAndEveryExtEmptyIsOK(t *testing.T) {
+	s := mesh(t)
+	s.cfg.Extensions = settings(t, "example")
+	r := s.full(t)
+	if bare(t, r) != s.named(reason.OK) {
+		t.Fatalf("Verify = %+v, want OK", r)
+	}
+	got, ok := r.HandOver.Under("example")
+	want := []verify.StampItems{{Svc: "gateway"}, {Svc: "orders"}}
+	if !ok || !slices.EqualFunc(got, want, sameItems) {
+		t.Fatalf("Under(example) = %+v, %t, want %+v", got, ok, want)
+	}
+}
+
+// TestBlocksThatAreJSONNullAreExtensionMismatch: a token that reads as null is present, and is not an array of
+// blocks, so it is never taken for no token.
+func TestBlocksThatAreJSONNullAreExtensionMismatch(t *testing.T) {
+	s := mesh(t)
+	s.in.Blocks = ptr(b64.Encode([]byte("null")))
+	if got := s.run(t); got != s.named(reason.ExtensionMismatch) {
+		t.Fatalf("Verify = %+v, want EXTENSION_MISMATCH", got)
+	}
+}
+
+// TestBlocksAbsentWhereAStampCommitsToABlockIsExtensionMismatch: a token stripped from a chain whose blocks were not
+// all empty leaves a stamp whose ext is not "".
+func TestBlocksAbsentWhereAStampCommitsToABlockIsExtensionMismatch(t *testing.T) {
+	s := mesh(t)
+	s.attach(t, stamp.EmptyBlock, example(t))
+	if got := s.run(t); got != s.named(reason.OK) {
+		t.Fatalf("with its blocks: Verify = %+v, want OK", got)
+	}
+	s.in.Blocks = nil
+	if got := s.run(t); got != s.named(reason.ExtensionMismatch) {
+		t.Fatalf("without them: Verify = %+v, want EXTENSION_MISMATCH", got)
+	}
+}
+
+// TestOneBlockTooFewIsExtensionMismatch: one block per stamp, not fewer.
+func TestOneBlockTooFewIsExtensionMismatch(t *testing.T) {
+	s := mesh(t)
+	s.in.Blocks = blocksToken(t, stamp.EmptyBlock)
+	if got := s.run(t); got != s.named(reason.ExtensionMismatch) {
+		t.Fatalf("Verify = %+v, want EXTENSION_MISMATCH", got)
+	}
+}
+
+// TestOneBlockTooManyIsExtensionMismatch: one block per stamp, not more, even an empty one.
+func TestOneBlockTooManyIsExtensionMismatch(t *testing.T) {
+	s := mesh(t)
+	s.in.Blocks = blocksToken(t, stamp.EmptyBlock, stamp.EmptyBlock, stamp.EmptyBlock)
+	if got := s.run(t); got != s.named(reason.ExtensionMismatch) {
+		t.Fatalf("Verify = %+v, want EXTENSION_MISMATCH", got)
+	}
+}
+
+// TestTwoBlocksSwappedIsExtensionMismatch: each block is matched to its own stamp, in chain order.
+func TestTwoBlocksSwappedIsExtensionMismatch(t *testing.T) {
+	s := mesh(t)
+	s.attach(t, example(t), stamp.EmptyBlock)
+	s.in.Blocks = blocksToken(t, stamp.EmptyBlock, example(t))
+	if got := s.run(t); got != s.named(reason.ExtensionMismatch) {
+		t.Fatalf("Verify = %+v, want EXTENSION_MISMATCH", got)
+	}
+}
+
+// TestAnItemAlteredIsExtensionMismatch: a later hop cannot change a claim an earlier one made.
+func TestAnItemAlteredIsExtensionMismatch(t *testing.T) {
+	s := mesh(t)
+	s.attach(t, example(t), stamp.EmptyBlock)
+	s.in.Blocks = blocksToken(t, block(t, map[string][]string{"example": {`{"note":"n2"}`, "7"}}), stamp.EmptyBlock)
+	if got := s.run(t); got != s.named(reason.ExtensionMismatch) {
+		t.Fatalf("Verify = %+v, want EXTENSION_MISMATCH", got)
+	}
+}
+
+// TestAnExtThatIsNotBase64urlIsExtensionMismatchNotChainMissing: ext is compared as text and never decoded, so a
+// signed ext that is no base64url reads, and fails check 9a.
+func TestAnExtThatIsNotBase64urlIsExtensionMismatchNotChainMissing(t *testing.T) {
+	s := mesh(t)
+	s.edit(1, func(st *stamp.Stamp) { st.Ext = "not base64url!" })
+	s.in.Blocks = blocksToken(t, stamp.EmptyBlock, example(t))
+	if got := s.run(t); got != s.named(reason.ExtensionMismatch) {
+		t.Fatalf("Verify = %+v, want EXTENSION_MISMATCH", got)
+	}
+}
+
+// TestAnExtThatIsTheHashOfTheEmptyBlockIsExtensionMismatch: the empty block's ext is "", not its hash, so a stamp
+// signing the hash matches neither no token nor an array of empty blocks.
+func TestAnExtThatIsTheHashOfTheEmptyBlockIsExtensionMismatch(t *testing.T) {
+	sum := sha256.Sum256(stamp.EmptyBlock.Wire())
+	for name, tok := range map[string]*string{
+		"no token": nil, "an array of empty blocks": blocksToken(t, stamp.EmptyBlock, stamp.EmptyBlock),
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := mesh(t)
+			s.edit(1, func(st *stamp.Stamp) { st.Ext = b64.Encode(sum[:]) })
+			s.in.Blocks = tok
+			if got := s.run(t); got != s.named(reason.ExtensionMismatch) {
+				t.Fatalf("Verify = %+v, want EXTENSION_MISMATCH", got)
+			}
+		})
+	}
+}
+
+// TestANameOutsideTheAllowedListIsExtensionNotAllowed: with a list set, a name outside it is refused wherever a
+// block holds it: in items, or only in the first block's requires.
+func TestANameOutsideTheAllowedListIsExtensionNotAllowed(t *testing.T) {
+	for name, bs := range map[string][]stamp.Block{
+		"in items":                        {stamp.EmptyBlock, block(t, map[string][]string{"other": {`"o"`}})},
+		"only in the first's requires":    {block(t, nil, "other"), stamp.EmptyBlock},
+		"beside an allowed name in items": {block(t, map[string][]string{"example": {}, "other": {}}), stamp.EmptyBlock},
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := mesh(t)
+			s.attach(t, bs...)
+			s.cfg.Extensions = allowing(t, []string{"example"}, []string{"example"})
+			if got := s.run(t); got != s.named(reason.ExtensionNotAllowed) {
+				t.Fatalf("Verify = %+v, want EXTENSION_NOT_ALLOWED", got)
+			}
+		})
+	}
+}
+
+// TestTheSameNameWithNoListIsOK: with no list the verifier carries any name, so the blocks above are OK, and a
+// name the service does not act on is not handed over.
+func TestTheSameNameWithNoListIsOK(t *testing.T) {
+	s := mesh(t)
+	s.attach(t, stamp.EmptyBlock, block(t, map[string][]string{"other": {`"o"`}}))
+	s.cfg.Extensions = settings(t, "example")
+	r := s.full(t)
+	if bare(t, r) != s.named(reason.OK) {
+		t.Fatalf("Verify = %+v, want OK", r)
+	}
+	if _, ok := r.HandOver.Under("other"); ok || !slices.Equal(r.HandOver.Names(), []string{"example"}) {
+		t.Fatalf("the hand-over holds %q", r.HandOver.Names())
+	}
+}
+
+// TestTheCallersRequiresOfAnExtensionNotActedOnIsExtensionRequired: the last block's requires binds the receiver.
+func TestTheCallersRequiresOfAnExtensionNotActedOnIsExtensionRequired(t *testing.T) {
+	s := mesh(t)
+	s.attach(t, stamp.EmptyBlock, block(t, nil, "example"))
+	if got := s.run(t); got != s.named(reason.ExtensionRequired) {
+		t.Fatalf("Verify = %+v, want EXTENSION_REQUIRED", got)
+	}
+	s.cfg.Extensions = settings(t, "example")
+	if got := s.run(t); got != s.named(reason.OK) {
+		t.Fatalf("acting on it: Verify = %+v, want OK", got)
+	}
+}
+
+// TestAnEarlierBlocksRequiresBindsNoOne: only the direct caller's requires binds.
+func TestAnEarlierBlocksRequiresBindsNoOne(t *testing.T) {
+	s := mesh(t)
+	s.attach(t, block(t, nil, "example"), stamp.EmptyBlock)
+	if got := s.run(t); got != s.named(reason.OK) {
+		t.Fatalf("Verify = %+v, want OK", got)
+	}
+}
+
+// TestTwoRequiredNamesOneActedOnIsExtensionRequired: every name the last block requires must be acted on, not one
+// of them.
+func TestTwoRequiredNamesOneActedOnIsExtensionRequired(t *testing.T) {
+	for _, acts := range [][]string{{"example"}, {"other"}} {
+		s := mesh(t)
+		s.attach(t, stamp.EmptyBlock, block(t, nil, "example", "other"))
+		s.cfg.Extensions = settings(t, acts...)
+		if got := s.run(t); got != s.named(reason.ExtensionRequired) {
+			t.Fatalf("acting on %q: Verify = %+v, want EXTENSION_REQUIRED", acts, got)
+		}
+	}
+	s := mesh(t)
+	s.attach(t, stamp.EmptyBlock, block(t, nil, "example", "other"))
+	s.cfg.Extensions = settings(t, "example", "other")
+	if got := s.run(t); got != s.named(reason.OK) {
+		t.Fatalf("acting on both: Verify = %+v, want OK", got)
+	}
+}
+
+// sameItems compares two hand-over entries by value.
+func sameItems(a, b verify.StampItems) bool {
+	return a.Svc == b.Svc && a.Named == b.Named && slices.Equal(a.Items, b.Items)
+}
+
+// TestOnOKTheHandOverHoldsOneEntryPerStampForEachNameActedOn: for each name acted on, one entry per stamp in chain
+// order, with its signer, whether its block names it, and its items as their JCS text; a name a block only
+// requires is not named; a name not acted on is not handed over.
+func TestOnOKTheHandOverHoldsOneEntryPerStampForEachNameActedOn(t *testing.T) {
+	s := mesh(t)
+	s.attach(t, block(t, map[string][]string{"example": {}}, "influence"),
+		block(t, map[string][]string{"example": {`{"note":"n1"}`, "7"}, "other": {"1"}}))
+	s.cfg.Extensions = settings(t, "example", "influence")
+	r := s.full(t)
+	if bare(t, r) != s.named(reason.OK) {
+		t.Fatalf("Verify = %+v, want OK", r)
+	}
+	h := r.HandOver
+	if !h.Verified() || !slices.Equal(h.Names(), []string{"example", "influence"}) {
+		t.Fatalf("the hand-over is verified %t and holds %q", h.Verified(), h.Names())
+	}
+	for name, want := range map[string][]verify.StampItems{
+		"example": {{Svc: "gateway", Named: true, Items: []string{}},
+			{Svc: "orders", Named: true, Items: []string{`{"note":"n1"}`, "7"}}},
+		"influence": {{Svc: "gateway"}, {Svc: "orders"}},
+	} {
+		got, ok := h.Under(name)
+		if !ok || !slices.EqualFunc(got, want, sameItems) {
+			t.Errorf("Under(%s) = %+v, %t, want %+v", name, got, ok, want)
+		}
+	}
+	if _, ok := h.Under("other"); ok {
+		t.Error("the hand-over holds other, which the service does not act on")
+	}
+}
+
+// TestARefusalHandsNothingOver: no result of the live order but OK carries a hand-over.
+func TestARefusalHandsNothingOver(t *testing.T) {
+	for _, f := range faults {
+		t.Run(f.name, func(t *testing.T) {
+			s := mesh(t)
+			s.cfg.Extensions = settings(t, "influence") // not example, which a fault requires
+			f.make(s)
+			if r := s.full(t); r.OK() || r.HandOver != nil {
+				t.Fatalf("Verify = %+v, hand-over %v", r, r.HandOver)
+			}
+		})
+	}
+}
+
+// TestAWrongPeerIsFoundBeforeTheNonceIsSpent: a captured request sent by another peer is PEER_MISMATCH and spends
+// nothing, so its signer's own sending, with the same nonce key, is then OK, not REPLAY.
+func TestAWrongPeerIsFoundBeforeTheNonceIsSpent(t *testing.T) {
+	s := mesh(t)
+	in := s.in
+	in.Chain = ptr(s.token(t))
+	v := verify.New(s.cfg)
+	for _, tt := range []struct {
+		peer verify.Peer
+		code reason.Code
+	}{
+		{verify.Peer{Svc: "search", Inst: "10.0.0.9"}, reason.PeerMismatch},
+		{verify.Peer{Svc: "orders", Inst: "10.0.0.7"}, reason.OK},
+		{verify.Peer{Svc: "orders", Inst: "10.0.0.7"}, reason.Replay},
+	} {
+		in.Peer = &tt.peer
+		got, err := v.Verify(t.Context(), in)
+		if err != nil || got.Reason != tt.code || got.SuspectSvc != tt.peer.Svc {
+			t.Fatalf("sent by %s: Verify = %+v, %v, want %s naming the peer", tt.peer.Svc, got, err, tt.code)
+		}
+	}
+}
+
+// TestAWrongPeerIsFoundBeforeAnUnprovenRoute: check 10 before check 12.
+func TestAWrongPeerIsFoundBeforeAnUnprovenRoute(t *testing.T) {
+	firstOf(t, reason.PeerMismatch, faultNamed(t, "no proof"), faultNamed(t, "another peer"))
+}
+
+// TestAReplayIsFoundBeforeAnUnprovenRoute: check 11 spends the key before check 12, so a request on no proven route
+// sent twice is PATH_NOT_ALLOWED, then REPLAY.
+func TestAReplayIsFoundBeforeAnUnprovenRoute(t *testing.T) {
+	s := mesh(t)
+	s.in.Proof = nil
+	in := s.in
+	in.Chain = ptr(s.token(t))
+	v := verify.New(s.cfg)
+	for _, want := range []reason.Code{reason.PathNotAllowed, reason.Replay} {
+		if got, err := v.Verify(t.Context(), in); err != nil || got.Reason != want {
+			t.Fatalf("Verify = %+v, %v, want %s", got, err, want)
+		}
+	}
+}
+
+// TestABadBlockIsFoundBeforeAWrongPeer: check 9a before check 10.
+func TestABadBlockIsFoundBeforeAWrongPeer(t *testing.T) {
+	firstOf(t, reason.ExtensionMismatch, faultNamed(t, "another peer"),
+		faultNamed(t, "a block the stamp does not commit to"))
+}
+
+// TestADisallowedOriginIsFoundBeforeABadSignature: check 2 before check 3.
+func TestADisallowedOriginIsFoundBeforeABadSignature(t *testing.T) {
+	firstOf(t, reason.BadOrigin, faultNamed(t, "a bad signature"), faultNamed(t, "an origin not allowed"))
+}
+
+// TestAWrongReceiverIsFoundBeforeAnotherRID: check 4 before check 5.
+func TestAWrongReceiverIsFoundBeforeAnotherRID(t *testing.T) {
+	firstOf(t, reason.BindingMismatch, faultNamed(t, "another rid"), faultNamed(t, "a chain for another receiver"))
+}
+
+// TestAnotherRIDIsFoundBeforeAnotherSession: check 5 before check 6.
+func TestAnotherRIDIsFoundBeforeAnotherSession(t *testing.T) {
+	firstOf(t, reason.RIDMismatch, faultNamed(t, "another session"), faultNamed(t, "another rid"))
+}
+
+// TestAnotherSessionIsFoundBeforeAStaleStamp: check 6 before check 7.
+func TestAnotherSessionIsFoundBeforeAStaleStamp(t *testing.T) {
+	firstOf(t, reason.SessionUnknown, faultNamed(t, "a stale call"), faultNamed(t, "another session"))
+}
+
+// TestAStaleStampIsFoundBeforeAWrongBinding: check 7 before check 8.
+func TestAStaleStampIsFoundBeforeAWrongBinding(t *testing.T) {
+	firstOf(t, reason.Expired, faultNamed(t, "another binding"), faultNamed(t, "a stale call"))
+}
+
+// TestVerifierExtensionsAreTheConfigs: a transport reads the settings back from the verifier, so a service cannot
+// verify under one actsOn and build its blocks under another.
+func TestVerifierExtensionsAreTheConfigs(t *testing.T) {
+	cfg := mesh(t).cfg
+	if got := verify.New(cfg).Extensions(); len(got.ActsOn()) != 0 || !got.Carries("anything") {
+		t.Fatalf("the zero settings come back acting on %q", got.ActsOn())
+	}
+	cfg.Extensions = allowing(t, []string{"example"}, []string{"example", "other"})
+	got := verify.New(cfg).Extensions()
+	allowed, listed := got.Allowed()
+	if !slices.Equal(got.ActsOn(), []string{"example"}) || !listed ||
+		!slices.Equal(allowed, []string{"example", "other"}) {
+		t.Fatalf("Extensions = acts on %q, allows %q (%t)", got.ActsOn(), allowed, listed)
+	}
+}

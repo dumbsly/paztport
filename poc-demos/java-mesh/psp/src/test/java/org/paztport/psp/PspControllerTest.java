@@ -9,18 +9,27 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.function.Supplier;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.paztport.core.influence.Influence;
 import org.paztport.core.influence.InfluenceClass;
 import org.paztport.core.influence.InfluenceEntry;
+import org.paztport.core.stamp.Block;
 import org.paztport.core.stamp.Stamp;
+import org.paztport.core.verify.ExtensionSettings;
+import org.paztport.core.verify.HandOver;
 import org.paztport.http.PublicWrites;
 import org.paztport.http.RequestContext;
-import org.paztport.http.VerifiedChains;
+import org.paztport.http.TestScopes;
 import org.springframework.http.ResponseEntity;
 
-// The influence a hijacked assistant's refund carries: a ticket's untrusted text beside alice's order.
+// The influence a hijacked assistant's refund carries: a ticket's untrusted text beside alice's order. The PSP acts
+// on influence, as the demo's configuration says, and is handed the entries of the shop's boundary block.
 class PspControllerTest {
+
+    private static final ExtensionSettings INFLUENCE = ExtensionSettings.of(Set.of(Influence.NAME), null);
 
     private CardRecords records;
     private PspController controller;
@@ -41,10 +50,27 @@ class PspControllerTest {
     }
 
     private ResponseEntity<Map<String, String>> refundWith(String order, String card, InfluenceEntry... influence) {
+        return inSession("rid-1", List.of(influence), () -> controller.refund(new PspController.Refund(order, card)));
+    }
+
+    /**
+     * Runs {@code call} as the partner filter serves a call in an attested session: in a scope of a service acting on
+     * influence, with the shop's boundary stamp for {@code rid} verified and its block, holding {@code entries},
+     * handed on.
+     */
+    private static <T> T inSession(String rid, List<InfluenceEntry> entries, Supplier<T> call) {
         try (RequestContext.Scope scope = RequestContext.open()) {
-            RequestContext.addInfluence(influence);
-            return controller.refund(new PspController.Refund(order, card));
+            TestScopes.actOn(INFLUENCE);
+            handOn(rid, entries);
+            return call.get();
         }
+    }
+
+    /** Marks the boundary stamp for {@code rid} verified and hands on its block, which holds {@code entries}. */
+    private static void handOn(String rid, List<InfluenceEntry> entries) {
+        Block block = Influence.block(entries, List.of());
+        List<Stamp> chain = verifiedChain(rid, block);
+        TestScopes.verified(chain, new HandOver(true, chain, List.of(block), INFLUENCE));
     }
 
     @Test
@@ -100,6 +126,19 @@ class PspControllerTest {
         assertEquals(Map.of("status", "REFUNDED"), response.getBody());
     }
 
+    // A scope opened with no settings is a service acting on nothing, which is refused every guarded write: even the
+    // honest refund above, shaped only by the ticket, is denied.
+    @Test
+    void aRefundInAScopeWithNoSettingsIsDenied() {
+        ResponseEntity<Map<String, String>> response;
+        try (RequestContext.Scope scope = RequestContext.open()) {
+            handOn("rid-1", List.of(TICKET));
+            response = controller.refund(new PspController.Refund("123", null));
+        }
+        assertEquals(403, response.getStatusCode().value());
+        assertEquals(Map.of("reason", "INFLUENCE_DENIED"), response.getBody());
+    }
+
     @Test
     void unknownOrderHasNoCharge() {
         ResponseEntity<Map<String, String>> response = refundAfterTicket("999", null);
@@ -113,6 +152,7 @@ class PspControllerTest {
     void unverifiedChargeIsTakenButRegistersNothing() {
         ResponseEntity<Map<String, String>> response;
         try (RequestContext.Scope scope = RequestContext.open()) {
+            TestScopes.actOn(INFLUENCE);
             response = controller.charge(new PspController.Charge("mallory", "456", "4000 0000 0000 0002", 40L));
         }
         assertEquals(200, response.getStatusCode().value());
@@ -124,9 +164,9 @@ class PspControllerTest {
     private static final InfluenceEntry ALICES_ORDER =
             new InfluenceEntry(InfluenceClass.PRIVATE, "http:orders", "b3JkZXI", null, "alice");
 
-    /** The boundary stamp the partner filter verified: only its rid matters here. */
-    private static List<Stamp> verifiedChain(String rid) {
-        return List.of(new Stamp("payment", "payment-1", rid, 0, "sess", "psp", "bind", "", "", "sig"));
+    /** The boundary stamp the partner filter verified, committing to {@code block}: only its rid matters here. */
+    private static List<Stamp> verifiedChain(String rid, Block block) {
+        return List.of(new Stamp("payment", "payment-1", rid, 0, "sess", "psp", "bind", block.commit(), "", "sig"));
     }
 
     // The refused refund is recorded too: the record is written before the rule decides, so the shop can later show
@@ -135,12 +175,8 @@ class PspControllerTest {
     void aVerifiedRefundIsRecordedBeforeTheRuleRefusesIt() {
         ReceivedInfluence received = new ReceivedInfluence();
         PspController recording = new PspController(records, new PublicWrites("psp"), Optional.of(received));
-        ResponseEntity<Map<String, String>> response;
-        try (RequestContext.Scope scope = RequestContext.open()) {
-            VerifiedChains.mark(verifiedChain("rid-13"));
-            RequestContext.addInfluence(TICKET, ALICES_ORDER);
-            response = recording.refund(new PspController.Refund("123", "4000 0000 0000 0002"));
-        }
+        ResponseEntity<Map<String, String>> response = inSession("rid-13", List.of(TICKET, ALICES_ORDER),
+                () -> recording.refund(new PspController.Refund("123", "4000 0000 0000 0002")));
         assertEquals(Map.of("reason", "INFLUENCE_DENIED"), response.getBody());
         assertEquals(List.of(TICKET, ALICES_ORDER), received.received("rid-13").orElseThrow());
     }
@@ -149,20 +185,19 @@ class PspControllerTest {
     void aVerifiedChargeIsRecorded() {
         ReceivedInfluence received = new ReceivedInfluence();
         PspController recording = new PspController(records, new PublicWrites("psp"), Optional.of(received));
-        try (RequestContext.Scope scope = RequestContext.open()) {
-            VerifiedChains.mark(verifiedChain("rid-11"));
-            RequestContext.addInfluence(ALICES_ORDER);
-            recording.charge(new PspController.Charge("alice", "123", "4242 4242 4242 4242", 40L));
-        }
+        inSession("rid-11", List.of(ALICES_ORDER),
+                () -> recording.charge(new PspController.Charge("alice", "123", "4242 4242 4242 4242", 40L)));
         assertEquals(List.of(ALICES_ORDER), received.received("rid-11").orElseThrow());
     }
 
-    // An unsafe session verified nothing, so nothing it carried is recorded as received.
+    // An unsafe session verified nothing and hands nothing on, so nothing is recorded as received, not even what
+    // the PSP added itself.
     @Test
     void anUnverifiedCallIsNotRecorded() {
         ReceivedInfluence received = new ReceivedInfluence();
         PspController recording = new PspController(records, new PublicWrites("psp"), Optional.of(received));
         try (RequestContext.Scope scope = RequestContext.open()) {
+            TestScopes.actOn(INFLUENCE);
             RequestContext.addInfluence(TICKET);
             recording.refund(new PspController.Refund("123", null));
         }

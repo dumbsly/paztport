@@ -22,6 +22,19 @@ export function publicWriteRefused(influence: readonly InfluenceFact[], destinat
 }
 
 /**
+ * Whether a guarded public write is refused (spec influence.md, The every-stamp rule, then The owner-aware rule):
+ * always when a stamp of the chain does not name `influence`, since that hop may have read anything, whatever the
+ * entries say; otherwise as `publicWriteRefused` decides over `influence`.
+ */
+export function guardedWriteRefused(
+  everyStampNames: boolean,
+  influence: readonly InfluenceFact[],
+  destinationOwner?: string,
+): boolean {
+  return !everyStampNames || publicWriteRefused(influence, destinationOwner);
+}
+
+/**
  * Whether the influence holds no untrusted content, the condition for writing a trusted record from a request (the
  * other is that its chain passed the live order at this hop, which the caller knows and this does not): no
  * `third-party` and no `local-untrusted` fact. `private` and `public` facts, and owners, do not count either way.

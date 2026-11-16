@@ -18,13 +18,14 @@
  * {@code SessionRequest.parse(byte[])}, and the session reply, with {@code SessionReply.parse(byte[])}, which
  * {@code Sessions.checkReply(byte[], ...)} reads it with before checking it.
  * <li>A list carried on the wire is read and written by the class that owns it, named for what it reads:
- * {@code Influence.parse} and {@code Influence.toJson}, {@code ContentLabel.parseAll} and
- * {@code ContentLabel.toJson(List)}, {@code Chains.parse} and {@code Chains.toJson}. {@code Chains.parse} returns
- * its failure as a reason rather than throwing, since reading a chain is the verifier's first check.
+ * {@code Block.parseAll} and {@code Block.toJson(List)}, {@code Chains.parse} and {@code Chains.toJson}.
+ * {@code Chains.parse} returns its failure as a reason rather than throwing, since reading a chain is the verifier's
+ * first check. An item a block holds is read one at a time, by its extension: {@code InfluenceEntry.parse} and
+ * {@code ContentLabel.parse}.
  * <li>A message judged as received has no reader of its own. A responder event is one:
  * {@code EventVerifier.accept} takes the body's text, and a sender writes it with {@code ResponderEvent.toJson} and
  * {@code EventEnvelope.toJson}.
- * <li>The verifiers take the stamps, influence and proof as the JSON text received, and read each from its bytes
+ * <li>The verifiers take the stamps, blocks and proof as the JSON text received, and read each from its bytes
  * at the check that needs it, so text that is not the JCS text of what it holds is a rejection there like any
  * other malformed input.
  * <li>{@link Jcs} canonicalises JSON text.

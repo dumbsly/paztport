@@ -66,7 +66,7 @@ func FuzzAcceptSigned(f *testing.F) {
 			}
 		}
 	})
-	priv, pub := vectors.V3Key(f, "payment")
+	priv, pub := vectors.VectorKey(f, "payment")
 	keyring := policy.Keyring{"payment": pub}
 	f.Fuzz(func(t *testing.T, payload []byte, now1, now2 int64) {
 		text := b64.Encode(payload)

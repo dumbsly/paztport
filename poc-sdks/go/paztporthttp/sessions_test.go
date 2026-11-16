@@ -15,6 +15,8 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/dumbsly/paztport/poc-sdks/go/influence"
+	"github.com/dumbsly/paztport/poc-sdks/go/internal/json"
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/vectors"
 	"github.com/dumbsly/paztport/poc-sdks/go/keys"
 	"github.com/dumbsly/paztport/poc-sdks/go/paztporthttp/wire"
@@ -205,7 +207,7 @@ func TestSessionsKeepTheirOwnCopy(t *testing.T) {
 	if r.Status != session.StatusAttested || len(r.ServerKeyring) == 0 {
 		t.Fatalf("the reply is %s with keyring %v after the caller changed its config", r.Status, r.ServerKeyring)
 	}
-	if got := session.CheckReply(a.Body, req, cfg.PolicyKey, "psp", now); got != session.Attested {
+	if got := session.CheckReply(a.Body, req, cfg.PolicyKey, "psp", now, session.Requirement{}); got != session.Attested {
 		t.Fatalf("CheckReply = %s after the caller changed its entry key, want %s", got, session.Attested)
 	}
 	// payment is still the session's origin: its call passes every check up to the route, and has no proof.
@@ -358,7 +360,7 @@ func TestHandshakeReplyIsSignedByTheEntryKey(t *testing.T) {
 	if r.ServerReplyCert == nil || r.ServerKeyringSig == nil || r.ServerKeyringNotAfter == nil {
 		t.Fatalf("the reply is not in the entry-key form: %+v", r)
 	}
-	if got := session.CheckReply(a.Body, req, cfg.PolicyKey, "psp", now); got != session.Attested {
+	if got := session.CheckReply(a.Body, req, cfg.PolicyKey, "psp", now, session.Requirement{}); got != session.Attested {
 		t.Fatalf("CheckReply = %s, want %s", got, session.Attested)
 	}
 	if len(r.Disabled) != 0 {
@@ -410,7 +412,7 @@ func TestHandshakeWithMaterialPinnedRefusesOpensAnUnsafeSession(t *testing.T) {
 	if r.Status != session.StatusUnsafe || len(r.Disabled) != 1 || r.Disabled[0] != "POST /refund" {
 		t.Fatalf("the reply is %s disabling %q; want unsafe disabling POST /refund", r.Status, r.Disabled)
 	}
-	if got := session.CheckReply(a.Body, req, cfg.PolicyKey, "psp", now); got != session.Unsafe {
+	if got := session.CheckReply(a.Body, req, cfg.PolicyKey, "psp", now, session.Requirement{}); got != session.Unsafe {
 		t.Fatalf("CheckReply = %s, want %s", got, session.Unsafe)
 	}
 	call := InboundRequest{Method: "POST", Target: "/charge", Session: r.Sess}
@@ -564,8 +566,15 @@ func TestSessionsMatchNoPeerWithoutAnIssuerOrAName(t *testing.T) {
 }
 
 // boundaryCall returns a POST /charge in session id, with one boundary stamp signed at ts by payment for
-// psp, binding the call and committing to no influence, and no proof.
+// psp, binding the call and attaching the empty block, with no blocks header and no proof.
 func boundaryCall(t *testing.T, id string, ts int64) InboundRequest {
+	t.Helper()
+	return boundaryCallCarrying(t, id, ts, stamp.EmptyBlock, false)
+}
+
+// boundaryCallCarrying returns boundaryCall's call with its stamp committing to block, and, where sent, the
+// blocks header holding it and shop's proof of the route payment/psp, so that the call can verify.
+func boundaryCallCarrying(t *testing.T, id string, ts int64, block stamp.Block, sent bool) InboundRequest {
 	t.Helper()
 	body := []byte("{}")
 	bind, err := wire.Bind("POST", "/charge", body)
@@ -574,7 +583,7 @@ func boundaryCall(t *testing.T, id string, ts int64) InboundRequest {
 	}
 	key, _ := vectors.RulesKey(t, "payment")
 	st, err := stamp.Sign(stamp.Stamp{
-		Svc: "payment", Inst: "pay-1", RID: "rid-1", TS: ts, Sess: id, Rcv: "psp", Bind: bind,
+		Svc: "payment", Inst: "pay-1", RID: "rid-1", TS: ts, Sess: id, Rcv: "psp", Bind: bind, Ext: block.Commit(),
 	}, key)
 	if err != nil {
 		t.Fatalf("stamp.Sign: %v", err)
@@ -583,7 +592,315 @@ func boundaryCall(t *testing.T, id string, ts int64) InboundRequest {
 	if err != nil {
 		t.Fatalf("EncodeChain: %v", err)
 	}
-	return InboundRequest{Method: "POST", Target: "/charge", Chain: chain, Session: id, Body: body}
+	req := InboundRequest{Method: "POST", Target: "/charge", Chain: chain, Session: id, Body: body}
+	if sent {
+		if req.Extensions, err = wire.EncodeBlocks(stamp.Blocks{block}); err != nil {
+			t.Fatalf("EncodeBlocks: %v", err)
+		}
+		req.Proof = shopProof(t, "payment/psp")
+	}
+	return req
+}
+
+// shopProof returns the X-Path-Proof value of the rules' shop material's proof of route.
+func shopProof(t *testing.T, route string) string {
+	t.Helper()
+	for _, p := range vectors.RulesMaterial(t, "shop").Proofs {
+		if p.Route != route {
+			continue
+		}
+		v, err := json.ReadFile(p.Text)
+		if err != nil {
+			t.Fatalf("the proof of %s: %v", route, err)
+		}
+		b, err := json.Wire(v)
+		if err != nil {
+			t.Fatalf("the proof of %s has no canonical text: %v", route, err)
+		}
+		proof, err := policy.ParseProof(b)
+		if err != nil {
+			t.Fatalf("ParseProof: %v", err)
+		}
+		tok, err := proof.Token()
+		if err != nil {
+			t.Fatalf("Token: %v", err)
+		}
+		return tok
+	}
+	t.Fatalf("shop holds no proof of %s", route)
+	return ""
+}
+
+// actingOnInfluence returns cfg with settings that act on influence.
+func actingOnInfluence(t *testing.T, cfg SessionsConfig) SessionsConfig {
+	t.Helper()
+	ext, err := verify.NewExtensions([]string{"influence"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.Extensions = ext
+	return cfg
+}
+
+// influenceBlock returns a block naming influence with items, each the canonical text of one value.
+func influenceBlock(t *testing.T, items ...string) stamp.Block {
+	t.Helper()
+	b, err := stamp.NewBlock(map[string][]string{"influence": items}, nil)
+	if err != nil {
+		t.Fatalf("NewBlock: %v", err)
+	}
+	return b
+}
+
+// TestThePartnersReplyListsWhatItActsOn: every reply, attested or unsafe, lists the names the partner's settings
+// act on, sorted, and none for the zero settings.
+func TestThePartnersReplyListsWhatItActsOn(t *testing.T) {
+	now := int64(vectorNow)
+	cfg := pspConfig(t, &now, 16, 60000)
+	none := opened(t, newSessions(t, cfg).ServeHandshake(vectors.RulesHandshakeBody(t, "shop"), rulesPeer(t, "shop")))
+	if len(none.Extensions) != 0 {
+		t.Fatalf("the reply of a partner acting on nothing lists %q", none.Extensions)
+	}
+	ext, err := verify.NewExtensions([]string{"influence", "example"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.Extensions = ext
+	attested := opened(t, newSessions(t, cfg).ServeHandshake(vectors.RulesHandshakeBody(t, "shop"),
+		rulesPeer(t, "shop")))
+	cfg.Pinned = []string{policyPin(t, "stranger-policy")}
+	unsafe := opened(t, newSessions(t, cfg).ServeHandshake(vectors.RulesHandshakeBody(t, "shop"),
+		rulesPeer(t, "shop")))
+	want := []string{"example", "influence"}
+	if attested.Status != session.StatusAttested || !slices.Equal(attested.Extensions, want) {
+		t.Fatalf("the attested reply lists %q, status %s; want %q", attested.Extensions, attested.Status, want)
+	}
+	if unsafe.Status != session.StatusUnsafe || !slices.Equal(unsafe.Extensions, want) {
+		t.Fatalf("the unsafe reply lists %q, status %s; want %q", unsafe.Extensions, unsafe.Status, want)
+	}
+}
+
+// TestAnAttestedCallHandsOverTheBoundaryBlock: a call that verifies in an attested session carries its boundary
+// chain and block on, and hands the partner the block's items, verified.
+func TestAnAttestedCallHandsOverTheBoundaryBlock(t *testing.T) {
+	now := int64(vectorNow)
+	s := newSessions(t, actingOnInfluence(t, pspConfig(t, &now, 16, 60000)))
+	peer := rulesPeer(t, "shop")
+	id := opened(t, s.ServeHandshake(vectors.RulesHandshakeBody(t, "shop"), peer)).Sess
+	item := `{"cls":"public","h":"h-1","src":"http:catalogue"}`
+	block := influenceBlock(t, item)
+	a, err := s.Accept(t.Context(), boundaryCallCarrying(t, id, now, block, true), peer)
+	if err != nil {
+		t.Fatalf("Accept: %v", err)
+	}
+	if a.Refusal != nil || !a.Attested {
+		t.Fatalf("the call is %+v, want Attested", a)
+	}
+	if len(a.Inbound.Chain) != 1 || a.Inbound.Chain[0].Rcv != "psp" || len(a.Inbound.Blocks) != 1 ||
+		a.Inbound.Blocks[0].Commit() != block.Commit() {
+		t.Fatalf("Inbound = %+v, want the boundary stamp and its block", a.Inbound)
+	}
+	if a.HandOver == nil || !a.HandOver.Verified() {
+		t.Fatalf("HandOver = %+v, want a verified hand-over", a.HandOver)
+	}
+	under, ok := a.HandOver.Under("influence")
+	want := []verify.StampItems{{Svc: "payment", Named: true, Items: []string{item}}}
+	if !ok || len(under) != 1 || under[0].Svc != want[0].Svc || !under[0].Named ||
+		!slices.Equal(under[0].Items, want[0].Items) {
+		t.Fatalf("Under(influence) = %+v, %v; want %+v", under, ok, want)
+	}
+}
+
+// TestAnUnsafeCallHandsOverNothingWhateverItCarries: in an unsafe session, and with no session header, a partner
+// acting on influence reads neither the chain nor the blocks, so blocks that do not decode and an item that does
+// not read are served, with nothing carried and nothing handed on.
+func TestAnUnsafeCallHandsOverNothingWhateverItCarries(t *testing.T) {
+	now := int64(vectorNow)
+	cfg := actingOnInfluence(t, pspConfig(t, &now, 16, 60000))
+	cfg.Pinned = []string{policyPin(t, "stranger-policy")}
+	s := newSessions(t, cfg)
+	peer := rulesPeer(t, "shop")
+	id := opened(t, s.ServeHandshake(vectors.RulesHandshakeBody(t, "shop"), peer)).Sess
+	unread := boundaryCallCarrying(t, id, now, influenceBlock(t, `{"x":1}`), true)
+	undecoded := boundaryCall(t, id, now)
+	undecoded.Extensions = "not a token"
+	noHeader := unread
+	noHeader.Session = ""
+	for name, req := range map[string]InboundRequest{
+		"an item that does not read": unread, "blocks that do not decode": undecoded, "no session header": noHeader,
+	} {
+		a, err := s.Accept(t.Context(), req, peer)
+		if err != nil {
+			t.Fatalf("%s: Accept: %v", name, err)
+		}
+		if a.Refusal != nil || a.Attested || a.Inbound.Chain != nil || a.Inbound.Blocks != nil || a.HandOver != nil ||
+			a.Result != nil {
+			t.Errorf("%s: the call is %+v; want served unsafe, nothing carried or handed on", name, a)
+		}
+	}
+}
+
+// TestAnUnreadItemAtAPartnerActingOnInfluenceIsFourHundred: in an attested session, a call whose boundary block
+// holds an item that does not read as an entry is refused 400 INFLUENCE_MISMATCH at a partner acting on
+// influence, and served at one that does not, which reads no item.
+func TestAnUnreadItemAtAPartnerActingOnInfluenceIsFourHundred(t *testing.T) {
+	block := influenceBlock(t, `{"x":1}`)
+	for _, acts := range []bool{true, false} {
+		now := int64(vectorNow)
+		cfg := pspConfig(t, &now, 16, 60000)
+		if acts {
+			cfg = actingOnInfluence(t, cfg)
+		}
+		s := newSessions(t, cfg)
+		peer := rulesPeer(t, "shop")
+		id := opened(t, s.ServeHandshake(vectors.RulesHandshakeBody(t, "shop"), peer)).Sess
+		a, err := s.Accept(t.Context(), boundaryCallCarrying(t, id, now, block, true), peer)
+		if err != nil {
+			t.Fatalf("Accept: %v", err)
+		}
+		if acts {
+			if a.Refusal == nil || a.Refusal.Status != 400 || string(a.Refusal.Body) != `{"reason":"INFLUENCE_MISMATCH"}` ||
+				a.Attested || a.HandOver != nil || a.Inbound.Chain != nil {
+				t.Errorf("acting on influence: the call is %+v; want 400 INFLUENCE_MISMATCH", a)
+			}
+			continue
+		}
+		if a.Refusal != nil || !a.Attested || len(a.HandOver.Names()) != 0 {
+			t.Errorf("acting on nothing: the call is %+v; want Attested, nothing handed on", a)
+		}
+	}
+}
+
+// attestedCall returns what a fresh partner with cfg decides for one call from shop, in an attested session,
+// whose boundary stamp commits to block and carries it: a fresh partner and nonce cache each time, since every
+// such call has one nonce key.
+func attestedCall(t *testing.T, cfg SessionsConfig, block stamp.Block) PartnerAccepted {
+	t.Helper()
+	cfg.Nonces = verify.NewMemoryNonceCache(15000)
+	s := newSessions(t, cfg)
+	peer := rulesPeer(t, "shop")
+	id := opened(t, s.ServeHandshake(vectors.RulesHandshakeBody(t, "shop"), peer)).Sess
+	a, err := s.Accept(t.Context(), boundaryCallCarrying(t, id, vectorNow, block, true), peer)
+	if err != nil {
+		t.Fatalf("Accept: %v", err)
+	}
+	if a.Refusal != nil {
+		t.Fatalf("the call is refused %d %s, want Attested", a.Refusal.Status, a.Refusal.Body)
+	}
+	if !a.Attested {
+		t.Fatalf("the call is %+v, want Attested", a)
+	}
+	return a
+}
+
+// wantPartnerWrite fails t unless p's guarded public write to owner, having read read, is want.
+func wantPartnerWrite(t *testing.T, p PartnerAccepted, read []influence.Entry, owner string, want reason.Code) {
+	t.Helper()
+	if got := p.PublicWrite(read, owner); got != want {
+		t.Errorf("PublicWrite(%v, %q) = %s, want %s", read, owner, got, want)
+	}
+}
+
+// wantPartnerRecord fails t unless whether a trusted record may be written from p, having read read, is want.
+func wantPartnerRecord(t *testing.T, p PartnerAccepted, read []influence.Entry, want bool) {
+	t.Helper()
+	if got := p.TrustedRecord(read); got != want {
+		t.Errorf("TrustedRecord(%v) = %v, want %v", read, got, want)
+	}
+}
+
+// The entries a partner's handler reads in these tests: a third-party ticket, and private data by owner.
+var partnerThirdParty = influence.Entry{Class: influence.ThirdParty, Src: "ticket:t-1", H: "h-ticket", CID: "c-1",
+	HasCID: true}
+
+func partnerPrivate(owner string) influence.Entry {
+	return influence.Entry{Class: influence.Private, Src: "http:cards", H: "h-" + owner, Owner: owner}
+}
+
+// TestAPartnerDecidesOverTheBoundaryBlock: a partner acting on influence reads the one boundary stamp. Blinded
+// third-party content beside alice's private data denies a write to bob and allows one to alice, and bars a
+// trusted record; a boundary block that names nothing denies every write and bars the record, whatever was read,
+// where the same call naming influence with nothing is allowed both. A partner not acting on influence is denied
+// both for that call.
+func TestAPartnerDecidesOverTheBoundaryBlock(t *testing.T) {
+	now := int64(vectorNow)
+	base := pspConfig(t, &now, 16, 60000)
+	acting := actingOnInfluence(t, base)
+
+	blinded := attestedCall(t, acting, influenceBlock(t,
+		`{"cls":"private","h":"h-sent-1","owner":"alice","src":"boundary:payment"}`,
+		`{"cls":"third-party","h":"h-sent-2","src":"boundary:payment"}`))
+	wantPartnerWrite(t, blinded, nil, "bob", reason.InfluenceDenied)
+	wantPartnerWrite(t, blinded, nil, "", reason.InfluenceDenied)
+	wantPartnerWrite(t, blinded, nil, "alice", reason.OK)
+	wantPartnerRecord(t, blinded, nil, false)
+
+	silent := attestedCall(t, acting, stamp.EmptyBlock)
+	wantPartnerWrite(t, silent, nil, "bob", reason.InfluenceDenied)
+	wantPartnerWrite(t, silent, []influence.Entry{partnerPrivate("bob")}, "bob", reason.InfluenceDenied)
+	wantPartnerRecord(t, silent, nil, false)
+
+	named := attestedCall(t, acting, influenceBlock(t))
+	wantPartnerWrite(t, named, nil, "bob", reason.OK)
+	wantPartnerWrite(t, named, []influence.Entry{partnerThirdParty, partnerPrivate("alice")}, "bob",
+		reason.InfluenceDenied)
+	wantPartnerRecord(t, named, nil, true)
+	wantPartnerRecord(t, named, []influence.Entry{partnerThirdParty}, false)
+
+	notActing := attestedCall(t, base, influenceBlock(t))
+	wantPartnerWrite(t, notActing, nil, "bob", reason.InfluenceDenied)
+	wantPartnerRecord(t, notActing, nil, false)
+}
+
+// TestAnUnsafePartnerCallDecidesOnWhatWasAdded: in an unsafe session, and with no session header, nothing is
+// handed on, so a guarded write is decided on what the handler read alone, the every-stamp rule having no stamp
+// to read, whatever block the call carries; no trusted record is written. A partner keeps its public writes from
+// unsafe calls by switching them off (UnsafeEndpoints).
+func TestAnUnsafePartnerCallDecidesOnWhatWasAdded(t *testing.T) {
+	now := int64(vectorNow)
+	cfg := actingOnInfluence(t, pspConfig(t, &now, 16, 60000))
+	cfg.Pinned = []string{policyPin(t, "stranger-policy")}
+	s := newSessions(t, cfg)
+	peer := rulesPeer(t, "shop")
+	id := opened(t, s.ServeHandshake(vectors.RulesHandshakeBody(t, "shop"), peer)).Sess
+	carried := influenceBlock(t, `{"cls":"private","h":"h-sent-1","owner":"alice","src":"boundary:payment"}`,
+		`{"cls":"third-party","h":"h-sent-2","src":"boundary:payment"}`)
+	unsafe := boundaryCallCarrying(t, id, now, carried, true)
+	noHeader := unsafe
+	noHeader.Session = ""
+	for name, req := range map[string]InboundRequest{"an unsafe session": unsafe, "no session header": noHeader} {
+		t.Run(name, func(t *testing.T) {
+			a, err := s.Accept(t.Context(), req, peer)
+			if err != nil {
+				t.Fatalf("Accept: %v", err)
+			}
+			if a.Refusal != nil || a.Attested || a.HandOver != nil {
+				t.Fatalf("the call is %+v; want served unsafe, nothing handed on", a)
+			}
+			wantPartnerWrite(t, a, nil, "bob", reason.OK)
+			wantPartnerWrite(t, a, []influence.Entry{partnerThirdParty, partnerPrivate("alice")}, "bob",
+				reason.InfluenceDenied)
+			wantPartnerWrite(t, a, []influence.Entry{partnerThirdParty, partnerPrivate("bob")}, "bob", reason.OK)
+			wantPartnerRecord(t, a, nil, false)
+		})
+	}
+}
+
+// TestARefusedCallIsDeniedEveryWrite: a call Accept refused is not served, so no guarded write and no trusted
+// record is allowed from it.
+func TestARefusedCallIsDeniedEveryWrite(t *testing.T) {
+	now := int64(vectorNow)
+	s := newSessions(t, actingOnInfluence(t, pspConfig(t, &now, 16, 60000)))
+	a, err := s.Accept(t.Context(), boundaryCallCarrying(t, "bm8tc3VjaC1zZXNzaW9u", now, influenceBlock(t), true),
+		rulesPeer(t, "shop"))
+	if err != nil {
+		t.Fatalf("Accept: %v", err)
+	}
+	if a.Refusal == nil || string(a.Refusal.Body) != `{"reason":"SESSION_UNKNOWN"}` {
+		t.Fatalf("the call is %+v, want refused SESSION_UNKNOWN", a)
+	}
+	wantPartnerWrite(t, a, nil, "bob", reason.InfluenceDenied)
+	wantPartnerRecord(t, a, nil, false)
 }
 
 // failingCache is a nonce cache whose store is down.
@@ -609,7 +926,8 @@ func TestAcceptReturnsTheNonceCacheError(t *testing.T) {
 	if !errors.Is(err, errStoreDown) {
 		t.Fatalf("Accept = %v, want the cache's error", err)
 	}
-	if a.Refusal != nil || a.Attested || a.Chain != nil || a.Influence != nil || a.Result != nil {
+	if a.Refusal != nil || a.Attested || a.Inbound.Chain != nil || a.Inbound.Blocks != nil || a.HandOver != nil ||
+		a.Result != nil {
 		t.Fatalf("Accept returns %+v with its error, want the zero PartnerAccepted", a)
 	}
 }

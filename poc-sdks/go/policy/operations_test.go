@@ -23,10 +23,10 @@ func readTable(t *testing.T, file string) policy.OperationTable {
 	return table
 }
 
-// TestOperationsVectors replays http-v3.json's operations cases: the tables as read, hashed and routed, the
+// TestOperationsVectors replays http-v4.json's operations cases: the tables as read, hashed and routed, the
 // files refused, the operation each call matches and the key value it gives.
 func TestOperationsVectors(t *testing.T) {
-	ops := vectors.Load(t, "http-v3.json").Get("operations")
+	ops := vectors.Load(t, "http-v4.json").Get("operations")
 
 	for _, name := range []string{"table", "shared", "keyed"} {
 		t.Run(name, func(t *testing.T) {
@@ -161,7 +161,7 @@ func TestOperationTableRefuses(t *testing.T) {
 
 // TestOperationTableKeyed answers whether an operation declares a key.
 func TestOperationTableKeyed(t *testing.T) {
-	table := readTable(t, vectors.Load(t, "http-v3.json").Get("operations").Get("keyed").Get("file").Str())
+	table := readTable(t, vectors.Load(t, "http-v4.json").Get("operations").Get("keyed").Get("file").Str())
 	for operation, want := range map[string]bool{"reserve": true, "getLine": true, "createOrder": false, "nope": false} {
 		if got := table.Keyed(operation); got != want {
 			t.Errorf("Keyed(%q) = %v, want %v", operation, got, want)
@@ -173,7 +173,7 @@ func TestOperationTableKeyed(t *testing.T) {
 // query at ';', so the handler could read another line than the one counted, and the key gives none then.
 // Values of other parameters are not restricted.
 func TestOperationTableQueryKeyValue(t *testing.T) {
-	table := readTable(t, vectors.Load(t, "http-v3.json").Get("operations").Get("keyed").Get("file").Str())
+	table := readTable(t, vectors.Load(t, "http-v4.json").Get("operations").Get("keyed").Get("file").Str())
 	for query, want := range map[string]string{
 		"line=A":            "A",
 		"line=A&q=%41":      "A",
@@ -193,11 +193,11 @@ func TestOperationTableQueryKeyValue(t *testing.T) {
 // TestOperationTableCoveredBy holds a table to the signed root: the bundle holds a proof of its route that
 // verifies against the root with the proof's rootId.
 func TestOperationTableCoveredBy(t *testing.T) {
-	ops := vectors.Load(t, "http-v3.json").Get("operations")
+	ops := vectors.Load(t, "http-v4.json").Get("operations")
 	table := readTable(t, ops.Get("keyed").Get("file").Str())
 	route := strings.Join(ops.Get("keyed").Get("route").Strs(), "/")
 
-	m := vectors.RulesMaterial(t, "shop-keys")
+	m := vectors.RulesMaterialIn(t, "http-v4.json", "shop-keys")
 	root, err := policy.ParseRootFile(m.Root)
 	if err != nil {
 		t.Fatal(err)

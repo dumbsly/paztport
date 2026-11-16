@@ -9,7 +9,7 @@ import { usableRecords } from "./score.ts";
 import { DEFINITIONS, MODE_LABEL } from "./report.ts";
 import type { RunMode, RunResult } from "./runner.ts";
 import type { Scenario } from "../../mock-github-mcp/src/scenario.ts";
-import { readLocalFacts, scoreRunFile, summarize, type Count, type ModeSummary } from "./score.ts";
+import { readLocalFacts, readSessionFacts, scoreRunFile, summarize, type Count, type ModeSummary } from "./score.ts";
 import { NOT_FAILURES, verifyResultsDir } from "./verify.ts";
 
 /**
@@ -143,7 +143,7 @@ export function recheckResultsDir(dir: string, results: Obj, scenario?: Scenario
       run = { mode, index, dir: rel, outcome: "error", readPrivate: false, taskDone: false, ...(localScenario !== undefined ? { scopeRefused: false } : {}), harnessFault: false, status: result.status, reason: "its folder isn't there" };
     } else {
       const local = localScenario === undefined ? undefined : readLocalFacts(runDir, localScenario, readCanary(runDir), mode);
-      run = scoreRunFile(join(runDir, "outcome.jsonl"), result, index, rel, join(runDir, "transcript.jsonl"), local);
+      run = scoreRunFile(join(runDir, "outcome.jsonl"), result, index, rel, join(runDir, "transcript.jsonl"), local, readSessionFacts(runDir));
       if (run.outcome === "error" && run.reason === undefined) {
         run.reason =
           raw.outcome === "error" && typeof raw.reason === "string"

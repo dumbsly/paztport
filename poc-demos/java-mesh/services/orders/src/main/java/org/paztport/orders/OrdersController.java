@@ -44,7 +44,10 @@ public class OrdersController {
     private final String paymentUrl;
     private final ObjectProvider<StolenChainStore> stolenChains;
 
-    /** {@code stolenChains} has a store only with the attack demo on; each order read or placed gives it its chain. */
+    /**
+     * {@code stolenChains} has a store only with the attack demo on; each order read or placed gives it its chain and
+     * the blocks that came with it.
+     */
     public OrdersController(RestClient http, OrderBook book, @Value("${downstream.payment-url}") String paymentUrl,
             ObjectProvider<StolenChainStore> stolenChains) {
         this.http = http;
@@ -56,7 +59,8 @@ public class OrdersController {
     /** One order, labelled with its customer; {@code 404} when there is none. */
     @GetMapping("/orders/{id}")
     public ResponseEntity<?> byId(@PathVariable String id) {
-        stolenChains.ifAvailable(store -> store.recordGetOrder(RequestContext.inboundChain()));
+        stolenChains.ifAvailable(store -> store.recordGetOrder(RequestContext.inboundChain(),
+                RequestContext.inboundBlocks()));
         OrderBook.Order order = book.byId(id);
         if (order == null) {
             return ResponseEntity.status(404).body(Map.of("reason", "NO_ORDER"));
@@ -76,7 +80,8 @@ public class OrdersController {
 
     @PostMapping("/orders")
     public Map<String, Object> order(@RequestBody(required = false) String ignored) {
-        stolenChains.ifAvailable(store -> store.recordCreateOrder(RequestContext.inboundChain()));
+        stolenChains.ifAvailable(store -> store.recordCreateOrder(RequestContext.inboundChain(),
+                RequestContext.inboundBlocks()));
         String payment = http.post()
                 .uri(paymentUrl + "/pay")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -123,7 +128,8 @@ public class OrdersController {
      */
     @PostMapping("/holds")
     public Map<String, Object> holdItems(@RequestBody Holds holds) {
-        stolenChains.ifAvailable(store -> store.recordHoldItems(RequestContext.inboundChain()));
+        stolenChains.ifAvailable(store -> store.recordHoldItems(RequestContext.inboundChain(),
+                RequestContext.inboundBlocks()));
         List<Map<String, Object>> results = new ArrayList<>();
         for (String item : holds.items()) {
             // exchange applies no status handlers, so a refusal downstream is reported rather than thrown.

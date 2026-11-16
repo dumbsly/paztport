@@ -38,6 +38,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.paztport.core.crypto.Crypto;
 import org.paztport.core.encoding.Base64Url;
+import org.paztport.core.influence.Influence;
 import org.paztport.core.influence.InfluenceClass;
 import org.paztport.core.influence.InfluenceEntry;
 import org.paztport.core.policy.Keyring;
@@ -46,8 +47,10 @@ import org.paztport.core.policy.PolicyBuilder;
 import org.paztport.core.session.ReplyCert;
 import org.paztport.core.session.SessionRequest;
 import org.paztport.core.session.Sessions;
+import org.paztport.core.stamp.Block;
 import org.paztport.core.stamp.Stamp;
 import org.paztport.core.stamp.Stamper;
+import org.paztport.core.verify.ExtensionSettings;
 import org.paztport.core.verify.InMemoryNonceCache;
 import org.paztport.core.verify.NonceCache;
 import org.paztport.core.verify.NonceCacheUnavailableException;
@@ -56,7 +59,6 @@ import org.paztport.core.verify.PinnedRoot;
 import org.paztport.core.verify.ReasonCode;
 import org.paztport.core.verify.Verifier;
 import org.paztport.core.verify.VerifierConfig;
-import org.paztport.http.ContextAccess;
 import org.paztport.http.HttpSessions;
 import org.paztport.http.ModeHolder;
 import org.paztport.http.PartnerSessions;
@@ -101,7 +103,8 @@ class RequestObservationTest {
 
     @AfterEach
     void cleanup() {
-        ContextAccess.reset();
+        // Every scope a test opens is closed by it or by the filter; one left open would follow this thread.
+        assertFalse(RequestContext.isOpen(), "a test left a request scope open on this thread");
     }
 
     /** A registry whose one handler throws {@code failure} as each observation stops, as a faulty handler might. */
@@ -158,6 +161,9 @@ class RequestObservationTest {
 
     // The shop's side -----------------------------------------------------------------------------------------
 
+    /** Payment acts on influence, as the mesh's does; every filter and verifier here states it. */
+    private static final ExtensionSettings PAYMENT_SETTINGS = ExtensionSettings.of(Set.of(Influence.NAME), null);
+
     private Verifier paymentVerifier() {
         return paymentVerifier(new InMemoryNonceCache());
     }
@@ -169,7 +175,7 @@ class RequestObservationTest {
                         orders.getPublic())), notAfter)),
                 List.of(new PinnedRoot(policy.signedRoot().rootBytes(), policy.signedRoot().rootId(), notAfter)),
                 notAfter, Set.of("gateway"), "",
-                nonces, () -> NOW, 5000, 5000));
+                nonces, () -> NOW, 5000, 5000, PAYMENT_SETTINGS));
     }
 
     /** A cache that cannot answer, as a shared store that is down cannot. */
@@ -189,28 +195,30 @@ class RequestObservationTest {
 
     private InboundFilter filter(VerificationMode mode, ReceivedRequestListener listener) {
         return new InboundFilter(paymentVerifier(), true, false, "payment", new ModeHolder(mode), event -> { },
-                listener, null, null, registry, List.of());
+                listener, null, null, registry, List.of(), PAYMENT_SETTINGS);
     }
 
     private InboundFilter attestingFilter(boolean verifyRequests) {
         return new InboundFilter(paymentVerifier(), verifyRequests, false, "payment",
                 verifyRequests ? new ModeHolder(VerificationMode.ENFORCE) : null, verifyRequests ? event -> { } : null,
                 null, new Stamper("payment", "pay-1", payment.getPrivate(), false, () -> "x", () -> NOW), null,
-                registry, List.of());
+                registry, List.of(), PAYMENT_SETTINGS);
     }
 
-    private record Headers(String chain, String proof, String influence) {
+    private record Headers(String chain, String proof, String blocks) {
     }
 
+    /** A chain gateway to orders to payment; gateway signs the empty block, orders one naming {@code influence}. */
     private Headers headers(String rid, List<InfluenceEntry> influence) {
+        Block own = Influence.block(influence, List.of());
         Stamper.Stamped gw = new Stamper("gateway", "gw-1", gateway.getPrivate(), true, () -> rid, () -> NOW)
-                .next(null, "orders", RequestBinding.compute("POST", "/orders", "{}".getBytes()), List.of(),
+                .next(null, "orders", RequestBinding.compute("POST", "/orders", "{}".getBytes()), Block.EMPTY,
                         policy.bundles().get("gateway"));
         Stamper.Stamped ord = new Stamper("orders", "ord-1", orders.getPrivate(), false, () -> "x", () -> NOW)
-                .next(gw.chain(), "payment", RequestBinding.compute("POST", "/pay", TO_PAYMENT), influence,
+                .next(gw.chain(), "payment", RequestBinding.compute("POST", "/pay", TO_PAYMENT), own,
                         policy.bundles().get("orders"));
         return new Headers(HttpWire.encodeChain(ord.chain()), HttpWire.encodeProof(ord.proof()),
-                HttpWire.encodeInfluence(influence));
+                HttpWire.encodeBlocks(List.of(Block.EMPTY, own)));
     }
 
     private Headers validHeaders() {
@@ -225,8 +233,8 @@ class RequestObservationTest {
         if (h.proof() != null) {
             request.addHeader(PaztportHeaders.PROOF, h.proof());
         }
-        if (h.influence() != null) {
-            request.addHeader(PaztportHeaders.INFLUENCE, h.influence());
+        if (h.blocks() != null) {
+            request.addHeader(PaztportHeaders.EXTENSIONS, h.blocks());
         }
         request.setContent(TO_PAYMENT);
         return request;
@@ -317,10 +325,10 @@ class RequestObservationTest {
     /** A boundary call to {@code /charge} in {@code sess}; {@code sent} is the body it carries, bound or not. */
     private MockHttpServletRequest charge(String sess, byte[] sent) throws Exception {
         List<Stamp> internal = new Stamper("gateway", "gw-1", Crypto.generateEd25519KeyPair().getPrivate(), true,
-                () -> "rid-1", System::currentTimeMillis).next(null, "orders", "unused", List.of(), null).chain();
+                () -> "rid-1", System::currentTimeMillis).next(null, "orders", "unused", Block.EMPTY, null).chain();
         Stamper.Stamped stamped = new Stamper("orders", "orders-1", shopKey.getPrivate(), false, () -> "unused",
                 System::currentTimeMillis).boundary(internal, sess, "psp",
-                        RequestBinding.compute("POST", "/charge", CHARGE), List.of(),
+                        RequestBinding.compute("POST", "/charge", CHARGE), Block.EMPTY,
                         shopBuilt.bundles().get("orders"));
         MockHttpServletRequest request = new MockHttpServletRequest("POST", "/charge");
         request.addHeader(PaztportHeaders.SESSION, sess);
@@ -382,9 +390,10 @@ class RequestObservationTest {
                 .hasBeenStopped();
     }
 
-    // Audit still refuses influence it cannot read, so its outcome is the refusal's, not the result's.
+    // Audit serves what fails verification, but never blocks that fail check 9a: the verifier's reason is check 9a's,
+    // and the outcome is the refusal's, not the result's.
     @Test
-    void auditRecordsUnreadableInfluenceAsRefused() throws Exception {
+    void auditRecordsBlocksThatDoNotDecodeAsRefused() throws Exception {
         Headers h = validHeaders();
 
         MockHttpServletResponse response = run(filter(VerificationMode.AUDIT, null),
@@ -393,7 +402,7 @@ class RequestObservationTest {
         assertEquals(400, response.getStatus());
         assertThat(registry).hasSingleObservationThat()
                 .hasLowCardinalityKeyValue("mode", "audit")
-                .hasLowCardinalityKeyValue("reason", "INFLUENCE_MISMATCH")
+                .hasLowCardinalityKeyValue("reason", "EXTENSION_MISMATCH")
                 .hasLowCardinalityKeyValue("outcome", "refused")
                 .hasBeenStopped();
     }
@@ -404,7 +413,8 @@ class RequestObservationTest {
         IllegalStateException down = new IllegalStateException("store down");
         AtomicReference<Boolean> handled = new AtomicReference<>(false);
         InboundFilter filter = new InboundFilter(paymentVerifier(unreachableCache(down)), true, false, "payment",
-                new ModeHolder(VerificationMode.ENFORCE), event -> { }, null, null, null, registry, List.of());
+                new ModeHolder(VerificationMode.ENFORCE), event -> { }, null, null, null, registry,
+                List.of(), PAYMENT_SETTINGS);
         MockHttpServletResponse response = new MockHttpServletResponse();
 
         filter.doFilter(paymentRequest(validHeaders()), response, (req, res) -> handled.set(true));
@@ -428,7 +438,8 @@ class RequestObservationTest {
         IllegalStateException down = new IllegalStateException("store down");
         AtomicReference<Boolean> handled = new AtomicReference<>(false);
         InboundFilter filter = new InboundFilter(paymentVerifier(unreachableCache(down)), true, false, "payment",
-                new ModeHolder(VerificationMode.AUDIT), event -> { }, null, null, null, registry, List.of());
+                new ModeHolder(VerificationMode.AUDIT), event -> { }, null, null, null, registry,
+                List.of(), PAYMENT_SETTINGS);
         MockHttpServletResponse response = new MockHttpServletResponse();
 
         filter.doFilter(paymentRequest(validHeaders()), response, (req, res) -> handled.set(true));
@@ -457,7 +468,7 @@ class RequestObservationTest {
     }
 
     @Test
-    void offRecordsUnreadableInfluenceAsRefusedWithNoReason() throws Exception {
+    void offRecordsBlocksThatDoNotDecodeAsRefusedWithNoReason() throws Exception {
         Headers h = validHeaders();
 
         MockHttpServletResponse response = run(filter(VerificationMode.OFF, null),
@@ -486,7 +497,7 @@ class RequestObservationTest {
         MockHttpServletRequest scrape = new MockHttpServletRequest("GET", "/actuator/prometheus");
         InboundFilter unverifiedScrapes = new InboundFilter(paymentVerifier(), true, false, "payment",
                 new ModeHolder(VerificationMode.ENFORCE), event -> { }, null, null, null, registry,
-                List.of("/actuator"));
+                List.of("/actuator"), PAYMENT_SETTINGS);
 
         run(unverifiedScrapes, scrape);
 
@@ -539,7 +550,7 @@ class RequestObservationTest {
     @Test
     void aThrowingDecisionStopsWithTheError() throws Exception {
         IllegalStateException failure = new IllegalStateException("listener failed");
-        ReceivedRequestListener throwing = (chain, proof, influence, method, target, body) -> {
+        ReceivedRequestListener throwing = (chain, proof, blocks, method, target, body) -> {
             throw failure;
         };
 
@@ -561,7 +572,7 @@ class RequestObservationTest {
         IllegalStateException failure = new IllegalStateException("handler failed");
         InboundFilter filter = new InboundFilter(paymentVerifier(), true, false, "payment",
                 new ModeHolder(VerificationMode.ENFORCE), event -> { }, null, null, null,
-                throwingOnStop(failure), List.of());
+                throwingOnStop(failure), List.of(), PAYMENT_SETTINGS);
 
         IllegalStateException thrown = assertThrows(IllegalStateException.class,
                 () -> run(filter, paymentRequest(validHeaders())));
@@ -576,12 +587,12 @@ class RequestObservationTest {
     void aThrowingDecisionKeepsItsExceptionWhenAHandlerThrowsOnStop() {
         IllegalStateException failure = new IllegalStateException("listener failed");
         IllegalStateException stopping = new IllegalStateException("handler failed");
-        ReceivedRequestListener listener = (chain, proof, influence, method, target, body) -> {
+        ReceivedRequestListener listener = (chain, proof, blocks, method, target, body) -> {
             throw failure;
         };
         InboundFilter filter = new InboundFilter(paymentVerifier(), true, false, "payment",
                 new ModeHolder(VerificationMode.ENFORCE), event -> { }, listener, null, null,
-                throwingOnStop(stopping), List.of());
+                throwingOnStop(stopping), List.of(), PAYMENT_SETTINGS);
 
         IllegalStateException thrown = assertThrows(IllegalStateException.class,
                 () -> run(filter, paymentRequest(validHeaders())));
@@ -597,12 +608,13 @@ class RequestObservationTest {
     void aThrowingDecisionKeepsItsExceptionWhenAHandlerThrowsOnError() {
         IllegalStateException failure = new IllegalStateException("listener failed");
         IllegalStateException erroring = new IllegalStateException("handler failed on error");
-        ReceivedRequestListener listener = (chain, proof, influence, method, target, body) -> {
+        ReceivedRequestListener listener = (chain, proof, blocks, method, target, body) -> {
             throw failure;
         };
         TestObservationRegistry throwing = throwingOnError(erroring);
         InboundFilter filter = new InboundFilter(paymentVerifier(), true, false, "payment",
-                new ModeHolder(VerificationMode.ENFORCE), event -> { }, listener, null, null, throwing, List.of());
+                new ModeHolder(VerificationMode.ENFORCE), event -> { }, listener, null, null, throwing,
+                List.of(), PAYMENT_SETTINGS);
 
         IllegalStateException thrown = assertThrows(IllegalStateException.class,
                 () -> run(filter, paymentRequest(validHeaders())));
@@ -619,7 +631,7 @@ class RequestObservationTest {
     @Test
     void aHandlerThatRethrowsTheDecisionsExceptionOnStopLeavesItAlone() {
         IllegalStateException failure = new IllegalStateException("listener failed");
-        ReceivedRequestListener listener = (chain, proof, influence, method, target, body) -> {
+        ReceivedRequestListener listener = (chain, proof, blocks, method, target, body) -> {
             throw failure;
         };
         ObservationRegistry rethrowing = ObservationRegistry.create();
@@ -635,7 +647,8 @@ class RequestObservationTest {
             }
         });
         InboundFilter filter = new InboundFilter(paymentVerifier(), true, false, "payment",
-                new ModeHolder(VerificationMode.ENFORCE), event -> { }, listener, null, null, rethrowing, List.of());
+                new ModeHolder(VerificationMode.ENFORCE), event -> { }, listener, null, null, rethrowing,
+                List.of(), PAYMENT_SETTINGS);
 
         IllegalStateException thrown = assertThrows(IllegalStateException.class,
                 () -> run(filter, paymentRequest(validHeaders())));
@@ -701,7 +714,7 @@ class RequestObservationTest {
                 .hasBeenStopped();
     }
 
-    // An attested call's scope holds its verified chain and influence, which must not outlive it either.
+    // An attested call's scope holds its verified chain and what was handed on, which must not outlive it either.
     @Test
     void aHandlerThatThrowsOnStopLeavesNoPartnerScopeOpen() throws Exception {
         IllegalStateException failure = new IllegalStateException("handler failed");

@@ -21,22 +21,27 @@ package org.paztport.core.verify;
  * {@code PATH_NOT_ALLOWED}; every other rejection leaves them empty, because
  * the name would be unsigned or the genuine stamp would belong to another
  * request.
+ *
+ * <p>{@code handOver} is what the service is handed for the extensions it acts on (spec verification.md, The live
+ * order): non-null exactly when the reason is {@code OK}, and then verified. A refusal hands nothing over.
  */
-public record VerifyResult(ReasonCode reason, String suspectSvc, String suspectInst) {
+public record VerifyResult(ReasonCode reason, String suspectSvc, String suspectInst, HandOver handOver) {
 
+    /**
+     * @throws IllegalArgumentException a hand-over on a result other than OK, none on OK, or one not verified
+     *     ({@link HandOver#requireFor})
+     */
+    public VerifyResult {
+        HandOver.requireFor(reason, handOver);
+    }
+
+    /** Whether every check held. */
     public boolean ok() {
         return reason == ReasonCode.OK;
     }
 
-    static VerifyResult ok(String svc, String inst) {
-        return new VerifyResult(ReasonCode.OK, svc, inst);
-    }
-
+    /** A refusal naming no one. */
     static VerifyResult reject(ReasonCode reason) {
-        return new VerifyResult(reason, "", "");
-    }
-
-    static VerifyResult reject(ReasonCode reason, String svc, String inst) {
-        return new VerifyResult(reason, svc, inst);
+        return new VerifyResult(reason, "", "", null);
     }
 }

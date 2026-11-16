@@ -145,12 +145,19 @@ CAP=$(mc https://payment:8080/debug/last-request)
 printf '%s' "$CAP" | python3 -c '
 import sys, json
 c = json.load(sys.stdin)
-chain, proof = c["chain"], c["proof"]
-raw = json.loads(__import__("base64").urlsafe_b64decode(chain + "=="* (-len(chain)%4)))
-print(f"chain depth (stamps): {len(raw)}")
-print(f"X-Path-Chain bytes:   {len(chain)}  (~{len(chain)//len(raw)} per stamp)")
-print(f"X-Path-Proof bytes:   {len(proof)}  (fixed, depth-8 padded)")
-print(f"total header bytes:   {len(chain)+len(proof)}")
+chain, proof, blocks = c["chain"], c["proof"], c.get("blocks")
+def decode(h):
+    return json.loads(__import__("base64").urlsafe_b64decode(h + "=="* (-len(h)%4)))
+raw = decode(chain)
+print(f"chain depth (stamps):     {len(raw)}")
+print(f"X-Path-Chain bytes:       {len(chain)}  (~{len(chain)//len(raw)} per stamp)")
+print(f"X-Path-Proof bytes:       {len(proof)}  (fixed, depth-8 padded)")
+if blocks is None:
+    print("X-Path-Extensions bytes:  0  (absent)")
+    blocks = ""
+else:
+    print(f"X-Path-Extensions bytes:  {len(blocks)}  (blocks held: {len(decode(blocks))})")
+print(f"total header bytes:       {len(chain)+len(proof)+len(blocks)}")
 '
 
 # restore enforce

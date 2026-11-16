@@ -6,8 +6,6 @@ package influence
 import (
 	"crypto/rand"
 	"errors"
-	"fmt"
-	"strconv"
 
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/b64"
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/json"
@@ -18,8 +16,8 @@ const cidLength = 16
 
 // Label is what a server says about the content of a result it attests: its class, a content id the
 // caller can later cite, and whose data it is. On the wire it is the object {cls, cid, owner}, with
-// owner left out when absent. Labels travel beside a response and its binding covers them, so they can't
-// be changed in transit.
+// owner left out when absent. A label travels as an item of the response's block, which the response
+// stamp's ext commits to, so it can't be changed in transit.
 type Label struct {
 	// Class is the content's class.
 	Class Class
@@ -51,27 +49,12 @@ func (l Label) Entry(src, h string) Entry {
 	return Entry{Class: l.Class, Src: src, H: h, CID: l.CID, HasCID: true, Owner: l.Owner}
 }
 
-// ParseLabels reads a list of labels from its wire bytes, its canonical bytes. The bytes hold an array
-// whose every item is an object of exactly a label's members: cls, one of the four classes; the string
-// cid; and, when present, owner, a non-empty string. The labels keep the order they were read in.
-func ParseLabels(wire []byte) ([]Label, error) {
-	return parseWire(wire, "labels", labelsFromValue)
-}
-
-func labelsFromValue(v json.Value) ([]Label, error) {
-	if v.Kind() != json.KindArray {
-		return nil, errors.New("the value is not an array")
-	}
-	items := v.Items()
-	ls := make([]Label, len(items))
-	for i, item := range items {
-		l, err := labelFromValue(item)
-		if err != nil {
-			return nil, fmt.Errorf("label %d: %w", i, err)
-		}
-		ls[i] = l
-	}
-	return ls, nil
+// ParseLabel reads one item of a response's block under influence, its JCS text, as a label (influence.md,
+// Content labels): an object of exactly a label's members, cls one of the four classes, the string cid, and, when
+// present, owner, a non-empty string. It refuses text that is not exactly the canonical text of one value. A
+// caller takes no label from a response holding an item refused here (ResponseEntries).
+func ParseLabel(item string) (Label, error) {
+	return parseWire([]byte(item), "label", labelFromValue)
 }
 
 func labelFromValue(o json.Value) (Label, error) {
@@ -93,24 +76,18 @@ func labelFromValue(o json.Value) (Label, error) {
 	return Label{Class: c, CID: cid, Owner: owner}, nil
 }
 
-// LabelsWire returns the wire bytes of ls, in the order given, each label as the object {cls, cid,
-// owner} with an absent owner left out: the bytes a response binding commits to. It refuses a label
-// whose Class is not one of the four, and text that a reader would refuse, as EntriesWire does.
-func LabelsWire(ls []Label) ([]byte, error) {
-	items := make([]json.Value, len(ls))
-	for i, l := range ls {
-		if !l.Class.known() {
-			return nil, errors.New("paztport influence: the labels can't be written: label " + strconv.Itoa(i) +
-				" has a class that is not one of the four")
-		}
-		members := []json.Member{
-			{Name: "cls", Value: json.S(string(l.Class))},
-			{Name: "cid", Value: json.S(l.CID)},
-		}
-		if l.Owner != "" {
-			members = append(members, json.Member{Name: "owner", Value: json.S(l.Owner)})
-		}
-		items[i] = json.Obj(members...)
+// value is l as the object {cls, cid, owner}, an absent owner left out. It refuses a Class that is not one of the
+// four.
+func (l Label) value() (json.Value, error) {
+	if !l.Class.known() {
+		return json.Value{}, errors.New("the class is not one of the four")
 	}
-	return wire("labels", json.Arr(items...))
+	members := []json.Member{
+		{Name: "cls", Value: json.S(string(l.Class))},
+		{Name: "cid", Value: json.S(l.CID)},
+	}
+	if l.Owner != "" {
+		members = append(members, json.Member{Name: "owner", Value: json.S(l.Owner)})
+	}
+	return json.Obj(members...), nil
 }

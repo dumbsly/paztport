@@ -6,10 +6,8 @@ package paztporthttp
 import (
 	"context"
 
-	"github.com/dumbsly/paztport/poc-sdks/go/influence"
 	"github.com/dumbsly/paztport/poc-sdks/go/paztporthttp/wire"
 	"github.com/dumbsly/paztport/poc-sdks/go/reason"
-	"github.com/dumbsly/paztport/poc-sdks/go/stamp"
 	"github.com/dumbsly/paztport/poc-sdks/go/verify"
 )
 
@@ -17,24 +15,26 @@ import (
 // in place of the handler's answer, or a call served in an unsafe session, where nothing the request
 // carries is believed, or in an attested one, where it verified in that session.
 //
-// A trusted record may be written from a call only when [PartnerAccepted.TrustedRecord] says so: when it
-// is attested and neither its influence nor what the handler has read since holds untrusted content.
+// [PartnerAccepted.PublicWrite] decides a guarded public write from a call, and a trusted record may be written
+// from it only when [PartnerAccepted.TrustedRecord] says so.
 type PartnerAccepted struct {
 	// Refusal is the answer to send in place of the handler's, or nil when the call is served.
 	Refusal *Answer
 	// Attested reports whether the call is served in an attested session, having verified there. It is
 	// false in an unsafe session and for a refusal.
 	Attested bool
-	// Chain is the chain that verified in the session, for the handler's own calls to stamp onto, or nil
-	// unless Attested.
-	Chain stamp.Chain
-	// Influence is the verified influence, owners included, the handler starts from when Attested, and
-	// otherwise none, whatever headers came.
-	Influence []influence.Entry
+	// Inbound is the boundary chain that verified in the session and its block, for the handler's own calls to
+	// stamp onto ([Caller.Stamp]), or the zero Inbound unless Attested.
+	Inbound Inbound
+	// HandOver is what the call hands the partner for the extensions its settings act on, from the boundary
+	// stamp's block, verified; nil unless Attested. In an unsafe session nothing is handed on.
+	HandOver *verify.HandOver
 	// Result is the session verifier's result on the call, or nil when no verification ran: in an unsafe
 	// session, or when the session is unknown. The embedder may build an event from it; the caller is
 	// never told it.
 	Result *verify.Result
+
+	ext verify.Extensions // the partner's extension settings, which decided HandOver
 }
 
 // Accept decides the call req in the session its X-Path-Session header names, which the transport
@@ -48,13 +48,16 @@ type PartnerAccepted struct {
 //     starts again.
 //   - With no header, the caller never opened a session, and the call is served as in an unsafe one. In
 //     an unsafe session nothing is verified and nothing the call carries is believed: it is served with
-//     no chain and no influence, and not Attested.
-//   - In an attested session the live order runs once, with the session's own verifier, the entry
-//     service as receiver, the request's own binding, the tokens of its headers, the nonce key
-//     <rid>|<last svc>|<last rcv>|req and peer's service and address as the peer. A result that is not OK
-//     is refused 403 {"reason":"<code>"}: a partner has no audit mode, so influence that does not read is
-//     refused 403 {"reason":"INFLUENCE_MISMATCH"} too. On OK the call is Attested, with the chain and the
-//     influence its boundary stamp committed to.
+//     nothing carried and nothing handed on, and not Attested. Its blocks are not read, so check 9a does not
+//     reach it (verification.md, A service never serves a request whose blocks fail check 9a).
+//   - In an attested session the live order runs once, with the session's own verifier, built with the
+//     partner's settings ([SessionsConfig.Extensions]), the entry service as receiver, the request's own
+//     binding, the tokens of its headers, X-Path-Extensions among them, the nonce key, the JCS text of
+//     [rid, last svc, last rcv, "req"], and peer's service and address as the peer. A result that is not OK is
+//     refused 403 {"reason":"<code>"}: a partner has no audit mode. On OK, a partner whose settings act on
+//     influence refuses a call holding an influence item that does not read with
+//     400 {"reason":"INFLUENCE_MISMATCH"} (influence.md, Entries); otherwise the call is Attested, with the
+//     boundary chain and its block and the verifier's hand-over.
 //
 // Accept does not refuse the endpoints switched off for unsafe sessions, since only the framework knows
 // which handler a request reaches. An adapter refuses one served and not Attested whose method and path
@@ -65,9 +68,10 @@ type PartnerAccepted struct {
 // reaches only the nonce cache. The error is the cache's, when it could not answer, and comes with the
 // zero PartnerAccepted, so the adapter fails the call.
 func (s *Sessions) Accept(ctx context.Context, req InboundRequest, peer *PeerCert) (PartnerAccepted, error) {
+	ext := s.cfg.Extensions
 	id, named := wire.HeaderValue(req.Session)
 	if !named {
-		return PartnerAccepted{}, nil
+		return PartnerAccepted{ext: ext}, nil
 	}
 	var p PeerCert
 	if peer != nil {
@@ -75,10 +79,10 @@ func (s *Sessions) Accept(ctx context.Context, req InboundRequest, peer *PeerCer
 	}
 	e, ok := s.find(p.Issuer, p.Peer.Svc, id)
 	if !ok {
-		return partnerRefused(Refusal(403, reason.SessionUnknown), nil), nil
+		return s.refused(Refusal(403, reason.SessionUnknown), nil), nil
 	}
 	if e.verifier == nil {
-		return PartnerAccepted{}, nil
+		return PartnerAccepted{ext: ext}, nil
 	}
 	in, chain := requestInput(req, s.cfg.Entry, &p.Peer)
 	res, err := e.verifier.Verify(ctx, in)
@@ -86,18 +90,23 @@ func (s *Sessions) Accept(ctx context.Context, req InboundRequest, peer *PeerCer
 		return PartnerAccepted{}, err
 	}
 	if !res.OK() {
-		return partnerRefused(Refusal(403, res.Reason), &res), nil
+		return s.refused(Refusal(403, res.Reason), &res), nil
 	}
-	es, read := readInfluence(req.Influence)
-	if !read || chain == nil {
-		// Not reached after OK, which has read both; refused rather than served with less than was
-		// committed to.
-		return partnerRefused(Refusal(403, reason.InfluenceMismatch), &res), nil
+	if refusal := unreadItems(ext, res.HandOver); refusal != nil {
+		return s.refused(*refusal, &res), nil
 	}
-	return PartnerAccepted{Attested: true, Chain: chain, Influence: es, Result: &res}, nil
+	// Check 9a held in the session verifier, so the blocks read as one per stamp.
+	blocks, ok := carried(chain, in.Blocks)
+	if !ok {
+		return s.refused(Refusal(400, reason.ExtensionMismatch), &res), nil
+	}
+	return PartnerAccepted{
+		Attested: true, Inbound: Inbound{Chain: chain, Blocks: blocks}, HandOver: res.HandOver, Result: &res, ext: ext,
+	}, nil
 }
 
-// partnerRefused returns the refusal answer, with the verifier's result res, or nil when none ran.
-func partnerRefused(answer Answer, res *verify.Result) PartnerAccepted {
-	return PartnerAccepted{Refusal: &answer, Result: res}
+// refused returns the refusal answer, with the verifier's result res, or nil when none ran, and the partner's
+// settings; nothing is carried or handed on.
+func (s *Sessions) refused(answer Answer, res *verify.Result) PartnerAccepted {
+	return PartnerAccepted{Refusal: &answer, Result: res, ext: s.cfg.Extensions}
 }

@@ -1,50 +1,47 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
+import type { StampItems } from "../verify/extensions.ts";
 import type { InfluenceClass } from "./influence.ts";
-import { publicWriteRefused, type InfluenceFact } from "./influence-rule.ts";
+import { guardedWriteRefused, type InfluenceFact } from "./influence-rule.ts";
+import { readRequestInfluence } from "./request.ts";
 
-/** The influence rule applied to a tool call: only a write to a public destination is decided by it. */
-export function publicWriteDecision(
-  isWrite: boolean,
-  publicDestination: boolean,
-  influence: readonly InfluenceFact[],
-  destinationOwner?: string,
-): "OK" | "INFLUENCE_DENIED" {
-  if (!isWrite || !publicDestination) return "OK";
-  return publicWriteRefused(influence, destinationOwner) ? "INFLUENCE_DENIED" : "OK";
+/**
+ * What the influence rule sees in an attested session: the request's influence plus every class this server served
+ * in the session. A served class carries no owner. The union only adds facts, so the server is stricter, never
+ * looser, than the harness: a client that fails to record a private (or third-party) label cannot launder it past
+ * the rule.
+ */
+function contextInfluence(request: readonly InfluenceFact[], served: Iterable<InfluenceClass>): InfluenceFact[] {
+  return [...request, ...[...served].map((cls) => ({ cls }))];
 }
 
 /**
- * What the influence rule sees in an attested session: the client's verified influence plus every
- * class this server served in the session. A served class carries no owner. The union only adds
- * facts, so the server is stricter, never looser, than the harness: a client that fails to record a
- * private (or third-party) label cannot launder it past the rule.
+ * The decision of a server that acts on influence on a call that verified in an attested session (spec sessions.md,
+ * The server decision, steps 2 and 3), given `stamps`, the items the verifier handed on under `influence`, one entry
+ * per stamp in chain order. First every item must read as an entry: one that does not gives readRequestInfluence's
+ * code, with the signer of the first block holding one, for the operator's log, since the code names no one. Only
+ * then is a write to a public destination decided, by the every-stamp rule and then the owner-aware rule over the
+ * entries and the classes `served` in the session (spec influence.md, Over MCP); anything else is allowed.
  */
-function contextInfluence(clientInfluence: readonly InfluenceFact[], served: Iterable<InfluenceClass>): InfluenceFact[] {
-  return [...clientInfluence, ...[...served].map((cls) => ({ cls }))];
-}
-
-/**
- * The server's decision on a tools/call, once any chain it carries has verified (`clientInfluence` is
- * then the verified call's influence). In an attested session the influence rule decides, over the union of
- * the client's influence and the classes `served` in the session. Otherwise (an unsafe session, or no
- * handshake yet) the tools in `disabledWhenUnsafe` are refused and every other tool runs ungated.
- */
-export function decideServerCall(opts: {
-  tool: string;
-  isWrite: boolean;
-  publicDestination: boolean;
-  /** True only for a session opened as attested. */
-  attested: boolean;
-  /** Every class this server has attested in a response in the session. */
-  served: Iterable<InfluenceClass>;
-  clientInfluence: readonly InfluenceFact[];
-  disabledWhenUnsafe: readonly string[];
-  destinationOwner?: string;
-}): "OK" | "UNSAFE_SESSION" | "INFLUENCE_DENIED" {
-  if (opts.attested) {
-    return publicWriteDecision(opts.isWrite, opts.publicDestination, contextInfluence(opts.clientInfluence, opts.served), opts.destinationOwner);
+export function decideVerifiedCall(
+  stamps: readonly StampItems[],
+  opts: {
+    isWrite: boolean;
+    publicDestination: boolean;
+    /** Every class of a result this server has returned in the session, verified or not. */
+    served: Iterable<InfluenceClass>;
+    destinationOwner?: string;
+  },
+): { verdict: "OK" | "INFLUENCE_DENIED" } | { verdict: "INFLUENCE_MISMATCH"; signer: string } {
+  const read = readRequestInfluence(stamps);
+  if (!read.reads) {
+    return { verdict: read.reason, signer: read.signer };
   }
-  return opts.disabledWhenUnsafe.includes(opts.tool) ? "UNSAFE_SESSION" : "OK";
+  if (!opts.isWrite || !opts.publicDestination) {
+    return { verdict: "OK" };
+  }
+  const facts = contextInfluence(read.entries, opts.served);
+  const refused = guardedWriteRefused(read.everyStampNames, facts, opts.destinationOwner);
+  return { verdict: refused ? "INFLUENCE_DENIED" : "OK" };
 }

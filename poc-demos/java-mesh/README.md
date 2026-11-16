@@ -7,7 +7,7 @@ quarantines offending containers. The idea and the concepts are in the
 
 Quick start: `./run java-mesh` from the repository root builds the SDK and the mesh
 and runs every scenario. It needs JDK 25 or newer, Maven and Docker with Compose
-([Running it](#running-it)). A green run ends with `26 passed, 0 failed`; the mesh
+([Running it](#running-it)). A green run ends with `27 passed, 0 failed`; the mesh
 stays up afterwards, and `docker compose down` in this folder stops it.
 
 Contents: [The system at a glance](#the-system-at-a-glance) · [A request, end to end](#a-request-end-to-end) · [The support-assistant storyline](#the-support-assistant-storyline) · [Least knowledge](#least-knowledge-who-holds-what) · [The verification pipeline](#the-verification-pipeline) · [Response attestation](#response-attestation) · [Threat model](#threat-model) · [Operations](#operations) · [Response](#response-quarantine-not-deletion) · [Modes and rollout](#modes-and-rollout) · [Design choices](#design-choices-and-the-failures-they-avoid) · [Measurements](#measurements) · [Running it](#running-it) · [Configuration](#configuration)
@@ -111,17 +111,17 @@ sequenceDiagram
     participant P as payment (verifier)
 
     C->>G: POST /checkout (mTLS)
-    Note over G: mint rid<br/>s0 = Sign(k_gateway, …, rcv = orders#createOrder, prev = empty)
-    G->>O: POST /orders (mTLS)<br/>X-Path-Chain = [s0]<br/>X-Path-Proof = proof(gateway/orders#createOrder)
-    Note over O: check [s0] as receiver orders#createOrder, with the proof gateway sent:<br/>orders doesn't refuse, but attests only a chain that verified
-    Note over O: s1 = Sign(k_orders, …, rcv = payment#pay, prev = sig of s0)<br/>bind = hash of the /pay request it is about to send<br/>attach proof(gateway/orders#createOrder/payment#pay)
-    O->>P: POST /pay (mTLS, orders' certificate)<br/>X-Path-Chain = [s0, s1]<br/>X-Path-Proof = proof(gateway/orders#createOrder/payment#pay)
-    Note over P: check 0: its own keyring and root are within their notAfter,<br/>then the twelve checks, as receiver payment#pay: signatures, links and receivers,<br/>rid, freshness, binding, influence, nonce,<br/>the route gateway/orders#createOrder/payment#pay against the root,<br/>and the peer: the last signer is orders
-    Note over P: r1 = Sign(k_payment, …, rcv = orders, prev = sig of s1)<br/>bind = the 200 and its body
-    P-->>O: 200 PAID<br/>X-Path-Response = r1
-    Note over O: check [s0, s1, r1] as receiver orders,<br/>with the proof it sent
-    Note over O: r0 = Sign(k_orders, …, rcv = gateway, prev = sig of s0)
-    O-->>G: 200<br/>X-Path-Response = r0
+    Note over G: mint rid<br/>s0 = Sign(k_gateway, …, rcv = orders#createOrder, ext = commit(b0), prev = empty)<br/>b0 = gateway's own block
+    G->>O: POST /orders (mTLS)<br/>X-Path-Chain = [s0]<br/>X-Path-Proof = proof(gateway/orders#createOrder)<br/>X-Path-Extensions = [b0]
+    Note over O: check [s0] and [b0] as receiver orders#createOrder, with the proof gateway sent:<br/>orders doesn't refuse, but attests only a chain that verified
+    Note over O: s1 = Sign(k_orders, …, rcv = payment#pay, ext = commit(b1), prev = sig of s0)<br/>bind = hash of the /pay request it is about to send<br/>attach proof(gateway/orders#createOrder/payment#pay)
+    O->>P: POST /pay (mTLS, orders' certificate)<br/>X-Path-Chain = [s0, s1]<br/>X-Path-Proof = proof(gateway/orders#createOrder/payment#pay)<br/>X-Path-Extensions = [b0, b1]: gateway's, unchanged, then orders' own
+    Note over P: check 0: its own keyring and root are within their notAfter,<br/>then checks 1 to 12, as receiver payment#pay: the chain reads, its origin,<br/>signatures, links and receivers, rid, sess, freshness, binding,<br/>each block against its stamp's ext (9a), the blocks' names (9b, 9c), the peer: the last signer is orders,<br/>the nonce, and the route gateway/orders#createOrder/payment#pay against the root
+    Note over P: r1 = Sign(k_payment, …, rcv = orders, ext = commit(its block), prev = sig of s1)<br/>bind = the 200 and its body
+    P-->>O: 200 PAID<br/>X-Path-Response = {block, stamp: r1}
+    Note over O: check [s0, s1, r1] and their blocks as receiver orders,<br/>with the proof it sent
+    Note over O: r0 = Sign(k_orders, …, rcv = gateway, ext = commit(its block), prev = sig of s0)
+    O-->>G: 200<br/>X-Path-Response = {block, stamp: r0}
     Note over G: check [s0, r0] as receiver gateway
     G-->>C: 200
 ```
@@ -129,20 +129,28 @@ sequenceDiagram
 Application code never touches any of this. The Spring outbound interceptor
 stamps every `RestClient` call through core's `Stamper`. It takes the target
 service from the request URI host (Compose service names double as hostnames),
-takes the inbound chain and the influence so far from a request-scoped context,
-and attaches the proof for `(chain so far) + target` if this hop holds one. The
-inbound filter caches the body, records the received chain for later appends,
-runs verification on verifying services, and attests responses: every service but
-the origin attests its answer to a request whose chain verified there, unless an
-operator has switched it `off`.
+takes the inbound chain and its blocks from a request-scoped context, sends the
+blocks on unchanged and then its own, which its stamp commits to, and attaches the
+proof for `(chain so far) + target` if this hop holds one. Each block is what its
+own stamp's signer attached, so no later hop can add to, drop or alter another
+hop's claim without failing check 9a. The inbound filter caches the body, records
+the received chain and its blocks for later appends, runs verification on verifying
+services, and attests responses: every service but the origin attests its answer to
+a request whose chain verified there, unless an operator has switched it `off`.
 
 A response is attested by one more stamp on the chain the request arrived with,
-naming the caller as its receiver and binding the status, the body and any content
-labels. The caller runs the same live checks on it, all but the peer check,
-against the chain and the proof it sent, so a response needs no proof of its own.
+naming the caller as its receiver, binding the status and the body, and committing
+to its own block, which holds any content labels. The caller runs the same live
+checks on it, all but the peer check, against the chain, the blocks and the proof it
+sent, so a response needs no proof of its own.
 A response that is unattested or fails is still delivered, but counts as untrusted
-influence on whatever the caller does next
-([Response attestation](#response-attestation)).
+influence on whatever the caller does next; the one exception, a response that fails
+check 9c, is refused ([Response attestation](#response-attestation)).
+
+The path is the core alone: the chain, the proof, the binding, the blocks matched to
+their stamps, and the peer. It decides the checkout, every attack row, the operations
+rows and the quarantine, and it is all `search` runs. The extension `influence` is on
+at the services on the model's chains to a guarded write, in the storyline below.
 
 ## The support-assistant storyline
 
@@ -182,14 +190,38 @@ sequenceDiagram
     A->>M: email
 ```
 
-`tickets` labels the text `third-party` and passes it on. `orders` labels the
-order data `private`, with the customer it belongs to as the owner. Both labels
-ride in the influence of every later request, so by the time the assistant calls
-`payment` or `mailer`, the influence holds untrusted text beside private data.
-The services that write to something outside the mesh then apply the
-[owner-aware rule](../../poc-sdks/spec/sessions-and-influence.md#the-owner-aware-rule)
+`tickets` labels the text `third-party` and passes it on, in its own block.
+`orders` labels the order data `private`, with the customer it belongs to as the
+owner, in its answer's block; the assistant takes that label into its own block on
+every later call. Each block travels on unchanged, so by the time the assistant calls
+`payment` or `mailer`, the request's influence holds untrusted text beside private
+data. The services that write to something outside the mesh then apply the
+[owner-aware rule](../../poc-sdks/spec/influence.md#the-owner-aware-rule)
 through the SDK's `PublicWrites` bean. They supply only the destination's owner,
 from their own records, never from the request.
+
+### Which services act on influence
+
+[Influence](../../poc-sdks/spec/influence.md#where-influence-applies) guards what a
+model can be steered into, so a service acts on it only where the model's reach makes
+it matter. Each says so in its `application.yml` (`paztport.extensions.acts-on:
+[influence]`):
+
+| Service | Why it acts on `influence` |
+|---|---|
+| `assistant` | It hosts the model: it takes labelled answers and carries what it read on to the calls after them. |
+| `tickets` | It hands the model content: a ticket's text, labelled `third-party` in its own block. |
+| `orders` | It labels its answers `private`, and its stamp is on chains that reach the PSP. |
+| `gateway` | The origin: its block starts every chain, and it takes `orders`' labelled answers. |
+| `mailer`, `psp` | They guard a public write, an email and a refund, which `PublicWrites` denies at a service acting on nothing. |
+| `payment` | Its stamp, the boundary stamp included, is on the chain to the PSP's refund, and the egress names `influence` in the boundary block only where it acts on it. |
+
+A guarded write needs every stamp on its chain to name `influence`
+([the every-stamp rule](../../poc-sdks/spec/influence.md#the-every-stamp-rule)), so every
+service on the storyline's chains acts on it, even one with nothing to add. `search`
+acts on nothing: it is on no storyline chain, and it shows a service running the core
+alone beside the others. Its own block is empty, and it forwards the blocks it receives
+unchanged, as every hop must.
 
 ### The three cases
 
@@ -230,18 +262,24 @@ says. A charge, which takes money in, is accepted, and registers no card from it
 ### The boundary
 
 `payment` is the shop's egress. It sends the PSP **one stamp**, signed with its own
-key, with the **same `rid`** as the internal chain, and the influence (with owners).
-It sends no internal stamp, so the PSP learns one service name, `payment`, and
-never the route behind it: **the shop's map stays unseen.** It signs nothing
-unless `payment` verified the request's chain first, and in an unsafe session it
-signs and sends nothing. The handshake, the stamp and the partner's checks are in
-the [spec](../../poc-sdks/spec/sessions-and-influence.md#between-organisations) and
-the [Java SDK](../../poc-sdks/java/README.md); this demo only wires them up.
+key, with the **same `rid`** as the internal chain, and one boundary block that names
+`influence` with the influence blinded (with owners), since `payment` acts on it and
+every internal stamp names it. It sends no internal stamp, so the PSP learns one
+service name, `payment`, and never the route behind it: **the shop's map stays
+unseen.** It signs nothing unless `payment` verified the request's chain first, and
+in an unsafe session it signs and sends nothing. `payment` requires `influence` of
+the PSP (`paztport.boundary.requires`), so it calls only in a session whose attested
+reply lists it; a call it withholds is answered `502 {"reason":"EXTENSION_REQUIRED"}`,
+which no row shows, since the PSP acts on `influence`. Rows 14a and 14b are the
+operator's own session at the PSP and do not pass through `payment`. The handshake,
+the stamp and the partner's checks are in the
+[spec](../../poc-sdks/spec/sessions.md#between-organisations) and the
+[Java SDK](../../poc-sdks/java/README.md); this demo only wires them up.
 
 ### Opening a blinded entry
 
 The influence `payment` sends is
-[blinded](../../poc-sdks/spec/sessions-and-influence.md#blinded-influence): one
+[blinded](../../poc-sdks/spec/influence.md#blinded-influence): one
 entry per class and owner, its `src` `boundary:payment` and its `h` a salted
 commitment to the originals of its group. The PSP can apply the owner-aware rule
 to it, but learns neither the shop's internal sources nor the content, and cannot
@@ -270,40 +308,44 @@ each call's originals, which its `BoundaryListener` is given before the call goe
 and the PSP records the influence each call carried once the partner filter has
 verified it, before its rule decides, so a refused call is recorded too. Both are
 in-memory stand-ins for evidence stores, and they and their `/debug` endpoints
-exist only when `PAZTPORT_OPENINGS=true`, as Compose sets for `payment` and `psp`.
+exist only when `MESH_OPENINGS=true`, as Compose sets for `payment` and `psp`.
 
 ### The trace
 
 After row 13, `demo.sh` prints every trace line that carries the malicious
-ticket's `rid`, from every service it reached, in time order, with the `rid` shortened to `2c0b8d26` for reading.
+ticket's `rid`, from every service it reached, in time order. These are from a run of
+the demo on this code, with the `rid` shortened to `d7e7d7b9` for reading.
 
 ```
-tickets: PAZTPORT_TRACE request rid=2c0b8d26 reason=OK receiver=tickets ✓ peer=gateway (mTLS) classes=-
-assistant: PAZTPORT_TRACE request rid=2c0b8d26 reason=OK receiver=assistant ✓ peer=tickets (mTLS) classes=third-party
-orders: PAZTPORT_TRACE request rid=2c0b8d26 reason=OK receiver=orders#findOrders ✓ peer=assistant (mTLS) classes=third-party
-assistant: PAZTPORT_TRACE response rid=2c0b8d26 from=orders reason=OK receiver=assistant ✓ labels=private
-payment: PAZTPORT_TRACE request rid=2c0b8d26 reason=OK receiver=payment#refund ✓ peer=assistant (mTLS) classes=private,third-party
-psp: PAZTPORT_TRACE request rid=2c0b8d26 reason=OK receiver=psp ✓ peer=payment (mTLS) classes=private,third-party session=attested
-psp: PAZTPORT_TRACE decision rid=2c0b8d26 receiver=psp rule=public-write reason=INFLUENCE_DENIED ✗ classes=private,third-party
-payment: PAZTPORT_TRACE boundary rid=2c0b8d26 receiver=psp session=attested status=403 classes=private,third-party
-assistant: PAZTPORT_TRACE response rid=2c0b8d26 from=payment reason=OK receiver=assistant ✓ labels=local-untrusted
-mailer: PAZTPORT_TRACE request rid=2c0b8d26 reason=OK receiver=mailer ✓ peer=assistant (mTLS) classes=local-untrusted,private,third-party
-mailer: PAZTPORT_TRACE decision rid=2c0b8d26 receiver=mailer rule=public-write reason=INFLUENCE_DENIED ✗ classes=local-untrusted,private,third-party
-assistant: PAZTPORT_TRACE response rid=2c0b8d26 from=mailer reason=OK receiver=assistant ✓ labels=-
-tickets: PAZTPORT_TRACE response rid=2c0b8d26 from=assistant reason=OK receiver=tickets ✓ labels=-
-gateway: PAZTPORT_TRACE response rid=2c0b8d26 from=tickets reason=OK receiver=gateway ✓ labels=-
+tickets: PAZTPORT_TRACE request rid=d7e7d7b9 reason=OK receiver=tickets ✓ peer=gateway (mTLS) classes=-
+assistant: PAZTPORT_TRACE request rid=d7e7d7b9 reason=OK receiver=assistant ✓ peer=tickets (mTLS) classes=third-party
+orders: PAZTPORT_TRACE request rid=d7e7d7b9 reason=OK receiver=orders#findOrders ✓ peer=assistant (mTLS) classes=third-party
+assistant: PAZTPORT_TRACE response rid=d7e7d7b9 from=orders reason=OK receiver=assistant ✓ labels=private
+payment: PAZTPORT_TRACE request rid=d7e7d7b9 reason=OK receiver=payment#refund ✓ peer=assistant (mTLS) classes=private,third-party
+psp: PAZTPORT_TRACE request rid=d7e7d7b9 reason=OK receiver=psp ✓ peer=payment (mTLS) classes=private,third-party session=attested
+psp: PAZTPORT_TRACE decision rid=d7e7d7b9 receiver=psp rule=public-write reason=INFLUENCE_DENIED ✗ classes=private,third-party
+payment: PAZTPORT_TRACE boundary rid=d7e7d7b9 receiver=psp session=attested status=403 classes=private,third-party
+assistant: PAZTPORT_TRACE response rid=d7e7d7b9 from=payment reason=OK receiver=assistant ✓ labels=local-untrusted
+mailer: PAZTPORT_TRACE request rid=d7e7d7b9 reason=OK receiver=mailer ✓ peer=assistant (mTLS) classes=local-untrusted,private,third-party
+mailer: PAZTPORT_TRACE decision rid=d7e7d7b9 receiver=mailer rule=public-write reason=INFLUENCE_DENIED ✗ classes=local-untrusted,private,third-party
+assistant: PAZTPORT_TRACE response rid=d7e7d7b9 from=mailer reason=OK receiver=assistant ✓ labels=-
+tickets: PAZTPORT_TRACE response rid=d7e7d7b9 from=assistant reason=OK receiver=tickets ✓ labels=-
+gateway: PAZTPORT_TRACE response rid=d7e7d7b9 from=tickets reason=OK receiver=gateway ✓ labels=-
 ```
 
-Read it top to bottom. The `classes` column is empty at `tickets`, gains
-`third-party` at `assistant`, gains `private` once `orders` has answered, and
-reaches `payment` and `psp` as `private,third-party`. The two receivers that
-name an operation read `orders#findOrders` and `payment#refund`: the operation
-each request was confirmed as. Payment relays the PSP's answer, which nobody attests, so its response is labelled `local-untrusted`, and
-the `mailer` sees that too. The `rid` is the same at every service, including the
-PSP, in another organisation. The `psp` request line shows `session=attested`, and
-the two `decision … INFLUENCE_DENIED` lines are the two refusals. The chain verified at every hop: the requests were
-all legitimate positions on allowed routes, which is why the refusals have to come
-from the influence and not from the path. The gateway has only a `response` line
+Read it top to bottom. A request line's `classes` are what the request was handed,
+read from the blocks it came with (at the PSP, the one boundary block). The column
+is empty at `tickets`, gains `third-party` at `assistant` (from `tickets`' block),
+gains `private` once `orders` has answered (in the assistant's block), and reaches
+`payment` and `psp` as `private,third-party`. The two receivers that name an
+operation read `orders#findOrders` and `payment#refund`: the operation each request
+was confirmed as. Payment relays the PSP's answer, which nobody attests, so its
+response is labelled `local-untrusted`, and the `mailer` sees that too. The `rid` is
+the same at every service, including the PSP, in another organisation. The `psp`
+request line shows `session=attested`, and the two `decision … INFLUENCE_DENIED`
+lines are the two refusals. The chain verified at every hop: the requests were all
+legitimate positions on allowed routes, which is why the refusals have to come from
+the influence and not from the path. The gateway has only a `response` line
 because, as the origin, it verifies no request.
 
 ## Least knowledge: who holds what
@@ -378,47 +420,59 @@ the root.
 
 ## The verification pipeline
 
-`payment` runs the protocol's live order, its own policy's window then twelve
-checks, and fails closed at the first one that doesn't hold:
+`payment` runs the protocol's live order, its own policy's window then checks 1 to
+12, with checks 9a to 9c for the blocks, and fails closed at the first one that
+doesn't hold:
 
 ```mermaid
 flowchart TD
-    A["request arrives at payment<br/>over mutual TLS"] --> S0["0. payment's pinned keyring and root<br/>still within their notAfter?"]
+    A["request arrives at payment<br/>over mutual TLS"] --> S0["0. policy: payment's pinned keyring and root<br/>still within their notAfter?"]
     S0 -->|no| R0["403 POLICY_EXPIRED"]
-    S0 -->|yes| S1["1. chain header present and<br/>parses as v3 stamps?"]
+    S0 -->|yes| S1["1. the chain reads: the JCS bytes<br/>of version 4 stamps?"]
     S1 -->|no| R1["403 CHAIN_MISSING"]
-    S1 -->|yes| S2["2. does a signed field<br/>hold the delimiter?"]
-    S2 -->|yes| R2["403 BAD_SIGNATURE"]
-    S2 -->|no| S3["3. first stamp is an<br/>allowed origin (gateway)?"]
-    S3 -->|no| R3["403 BAD_ORIGIN"]
-    S3 -->|yes| S4["4. every signature verifies, every prev links,<br/>then each rcv names the next hop,<br/>and the last names payment#pay, the<br/>operation its handler runs?"]
-    S4 -->|bad signature| R4a["403 BAD_SIGNATURE"]
-    S4 -->|bad link| R4b["403 BROKEN_LINK"]
-    S4 -->|wrong receiver| R4c["403 BINDING_MISMATCH"]
-    S4 -->|yes| S5["5. one shared rid?"]
+    S1 -->|yes| S2["2. the origin's svc is an<br/>allowed origin (gateway)?"]
+    S2 -->|no| R2["403 BAD_ORIGIN"]
+    S2 -->|yes| S3["3. every signature verifies<br/>and every prev links?"]
+    S3 -->|bad signature| R3a["403 BAD_SIGNATURE"]
+    S3 -->|bad link| R3b["403 BROKEN_LINK"]
+    S3 -->|yes| S4["4. receivers: each rcv names the next hop,<br/>and the last names payment#pay, the<br/>operation its handler runs?"]
+    S4 -->|no| R4["403 BINDING_MISMATCH"]
+    S4 -->|yes| S5["5. every stamp carries<br/>the origin's rid?"]
     S5 -->|no| R5["403 RID_MISMATCH"]
-    S5 -->|yes| S6["6. every stamp in the session<br/>(empty inside the mesh)?"]
+    S5 -->|yes| S6["6. every stamp carries sess<br/>(empty inside the mesh)?"]
     S6 -->|no| R6["403 SESSION_UNKNOWN"]
-    S6 -->|yes| S7["7. last stamp within 5 s of now,<br/>origin within 30 s?"]
+    S6 -->|yes| S7["7. freshness: last stamp within 5 s of now,<br/>origin within 30 s?"]
     S7 -->|no| R7["403 EXPIRED"]
-    S7 -->|yes| S8["8. last stamp's bind matches the received<br/>method, path and query, and body?"]
+    S7 -->|yes| S8["8. bind: the last stamp's bind matches the<br/>received method, path and query, and body?"]
     S8 -->|no| R8["403 BINDING_MISMATCH"]
-    S8 -->|yes| S9["9. influence parses and the<br/>last stamp commits to it?"]
-    S9 -->|no| R9["403 INFLUENCE_MISMATCH"]
-    S9 -->|yes| S10["10. rid, last svc, rcv, and a keyed<br/>operation's key value,<br/>never seen before?"]
-    S10 -->|seen| R10["403 REPLAY"]
-    S10 -->|new| S11["11. route rebuilt from stamps + payment<br/>walks the proof to the pinned root?"]
-    S11 -->|no| R11["403 PATH_NOT_ALLOWED"]
-    S11 -->|yes| S12["12. last signer is the service<br/>the client certificate names?"]
-    S12 -->|no| R12["403 PEER_MISMATCH"]
-    S12 -->|yes| OK["200: handled, response attested"]
+    S8 -->|yes| S9a["9a. X-Path-Extensions reads as one block<br/>per stamp, each matching its stamp's ext?"]
+    S9a -->|no| R9a["403 EXTENSION_MISMATCH"]
+    S9a -->|yes| S9b["9b. every name in the blocks is allowed<br/>(when allowed is set; payment sets none)?"]
+    S9b -->|no| R9b["403 EXTENSION_NOT_ALLOWED"]
+    S9b -->|yes| S9c["9c. payment acts on every name<br/>the last block requires?"]
+    S9c -->|no| R9c["403 EXTENSION_REQUIRED"]
+    S9c -->|yes| S10["10. peer: the last signer is the service<br/>the client certificate names?"]
+    S10 -->|no| R10["403 PEER_MISMATCH"]
+    S10 -->|yes| S11["11. nonce: rid, last svc, rcv, and a keyed<br/>operation's key value, never seen before?"]
+    S11 -->|seen| R11["403 REPLAY"]
+    S11 -->|new| S12["12. route: rebuilt from stamps + payment,<br/>walks the proof to the pinned root?"]
+    S12 -->|no| R12["403 PATH_NOT_ALLOWED"]
+    S12 -->|yes| S13["every influence item it is handed reads?<br/>(payment acts on influence)"]
+    S13 -->|no| R13["400 INFLUENCE_MISMATCH"]
+    S13 -->|yes| OK["200: handled, response attested"]
+
+    U["a request that did not pass the live order here:<br/>it failed in audit, or failed at orders, which verifies<br/>only to decide attestation, or came in off"] --> U9a["blocks pass check 9a?"]
+    U9a -->|no| RU9a["400 EXTENSION_MISMATCH"]
+    U9a -->|yes| U13["every influence item it is handed reads?<br/>(at a service that acts on influence)"]
+    U13 -->|no| RU13["400 INFLUENCE_MISMATCH"]
+    U13 -->|yes| UOK["served, not verified, not attested"]
 
     classDef plain fill:#f2f2f2,stroke:#6e6a86,color:#1f1d2e,stroke-width:1px
     classDef reject fill:#eb6f92,stroke:#b4637a,color:#ffffff
     classDef pass fill:#3e8f6e,stroke:#2a6b52,color:#ffffff
-    class R0,R1,R2,R3,R4a,R4b,R4c,R5,R6,R7,R8,R9,R10,R11,R12 reject
-    class OK pass
-    class A,S0,S1,S2,S3,S4,S5,S6,S7,S8,S9,S10,S11,S12 plain
+    class R0,R1,R2,R3a,R3b,R4,R5,R6,R7,R8,R9a,R9b,R9c,R10,R11,R12,R13,RU9a,RU13 reject
+    class OK,UOK pass
+    class A,S0,S1,S2,S3,S4,S5,S6,S7,S8,S9a,S9b,S9c,S10,S11,S12,S13,U,U9a,U13 plain
 ```
 
 Notes on the ordering:
@@ -428,13 +482,23 @@ Notes on the ordering:
   gives the reason for each check's place and the code each failure returns. A wrong
   receiver, or a wrong operation (row 15b), is a binding failure at check 4, before
   the route is looked at; a missing or unparseable proof is `PATH_NOT_ALLOWED`, and
-  `CHAIN_MISSING` is for the chain alone. Check 12 is the peer check: `payment`
-  requires a client certificate from the mesh CA, and the chain's last signer must
-  be the service it names (its common name, when it has exactly one).
-- Every rejection returns a 403 whose body is the reason code alone,
-  `{"reason":"<code>"}`, and publishes an event for the responder. Influence that
-  can't be read is never dropped: where verification hasn't refused the request
-  first, it is answered `400 INFLUENCE_MISMATCH`.
+  `CHAIN_MISSING` is for the chain alone. Stamps sign their JCS bytes, so no field
+  needs a delimiter check.
+- Each block is matched to its stamp (9a) before any name in it is believed, so a hop
+  that adds to, drops or alters another hop's block is caught there: row 4b alters
+  the gateway's block in a stolen chain, and `payment` answers `EXTENSION_MISMATCH`.
+- Check 10 is the peer check: `payment` requires a client certificate from the mesh
+  CA, and the chain's last signer must be the service it names (its common name,
+  when it has exactly one). It comes before the nonce, so a request sent again from
+  another service's connection spends nothing and blames no signer: row 5, `orders`'
+  captured call re-sent by `search`, is `PEER_MISMATCH`. Only the signer's own
+  request reaches the nonce check, which row 16b shows as `REPLAY`.
+- Every refusal by verification returns a 403 whose body is the reason code alone,
+  `{"reason":"<code>"}`, and publishes an event for the responder. A request whose
+  blocks fail check 9a is never served: where verification has not refused it first,
+  as in `audit` or at `orders`, it is answered `400 EXTENSION_MISMATCH`. At a service
+  that acts on `influence`, an item it is handed that does not read is answered
+  `400 INFLUENCE_MISMATCH`, verified or not.
 - **Every result names the peer.** The TLS layer authenticated the sender, so each
   result, `OK` included, names the service its certificate names
   (`suspectSvc`) at the address it connected from (`suspectInst`), whatever the
@@ -448,9 +512,10 @@ Notes on the ordering:
 
 ## Response attestation
 
-A service attests what it answers with `X-Path-Response`: one stamp on the chain
-the request arrived with, back to the caller, binding the status, the body and the
-content labels. The caller checks it against the chain and the proof it sent, with
+A service attests what it answers with `X-Path-Response`, exactly `{block, stamp}`:
+one stamp on the chain the request arrived with, back to the caller, binding the
+status and the body and committing to its own block, which holds the content labels.
+The caller checks it against the chain, the blocks and the proof it sent, with
 itself as the receiver and no peer, since TLS hostname verification already
 authenticated the server it called. `gateway`, `orders` and `search` each hold the
 keyring, the root and the pin, so each checks every response it gets.
@@ -459,14 +524,14 @@ keyring, the root and the pin, so each checks every response it gets.
   stamp is shaped like a request stamp, so attesting a chain nobody checked would
   let anyone mint stamps under the service's key: a forged one-stamp chain with an
   empty signature would come back as a genuine origin stamp. So `orders` and
-  `search`, which don't refuse requests, still run the full live order on each
-  request's chain, with their own trust material, themselves as receiver and the
-  peer their client certificate names, and attest only when it passes; a failure
-  just leaves the answer unattested. `payment` attests what it verified. In `off`,
+  `search`, which don't refuse requests by verification, still run the full live
+  order on each request's chain, with their own trust material, themselves as
+  receiver and the peer their client certificate names, and attest only when it
+  passes; a failure just leaves the answer unattested. `payment` attests what it verified. In `off`,
   Paztport is off on `payment`: it verifies nothing, not even for attestation, and
   attests nothing, so `orders` counts its answer as untrusted. A refusal, or a
   request that failed in `audit`, is answered without an attestation. `gateway` is
-  the origin: it starts each request tree with no chain and no influence, whatever
+  the origin: it starts each request tree with no chain and no blocks, whatever
   a request carries, and never attests.
 - **Where the chain named an operation and the filter recorded it on the request's
   own dispatch, only an answer whose handler was reached and confirmed is
@@ -482,12 +547,17 @@ keyring, the root and the pin, so each checks every response it gets.
 - A verified response's labels become influence on whatever the caller does next.
   Any other response, unattested, failing or a refusal, still reaches the caller,
   and adds one `local-untrusted` influence entry, so content nobody vouched for
-  still counts. Every check logs a
+  still counts. The one exception is a response that fails check 9c: a labelled
+  answer requires `influence` of its caller, and a caller that does not act on it
+  would drop the labels, so it refuses the response, and the call fails with an
+  exception that says the handler ran and the call must not be retried. No row
+  produces one, since every service that receives a labelled answer acts on
+  `influence`. Every check logs a
   `PAZTPORT_TRACE response rid=… from=… reason=… receiver=…` line.
-- The response's nonce key is `<rid>|<last rcv>|resp`, and a request's is
-  `<rid>|<last svc>|<last rcv>|req`, `<last rcv>` being the receiver the request
-  chain's last stamp names, with the operation when it names one. An operation
-  with a key adds the key value before `req` or `resp`. So a service calls a given
+- The response's nonce key is the JCS text of `[rid, last rcv, "resp"]`, and a
+  request's of `[rid, last svc, last rcv, "req"]`, `last rcv` being the receiver
+  the request chain's last stamp names, with the operation when it names one. An
+  operation with a key adds the key value before `"req"` or `"resp"`. So a service calls a given
   receiver, or a given operation of it, at most once per request tree, and an
   operation with a key at most once per request tree for each key value
   ([Operations](#operations)).
@@ -505,11 +575,11 @@ the policy key or the CA key. Its goal is to get `payment` to act on a request.
 | Call `payment` with no attestation | Fail closed: missing chain is invalid, never "unprotected traffic" | 2: `CHAIN_MISSING` |
 | Forge a stamp claiming to be `gateway` | Verified against gateway's public key, which the attacker can't sign for | 3: `BAD_SIGNATURE` |
 | Extend a real chain it legitimately received, with its own stamp, to `payment` | Route rebuilt from stamps (`gateway/search/payment`) is not a leaf | 4: `PATH_NOT_ALLOWED` |
+| Extend that chain with a claim added to an earlier hop's block, or one dropped from it | Each block must match the `ext` its own stamp signed | 4b: `EXTENSION_MISMATCH` |
 | Forward that chain unchanged | `gateway`'s stamp names `search` as its receiver, not `payment` | `BINDING_MISMATCH` (the receiver rule the spec's `wrong receiver` vector pins) |
-| Replay a captured valid request | Its nonce key, the `rid`, the last signer and the receiver it names, already spent | 5: `REPLAY` |
+| Replay a captured valid request, or send any other service's fresh chain, from its own connection | The last signer must be the service its client certificate names, checked before the nonce, so the replay spends nothing | 5: `PEER_MISMATCH` |
 | Keep a valid chain, swap the body | Last stamp's `bind` no longer matches | 6: `BINDING_MISMATCH` |
 | Hold a chain and use it later | Stamps older than the freshness window | 7: `EXPIRED` |
-| Send another service's fresh chain from its own connection | The last signer must be the service its client certificate names | `PEER_MISMATCH` (the SDK's mutual TLS test) |
 | Send a hop a forged chain, so that its response stamp becomes one the attacker can start a chain with | A hop attests only a chain that passed the live order there, and `gateway`, the origin, never attests | No `X-Path-Response` (the SDK's attestation tests) |
 | Code in `orders`, on a valid route, signs a call to an operation that route does not allow | The route rebuilt from the stamps (`gateway/orders#getOrder/payment#pay`) is not a leaf | 15a: `PATH_NOT_ALLOWED` |
 | Name the operation the route allows, but send the call to another | `payment` takes the operation from the handler Spring dispatches to; the stamp names another | 15b: `BINDING_MISMATCH` |
@@ -550,8 +620,8 @@ it calls: `gateway` mounts orders', the `assistant` both, `orders` payment's.
 A caller names the operation from the receiver's table, and the receiver confirms
 it: `orders` and `payment` take the operation from the handler Spring will
 dispatch the request to, never from the request, and a stamp that names another
-fails there (`payment` refuses it; `orders`, which refuses nothing, leaves its
-answer unattested). A caller uses a table only when its bundle holds the
+fails there (`payment` refuses it; `orders`, which refuses nothing by verification,
+leaves its answer unattested). A caller uses a table only when its bundle holds the
 table's proof, which goes to the service and to every caller with a route ending at
 it. `search` mounts payment's table too, but holds its proof only once row 10
 widens the policy, so in row 4 its call names no operation and meets a route that
@@ -603,7 +673,7 @@ The decision logic is a small pure function, unit-tested without Docker:
 
 ```mermaid
 flowchart TD
-    E["rejection event<br/>reason, suspectSvc, suspectInst, rid, audit"] --> A{"audit event, or a policy refusal<br/>(INFLUENCE_DENIED, UNSAFE_SESSION)?"}
+    E["rejection event<br/>reason, suspectSvc, suspectInst, rid, audit"] --> A{"audit event, or a reason that is not<br/>attributable (INFLUENCE_DENIED, UNSAFE_SESSION,<br/>INFLUENCE_MISMATCH, EXTENSION_NOT_ALLOWED,<br/>EXTENSION_REQUIRED, POLICY_EXPIRED)?"}
     A -->|yes| N1["ignore"]
     A -->|no| B{"suspect instance known?"}
     B -->|no| N2["ignore: can't attribute"]
@@ -660,9 +730,13 @@ Why each piece is there:
   events" paragraph): not an audit event, naming both a service and an
   instance, with a reason from the spec's allow-list. `INFLUENCE_DENIED` and
   `UNSAFE_SESSION` are policy refusals of a sound chain, which an honest
-  service misled by its input can earn, so they never count. Nor does
-  `POLICY_EXPIRED`: the verifier's own pinned policy ran out, which no caller
-  caused.
+  service misled by its input can earn, so they never count.
+  `EXTENSION_NOT_ALLOWED` and `EXTENSION_REQUIRED` report configuration, since two
+  honest services can hold different settings, and `INFLUENCE_MISMATCH` names no
+  one, since its sender may be a hop that passed a block along unread. Nor does
+  `POLICY_EXPIRED` count: the verifier's own pinned policy ran out, which no caller
+  caused. `EXTENSION_MISMATCH` is on the list, as a code that reports what the
+  sender sent.
 - **Require a threshold** (3 in 60 s). One bad event doesn't trigger action, and
   audit-mode events never do.
 - **Circuit breaker** (by default at most 2 quarantines per service per 10 min).
@@ -687,16 +761,19 @@ Each verifying service runs in one of three modes (`PAZTPORT_MODE`):
 
 | Mode | Verifies | Rejects | Use |
 |---|---|---|---|
-| `off` | no, and attests no responses | no | Paztport off on this hop: the latency baseline |
-| `audit` | yes, logs events marked `audit=true` | no | Measure the false-positive rate on real traffic |
+| `off` | no, and attests no responses | only blocks that fail check 9a (`400 EXTENSION_MISMATCH`) | Paztport off on this hop: the latency baseline |
+| `audit` | yes, logs events marked `audit=true` | only blocks that fail check 9a (`400 EXTENSION_MISMATCH`, whichever check failed first) | Measure the false-positive rate on real traffic |
 | `enforce` | yes | yes, with a 403 | Protection |
 
-The mode governs `payment`'s check of requests and, in `off`, its attestation of
-responses: with Paztport off, `payment` vouches for nothing it answers. That is
+In every mode a service that acts on `influence` also answers an item it cannot read
+`400 INFLUENCE_MISMATCH`. The mode governs `payment`'s check of requests and, in
+`off`, its attestation of responses: with Paztport off, `payment` vouches for nothing
+it answers. That is
 fail-safe, since `orders` records an unattested answer as `local-untrusted`, so
 switching a hop off can only add caution downstream. Callers check every response
-they get in every mode, and a response check never refuses anything: it only
-decides whether the response counts as trusted.
+they get in every mode, and a response check refuses only a response that fails
+check 9c, whose block requires an extension the caller does not act on: otherwise it
+decides only whether the response counts as trusted.
 
 `audit` is the on-ramp for an existing system. You run it against real traffic,
 measure how often retries, health checks, and batch jobs trip it, fix the policy,
@@ -759,6 +836,9 @@ when the whole mesh runs:
 
 ## Measurements
 
+Every figure in this section was measured on version 4 of the protocol, on
+2026-11-16.
+
 Measured on a single host, an Apple M5 Pro under macOS 26.6.2 (Docker Desktop,
 the services on Temurin 25.0.5, a JDK 25 runtime), with k6 driving the
 legitimate path at 10 virtual users, via [measure.sh](measure.sh), mutual TLS on
@@ -773,8 +853,8 @@ failed in any run.
 
 | | p50 | p99 | mean | max |
 |---|---|---|---|---|
-| `payment` in `off` | 2.86 ms (2.86–2.93) | 4.99 ms (4.97–5.31) | 2.96 ms (2.96–3.04) | 10.02 ms (8.23–14.02) |
-| `payment` in `enforce` | 4.80 ms (4.79–4.85) | 7.18 ms (7.02–7.32) | 4.92 ms (4.90–4.97) | 11.03 ms (10.44–11.48) |
+| `payment` in `off` | 2.96 ms (2.91–3.00) | 5.22 ms (4.98–5.41) | 3.08 ms (3.01–3.12) | 11.13 ms (9.51–18.80) |
+| `payment` in `enforce` | 4.88 ms (4.84–4.91) | 7.16 ms (7.12–7.36) | 5.00 ms (4.95–5.03) | 13.76 ms (11.26–17.90) |
 
 The services call each other over pooled mutual-TLS connections, so these numbers
 don't include a handshake per hop per request. In steady load a connection is
@@ -797,28 +877,28 @@ the size of the headers on the mesh's request to `payment`, measured in the mesh
 
 | Operation | Cost |
 |---|---|
-| Merkle proof verify (depth 8) | **2.3 µs** |
+| Merkle proof verify (depth 8) | **2.2 µs** |
 | Request binding of the `POST /pay` request (base64url SHA-256 of method, target and body, newline-joined) | 0.07 µs |
-| Ed25519 sign / verify of one stamp (stock JDK) | ~222 / ~234 µs |
-| Request headers at chain depth 2 | 946 B chain + 615 B proof = **1.5 KB** |
+| Ed25519 sign / verify of one stamp (stock JDK) | ~224 / ~223 µs |
+| Request headers at chain depth 2 | 1058 B chain + 615 B proof + 111 B extensions = **1.7 KB** |
 
 What the numbers say:
 
 - **`enforce` adds about 1.9 ms at the median at this load.** Every `enforce` run's
-  p50 was 1.86–1.99 ms above every `off` run's, so the gap is far larger than the
+  p50 was 1.84–2.00 ms above every `off` run's, so the gap is far larger than the
   run-to-run spread, but three runs per mode support "about 1.9 ms", not a finer
-  figure. The p99 gap is about 2.2 ms (1.71–2.35 ms between any two runs). The
+  figure. The p99 gap is about 1.9 ms (1.71–2.38 ms between any two runs). The
   difference covers `payment`'s verification of the request (two stamps), its
   signing of the response, and `orders`' check of that response stamp (three
   stamps), which in `off` finds no stamp and stops at once. At the micro-benchmark
   costs in the table above, those five verifies and one signature come to about
-  1.4 ms of Ed25519 (5 × 233.8 + 221.9 = 1390.8 µs), about 70% of the difference.
-  The remainder, about 0.5 ms, isn't broken down. Candidates are the other work
-  `enforce` adds (reading the chain and proof headers, the nonce check, encoding
-  the response stamp and `orders`' parse of it), queueing among the 10 users,
-  and a gap between the benchmark, run natively, and the same work in Docker
-  Desktop's VM on this host. The request binding, at 0.07 µs, is too small to
-  count.
+  1.3 ms of Ed25519 (5 × 223.3 + 224.2 = 1340.7 µs), about 70% of the difference.
+  The remainder, about 0.6 ms, isn't broken down. Candidates are the other work
+  `enforce` adds (decoding the proof header, decoding the extensions header a
+  second time for the verifier, the nonce check, encoding the response stamp and
+  `orders`' parse of it), queueing among the 10 users, and a gap between the
+  benchmark, run natively, and the same work in Docker Desktop's VM on this host.
+  The request binding, at 0.07 µs, is too small to count.
 - **The proof of legitimacy is effectively free.** Its walk costs about 1% of one
   Ed25519 verify. Of the primitives, nearly all the cost is Ed25519: a verify per
   stamp, and a signature per stamp a hop adds.
@@ -826,10 +906,12 @@ What the numbers say:
   this repository doesn't benchmark, do tens of microseconds. A hot-path
   deployment would swap the signature implementation; the Merkle machinery
   wouldn't change.
-- **The chain grows by about 473 B per stamp, on average** (946 B over two). The
-  proof is a fixed 615 B whatever the route length. `X-Path-Influence` is absent
-  when there is no influence, as here. The response headers were not measured:
-  `X-Path-Response` carries one stamp plus its labels.
+- **The chain grows by about 529 B per stamp, on average** (1058 B over two). The
+  proof is a fixed 615 B whatever the route length. `X-Path-Extensions` travels
+  with every request, one block per stamp: here two blocks in 111 B, each naming
+  influence with no entries, since neither `gateway` nor `orders` has added one
+  when it makes its call. The response headers were not measured: `X-Path-Response`
+  carries one stamp and its own block, which holds the labels.
 
 Caveats:
 
@@ -844,8 +926,8 @@ Caveats:
   none is measured on its own. Only `payment`'s work is switched here, so a
   design that verifies at every hop pays that cost once per verifying hop.
 - **A maximum is one request.** It moves more from run to run than the
-  percentiles do (`off`'s ran from 8.23 to 14.02 ms, `enforce`'s from 10.44 to
-  11.48 ms), so read it as this run's slowest request, not as a cost.
+  percentiles do (`off`'s ran from 9.51 to 18.80 ms, `enforce`'s from 11.26 to
+  17.90 ms), so read it as this run's slowest request, not as a cost.
 - **The primitive costs are JIT-warmed micro-benchmarks**, timed on their own
   outside the mesh, on the same host but not during this run; absolute numbers
   vary by host and JDK. The primitives they time (the Merkle walk, the request
@@ -966,8 +1048,9 @@ printing `payment`'s trace line for scenario 1:
 | 1 | client → gateway → orders → payment | 200 |
 | 2 | search calls payment with no headers | 403 `CHAIN_MISSING` |
 | 3 | search forges a stamp claiming to be gateway | 403 `BAD_SIGNATURE` |
-| 4 | search extends a real `gateway→search` chain to payment with its own stamp | 403 `PATH_NOT_ALLOWED` |
-| 5 | a captured valid request is replayed | 403 `REPLAY` |
+| 4 | search extends a real `gateway→search` chain to payment with its own stamp, forwarding the chain's blocks | 403 `PATH_NOT_ALLOWED` |
+| 4b | the same, with one stolen block altered: the gateway's block gains an influence entry its stamp never committed to | 403 `EXTENSION_MISMATCH` |
+| 5 | search re-sends orders' captured valid request to payment from its own connection | 403 `PEER_MISMATCH` |
 | 6 | valid chain, body altered after the last stamp | 403 `BINDING_MISMATCH` |
 | 7 | a chain older than the max age | 403 `EXPIRED` |
 | 8 | scenarios 2–4 in `audit` mode | 200, events logged, no quarantine |
@@ -995,7 +1078,7 @@ those and before row 9, which needs the quarantine and ends the run:
 | 14a | an unsafe session at the PSP: a refund | 403 `UNSAFE_SESSION` |
 | 14b | the same session: a charge | 200 `CHARGED` |
 
-`demo.sh` ends with `26 passed, 0 failed`. Row 12 depends on row 11, because the
+`demo.sh` ends with `27 passed, 0 failed`. Row 12 depends on row 11, because the
 charge is what registers alice's card to her.
 
 The attacks run inside the mesh, from `search`'s `/attack/*` endpoints (enabled
@@ -1022,8 +1105,8 @@ the gateway port is exposed to the host.
 | `PAZTPORT_OPERATIONS_RECEIVERTABLES` | unset; Compose sets the tables of the receivers each calls | `gateway` (orders'), `assistant` (orders', payment's), `orders` (payment's), `search` (payment's, used only once the policy is widened) |
 | `PAZTPORT_ADMIN_TOKEN` | empty, so `/admin/mode` is not registered | `payment`, `tickets`, `assistant`, `mailer` (the demo generates one per run) |
 | `DEMO_DRAIN_SECONDS` | `5`; `0` for no drain (Compose sets `0`) | Every service: how long it serves with `Connection: close` after SIGTERM before graceful shutdown starts |
-| `PAZTPORT_CAPTURE` | `false`; `true` for `payment` in Compose | `payment` (the replay harness) |
-| `PAZTPORT_OPENINGS` | `false`; `true` for `payment` and `psp` in Compose | `payment` (keeps the originals of what it sends the PSP, `/debug/boundary-opening`) and `psp` (records what each call carried, `/debug/check-opening`), for row 13c |
+| `MESH_CAPTURE` | `false`; `true` for `payment` in Compose | `payment` (the replay harness) |
+| `MESH_OPENINGS` | `false`; `true` for `payment` and `psp` in Compose | `payment` (keeps the originals of what it sends the PSP, `/debug/boundary-opening`) and `psp` (records what each call carried, `/debug/check-opening`), for row 13c |
 | `RESPONDER_URL` | empty, so events are only logged | `payment` (the demo sets `https://responder:8080` for scenario 9) |
 | `PAZTPORT_EVENT_KEY_PATH` | `/config/keys/payment.key` in Compose; required when `RESPONDER_URL` is set | `payment` |
 | `PAZTPORT_RUN_MAX_AGE_MS` | unset, so the origin's window is `PAZTPORT_MAX_AGE_MS`; Compose sets `30000` | `gateway`, `tickets`, `assistant`, `orders`, `payment`, `mailer`: the window for the origin's stamp, which five hops started cold can outlast |
@@ -1041,6 +1124,17 @@ the gateway port is exposed to the host.
 | `RESPONDER_ALLOWED_SIGNERS` | `payment` | responder |
 | `QUARANTINE_THRESHOLD` | `3` | responder |
 | `QUARANTINE_MAX_PER_SVC` | `2` | responder (the demo uses `1` so `ESCALATE` comes sooner) |
+
+The extension settings are not variables either: each service's `application.yml`
+sets them, and Compose does not override them. Every service on the starter but
+`search`, the PSP included, acts on
+`influence` (`paztport.extensions.acts-on: [influence]`;
+[Which services act on influence](#which-services-act-on-influence)), and `payment`
+requires it of the PSP (`paztport.boundary.requires: [influence]`). Each service
+that uses the starter, the PSP included, sets `server.max-http-request-header-size:
+2MB`, which admits the chain, the
+proof and the blocks together at the largest the wire allows, where Tomcat's default
+is 8 KB.
 
 The TLS files are not variables: each service's `application.yml` names its
 certificate, its key and `ca.crt` under `/config/tls/` as the Spring Boot SSL bundle

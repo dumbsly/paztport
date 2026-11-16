@@ -14,6 +14,11 @@ import { redactFile, withRealPath, type Redaction } from "./redact.ts";
 export { checkModelAvailable, parseModel, prepareAgentDir, type ModelRef } from "./models.ts";
 
 export type RunMode = "off" | "on" | "clean-off" | "clean-on" | "warning";
+/**
+ * The modes with Paztport on: the runner starts the extension in enforce mode and configures every server
+ * `attested: true`, so each run in them asks for an attested session with every server.
+ */
+export const ATTESTED_MODES: readonly RunMode[] = ["on", "clean-on"];
 export type RunSpec = {
   scenarioDir: string;
   mode: RunMode;
@@ -145,7 +150,8 @@ export function settleWorkspace(work: string, dest: string, stderrFile: string):
     rmSync(staging, { recursive: true, force: true });
     cpSync(work, staging, { recursive: true, verbatimSymlinks: true, filter });
     renameSync(staging, dest);
-    if (skipped.length > 0) note(`left out of the workspace copy, as not a file, folder or link: ${skipped.join(", ")}`);
+    // sorted, as the copy visits a folder in the file system's order, which differs between hosts
+    if (skipped.length > 0) note(`left out of the workspace copy, as not a file, folder or link: ${skipped.sort().join(", ")}`);
   } catch (e) {
     // the error names the temp folder, which the run folder never shows
     note(`could not copy the workspace into the run folder (${(e as NodeJS.ErrnoException).code ?? "error"}), so it is left out`);
@@ -259,7 +265,7 @@ export async function runOnce(spec: RunSpec, onLine?: (file: LineFile, line: str
       mkdirSync(dirname(file), { recursive: true });
       writeFileSync(file, text);
     }
-    const enforced = spec.mode === "on" || spec.mode === "clean-on";
+    const enforced = ATTESTED_MODES.includes(spec.mode);
     // without Paztport nothing is signed, so those runs get no evidence log at all
     for (const f of ["transcript.jsonl", "events.jsonl", ...(enforced ? ["evidence.jsonl"] : []), "outcome.jsonl", "stderr.txt"]) writeFileSync(path(f), "");
     if (!enforced) rmSync(path("evidence.jsonl"), { force: true });
@@ -287,7 +293,17 @@ export async function runOnce(spec: RunSpec, onLine?: (file: LineFile, line: str
           ...(scenario.localTools ? { clientPolicyDir: join(demoDir, "client", scenario.clientPolicy!) } : {}),
           eventsLog: path("events.jsonl"),
           ...(enforced ? { evidenceLog: path("evidence.jsonl") } : {}),
-          servers: [{ id: scenario.serverId, command: process.execPath, args: serverArgs, attested: enforced }],
+          // Enforced, the client requires influence of the server, whose rule it relies on for public writes; an
+          // unattested server can be required of nothing.
+          servers: [
+            {
+              id: scenario.serverId,
+              command: process.execPath,
+              args: serverArgs,
+              attested: enforced,
+              ...(enforced ? { requires: ["influence"] } : {}),
+            },
+          ],
         },
         null,
         2,

@@ -1,12 +1,15 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
+import { decode } from "../encoding/b64url.ts";
+import { isEd25519PublicKey } from "../crypto/crypto.ts";
 import { readToken, type JsonValue } from "../encoding/json.ts";
 import { serverPolicyNotAfter } from "../session/reply-check.ts";
 import { readSessionRequest } from "../session/request.ts";
 import { isAttestedSession, readSessionReply, serverSignaturesVerify, type SessionRequest } from "../session/session.ts";
 import { NonceCache } from "../verify/nonce.ts";
 import type { ReasonCode } from "../verify/reason.ts";
+import type { OfflineConfig } from "./verify-offline.ts";
 
 /**
  * A handshake read back from a record set: the request and reply as recorded, as their tokens, the server policy key
@@ -19,7 +22,7 @@ export type RecordedHandshake = {
   serverEntry: string;
 };
 
-/** What a recorded handshake gives the records that rely on it (sessions-and-influence.md §Recorded handshakes). */
+/** What a recorded handshake gives the records that rely on it (sessions.md §Recorded handshakes). */
 export type RecordedSession = {
   /** Whether it opened an attested session, judged at `at`: a time the client signed, a call's last stamp `ts`, never one read from the handshake record. */
   attestedAt: (at: number) => boolean;
@@ -33,6 +36,17 @@ export type RecordedSession = {
    * check 0 (POLICY_EXPIRED).
    */
   responseNotAfter: number | undefined;
+  /**
+   * The config a call recorded in the session is checked with, but for the call's own nonce key (verification.md,
+   * Offline verification, a recorded call): the client keyring and root of the recorded request, each with no window
+   * of its own, since the session's limits judge them (`callInSession`), the reply's session id, and the members of
+   * `given` as given; `given.seen` is held, not copied, so the call's own key is added to the record set's. A key in
+   * the keyring that does not parse is left out, so a stamp under it is BAD_SIGNATURE, and a root that does not decode
+   * is pinned as no bytes, so it proves no route. Undefined for a session not attested at all.
+   */
+  callConfig: (
+    given: Pick<OfflineConfig, "allowedOrigins" | "seen" | "extensions" | "runMaxAgeMs" | "callMaxAgeMs">,
+  ) => Omit<OfflineConfig, "nonceKey"> | undefined;
 };
 
 /** `o`'s own `field` when `o` is an object and that is an integer, else undefined: a limit the record lacks. */
@@ -81,10 +95,29 @@ export function recordedSession(h: RecordedHandshake): RecordedSession {
   ]);
   const read = readOr(() => readSessionReply(h.reply));
   const signed = read !== undefined && read.serverRoot !== null && serverSignaturesVerify(read, pin, serverEntry);
+  const attested = attestedAt(limit);
+  const callConfig: RecordedSession["callConfig"] = (given) => {
+    // an attested session has read both messages and has a client root; checking them again narrows the types
+    if (!attested || request === undefined || read === undefined || request.clientRoot === null) return undefined;
+    const root = request.clientRoot;
+    // the policy key signed the keyring's text, so a key that is not one can stand in it: it verifies nothing
+    const keys = Object.fromEntries(Object.entries(request.clientKeyring).filter(([, key]) => isEd25519PublicKey(key)));
+    return {
+      keyrings: [{ keys, notAfter: Infinity }],
+      roots: [{ root: readOr(() => decode(root.root)) ?? new Uint8Array(0), rootId: root.rootId, notAfter: Infinity }],
+      allowedOrigins: given.allowedOrigins,
+      sess: read.sess,
+      seen: given.seen,
+      extensions: given.extensions,
+      runMaxAgeMs: given.runMaxAgeMs,
+      callMaxAgeMs: given.callMaxAgeMs,
+    };
+  };
   return {
     attestedAt,
-    attested: attestedAt(limit),
+    attested,
     responseNotAfter: signed ? serverPolicyNotAfter(read) : undefined,
+    callConfig,
   };
 }
 
@@ -100,7 +133,7 @@ export function callInSession(session: RecordedSession, reason: ReasonCode, at: 
 }
 
 /**
- * One record set's replay state (verification.md §Offline verification, check 10): the nonce keys spent by its calls
+ * One record set's replay state (verification.md §Offline verification, check 11): the nonce keys spent by its calls
  * and local steps, one set for the whole set, and one nonce cache for its responses that never forgets. A live cache
  * forgets keys after its window, which offline would let a copy pass once a later record is far enough on. Nothing
  * in a session record resets either: a repeated handshake leaves them as they are.

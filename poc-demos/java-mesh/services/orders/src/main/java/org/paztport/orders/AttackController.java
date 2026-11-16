@@ -4,16 +4,20 @@
 package org.paztport.orders;
 
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.List;
+import org.paztport.core.influence.Influence;
 import org.paztport.core.policy.MerkleProof;
 import org.paztport.core.policy.ProofBundle;
 import org.paztport.core.policy.Routes;
+import org.paztport.core.stamp.Block;
 import org.paztport.core.stamp.Stamp;
 import org.paztport.core.stamp.Stamper;
 import org.paztport.http.wire.HttpWire;
 import org.paztport.http.wire.PaztportHeaders;
 import org.paztport.http.wire.RequestBinding;
 import org.paztport.spring.outbound.PooledTlsClient;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.MediaType;
@@ -48,6 +52,8 @@ public class AttackController {
     private final StolenChainStore stolenChains;
     private final String paymentUrl;
 
+    /** The endpoints over orders' stamp key and proofs, sending on the starter's pooled client as orders. */
+    @Autowired
     public AttackController(
             Stamper stamper,
             ProofBundle proofs,
@@ -56,7 +62,13 @@ public class AttackController {
             PooledTlsClient tls) {
         // Built apart from the shared builder, so it never gets the stamping interceptor, but on the starter's
         // pooled client: payment requires a client certificate, and every steered call arrives as orders.
-        this.rawClient = tls.builder().build();
+        this(stamper, proofs, stolenChains, paymentUrl, tls.builder().build());
+    }
+
+    /** As the public constructor, sending on {@code rawClient}, which must not stamp; for tests. */
+    AttackController(Stamper stamper, ProofBundle proofs, StolenChainStore stolenChains, String paymentUrl,
+            RestClient rawClient) {
+        this.rawClient = rawClient;
         this.stamper = stamper;
         this.proofs = proofs;
         this.stolenChains = stolenChains;
@@ -70,7 +82,7 @@ public class AttackController {
      */
     @PostMapping("/attack/steer-pay")
     public ResponseEntity<String> steerPay() {
-        List<Stamp> stolen = stolenChains.getOrder();
+        StolenChainStore.Stolen stolen = stolenChains.getOrder();
         if (stolen == null) {
             return ResponseEntity.status(428)
                     .body("{\"reason\":\"NO_STOLEN_CHAIN\",\"hint\":\"call gateway GET /orders/123 first\"}");
@@ -86,7 +98,7 @@ public class AttackController {
      */
     @PostMapping("/attack/misname")
     public ResponseEntity<String> misname() {
-        List<Stamp> stolen = stolenChains.createOrder();
+        StolenChainStore.Stolen stolen = stolenChains.createOrder();
         if (stolen == null) {
             return ResponseEntity.status(428)
                     .body("{\"reason\":\"NO_STOLEN_CHAIN\",\"hint\":\"call gateway POST /checkout first\"}");
@@ -102,7 +114,7 @@ public class AttackController {
      */
     @PostMapping("/attack/encoded-hold")
     public ResponseEntity<String> encodedHold() {
-        List<Stamp> stolen = stolenChains.holdItems();
+        StolenChainStore.Stolen stolen = stolenChains.holdItems();
         if (stolen == null) {
             return ResponseEntity.status(428)
                     .body("{\"reason\":\"NO_STOLEN_CHAIN\",\"hint\":\"call gateway POST /holds first\"}");
@@ -111,24 +123,31 @@ public class AttackController {
     }
 
     /**
-     * Signs a stamp for {@code operation} of payment onto {@code stolen}, binding a POST of {@code body} to
-     * {@code path}, and sends it there with the proof of {@code route}. Without that proof it sends nothing, so a
-     * refusal is never for a proof the bundle lacked.
+     * Signs a stamp for {@code operation} of payment onto the stolen chain, binding a POST of {@code body} to
+     * {@code path}, and sends it there with the proof of {@code route}, and with the stolen blocks then its own.
+     * Without that proof it sends nothing, so a refusal is never for a proof the bundle lacked. The stolen blocks go
+     * unchanged, so each still matches the stamp that committed to it (check 9a) and payment refuses the call at the
+     * check its scenario shows. Orders acts on influence and the code adds no entry, so its block names influence
+     * with nothing added, as orders' own calls do.
      */
-    private ResponseEntity<String> steer(List<Stamp> stolen, String operation, String path, byte[] body,
+    private ResponseEntity<String> steer(StolenChainStore.Stolen stolen, String operation, String path, byte[] body,
             String route) {
         MerkleProof proof = proofs.proofFor(route);
         if (proof == null) {
             return ResponseEntity.status(409).body("{\"reason\":\"NO_PROOF\",\"route\":\"" + route + "\"}");
         }
         String bind = RequestBinding.compute("POST", path, body);
-        List<Stamp> chain = stamper.next(stolen, operation, bind, List.of(), null).chain();
+        Block own = Influence.block(List.of(), List.of());
+        List<Stamp> chain = stamper.next(stolen.chain(), operation, bind, own, null).chain();
+        List<Block> blocks = new ArrayList<>(stolen.blocks());
+        blocks.add(own);
         return rawClient.post()
                 .uri(paymentUrl + path)
                 .headers(h -> {
                     h.setContentType(MediaType.APPLICATION_JSON);
                     h.set(PaztportHeaders.CHAIN, HttpWire.encodeChain(chain));
                     h.set(PaztportHeaders.PROOF, HttpWire.encodeProof(proof));
+                    h.set(PaztportHeaders.EXTENSIONS, HttpWire.encodeBlocks(blocks));
                 })
                 .body(body)
                 .exchange((request, response) -> ResponseEntity

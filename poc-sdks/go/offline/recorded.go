@@ -5,10 +5,14 @@ package offline
 
 import (
 	"maps"
+	"math"
 	"slices"
 
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/json"
+	"github.com/dumbsly/paztport/poc-sdks/go/keys"
+	"github.com/dumbsly/paztport/poc-sdks/go/policy"
 	"github.com/dumbsly/paztport/poc-sdks/go/session"
+	"github.com/dumbsly/paztport/poc-sdks/go/verify"
 )
 
 // RecordedSession is a handshake read back from a record set, and what it gives the records that rely on
@@ -121,6 +125,51 @@ func (s RecordedSession) Request() (session.Request, bool) {
 		r.ClientRoot = &root
 	}
 	return r, true
+}
+
+// CallConfig returns the Config the calls recorded in the session are verified with, by RecordSet.Call: the
+// client's keyring and root from the recorded request, each with no window of its own, since the session's
+// limits judge them, the reply's session id, and the allowed origins, age limits and extension settings given,
+// copied. A key in the request's keyring that does not parse is left out, so a stamp under it is BAD_SIGNATURE,
+// and a root that does not decode proves no route. It returns false for a session that is not attested at all,
+// for which no recorded call has a result.
+func (s RecordedSession) CallConfig(
+	origins []string, runMaxAgeMs, callMaxAgeMs *int64, ext verify.Extensions,
+) (Config, bool) {
+	// An attested session always has a client root: the session package's check of the reply refuses an attested
+	// status beside a request with none. The nil test stays because that guarantee is kept in another package and
+	// the lines below dereference the root, so a change there gives no config rather than a panic.
+	if !s.Attested() || s.request.ClientRoot == nil {
+		return Config{}, false
+	}
+	keyring := policy.Keyring{}
+	for svc, text := range s.request.ClientKeyring {
+		if pub, err := keys.ParsePublic(text); err == nil {
+			keyring[svc] = pub
+		}
+	}
+	root, err := s.request.ClientRoot.Bytes()
+	if err != nil {
+		root = nil
+	}
+	return Config{
+		Keyrings:       []verify.PinnedKeyring{{Keys: keyring, NotAfter: math.MaxInt64}},
+		Roots:          []verify.PinnedRoot{{Root: root, RootID: s.request.ClientRoot.RootID, NotAfter: math.MaxInt64}},
+		AllowedOrigins: slices.Clone(origins),
+		Sess:           s.sess,
+		RunMaxAgeMs:    copied(runMaxAgeMs),
+		CallMaxAgeMs:   copied(callMaxAgeMs),
+		Extensions:     ext,
+	}, true
+}
+
+// copied returns a pointer to a copy of what p points to, or nil for nil.
+func copied(p *int64) *int64 {
+	if p == nil {
+		return nil
+	}
+	n := *p
+	return &n
 }
 
 // window returns the integer at path in o, each name in it a member of the object before, or nil, a limit

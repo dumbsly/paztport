@@ -32,23 +32,34 @@ func PublicWriteRefused(es []Entry, destinationOwner string) bool {
 	return untrusted && foreign
 }
 
-// ShapedOnlyByTrusted reports whether a service may write a trusted record from a request: a record that
-// later decisions take as fact, such as who holds a card, which PublicWriteRefused then reads as a
-// destination's owner. That rule can't judge such a write, since it asks whose private data a write
-// carries, and a record written because untrusted text asked for it carries none. So a record may be
-// written only when both hold:
+// GuardedWriteRefused reports whether a guarded public write is refused (influence.md, The every-stamp rule, then
+// The owner-aware rule): always when a stamp of the chain does not name influence, since that hop may have read
+// anything, the model's host included, whatever the entries say; otherwise as PublicWriteRefused decides over es,
+// everything the request holds, the entries handed on and those the service added. everyStampNames is true where
+// there is no stamp to read, since the rule cannot refuse for what it is not shown (What the rules read).
+func GuardedWriteRefused(everyStampNames bool, es []Entry, destinationOwner string) bool {
+	return !everyStampNames || PublicWriteRefused(es, destinationOwner)
+}
+
+// ShapedOnlyByTrusted reports whether a service may write a trusted record from a request (influence.md, Trusted
+// records): a record that later decisions take as fact, such as who holds a card, which PublicWriteRefused then
+// reads as a destination's owner. That rule can't judge such a write, since it asks whose private data a write
+// carries, and a record written because untrusted text asked for it carries none. So a record may be written only
+// when all hold:
 //
-//   - verified: the request's chain passed the live order at this hop, so es is the influence its
-//     caller committed to. An origin, a service with no verifier, a hop on which Paztport is off, a chain
-//     that failed in audit mode, a call in an unsafe partner session and work outside any request never
-//     qualify; and
+//   - verified: the request's chain passed the live order at this hop, so each block's items are the ones its
+//     stamp's signer committed to. An origin, a service with no verifier, a hop on which Paztport is off, a
+//     request served unverified, a call in an unsafe partner session and work outside any request never
+//     qualify;
+//   - everyStampNames: every stamp of that chain names influence, so no hop on the path is one that may have
+//     read anything; and
 //   - es holds no untrusted content: no ThirdParty and no LocalUntrusted entry.
 //
-// es is the influence the request holds when the record is written: what came with it, and everything
-// the service has read since, such as the responses to its own calls. Private and public entries, and
-// owners, count neither way: they say whose data the request read, not who steered it. A class other than
-// the four fails closed, as untrusted content. A request that fails the rule may still be served, but the
-// record must not be written from it.
-func ShapedOnlyByTrusted(verified bool, es []Entry) bool {
-	return verified && !slices.ContainsFunc(es, func(e Entry) bool { return e.Class.untrusted() })
+// es is the influence the request holds when the record is written: the entries handed on, and everything the
+// service has read since, such as the responses to its own calls. Private and public entries, and owners, count
+// neither way: they say whose data the request read, not who steered it. A class other than the four fails
+// closed, as untrusted content. A request that fails the rule may still be served, but the record must not be
+// written from it.
+func ShapedOnlyByTrusted(verified, everyStampNames bool, es []Entry) bool {
+	return verified && everyStampNames && !slices.ContainsFunc(es, func(e Entry) bool { return e.Class.untrusted() })
 }

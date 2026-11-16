@@ -63,12 +63,16 @@ class SessionsTest {
     }
 
     private SessionReply reply(SessionRequest req, SignedRoot root, String status) {
+        return reply(req, root, status, List.of());
+    }
+
+    private SessionReply reply(SessionRequest req, SignedRoot root, String status, List<String> extensions) {
         String nonce = Sessions.newNonce();
         String sess = Sessions.deriveSessionId(req.clientRoot() == null ? null : req.clientRoot().sig(),
                 root == null ? null : root.sig(), req.nonce(), nonce, req.clientPolicyKey(), req.clientKeyring());
         // The policy-key form: no keyring signature or certificate, signed by the policy key.
         return Sessions.signReply(new SessionReply(root, serverKey, Map.of("pay", "server-key"), null, null, null,
-                nonce, sess, status, status.equals("attested") ? List.of() : List.of("send"), null),
+                nonce, sess, status, status.equals("attested") ? List.of() : List.of("send"), extensions, null),
                 serverPolicy.getPrivate());
     }
 
@@ -120,7 +124,16 @@ class SessionsTest {
 
     /** The client's check of a reply held as a value, so a test can alter it first. */
     private static ReplyCheck check(JsonValue reply, SessionRequest req, String pin, String entry, long now) {
-        return Sessions.checkReply(JsonWriter.text(reply), req, pin, entry, now);
+        return check(JsonWriter.text(reply), req, pin, entry, now);
+    }
+
+    /** The check of a reply's text or bytes by a client that requires nothing. */
+    private static ReplyCheck check(String reply, SessionRequest req, String pin, String entry, long now) {
+        return Sessions.checkReply(reply, req, pin, entry, now, Requirement.NONE);
+    }
+
+    private static ReplyCheck check(byte[] reply, SessionRequest req, String pin, String entry, long now) {
+        return Sessions.checkReply(reply, req, pin, entry, now, Requirement.NONE);
     }
 
     private static SessionRequest parse(JsonValue request) {
@@ -190,11 +203,11 @@ class SessionsTest {
         int sig = text.lastIndexOf(",\"sig\":");
         String sigFirst = "{" + text.substring(sig + 1, text.length() - 1) + "," + text.substring(1, sig) + "}";
 
-        assertEquals(ReplyCheck.ATTESTED, Sessions.checkReply(text, req, serverKey, "pay", NOW));
-        assertEquals(ReplyCheck.MALFORMED_REPLY, Sessions.checkReply(sigFirst, req, serverKey, "pay", NOW));
-        assertEquals(ReplyCheck.MALFORMED_REPLY, Sessions.checkReply(text + "\n", req, serverKey, "pay", NOW));
+        assertEquals(ReplyCheck.ATTESTED, check(text, req, serverKey, "pay", NOW));
+        assertEquals(ReplyCheck.MALFORMED_REPLY, check(sigFirst, req, serverKey, "pay", NOW));
+        assertEquals(ReplyCheck.MALFORMED_REPLY, check(text + "\n", req, serverKey, "pay", NOW));
         assertEquals(ReplyCheck.MALFORMED_REPLY,
-                Sessions.checkReply((text + "\n").getBytes(StandardCharsets.UTF_8), req, serverKey, "pay", NOW));
+                check((text + "\n").getBytes(StandardCharsets.UTF_8), req, serverKey, "pay", NOW));
     }
 
     /**
@@ -214,7 +227,7 @@ class SessionsTest {
             assertEquals("member serverKeyring holds a name that is not a route node",
                     assertThrows(IllegalArgumentException.class, () -> SessionReply.parse(replyText), name)
                             .getMessage());
-            assertEquals(ReplyCheck.MALFORMED_REPLY, Sessions.checkReply(replyText, req, serverKey, "pay", NOW), name);
+            assertEquals(ReplyCheck.MALFORMED_REPLY, check(replyText, req, serverKey, "pay", NOW), name);
         }
     }
 
@@ -230,13 +243,13 @@ class SessionsTest {
         assertEquals(ReplyCheck.ATTESTED, check(tree(signed(reply, entry.getPrivate())), req, serverKey, "pay", NOW));
 
         String extra = signed(with(reply, "serverEntry", new JsonValue.Str("pay")), entry.getPrivate());
-        assertEquals(ReplyCheck.MALFORMED_REPLY, Sessions.checkReply(extra, req, serverKey, "pay", NOW));
+        assertEquals(ReplyCheck.MALFORMED_REPLY, check(extra, req, serverKey, "pay", NOW));
         String extraInCert = signed(with(reply, "serverReplyCert",
                 with(member(reply, "serverReplyCert"), "note", new JsonValue.Str("added"))), entry.getPrivate());
-        assertEquals(ReplyCheck.MALFORMED_REPLY, Sessions.checkReply(extraInCert, req, serverKey, "pay", NOW));
+        assertEquals(ReplyCheck.MALFORMED_REPLY, check(extraInCert, req, serverKey, "pay", NOW));
         String extraInRoot = signed(with(reply, "serverRoot",
                 with(member(reply, "serverRoot"), "note", new JsonValue.Str("added"))), entry.getPrivate());
-        assertEquals(ReplyCheck.MALFORMED_REPLY, Sessions.checkReply(extraInRoot, req, serverKey, "pay", NOW));
+        assertEquals(ReplyCheck.MALFORMED_REPLY, check(extraInRoot, req, serverKey, "pay", NOW));
     }
 
     /**
@@ -256,7 +269,7 @@ class SessionsTest {
         String sess = Sessions.deriveSessionId(clientRoot.sig(), serverRoot.sig(), req.nonce(), nonce, clientKey,
                 clientRing);
         SessionReply unsigned = new SessionReply(serverRoot, serverKey, ring, signedRing.sig(), NOT_AFTER, cert, nonce,
-                sess, "attested", List.of(), null);
+                sess, "attested", List.of(), List.of(), null);
 
         JsonValue.Obj byEntry = wire(Sessions.signReply(unsigned, entry.getPrivate()));
         assertEquals(tree(cert.toJson()), byEntry.get("serverReplyCert"));
@@ -287,13 +300,13 @@ class SessionsTest {
         String sess = Sessions.deriveSessionId(clientRoot.sig(), serverRoot.sig(), req.nonce(), nonce, clientKey,
                 clientRing);
         String text = Sessions.signReply(new SessionReply(serverRoot, serverKey, ring, signedRing.sig(),
-                NOT_AFTER, cert, nonce, sess, "attested", List.of(), null), entry.getPrivate()).toJson();
+                NOT_AFTER, cert, nonce, sess, "attested", List.of(), List.of(), null), entry.getPrivate()).toJson();
         String digits = "\"notAfter\":" + notAfter;
         assertTrue(text.contains(digits));
 
-        assertEquals(ReplyCheck.ATTESTED, Sessions.checkReply(text, req, serverKey, "pay", NOW));
+        assertEquals(ReplyCheck.ATTESTED, check(text, req, serverKey, "pay", NOW));
         for (String other : List.of("1798761600000.0", "1.7987616e12", "1.7987616E+12", "1798761600000.5")) {
-            assertEquals(ReplyCheck.MALFORMED_REPLY, Sessions.checkReply(
+            assertEquals(ReplyCheck.MALFORMED_REPLY, check(
                     text.replace(digits, "\"notAfter\":" + other), req, serverKey, "pay", NOW), other);
         }
     }
@@ -506,10 +519,10 @@ class SessionsTest {
                 clientRing);
         Map<String, String> ring = Map.of("pay", "server-key");
         JsonValue.Obj withoutWindow = wire(Sessions.signReply(new SessionReply(serverRoot, serverKey, ring, null,
-                null, null, pn, ps, "attested", List.of(), null), serverPolicy.getPrivate()));
+                null, null, pn, ps, "attested", List.of(), List.of(), null), serverPolicy.getPrivate()));
         assertEquals(ReplyCheck.ATTESTED, check(withoutWindow, req, serverKey, "pay", NOW));
         JsonValue.Obj withWindow = wire(Sessions.signReply(new SessionReply(serverRoot, serverKey, ring, null,
-                NOT_AFTER, null, pn, ps, "attested", List.of(), null), serverPolicy.getPrivate()));
+                NOT_AFTER, null, pn, ps, "attested", List.of(), List.of(), null), serverPolicy.getPrivate()));
         assertNotNull(withWindow.get("serverKeyringNotAfter"));
         assertEquals(ReplyCheck.BAD_SIGNATURE, check(withWindow, req, serverKey, "pay", NOW));
 
@@ -536,7 +549,7 @@ class SessionsTest {
         String sess = Sessions.deriveSessionId(clientRoot.sig(), root.sig(), req.nonce(), nonce, clientKey,
                 clientRing);
         return wire(Sessions.signReply(new SessionReply(root, serverKey, ring, signedRing.sig(), ringNotAfter, cert,
-                nonce, sess, "attested", List.of(), null), entry.getPrivate()));
+                nonce, sess, "attested", List.of(), List.of(), null), entry.getPrivate()));
     }
 
     /**
@@ -569,7 +582,7 @@ class SessionsTest {
         String text = JsonWriter.text(reply);
         assertEquals(2, text.split("otAfter\":" + NOT_AFTER, -1).length - 1);
         for (String bad : NOT_PROTOCOL_INTEGERS) {
-            assertEquals(ReplyCheck.MALFORMED_REPLY, Sessions.checkReply(
+            assertEquals(ReplyCheck.MALFORMED_REPLY, check(
                     text.replace("otAfter\":" + NOT_AFTER, "otAfter\":" + bad), req, serverKey, "pay", NOW), bad);
         }
     }
@@ -585,5 +598,162 @@ class SessionsTest {
                 new SignedRoot("v1", clientRoot.root(), Base64Url.encode(new byte[63]), NOT_AFTER), clientKey,
                 clientRing, ok.clientKeyringSig(), NOT_AFTER, ok.nonce());
         assertFalse(Sessions.opensSession(shortSig));
+    }
+
+    /** An attested reply listing {@code listed}, signed by the policy key. */
+    private SessionReply replyListing(SessionRequest req, String... listed) {
+        return reply(req, serverRoot, "attested", List.of(listed));
+    }
+
+    private static JsonValue.Arr names(String... names) {
+        return new JsonValue.Arr(java.util.Arrays.stream(names).map(n -> (JsonValue) new JsonValue.Str(n)).toList());
+    }
+
+    /** {@code reply}'s wire form with its {@code extensions} replaced, signed again so only the shape is at fault. */
+    private String signedWith(SessionReply reply, JsonValue extensions) {
+        return signed(with(wire(reply), "extensions", extensions), serverPolicy.getPrivate());
+    }
+
+    @Test
+    void aNullRequirementIsAProgrammingErrorNotABadSignature() {
+        SessionRequest req = request(clientRoot);
+        String text = signed(wire(replyListing(req)), serverPolicy.getPrivate());
+        assertThrows(NullPointerException.class, () -> Sessions.checkReply(text, req, serverKey, "pay", NOW, null));
+        byte[] bytes = text.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        assertThrows(NullPointerException.class, () -> Sessions.checkReply(bytes, req, serverKey, "pay", NOW, null));
+    }
+
+    @Test
+    void aReplyWithoutExtensionsDoesNotRead() {
+        SessionRequest req = request(clientRoot);
+        String text = signed(without(wire(replyListing(req)), "extensions"), serverPolicy.getPrivate());
+        assertThrows(IllegalArgumentException.class, () -> SessionReply.parse(text));
+        assertEquals(ReplyCheck.MALFORMED_REPLY, Sessions.checkReply(text, req, serverKey, "pay", NOW,
+                Requirement.NONE));
+        // In either status: the unsafe reply needs the member as much as the attested one.
+        String unsafe = signed(without(wire(reply(req, serverRoot, "unsafe")), "extensions"),
+                serverPolicy.getPrivate());
+        assertEquals(ReplyCheck.MALFORMED_REPLY, Sessions.checkReply(unsafe, req, serverKey, "pay", NOW,
+                Requirement.NONE));
+    }
+
+    @Test
+    void extensionsUnsortedDoesNotRead() {
+        SessionRequest req = request(clientRoot);
+        String text = signedWith(replyListing(req), names("influence", "example"));
+        assertEquals(ReplyCheck.MALFORMED_REPLY, Sessions.checkReply(text, req, serverKey, "pay", NOW,
+                Requirement.NONE));
+        // By code units '-' (0x2d) is before '0' (0x30), which is before 'b': that order reads, its reverse does not.
+        assertEquals(ReplyCheck.ATTESTED, Sessions.checkReply(
+                signedWith(replyListing(req), names("a-b", "a0", "ab")), req, serverKey, "pay", NOW,
+                Requirement.NONE));
+        assertEquals(ReplyCheck.MALFORMED_REPLY, check(
+                signedWith(replyListing(req), names("a0", "a-b")), req, serverKey, "pay", NOW));
+    }
+
+    @Test
+    void anExtensionTwiceDoesNotRead() {
+        SessionRequest req = request(clientRoot);
+        assertEquals(ReplyCheck.MALFORMED_REPLY, Sessions.checkReply(
+                signedWith(replyListing(req), names("example", "example")), req, serverKey, "pay", NOW,
+                Requirement.NONE));
+    }
+
+    @Test
+    void anExtensionThatIsNotANameDoesNotRead() {
+        SessionRequest req = request(clientRoot);
+        for (String bad : List.of("", "Example", "has space", "a".repeat(33), "under_score")) {
+            assertEquals(ReplyCheck.MALFORMED_REPLY, check(
+                    signedWith(replyListing(req), names(bad)), req, serverKey, "pay", NOW), bad);
+        }
+        for (JsonValue notNames : List.of(new JsonValue.Null(), new JsonValue.Str("example"),
+                new JsonValue.Obj(Map.of()), new JsonValue.Arr(List.of(new JsonValue.Int(1))),
+                new JsonValue.Arr(List.of(new JsonValue.Null())))) {
+            assertEquals(ReplyCheck.MALFORMED_REPLY, check(
+                    signedWith(replyListing(req), notNames), req, serverKey, "pay", NOW),
+                    notNames.toString());
+        }
+        // The longest name and one of every kind of character are names.
+        assertEquals(ReplyCheck.ATTESTED, Sessions.checkReply(
+                signedWith(replyListing(req), names("a".repeat(32), "z-0")), req, serverKey, "pay", NOW,
+                Requirement.NONE));
+    }
+
+    @Test
+    void extensionsChangedAfterSigningFailsTheSignature() {
+        SessionRequest req = request(clientRoot);
+        SessionReply listing = replyListing(req, "example");
+        assertEquals(ReplyCheck.ATTESTED, Sessions.checkReply(listing.toJson(), req, serverKey, "pay", NOW,
+                Requirement.NONE));
+        assertEquals(ReplyCheck.BAD_SIGNATURE, check(
+                JsonWriter.text(with(wire(listing), "extensions", names("example", "influence"))), req, serverKey,
+                "pay", NOW));
+        assertEquals(ReplyCheck.BAD_SIGNATURE, Sessions.checkReply(
+                JsonWriter.text(with(wire(listing), "extensions", names())), req, serverKey, "pay", NOW,
+                Requirement.NONE));
+    }
+
+    @Test
+    void theReplyKeepsTheExtensionsItWasBuiltWith() {
+        SessionRequest req = request(clientRoot);
+        SessionReply parsed = SessionReply.parse(replyListing(req, "example", "influence").toJson());
+        assertEquals(List.of("example", "influence"), parsed.extensions());
+        assertThrows(UnsupportedOperationException.class, () -> parsed.extensions().add("x"));
+        List<String> mine = new java.util.ArrayList<>(List.of("example"));
+        SessionReply built = new SessionReply(serverRoot, serverKey, Map.of("pay", "k"), null, null, null, "n", "s",
+                "attested", List.of(), mine, null);
+        mine.add("later");
+        assertEquals(List.of("example"), built.extensions());
+    }
+
+    @Test
+    void anAttestedReplyThatDoesNotListWhatTheClientRequiresIsExtensionRequired() {
+        SessionRequest req = request(clientRoot);
+        Requirement needs = Requirement.of(Set.of("example", "influence"), false);
+        // One of two listed is not enough: the separating input between "any" and "every".
+        assertEquals(ReplyCheck.EXTENSION_REQUIRED, Sessions.checkReply(replyListing(req, "example").toJson(), req,
+                serverKey, "pay", NOW, needs));
+        assertEquals(ReplyCheck.EXTENSION_REQUIRED, Sessions.checkReply(replyListing(req).toJson(), req, serverKey,
+                "pay", NOW, needs));
+        assertEquals(ReplyCheck.EXTENSION_REQUIRED, Sessions.checkReply(
+                replyListing(req, "example").toJson().getBytes(StandardCharsets.UTF_8), req, serverKey, "pay", NOW,
+                needs));
+    }
+
+    @Test
+    void anAttestedReplyThatListsWhatTheClientRequiresIsAttested() {
+        SessionRequest req = request(clientRoot);
+        Requirement needs = Requirement.of(Set.of("example", "influence"), false);
+        assertEquals(ReplyCheck.ATTESTED, Sessions.checkReply(replyListing(req, "example", "influence").toJson(),
+                req, serverKey, "pay", NOW, needs));
+        // A reply that lists more than is required is attested too.
+        assertEquals(ReplyCheck.ATTESTED, Sessions.checkReply(
+                replyListing(req, "a", "example", "influence").toJson(), req, serverKey, "pay", NOW, needs));
+    }
+
+    @Test
+    void anUnsafeReplyToAClientWithARequirementIsUnsafe() {
+        SessionRequest req = request(clientRoot);
+        Requirement needs = Requirement.of(Set.of("example"), false);
+        assertEquals(ReplyCheck.UNSAFE, Sessions.checkReply(reply(req, serverRoot, "unsafe").toJson(), req,
+                serverKey, "pay", NOW, needs));
+    }
+
+    @Test
+    void aReplyUnderAnotherPinToAClientWithARequirementIsPinMismatch() {
+        SessionRequest req = request(clientRoot);
+        Requirement needs = Requirement.of(Set.of("example"), false);
+        assertEquals(ReplyCheck.PIN_MISMATCH, Sessions.checkReply(replyListing(req).toJson(), req,
+                key(clientPolicy), "pay", NOW, needs));
+        assertEquals(ReplyCheck.BAD_SIGNATURE, Sessions.checkReply(
+                JsonWriter.text(with(wire(replyListing(req)), "nonce", new JsonValue.Str(Sessions.newNonce()))), req,
+                serverKey, "pay", NOW, needs), "a failed signature is not EXTENSION_REQUIRED either");
+    }
+
+    @Test
+    void attestedOfflineDoesNotReadTheRequirement() {
+        SessionRequest req = request(clientRoot);
+        assertTrue(Sessions.attestedOffline(replyListing(req).toJson(), req, serverKey, "pay", NOW));
+        assertTrue(Sessions.attestedOffline(replyListing(req, "example").toJson(), req, serverKey, "pay", NOW));
     }
 }

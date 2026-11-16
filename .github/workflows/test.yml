@@ -1,9 +1,10 @@
 name: test
 
-# ./run test --container on a clean Linux machine: the link and import checks, every SDK and demo suite, gofmt,
-# go vet, staticcheck and the jar check, with the toolchains the container pins (poc-sdks/scripts/test.Dockerfile),
-# not whatever the runner has. The same command runs locally and needs only Docker and git. No model. The
-# checkout action is pinned to the commit of the release its comment names, so a moved tag cannot change what runs.
+# ./run test --container on a clean Linux machine: the link, import and review path checks, every SDK and demo suite,
+# gofmt, go vet, staticcheck and the jar check, with the toolchains the container pins
+# (poc-sdks/scripts/test.Dockerfile), not whatever the runner has. The same command runs locally and needs only
+# Docker and git. No model. The checkout action is pinned to the commit of the release its comment names, so a moved
+# tag cannot change what runs.
 
 on:
   push:

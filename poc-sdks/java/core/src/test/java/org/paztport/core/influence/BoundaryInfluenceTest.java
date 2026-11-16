@@ -116,7 +116,6 @@ class BoundaryInfluenceTest {
     void emptyGivesEmpty() {
         List<InfluenceEntry> reduced = reduce(List.of());
         assertTrue(reduced.isEmpty());
-        assertEquals("", Influence.commit(reduced));
     }
 
     @Test

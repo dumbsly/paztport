@@ -190,7 +190,7 @@ class VectorsJsonTest {
             Executable compute = switch (c.get("binding").textValue()) {
                 case "prompt" -> () -> Bindings.prompt(in.get("text").textValue());
                 case "response" -> () -> Bindings.response(in.get("resultHash").textValue(),
-                        in.get("toolCallId").textValue(), List.of());
+                        in.get("toolCallId").textValue());
                 case "merkleLeaf" -> () -> MerkleHash.leaf(HexFormat.of().parseHex(in.get("salt").textValue()),
                         in.get("route").textValue());
                 default -> null;

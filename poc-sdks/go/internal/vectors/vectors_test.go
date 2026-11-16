@@ -232,14 +232,16 @@ func TestEachNamesCases(t *testing.T) {
 	}
 }
 
-func TestV3Key(t *testing.T) {
+// TestVectorKey derives keys the version 4 files list, from v4.json, http-v4.json and events.json, and fails the
+// test for a key none lists.
+func TestVectorKey(t *testing.T) {
 	for _, name := range []string{"orders", "server-policy", "payment", "search"} {
-		priv, pub := V3Key(t, name)
+		priv, pub := VectorKey(t, name)
 		if !ed25519.Verify(pub, []byte(name), ed25519.Sign(priv, []byte(name))) {
-			t.Errorf("V3Key(%q) gives a public key that is not the private key's", name)
+			t.Errorf("VectorKey(%q) gives a public key that is not the private key's", name)
 		}
 	}
-	if msg := failure(t, func(tb testing.TB) { V3Key(tb, "nobody") }); msg == "" {
-		t.Fatal("V3Key of a key no file lists did not fail the test")
+	if msg := failure(t, func(tb testing.TB) { VectorKey(tb, "nobody") }); msg == "" {
+		t.Fatal("VectorKey of a key no file lists did not fail the test")
 	}
 }

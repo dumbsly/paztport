@@ -24,7 +24,7 @@ public record ResponderEvent(
      */
     private static final Set<String> ATTRIBUTABLE_REASONS = Set.of("CHAIN_MISSING", "BAD_ORIGIN", "BAD_SIGNATURE",
             "BROKEN_LINK", "EXPIRED", "RID_MISMATCH", "BINDING_MISMATCH", "REPLAY", "PATH_NOT_ALLOWED",
-            "SESSION_UNKNOWN", "CLIENT_PATH_NOT_ALLOWED", "INFLUENCE_MISMATCH", "PEER_MISMATCH");
+            "SESSION_UNKNOWN", "CLIENT_PATH_NOT_ALLOWED", "EXTENSION_MISMATCH", "PEER_MISMATCH");
 
     /**
      * Whether a responder may act against the suspect: the event is not an audit measurement, it names both a

@@ -6,12 +6,17 @@ import {
   bindResult,
   buildSessionReply,
   checkOwnMaterial,
+  commitBlock,
   decideServerCall,
+  decideVerifiedCall,
   decode,
   describeNotAfter,
   describeOwnMaterialProblem,
   earliestNotAfter,
+  EMPTY_BLOCK,
   expiryWarnings,
+  INFLUENCE,
+  influenceBlock,
   keyPairMatches,
   newContentId,
   NonceCache,
@@ -21,9 +26,11 @@ import {
   signStamp,
   verifyReplyCert,
   writeToken,
-  type ContentLabel,
+  type Block,
+  type ExtensionSettings,
+  type HandOver,
   type InfluenceClass,
-  type InfluenceEntry,
+  type JsonValue,
   type MerkleProof,
   type ReasonCode,
   type ReplyCert,
@@ -77,7 +84,10 @@ export type Session = {
   request: SessionRequest;
   /** The session's own replay cache, which a new handshake replaces. */
   nonces: NonceCache;
-  /** Every class this server has attested in a response in this session (sticky). */
+  /**
+   * Every class of a result this server has returned in this session, whether or not its call verified (sticky; spec
+   * influence.md, Over MCP); empty unless it acts on influence. handleToolCall records it.
+   */
   served: Set<InfluenceClass>;
 };
 
@@ -87,8 +97,18 @@ export type Session = {
  */
 export type SessionRules = { disabledWhenUnsafe: string[] };
 
-/** A call check's verdict; `caller` is the verified call's last signer, "" when the call did not verify. */
-export type ServerCallCheck = { reason: ReasonCode; rid: string; callId: string; influence: InfluenceEntry[]; caller: string; session: Session };
+/**
+ * A call check's verdict; `caller` is the verified call's last signer, "" when the call did not verify, and
+ * `handOver` the items under each extension the server acts on, exactly when it did.
+ */
+export type ServerCallCheck = {
+  reason: ReasonCode;
+  rid: string;
+  callId: string;
+  handOver: HandOver | null;
+  caller: string;
+  session: Session;
+};
 
 /** What the server knows about a tools/call that its tool table, not the protocol, supplies. */
 export type ToolCallFacts = {
@@ -110,8 +130,14 @@ export type RefusedToolResult = {
   _meta: Record<string, string>;
 };
 
-/** What `run` returns: the tool's result, the class of the content it holds (it labels the attested response), and anything the caller wants back. */
-export type ToolRun<R, D = undefined> = { result: R; cls: InfluenceClass; detail?: D };
+/**
+ * What `run` returns: the tool's result, the class of the content it holds, and anything the caller wants back. `cls`
+ * is required exactly for a call in an attested session at a server that acts on influence, verified or not: the
+ * server records it among the classes it served, and labels the response with it when it attests one. There a result
+ * without it makes handleToolCall throw, after the tool has run; in an unsafe session, and at a server that does not
+ * act on influence, it is not read.
+ */
+export type ToolRun<R, D = undefined> = { result: R; cls?: InfluenceClass; detail?: D };
 
 /** What handleToolCall decided and did. `verified` is the call check when the chain verified, else null; a call that ran carries `run`'s `detail`. */
 export type ToolCallOutcome<R, D = undefined> =
@@ -218,14 +244,34 @@ export function checkServerPolicy(policy: ServerPolicy, now: number): void {
 }
 
 /**
- * Handles a tools/call end to end. In an attested session the call's chain is verified (checkCall); only a verified
- * call is then decided by decideServerCall, over the facts given and the session's served classes. In enforce a
- * verdict other than OK gives an `isError` result carrying the verdict token of `{reason}` and `run` is not called; in
- * audit `run` is called anyway and its result carries the verdict token of `{reason, audit: true}`. `run` gets the
- * verdict and returns the result with the class of its content. Only a verified call's result is attested; an unsafe
- * session's, or one whose chain failed, is returned unattested. A null `server` is a deployment with no Paztport
- * material: no handshake, so every call is in an unsafe session under `rules`. The `off` switch is not a protocol
- * mode; a deployment that has one does not call this.
+ * The class of a result returned in an attested session, from what `run` returned: a server that acts on influence
+ * records every class it serves there and labels every response it attests (spec influence.md, Content labels and
+ * Over MCP), so it throws for none; one that does not keeps no class.
+ */
+function resultClass(extensions: ExtensionSettings, cls: InfluenceClass | undefined): InfluenceClass | undefined {
+  if (!extensions.actsOn.has(INFLUENCE)) return undefined;
+  if (cls === undefined) {
+    throw new Error(
+      "a server that acts on influence needs the class of every result in an attested session: none given",
+    );
+  }
+  return cls;
+}
+
+/**
+ * Handles a tools/call end to end, in the order of the server decision (spec sessions.md, The server decision). In an
+ * attested session the call's chain is verified (checkCall), and a call that fails is refused with its code. A server
+ * that acts on influence then decides a call that verified by decideVerifiedCall, over the items handed on under
+ * `influence`, the facts given and the session's served classes: an item that does not read is INFLUENCE_MISMATCH,
+ * and the signer of its block goes to the server's `warn`, since the code names no one. Then decideServerCall applies
+ * the unsafe-session gate. In enforce a verdict other than OK gives an `isError` result carrying the verdict token of
+ * `{reason}` and `run` is not called; in audit `run` is called anyway and its result carries the verdict token of
+ * `{reason, audit: true}`. `run` gets the verdict and returns the result, with the class of its content (`ToolRun`).
+ * At a server that acts on influence, the class of every result returned in an attested session joins the session's
+ * served classes, whether or not the call verified. Only a verified call's result is attested; an unsafe session's,
+ * or one whose chain failed, is returned unattested. A null `server` is a deployment with no Paztport material: no
+ * handshake, so every call is in an unsafe session under `rules`. The `off` switch is not a protocol mode; a
+ * deployment that has one does not call this.
  */
 export async function handleToolCall<R extends Record<string, unknown> & { _meta?: Record<string, unknown> }, D = undefined>(
   server: McpServerSession | null,
@@ -238,41 +284,63 @@ export async function handleToolCall<R extends Record<string, unknown> & { _meta
   const name = typeof params.name === "string" ? params.name : "";
   const sess = server?.session();
   const attested = sess?.status === "attested";
+  const actsOnInfluence = server !== null && server.extensions.actsOn.has(INFLUENCE);
   let verdict: ReasonCode = "OK";
   let call: ServerCallCheck | null = null;
   if (server !== null && attested) {
     call = server.checkCall(params);
     verdict = call.reason;
+    if (verdict === "OK" && actsOnInfluence) {
+      // A verified call at a server that acts on influence is always handed its items, so none is a fault in this
+      // SDK: it throws, never defaults to [], which would read as a chain whose every stamp names influence.
+      const stamps = call.handOver?.get(INFLUENCE);
+      if (stamps === undefined) {
+        throw new Error("a verified call's hand-over holds no influence, which the server acts on");
+      }
+      const decided = decideVerifiedCall(stamps, {
+        isWrite: facts.isWrite,
+        publicDestination: facts.publicDestination,
+        served: sess?.served ?? [],
+        ...(facts.destinationOwner !== undefined ? { destinationOwner: facts.destinationOwner } : {}),
+      });
+      if (decided.verdict === "INFLUENCE_MISMATCH") {
+        server.warn(`paztport: INFLUENCE_MISMATCH: the block signed by ${decided.signer} holds a bad entry`);
+      }
+      verdict = decided.verdict;
+    }
   }
   if (verdict === "OK") {
-    verdict = decideServerCall({
-      tool: name,
-      isWrite: facts.isWrite,
-      publicDestination: facts.publicDestination,
-      attested,
-      served: sess?.served ?? [],
-      clientInfluence: call?.influence ?? [],
-      disabledWhenUnsafe: rules.disabledWhenUnsafe,
-      ...(facts.destinationOwner !== undefined ? { destinationOwner: facts.destinationOwner } : {}),
-    });
+    verdict = decideServerCall({ tool: name, attested, disabledWhenUnsafe: rules.disabledWhenUnsafe });
   }
   const verified = call !== null && call.reason === "OK" ? call : null;
   if (verdict !== "OK" && mode === "enforce") {
     return { result: refusedToolResult(verdict), verdict, ran: false, verified };
   }
   const { result, cls, detail } = await run({ verdict });
+  // Served, verified or not (spec influence.md, Over MCP): the two differ only in audit mode, where a call that failed
+  // verification runs. `sess` is the session the call arrived in, though a handshake may have replaced it since.
+  const served = server !== null && attested ? resultClass(server.extensions, cls) : undefined;
+  if (served !== undefined) sess!.served.add(served);
   const noted: R =
     verdict !== "OK" ? { ...result, _meta: { ...result._meta, [META_VERDICT]: writeToken({ reason: verdict, audit: true }) } } : result;
   if (server === null || verified === null) {
     return { result: noted, verdict, ran: true, verified, detail: detail as D };
   }
   const args = params.arguments ?? {};
-  const attestedResult = server.attest(verified.session, noted, { rid: verified.rid, callId: verified.callId, name, args, caller: verified.caller }, cls);
+  const { rid, callId, caller } = verified;
+  const attestedResult = server.attest(verified.session, noted, { rid, callId, name, args, caller }, served);
   return { result: attestedResult, verdict, ran: true, verified, detail: detail as D };
 }
 
 /** The server side of one MCP connection: its paztport/session handshake, call checks and response stamps. */
 export class McpServerSession {
+  /**
+   * The extensions this server acts on and carries: its calls are verified with them, its replies list `actsOn`, and
+   * everything it does for influence it does exactly when `actsOn` holds `influence`.
+   */
+  readonly extensions: ExtensionSettings;
+  /** Where the server's operator messages go: expiry warnings, and the signer of a block whose item does not read. */
+  readonly warn: (message: string) => void;
   private readonly policy: ServerPolicy;
   private readonly rules: SessionRules;
   private readonly now: () => number;
@@ -281,13 +349,22 @@ export class McpServerSession {
   /**
    * Throws, as checkServerPolicy does at `now()`, for a policy whose replies no client would accept. Then passes each
    * expiryWarnings message to `warn`, by default `console.error` (stderr: a stdio server's stdout carries the protocol).
+   * `extensions` comes from extensionSettings: NO_EXTENSIONS for a server that acts on none.
    */
-  constructor(policy: ServerPolicy, rules: SessionRules, now: () => number, warn: (message: string) => void = console.error) {
+  constructor(
+    policy: ServerPolicy,
+    rules: SessionRules,
+    extensions: ExtensionSettings,
+    now: () => number,
+    warn: (message: string) => void = console.error,
+  ) {
     checkServerPolicy(policy, now());
     for (const message of expiryWarnings(policy, now())) warn(message);
     this.policy = policy;
     this.rules = rules;
+    this.extensions = extensions;
     this.now = now;
+    this.warn = warn;
   }
 
   /**
@@ -298,14 +375,19 @@ export class McpServerSession {
    * entry's key. "attested" is said only after sessionStatus's checks, at `now()`: an expired client root or keyring
    * makes the session unsafe, and so does this server's own root or keyring once it has expired, so a server left
    * running past its material degrades to unattested sessions rather than stopping. A request whose client root or
-   * keyring has no `notAfter` is malformed. The reply carries the keyring's window as `serverKeyringNotAfter`.
+   * keyring has no `notAfter` is malformed. The reply carries the keyring's window as `serverKeyringNotAfter`, and
+   * lists the extensions this server acts on, in either status.
    */
   openSession(params: unknown): { reply: string } {
     const request = readSessionParams(params);
     const reply = buildSessionReply(
       { ...this.policy, entryPrivateKey: this.policy.signingKeys[this.policy.hops[0]]! },
       request,
-      { pinnedClientKeys: this.policy.pinnedClientKeys, disabledWhenUnsafe: this.rules.disabledWhenUnsafe },
+      {
+        pinnedClientKeys: this.policy.pinnedClientKeys,
+        disabledWhenUnsafe: this.rules.disabledWhenUnsafe,
+        extensions: [...this.extensions.actsOn],
+      },
       this.now(),
     );
     const { sess, status } = reply;
@@ -318,7 +400,11 @@ export class McpServerSession {
     return this.current;
   }
 
-  /** Verifies a tools/call params object against the current attested session's client policy, until the earlier of the client root's and keyring's windows (POLICY_EXPIRED after it). */
+  /**
+   * Verifies a tools/call params object against the current attested session's client policy, until the earlier of
+   * the client root's and keyring's windows (POLICY_EXPIRED after it), with this server's extension settings; a
+   * verified call returns the hand-over.
+   */
   checkCall(params: Record<string, unknown>): ServerCallCheck {
     const session = this.current;
     if (session === undefined || session.status !== "attested" || session.request.clientRoot === null) {
@@ -328,7 +414,7 @@ export class McpServerSession {
     try {
       root = decode(session.request.clientRoot.root);
     } catch {
-      return { reason: "CHAIN_MISSING", rid: "", callId: "", influence: [], caller: "", session };
+      return { reason: "CHAIN_MISSING", rid: "", callId: "", handOver: null, caller: "", session };
     }
     // the session's one client keyring and root, each held to the session's policy window
     const policyNotAfter = earliestNotAfter(session.request.clientRoot.notAfter, session.request.clientKeyringNotAfter);
@@ -340,10 +426,18 @@ export class McpServerSession {
       nonces: session.nonces,
       now: this.now(),
       policyNotAfter,
+      extensions: this.extensions,
     });
     const reason = v.result.reason === "PATH_NOT_ALLOWED" ? "CLIENT_PATH_NOT_ALLOWED" : v.result.reason;
     const ok = reason === "OK";
-    return { reason, rid: v.rid, callId: v.callId, influence: ok ? v.influence : [], caller: ok ? v.result.suspectSvc : "", session };
+    return {
+      reason,
+      rid: v.rid,
+      callId: v.callId,
+      handOver: ok ? v.result.handOver : null,
+      caller: ok ? v.result.suspectSvc : "",
+      session,
+    };
   }
 
   /** Handles a tools/call on this session with its rules; see the free function handleToolCall. */
@@ -359,29 +453,37 @@ export class McpServerSession {
   /**
    * Stamps a result for `session`, the session checkCall verified the call against (not necessarily the current
    * one), and carries the attestation's token. The chain runs entry, then tools, then back to `call.caller`,
-   * checkCall's caller: the client that made the call.
+   * checkCall's caller: the client that made the call. Each stamp commits to its block. A server that acts on
+   * influence names it in both (spec influence.md, Content labels): the entry hop's adds nothing, and the tools hop's
+   * holds one label of class `cls`, with a fresh content id, and requires `influence` of the client, so a client that
+   * would drop the label refuses the response; `cls` is required. One that does not attests with empty blocks. The
+   * served classes are handleToolCall's to record, for every result it returns in an attested session.
    */
   attest<R extends Record<string, unknown> & { _meta?: Record<string, unknown> }>(
     session: Session,
     result: R,
     call: { rid: string; callId: string; name: string; args: unknown; caller: string },
-    cls: InfluenceClass,
+    cls?: InfluenceClass,
   ): R {
     const [entry, tools] = this.policy.hops;
-    const labels: ContentLabel[] = [{ cls, cid: newContentId() }];
+    const label = resultClass(this.extensions, cls);
+    const blocks: [Block, Block] = label === undefined
+      ? [EMPTY_BLOCK, EMPTY_BLOCK]
+      : [influenceBlock([]), influenceBlock([{ cls: label, cid: newContentId() }], [INFLUENCE])];
     const resultHash = bindResult(result);
-    const base = { rid: call.rid, ts: this.now(), inst: this.policy.inst, sess: session.sess, infl: "" };
+    const base = { rid: call.rid, ts: this.now(), inst: this.policy.inst, sess: session.sess };
+    const took = bindMcpCall(call.name, call.callId, call.args);
+    const answered = bindResponse(resultHash, call.callId);
     const s0 = signStamp(
-      { ...base, svc: entry, rcv: tools, bind: bindMcpCall(call.name, call.callId, call.args), prev: "" },
+      { ...base, svc: entry, rcv: tools, bind: took, ext: commitBlock(blocks[0]), prev: "" },
       this.policy.signingKeys[entry]!,
     );
     const s1 = signStamp(
-      { ...base, svc: tools, rcv: call.caller, bind: bindResponse(resultHash, call.callId, labels), prev: s0.sig },
+      { ...base, svc: tools, rcv: call.caller, bind: answered, ext: commitBlock(blocks[1]), prev: s0.sig },
       this.policy.signingKeys[tools]!,
     );
-    const attestation: ResponseAttestation = { chain: [s0, s1], proof: this.policy.routeProof, labels, resultHash };
-    const token = writeToken(attestation);
-    session.served.add(cls);
+    const attestation: ResponseAttestation = { blocks, chain: [s0, s1], proof: this.policy.routeProof, resultHash };
+    const token = writeToken(attestation as unknown as JsonValue);
     return { ...result, _meta: { ...result._meta, [META_ATTESTATION]: token } };
   }
 }

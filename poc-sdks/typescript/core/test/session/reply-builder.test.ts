@@ -10,6 +10,7 @@ import { checkSessionReply } from "../../src/session/reply-check.ts";
 import { sessionRequest } from "../../src/session/request.ts";
 import { buildSessionReply, type ReplySource } from "../../src/session/reply-builder.ts";
 import { signReplyCert } from "../../src/session/reply-cert.ts";
+import { readSessionReply } from "../../src/session/session.ts";
 
 const FAR = 4_102_444_800_000;
 const NOW = 1_767_225_600_000;
@@ -40,7 +41,7 @@ describe("buildSessionReply", () => {
   it("attestsAPinnedClientWithBothRootsAndSignsAsTheEntry", () => {
     const w = world();
     const req = w.req();
-    const reply = buildSessionReply(w.source, req, { pinnedClientKeys: [w.clientKey], disabledWhenUnsafe: ["w"] }, NOW);
+    const reply = buildSessionReply(w.source, req, { pinnedClientKeys: [w.clientKey], disabledWhenUnsafe: ["w"], extensions: [] }, NOW);
     expect(reply.status).toBe("attested");
     expect(reply.disabled).toEqual([]);
     expect(reply.serverRoot).toEqual(w.source.signedRoot);
@@ -50,17 +51,32 @@ describe("buildSessionReply", () => {
   it("opensAnUnsafeSessionListingTheDisabledToolsOtherwise", () => {
     const w = world();
     const req = w.req(null as never);
-    for (const rules of [{ pinnedClientKeys: [], disabledWhenUnsafe: ["w", "x"] }, { pinnedClientKeys: [w.clientKey], disabledWhenUnsafe: ["w", "x"] }]) {
+    for (const rules of [{ pinnedClientKeys: [], disabledWhenUnsafe: ["w", "x"], extensions: [] }, { pinnedClientKeys: [w.clientKey], disabledWhenUnsafe: ["w", "x"], extensions: [] }]) {
       const reply = buildSessionReply(w.source, req, rules, NOW);
       expect(reply.status).toBe("unsafe");
       expect(reply.disabled).toEqual(["w", "x"]);
       expect(checkSessionReply(writeToken(reply), req, w.source.policyPublicKey, "mcp-entry", NOW)).toBe("UNSAFE");
     }
   });
+  it("listsTheRulesExtensionsSortedInEitherStatus", () => {
+    const w = world();
+    const none = { disabledWhenUnsafe: [], extensions: [] };
+    const some = { disabledWhenUnsafe: [], extensions: ["influence", "example"] };
+    const attested = [w.req(), [w.clientKey]] as const;
+    const unsafe = [w.req(null as never), [w.clientKey]] as const;
+    for (const [req, pinnedClientKeys] of [attested, unsafe]) {
+      expect(buildSessionReply(w.source, req, { ...none, pinnedClientKeys }, NOW).extensions).toEqual([]);
+      const reply = buildSessionReply(w.source, req, { ...some, pinnedClientKeys }, NOW);
+      expect(reply.extensions).toEqual(["example", "influence"]);
+      expect(readSessionReply(writeToken(reply)).extensions).toEqual(["example", "influence"]);
+    }
+    expect(buildSessionReply(w.source, attested[0], { ...some, pinnedClientKeys: [w.clientKey] }, NOW).status).toBe("attested");
+    expect(buildSessionReply(w.source, unsafe[0], { ...some, pinnedClientKeys: [w.clientKey] }, NOW).status).toBe("unsafe");
+  });
   it("drawsAFreshServerNonceEachTime", () => {
     const w = world();
     const req = w.req();
-    const rules = { pinnedClientKeys: [w.clientKey], disabledWhenUnsafe: [] };
+    const rules = { pinnedClientKeys: [w.clientKey], disabledWhenUnsafe: [], extensions: [] };
     const a = buildSessionReply(w.source, req, rules, NOW);
     const b = buildSessionReply(w.source, req, rules, NOW);
     expect(a.nonce).not.toBe(b.nonce);

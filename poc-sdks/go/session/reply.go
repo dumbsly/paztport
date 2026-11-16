@@ -12,6 +12,7 @@ import (
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/json"
 	"github.com/dumbsly/paztport/poc-sdks/go/keys"
 	"github.com/dumbsly/paztport/poc-sdks/go/policy"
+	"github.com/dumbsly/paztport/poc-sdks/go/stamp"
 )
 
 const replyPrefix = "paztport-session-reply\n"
@@ -55,13 +56,16 @@ type Reply struct {
 	// Disabled lists what the session refuses: the server's unsafe-session list in an unsafe session, and
 	// nothing in an attested one.
 	Disabled []string
+	// Extensions lists the extensions the server acts on, sorted by UTF-16 code units, none twice; empty for none,
+	// whatever the status (sessions.md, The reply).
+	Extensions []string
 	// Sig is the signature over every other member: see SigningBytes.
 	Sig string
 }
 
 var (
-	replyMembers = []string{"disabled", "nonce", "serverKeyring", "serverPolicyKey", "serverRoot", "sess",
-		"sig", "status"}
+	replyMembers = []string{"disabled", "extensions", "nonce", "serverKeyring", "serverPolicyKey", "serverRoot",
+		"sess", "sig", "status"}
 	// entryKeyMembers are the entry-key form's members, each present only in that form.
 	entryKeyMembers = []string{"serverKeyringNotAfter", "serverKeyringSig", "serverReplyCert"}
 )
@@ -69,10 +73,11 @@ var (
 // ParseReply reads a reply from its wire bytes. It refuses bytes that are not exactly the canonical bytes
 // of one object with exactly a reply's members: serverRoot null or a signed root with exactly its members,
 // string serverPolicyKey, nonce, sess and sig, a serverKeyring object of strings naming each service by a
-// route node, status "attested" or "unsafe", a disabled array of strings, and, each only when present, a
-// string serverKeyringSig beside a serverKeyringNotAfter, a serverKeyringNotAfter in [0, 2^53 - 1], and a
-// serverReplyCert with exactly a reply certificate's members. A member whose value is null is present, so
-// a null serverKeyringSig is refused, not taken as absent.
+// route node, status "attested" or "unsafe", a disabled array of strings, an extensions array of extension
+// names, sorted, none twice, and, each only when present, a string serverKeyringSig beside a
+// serverKeyringNotAfter, a serverKeyringNotAfter in [0, 2^53 - 1], and a serverReplyCert with exactly a reply
+// certificate's members. A member whose value is null is present, so a null serverKeyringSig is refused, not
+// taken as absent, and a reply without extensions, or with null there, does not read.
 //
 // It reads; it checks no signature. A serverKeyringSig that is a string, the empty string included, reads,
 // and CheckReply finds that it does not verify.
@@ -144,6 +149,9 @@ func readReply(v json.Value) (Reply, error) {
 	if r.Disabled, err = readStrings(v, "disabled"); err != nil {
 		return Reply{}, err
 	}
+	if r.Extensions, err = readStrings(v, "extensions"); err != nil {
+		return Reply{}, err
+	}
 	if r.Sig, err = json.String(v, "sig"); err != nil {
 		return Reply{}, err
 	}
@@ -157,6 +165,16 @@ func (r Reply) check() error {
 	}
 	if r.ServerKeyringSig != nil && r.ServerKeyringNotAfter == nil {
 		return errors.New(`the member "serverKeyringSig" has no "serverKeyringNotAfter" beside it`)
+	}
+	// sessions.md, The reply: extension names, sorted by UTF-16 code units, none twice. Names are ASCII, so
+	// strictly increasing as plain strings refuses both an unsorted pair and a name twice.
+	for i, name := range r.Extensions {
+		if !stamp.IsExtensionName(name) {
+			return fmt.Errorf(`the member "extensions" holds %q, not an extension name`, name)
+		}
+		if i > 0 && name <= r.Extensions[i-1] {
+			return errors.New(`the member "extensions" is unsorted or names one twice`)
+		}
 	}
 	return routeNodes(r.ServerKeyring, "serverKeyring")
 }
@@ -175,8 +193,9 @@ func (r Reply) Wire() ([]byte, error) {
 //
 //	"paztport-session-reply\n" || JCS(reply without sig)
 //
-// every member but sig, with a null root as null and each entry-key form member exactly when present. For
-// a reply ParseReply read, these are the bytes received less sig. It refuses a reply Wire refuses.
+// every member but sig, with a null root as null, a nil Extensions as [], and each entry-key form member
+// exactly when present. For a reply ParseReply read, these are the bytes received less sig. It refuses a reply
+// Wire refuses.
 func (r Reply) SigningBytes() ([]byte, error) {
 	b, err := r.wire(false)
 	if err != nil {
@@ -218,6 +237,7 @@ func (r Reply) wire(withSig bool) ([]byte, error) {
 		{Name: "sess", Value: json.S(r.Sess)},
 		{Name: "status", Value: json.S(r.Status)},
 		{Name: "disabled", Value: stringArray(r.Disabled)},
+		{Name: "extensions", Value: stringArray(r.Extensions)},
 	}
 	if r.ServerKeyringSig != nil {
 		members = append(members, json.Member{Name: "serverKeyringSig", Value: json.S(*r.ServerKeyringSig)})

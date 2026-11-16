@@ -7,6 +7,7 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { dirname, join, posix, relative, resolve } from "node:path";
+import { anchors } from "./markdown.mjs";
 
 const root = resolve(process.argv[2] ?? join(import.meta.dirname, "../.."));
 
@@ -29,28 +30,6 @@ function prose(text) {
       return fenced ? "" : line.replace(/`+[^`]*`+/g, (m) => " ".repeat(m.length));
     })
     .join("\n");
-}
-
-/** GitHub's heading anchors: lower case, punctuation dropped, spaces to hyphens, repeats numbered. */
-function anchors(text) {
-  const seen = new Map();
-  const out = new Set();
-  let fenced = false;
-  for (const line of text.split("\n")) {
-    if (/^\s*(```|~~~)/.test(line)) fenced = !fenced;
-    const m = !fenced && /^#{1,6}\s+(.*?)\s*#*\s*$/.exec(line);
-    if (!m) continue;
-    const base = m[1]
-      .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
-      .toLowerCase()
-      .replace(/[^\p{L}\p{N}\s_-]/gu, "")
-      .replace(/\s/g, "-");
-    const n = seen.get(base) ?? 0;
-    seen.set(base, n + 1);
-    out.add(n === 0 ? base : `${base}-${n}`);
-  }
-  for (const m of text.matchAll(/<a\s+(?:name|id)="([^"]+)"/g)) out.add(m[1]);
-  return out;
 }
 
 const anchorCache = new Map();

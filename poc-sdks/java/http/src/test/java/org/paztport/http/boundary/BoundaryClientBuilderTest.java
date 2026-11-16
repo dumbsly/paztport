@@ -141,5 +141,8 @@ class BoundaryClientBuilderTest {
     void aMissingSettingIsANullPointer() {
         assertThrows(NullPointerException.class, () -> sound().partnerUrl(null).build());
         assertThrows(NullPointerException.class, () -> sound().http(null).build());
+        // Each has a default, so null is a mistake, not a way to ask for it.
+        assertThrows(NullPointerException.class, () -> sound().extensions(null));
+        assertThrows(NullPointerException.class, () -> sound().requires(null));
     }
 }

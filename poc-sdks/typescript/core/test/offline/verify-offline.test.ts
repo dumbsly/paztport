@@ -6,8 +6,9 @@ import { bindPrompt } from "../../src/stamp/binding.ts";
 import { encode } from "../../src/encoding/b64url.ts";
 import { generateKeyPair, randomBytes, utf8 } from "../../src/crypto/crypto.ts";
 import { canonicalize } from "../../src/encoding/jcs.ts";
-import { commitInfluence, type InfluenceEntry } from "../../src/influence/influence.ts";
 import { buildTree } from "../../src/policy/merkle.ts";
+import { commitBlock, EMPTY_BLOCK, makeBlock } from "../../src/stamp/block.ts";
+import { extensionSettings, NO_EXTENSIONS } from "../../src/verify/extensions.ts";
 import { NonceCache } from "../../src/verify/nonce.ts";
 import { signStamp, type Stamp } from "../../src/stamp/stamp.ts";
 import { verifyChainOffline, type OfflineConfig, type OfflineInput } from "../../src/offline/verify-offline.ts";
@@ -19,11 +20,14 @@ const STEP_TS = 2_000;
 const PROMPT = "fix the typo";
 const RECEIVER = "local:read";
 const ROUTE = `session/pi/${RECEIVER}`;
-const infl: InfluenceEntry[] = [{ cls: "third-party", src: "server:github", h: "h1" }];
+/** The step's block: one `example` item; the origin's is empty. */
+const STEP_BLOCK = makeBlock({ example: [{ note: "n1" }] });
+const BLOCKS = [EMPTY_BLOCK, STEP_BLOCK];
+const LIVE_NOT_AFTER = 4_102_444_800_000;
 
 type Fields = Partial<Omit<Stamp, "sig" | "v">>;
-/** An input's fields to change, the influence and proof as values. */
-type Over = Partial<Omit<OfflineInput, "influence" | "proof">> & { influence?: unknown; proof?: unknown };
+/** An input's fields to change, the blocks and proof as values; blocks `null` is no token. */
+type Over = Partial<Omit<OfflineInput, "blocks" | "proof">> & { blocks?: unknown; proof?: unknown };
 
 /**
  * A token of `value`'s JCS bytes, written by the hashing rules, so a value no protocol writer writes still reaches
@@ -38,9 +42,9 @@ function world() {
   const tree = buildTree([ROUTE, "session/pi/local:write"].map((path) => ({ salt: randomBytes(16), path })), 8, "v1");
   const bind = "step-bind";
   const origin = (over: Fields = {}, key = session.privateKey) =>
-    signStamp({ svc: "session", inst: "pi-1", rid: "rid-1", ts: RUN_TS, sess: "", rcv: "pi", bind: bindPrompt(PROMPT), infl: "", prev: "", ...over }, key);
+    signStamp({ svc: "session", inst: "pi-1", rid: "rid-1", ts: RUN_TS, sess: "", rcv: "pi", bind: bindPrompt(PROMPT), ext: "", prev: "", ...over }, key);
   const step = (o: Stamp, over: Fields = {}, key = pi.privateKey) =>
-    signStamp({ svc: "pi", inst: "pi-1", rid: "rid-1", ts: STEP_TS, sess: "", rcv: RECEIVER, bind, infl: commitInfluence(infl), prev: o.sig, ...over }, key);
+    signStamp({ svc: "pi", inst: "pi-1", rid: "rid-1", ts: STEP_TS, sess: "", rcv: RECEIVER, bind, ext: commitBlock(STEP_BLOCK), prev: o.sig, ...over }, key);
   const chain = (stepOver: Fields = {}, originOver: Fields = {}) => {
     const o = origin(originOver);
     return [o, step(o, stepOver)];
@@ -51,16 +55,17 @@ function world() {
     allowedOrigins: ["session"],
     sess: "",
     seen: new Set<string>(),
-    nonceKey: "rid-1|call-1|local",
+    nonceKey: '["rid-1","call-1","local"]',
+    extensions: NO_EXTENSIONS,
     ...over,
   });
-  /** The chain `stamps` as recorded, its influence and proof each carried as its token. */
+  /** The chain `stamps` as recorded, its blocks and proof each carried as its token. */
   const input = (stamps: unknown, over: Over = {}): OfflineInput => {
-    const { influence = infl, proof = tree.proofFor(ROUTE), ...rest } = over;
+    const { blocks = BLOCKS, proof = tree.proofFor(ROUTE), ...rest } = over;
     return {
       chain: token(stamps),
       expectedBind: bind,
-      influence: token(influence),
+      blocks: blocks === null ? null : token(blocks),
       proof: proof === null ? null : token(proof),
       receiver: RECEIVER,
       receiverInRoute: true,
@@ -78,7 +83,7 @@ const SIGNERS = { svcs: ["session", "pi"], inst: "pi-1" };
 describe("verifyChainOffline", () => {
   it("aConsistentRecordedChainVerifiesWithNoFreshnessWindow", () => {
     const w = world();
-    expect(verifyChainOffline(w.input(w.chain()), w.cfg())).toEqual({ ok: true, reason: "OK", suspectSvc: "pi", suspectInst: "pi-1" });
+    expect(verifyChainOffline(w.input(w.chain()), w.cfg())).toEqual({ ok: true, reason: "OK", suspectSvc: "pi", suspectInst: "pi-1", handOver: new Map() });
     expect(verifyChainOffline(w.input(w.chain()), w.cfg({ signers: SIGNERS }))).toMatchObject({ reason: "OK" });
   });
 
@@ -86,27 +91,29 @@ describe("verifyChainOffline", () => {
     const w = world();
     const spent = w.cfg();
     verifyChainOffline(w.input(w.chain()), spent);
-    const [o, s] = w.chain() as [Stamp, Stamp];
-    const cases: [string, ReturnType<typeof verifyChainOffline>][] = [
-      ["CHAIN_MISSING", verifyChainOffline(w.input([]), w.cfg())],
-      ["BAD_SIGNATURE", verifyChainOffline(w.input([{ ...o, inst: "pi|1" }, s]), w.cfg())],
-      ["BAD_ORIGIN", verifyChainOffline(w.input(w.chain()), w.cfg({ allowedOrigins: ["mcp-entry"] }))],
-      ["BAD_SIGNATURE", verifyChainOffline(w.input(w.chain()), w.cfg({ keyrings: [{ keys: { session: w.session.publicKey, pi: w.other.publicKey }, notAfter: Infinity }] }))],
-      ["BROKEN_LINK", verifyChainOffline(w.input([o, w.step(o, { prev: "x" })]), w.cfg())],
-      ["BINDING_MISMATCH", verifyChainOffline(w.input(w.chain({}, { rcv: "orders" })), w.cfg())],
-      ["RID_MISMATCH", verifyChainOffline(w.input(w.chain({ rid: "rid-2" })), w.cfg())],
-      ["SESSION_UNKNOWN", verifyChainOffline(w.input(w.chain({ sess: "s" }, { sess: "s" })), w.cfg())],
-      ["TIME_MISMATCH", verifyChainOffline(w.input(w.chain(), { recordedTs: { last: STEP_TS + 1 } }), w.cfg())],
-      ["PROMPT_MISMATCH", verifyChainOffline(w.input(w.chain(), { prompt: "other" }), w.cfg())],
-      ["BINDING_MISMATCH", verifyChainOffline(w.input(w.chain(), { expectedBind: "zz" }), w.cfg())],
-      ["INFLUENCE_MISMATCH", verifyChainOffline(w.input(w.chain(), { influence: [] }), w.cfg())],
-      ["REPLAY", verifyChainOffline(w.input(w.chain()), spent)],
+    const [o] = w.chain() as [Stamp, Stamp];
+    // each case by the number of the spec's check that gives it (verification.md, The live order)
+    const cases: [string, string, ReturnType<typeof verifyChainOffline>][] = [
+      ["1", "CHAIN_MISSING", verifyChainOffline(w.input([]), w.cfg())],
+      ["2", "BAD_ORIGIN", verifyChainOffline(w.input(w.chain()), w.cfg({ allowedOrigins: ["mcp-entry"] }))],
+      ["3", "BAD_SIGNATURE", verifyChainOffline(w.input(w.chain()), w.cfg({ keyrings: [{ keys: { session: w.session.publicKey, pi: w.other.publicKey }, notAfter: Infinity }] }))],
+      ["3", "BROKEN_LINK", verifyChainOffline(w.input([o, w.step(o, { prev: "x" })]), w.cfg())],
+      ["4", "BINDING_MISMATCH", verifyChainOffline(w.input(w.chain({}, { rcv: "orders" })), w.cfg())],
+      ["5", "RID_MISMATCH", verifyChainOffline(w.input(w.chain({ rid: "rid-2" })), w.cfg())],
+      ["6", "SESSION_UNKNOWN", verifyChainOffline(w.input(w.chain({ sess: "s" }, { sess: "s" })), w.cfg())],
+      ["7", "TIME_MISMATCH", verifyChainOffline(w.input(w.chain(), { recordedTs: { last: STEP_TS + 1 } }), w.cfg())],
+      ["7", "EXPIRED", verifyChainOffline(w.input(w.chain()), w.cfg({ runMaxAgeMs: 999 }))],
+      ["7", "PROMPT_MISMATCH", verifyChainOffline(w.input(w.chain(), { prompt: "other" }), w.cfg())],
+      ["8", "BINDING_MISMATCH", verifyChainOffline(w.input(w.chain(), { expectedBind: "zz" }), w.cfg())],
+      ["9a", "EXTENSION_MISMATCH", verifyChainOffline(w.input(w.chain(), { blocks: [] }), w.cfg())],
+      ["9b", "EXTENSION_NOT_ALLOWED", verifyChainOffline(w.input(w.chain()), w.cfg({ extensions: extensionSettings([], ["other"]) }))],
+      ["11", "REPLAY", verifyChainOffline(w.input(w.chain()), spent)],
     ];
-    for (const [reason, r] of cases) {
-      expect([reason, r.reason, r.suspectSvc, r.suspectInst]).toEqual([reason, reason, "", ""]);
+    for (const [check, reason, r] of cases) {
+      expect([check, r.reason, r.suspectSvc, r.suspectInst, r.handOver]).toEqual([check, reason, "", "", null]);
     }
     const denied = verifyChainOffline(w.input(w.chain({ rcv: "local:bash" }), { receiver: "local:bash" }), w.cfg());
-    expect(denied).toEqual({ ok: false, reason: "PATH_NOT_ALLOWED", suspectSvc: "pi", suspectInst: "pi-1" });
+    expect(denied).toEqual({ ok: false, reason: "PATH_NOT_ALLOWED", suspectSvc: "pi", suspectInst: "pi-1", handOver: null });
   });
 
   it("theFirstFailureInTheLiveOrderIsReported", () => {
@@ -115,20 +122,65 @@ describe("verifyChainOffline", () => {
     expect(verifyChainOffline(w.input(w.chain({ sess: "s" }), { recordedTs: { last: 0 } }), w.cfg()).reason).toBe("SESSION_UNKNOWN");
     expect(verifyChainOffline(w.input(w.chain(), { recordedTs: { last: 0 }, prompt: "other" }), w.cfg()).reason).toBe("TIME_MISMATCH");
     expect(verifyChainOffline(w.input(w.chain(), { prompt: "other", expectedBind: "zz" }), w.cfg()).reason).toBe("PROMPT_MISMATCH");
-    expect(verifyChainOffline(w.input(w.chain(), { expectedBind: "zz", influence: [] }), w.cfg()).reason).toBe("BINDING_MISMATCH");
+    expect(verifyChainOffline(w.input(w.chain(), { expectedBind: "zz", blocks: [] }), w.cfg()).reason).toBe("BINDING_MISMATCH");
+    expect(verifyChainOffline(w.input(w.chain(), { blocks: [] }), w.cfg({ extensions: extensionSettings([], ["other"]) })).reason).toBe("EXTENSION_MISMATCH");
     const cfg = w.cfg();
     verifyChainOffline(w.input(w.chain()), cfg);
     expect(verifyChainOffline(w.input(w.chain({ rcv: "local:bash" }), { receiver: "local:bash" }), cfg).reason).toBe("REPLAY");
   });
 
-  it("thePipeDelimiterIsABadSignatureBeforeTheOriginIsLookedAt", () => {
+  it("aPipeIsAnOrdinaryCharacter", () => {
     const w = world();
+    // a pipe in a field signs and verifies; an altered field is a bad signature, with a pipe or without
+    expect(verifyChainOffline(w.input(w.chain({ rid: "rid|1" }, { rid: "rid|1" }), { rid: "rid|1" }), w.cfg()).reason).toBe("OK");
     const [o, s] = w.chain() as [Stamp, Stamp];
-    // an origin from another instance is BAD_ORIGIN; with the delimiter in that field it is BAD_SIGNATURE first
-    expect(verifyChainOffline(w.input([{ ...o, inst: "pi-2" }, s]), w.cfg({ signers: SIGNERS })).reason).toBe("BAD_ORIGIN");
-    expect(verifyChainOffline(w.input([{ ...o, inst: "pi|2" }, s]), w.cfg({ signers: SIGNERS })).reason).toBe("BAD_SIGNATURE");
     expect(verifyChainOffline(w.input([o, { ...s, bind: "a|b" }]), w.cfg()).reason).toBe("BAD_SIGNATURE");
-    expect(verifyChainOffline(w.input([o, { ...s, rcv: "a|b" }]), w.cfg())).toMatchObject({ reason: "BAD_SIGNATURE" });
+    // with signers, an origin from another instance is BAD_ORIGIN, whatever the instance holds
+    expect(verifyChainOffline(w.input([{ ...o, inst: "pi|1" }, s]), w.cfg({ signers: SIGNERS })).reason).toBe("BAD_ORIGIN");
+  });
+
+  it("checks9aAnd9b", () => {
+    const w = world();
+    const bad: [string, unknown][] = [
+      ["no token where a stamp's ext is not empty", null],
+      ["one block too few", [EMPTY_BLOCK]],
+      ["one block too many", [...BLOCKS, EMPTY_BLOCK]],
+      ["an item altered", [EMPTY_BLOCK, makeBlock({ example: [{ note: "n2" }] })]],
+      ["the two blocks swapped", [STEP_BLOCK, EMPTY_BLOCK]],
+      ["a token that does not read as blocks", "!"],
+      ["a block with another member", [EMPTY_BLOCK, { ...STEP_BLOCK, extra: 1 }]],
+    ];
+    for (const [name, blocks] of bad) {
+      expect(verifyChainOffline(w.input(w.chain(), { blocks }), w.cfg()).reason, name).toBe("EXTENSION_MISMATCH");
+    }
+    expect(verifyChainOffline({ ...w.input(w.chain()), blocks: "!" }, w.cfg()).reason).toBe("EXTENSION_MISMATCH");
+    // an absent token is one empty block per stamp
+    const o = w.origin();
+    expect(verifyChainOffline(w.input([o, w.step(o, { ext: "" })], { blocks: null }), w.cfg()).reason).toBe("OK");
+    // 9b, with an allowed list of the verifier's own, and the list looked up by its own members only
+    expect(verifyChainOffline(w.input(w.chain()), w.cfg({ extensions: extensionSettings([], ["other"]) })).reason).toBe("EXTENSION_NOT_ALLOWED");
+    const proto = [EMPTY_BLOCK, makeBlock({ constructor: [] })];
+    const protoChain = [o, w.step(o, { ext: commitBlock(proto[1]!) })];
+    expect(verifyChainOffline(w.input(protoChain, { blocks: proto }), w.cfg({ extensions: extensionSettings([], ["example"]) })).reason).toBe("EXTENSION_NOT_ALLOWED");
+    expect(verifyChainOffline(w.input(w.chain()), w.cfg({ extensions: extensionSettings([], ["example"]) })).reason).toBe("OK");
+  });
+
+  it("aRequirementIsNotCheckedOffline", () => {
+    const w = world();
+    const blocks = [EMPTY_BLOCK, makeBlock({}, ["example"])];
+    const o = w.origin();
+    const stamps = [o, w.step(o, { ext: commitBlock(blocks[1]!) })];
+    expect(verifyChainOffline(w.input(stamps, { blocks }), w.cfg({ extensions: extensionSettings([]) })).reason).toBe("OK");
+  });
+
+  it("handsOverTheItemsOnOk", () => {
+    const w = world();
+    const r = verifyChainOffline(w.input(w.chain()), w.cfg({ extensions: extensionSettings(["example"]) }));
+    expect(r.reason).toBe("OK");
+    expect([...r.handOver!.keys()]).toEqual(["example"]);
+    expect(r.handOver!.get("example")).toEqual([{ svc: "session", items: null }, { svc: "pi", items: [{ note: "n1" }] }]);
+    const denied = verifyChainOffline(w.input(w.chain(), { proof: null }), w.cfg({ extensions: extensionSettings(["example"]) }));
+    expect(denied.handOver).toBeNull();
   });
 
   it("recordedTimesMustAgree", () => {
@@ -196,14 +248,14 @@ describe("verifyChainOffline", () => {
     // however much later it was recorded, the same key again is a replay
     const later = w.chain({ ts: STEP_TS + 3_600_000 });
     expect(verifyChainOffline(w.input(later, { recordedTs: { last: STEP_TS + 3_600_000 } }), w.cfg({ seen, runMaxAgeMs: 7_200_000 })).reason).toBe("REPLAY");
-    expect(verifyChainOffline(w.input(w.chain()), w.cfg({ seen, nonceKey: "rid-1|call-2|local" })).reason).toBe("OK");
-    expect([...seen]).toEqual(["rid-1|call-1|local", "rid-1|call-2|local"]);
+    expect(verifyChainOffline(w.input(w.chain()), w.cfg({ seen, nonceKey: '["rid-1","call-2","local"]' })).reason).toBe("OK");
+    expect([...seen]).toEqual(['["rid-1","call-1","local"]', '["rid-1","call-2","local"]']);
   });
 
   it("aChainThatFailsBeforeTheReplayCheckSpendsNoKey", () => {
     const w = world();
     const seen = new Set<string>();
-    expect(verifyChainOffline(w.input(w.chain(), { influence: [] }), w.cfg({ seen })).reason).toBe("INFLUENCE_MISMATCH");
+    expect(verifyChainOffline(w.input(w.chain(), { blocks: [] }), w.cfg({ seen })).reason).toBe("EXTENSION_MISMATCH");
     expect(seen.size).toBe(0);
     expect(verifyChainOffline(w.input(w.chain()), w.cfg({ seen })).reason).toBe("OK");
     // a chain whose route is not proven did reach the replay check: its key is spent
@@ -215,10 +267,10 @@ describe("verifyChainOffline", () => {
   it("theSharedChecksGiveTheLiveVerifiersCodes", () => {
     const w = world();
     const live = (stamps: unknown, over: Over = {}) => {
-      const { chain, expectedBind, influence, proof, receiver, receiverInRoute } = w.input(stamps, over);
+      const { chain, expectedBind, blocks, proof, receiver, receiverInRoute } = w.input(stamps, over);
       return verifyChain(
-        { chain, expectedBind, influence, proof, receiver, receiverInRoute },
-        { keyrings: w.cfg().keyrings, roots: w.cfg().roots, allowedOrigins: ["session"], sess: "", nonces: new NonceCache(60_000), nonceKey: "k", now: STEP_TS, policyNotAfter: 4_102_444_800_000 },
+        { chain, expectedBind, blocks, proof, receiver, receiverInRoute },
+        { keyrings: w.cfg().keyrings, roots: w.cfg().roots, allowedOrigins: ["session"], sess: "", nonces: new NonceCache(60_000), nonceKey: "k", now: STEP_TS, policyNotAfter: LIVE_NOT_AFTER, extensions: NO_EXTENSIONS },
       ).reason;
     };
     const offline = (stamps: unknown, over: Over = {}) => verifyChainOffline(w.input(stamps, over), w.cfg()).reason;
@@ -237,7 +289,9 @@ describe("verifyChainOffline", () => {
       [w.chain({ rid: "rid-2" }), {}],
       [w.chain({ sess: "s" }), {}],
       [w.chain(), { expectedBind: "zz" }],
-      [w.chain(), { influence: null }],
+      [w.chain(), { blocks: null }],
+      [w.chain(), { blocks: [] }],
+      [w.chain(), { blocks: "!" }],
       [w.chain(), { proof: "junk" }],
       [w.chain(), { receiver: "local:bash" }],
       [w.chain({ rcv: "local:bash" }), { receiver: "local:bash" }],
@@ -248,17 +302,17 @@ describe("verifyChainOffline", () => {
     }
   });
 
-  it("aStampWhoseVersionIsNotThreeIsChainMissing", () => {
+  it("aStampWhoseVersionIsNotFourIsChainMissing", () => {
     const w = world();
     const [o, s] = w.chain() as [Stamp, Stamp];
-    for (const v of [1, 2, 4]) {
+    for (const v of [1, 2, 3, 5]) {
       for (const odd of [[{ ...o, v }, s], [o, { ...s, v }], [{ ...o, v }, { ...s, v }]]) {
         expect(verifyChainOffline(w.input(odd), w.cfg())).toMatchObject({ reason: "CHAIN_MISSING" });
-        const { chain, expectedBind, influence, proof, receiver, receiverInRoute } = w.input(odd);
+        const { chain, expectedBind, blocks, proof, receiver, receiverInRoute } = w.input(odd);
         expect(
           verifyChain(
-            { chain, expectedBind, influence, proof, receiver, receiverInRoute },
-            { keyrings: w.cfg().keyrings, roots: w.cfg().roots, allowedOrigins: ["session"], sess: "", nonces: new NonceCache(60_000), nonceKey: "k", now: STEP_TS, policyNotAfter: 4_102_444_800_000 },
+            { chain, expectedBind, blocks, proof, receiver, receiverInRoute },
+            { keyrings: w.cfg().keyrings, roots: w.cfg().roots, allowedOrigins: ["session"], sess: "", nonces: new NonceCache(60_000), nonceKey: "k", now: STEP_TS, policyNotAfter: LIVE_NOT_AFTER, extensions: NO_EXTENSIONS },
           ).reason,
         ).toBe("CHAIN_MISSING");
       }
@@ -355,7 +409,7 @@ describe("verifyChainOffline", () => {
     const other = buildTree([ROUTE].map((path) => ({ salt: randomBytes(16), path })), 8, "v2");
     const roots = [{ root: w.tree.root, rootId: w.tree.rootId, notAfter: STEP_TS - 1 }, { root: other.root, rootId: other.rootId, notAfter: 0 }];
     const seen = new Set<string>();
-    const expired = { ok: false, reason: "POLICY_EXPIRED", suspectSvc: "", suspectInst: "" };
+    const expired = { ok: false, reason: "POLICY_EXPIRED", suspectSvc: "", suspectInst: "", handOver: null };
     expect(verifyChainOffline(w.input(w.chain()), w.cfg({ roots, seen }))).toEqual(expired);
     // judged before check 1, so it names no one and spends no key
     expect(verifyChainOffline(w.input([]), w.cfg({ roots, seen }))).toEqual(expired);

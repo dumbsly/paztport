@@ -5,13 +5,14 @@ import { isNotAfter } from "../policy/validity.ts";
 import { readSessionReply, verifySessionReply, type SessionReply, type SessionRequest } from "./session.ts";
 
 /** What a client concludes from a handshake reply: the vocabulary of the spec's session-reply vectors. */
-export type ReplyCheck = "ATTESTED" | "UNSAFE" | "MALFORMED_REPLY" | "PIN_MISMATCH" | "BAD_SIGNATURE";
+export type ReplyCheck = "ATTESTED" | "UNSAFE" | "MALFORMED_REPLY" | "PIN_MISMATCH" | "BAD_SIGNATURE" | "EXTENSION_REQUIRED";
 
 /**
  * Checks a session handshake reply, given as its token, against the request it answers, the pinned server policy
  * key, the server's entry service from the client's own configuration, and the time `now` (ms): a reply that does
  * not read (readSessionReply), one from another key than the pin, one that does not verify (live, see
- * verifySessionReply), then its own status. Never throws.
+ * verifySessionReply), then its own status, then, for an attested reply, the extensions the client `requires` of this
+ * server (step 5): each must be listed. Never throws.
  */
 export function checkSessionReply(
   reply: string,
@@ -19,6 +20,7 @@ export function checkSessionReply(
   pin: string,
   serverEntry: string,
   now: number,
+  requires: readonly string[] = [],
 ): ReplyCheck {
   let read: SessionReply;
   try {
@@ -32,7 +34,10 @@ export function checkSessionReply(
   if (!verifySessionReply(read, req, pin, serverEntry, now)) {
     return "BAD_SIGNATURE";
   }
-  return read.status === "attested" ? "ATTESTED" : "UNSAFE";
+  if (read.status !== "attested") {
+    return "UNSAFE";
+  }
+  return requires.every((name) => read.extensions.includes(name)) ? "ATTESTED" : "EXTENSION_REQUIRED";
 }
 
 /**

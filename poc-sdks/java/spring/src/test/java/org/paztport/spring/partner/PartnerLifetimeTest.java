@@ -5,6 +5,7 @@ package org.paztport.spring.partner;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
@@ -33,6 +34,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.paztport.core.crypto.Crypto;
 import org.paztport.core.encoding.Base64Url;
+import org.paztport.core.influence.Influence;
 import org.paztport.core.influence.InfluenceClass;
 import org.paztport.core.influence.InfluenceEntry;
 import org.paztport.core.policy.KeyringFile;
@@ -41,11 +43,13 @@ import org.paztport.core.policy.SignedRoot;
 import org.paztport.core.session.ReplyCert;
 import org.paztport.core.session.SessionRequest;
 import org.paztport.core.session.Sessions;
+import org.paztport.core.stamp.Block;
 import org.paztport.core.stamp.Stamp;
 import org.paztport.core.stamp.Stamper;
-import org.paztport.http.ContextAccess;
+import org.paztport.core.verify.ExtensionSettings;
 import org.paztport.http.HttpSessions;
 import org.paztport.http.PartnerSessions;
+import org.paztport.http.RequestContext;
 import org.paztport.http.wire.HttpWire;
 import org.paztport.http.wire.PaztportHeaders;
 import org.paztport.http.wire.RequestBinding;
@@ -101,8 +105,9 @@ class PartnerLifetimeTest {
     private static final String SHOP_PIN = pub(SHOP_POLICY);
     private static final String PSP_PIN = pub(PSP_POLICY);
     private static final byte[] REFUND = "{\"amount\":100}".getBytes(StandardCharsets.UTF_8);
-    private static final List<InfluenceEntry> INFLUENCE = List.of(
-            new InfluenceEntry(InfluenceClass.THIRD_PARTY, "http:tickets", "h-ticket", "cid-1", null));
+    /** The boundary block an attested call carries: it names influence with one blinded-looking entry. */
+    private static final Block INFLUENCE = Influence.block(List.of(
+            new InfluenceEntry(InfluenceClass.THIRD_PARTY, "http:tickets", "h-ticket", "cid-1", null)), List.of());
     /** When the test started: the partner's own material is dated from here, and the clock is moved from here. */
     private static final long START = System.currentTimeMillis();
     private static Path trust;
@@ -172,8 +177,8 @@ class PartnerLifetimeTest {
     static class App {
         /** Takes the place of the auto-configured sessions, which judge by the system clock. */
         @Bean
-        PartnerSessions movableClockPartnerSessions(PaztportProperties props) {
-            return PartnerConfiguration.partnerSessions(props, CLOCK::millis);
+        PartnerSessions movableClockPartnerSessions(PaztportProperties props, ExtensionSettings extensions) {
+            return PartnerConfiguration.partnerSessions(props, extensions, CLOCK::millis);
         }
     }
 
@@ -215,7 +220,8 @@ class PartnerLifetimeTest {
         CLOCK.moveTo(START);
         partnerLog.detachAppender(logs);
         partnerLog.setLevel(null);
-        ContextAccess.reset();
+        // Every scope a test opens is closed by it or by the filter; one left open would follow this thread.
+        assertFalse(RequestContext.isOpen(), "a test left a request scope open on this thread");
     }
 
     private static final List<PooledTlsClient> POOLED = new CopyOnWriteArrayList<>();
@@ -267,7 +273,7 @@ class PartnerLifetimeTest {
      */
     private static Map<String, String> boundary(String sess, String rid, PolicyBuilder.Result built) {
         List<Stamp> chain = new Stamper("gateway", "gw-1", GATEWAY_KEY.getPrivate(), true, () -> rid,
-                CLOCK::millis).next(null, "orders", "unused", List.of(), null).chain();
+                CLOCK::millis).next(null, "orders", "unused", Block.EMPTY, null).chain();
         Stamper.Stamped stamped = new Stamper("orders", "orders-1", SHOP_KEY.getPrivate(), false, () -> "unused",
                 CLOCK::millis).boundary(chain, sess, PARTNER, RequestBinding.compute("POST", "/refund", REFUND),
                         INFLUENCE, built.bundles().get("orders"));
@@ -275,7 +281,7 @@ class PartnerLifetimeTest {
         headers.put(PaztportHeaders.SESSION, sess);
         headers.put(PaztportHeaders.CHAIN, HttpWire.encodeChain(stamped.chain()));
         headers.put(PaztportHeaders.PROOF, HttpWire.encodeProof(stamped.proof()));
-        headers.put(PaztportHeaders.INFLUENCE, HttpWire.encodeInfluence(INFLUENCE));
+        headers.put(PaztportHeaders.EXTENSIONS, HttpWire.encodeBlocks(List.of(INFLUENCE)));
         return headers;
     }
 

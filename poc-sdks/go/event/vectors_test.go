@@ -36,7 +36,7 @@ func TestEnvelopeVectors(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			c := c.With(t)
 			signer := c.Get("signer").Str()
-			priv, pub := vectors.V3Key(t, signer)
+			priv, pub := vectors.VectorKey(t, signer)
 			ev := eventOf(c.Get("event"))
 			wire, err := ev.Wire()
 			if err != nil || string(wire) != c.Get("eventJson").Str() {
@@ -79,8 +79,8 @@ func TestEnvelopeVectors(t *testing.T) {
 // the event's suspect.
 func TestAttributableVectors(t *testing.T) {
 	cases := vectors.Load(t, "events.json").Get("attributable")
-	if cases.Len() != 27 {
-		t.Fatalf("attributable has %d cases, want 27", cases.Len())
+	if cases.Len() != 30 {
+		t.Fatalf("attributable has %d cases, want 30", cases.Len())
 	}
 	seen := map[bool]int{}
 	cases.Each(func(name string, c vectors.Node) {

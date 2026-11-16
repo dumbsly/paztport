@@ -61,7 +61,7 @@ asks only *who are you?* (the payment service, the customer database, the admin
 panel) does what it's told.
 
 This repository holds Paztport, a protocol for path attestation, written as a
-[spec](poc-sdks/spec/README.md) (version 3). SDKs in Java and Go carry it over HTTP,
+[spec](poc-sdks/spec/README.md) (version 4). SDKs in Java and Go carry it over HTTP,
 and one in TypeScript carries it over MCP, the protocol AI agents use to call tools.
 Three demos run it: a small
 [mesh of Spring Boot services](poc-demos/java-mesh/README.md), an
@@ -75,7 +75,7 @@ the block above, all of its documentation ([How it was built](#how-it-was-built)
 
 `./run java-mesh` builds the Java SDK and the mesh demo, then runs every
 scenario. It needs Maven on Java 25 or newer, and Docker, its daemon running,
-with Compose. A green run ends `26 passed, 0 failed`, and the mesh stays up.
+with Compose. A green run ends `27 passed, 0 failed`, and the mesh stays up.
 `./run test` runs the repository's checks and every suite, with no Docker and no
 model. `./run test --container` runs the same suites in a container, needing only
 Docker and git. [Running it](#running-it) has the other demos and what each
@@ -145,29 +145,35 @@ with a clean copy, automatically, within seconds.
   untrusted content plus any private data; the Java mesh's
   [support-assistant storyline](poc-demos/java-mesh/README.md#the-support-assistant-storyline)
   exercises its owner clause. In the demo's one recorded
-  [eval](poc-demos/agents-mcp/eval/README.md#recorded-results), 20 runs per setting
-  on one local model against a mock server, 9 of 20 runs leaked the private notes
-  with Paztport off and none with it on, and without the planted issue Paztport
-  refused nothing. With it, 9 of the 13 refusals stopped a public write that held no
-  private text: the rule judges what shaped a write, not what the write holds.
-  [Where this could go](docs/directions.md) says what is still open.
-- It is checked end to end. The Java mesh's `demo.sh` makes 26 checks, among them
-  forged stamps, replays, altered bodies, expired requests, routes the policy does
-  not list, `audit` mode, and the responder's quarantine with its limit on how often
-  it acts; a green run ends `26 passed, 0 failed`
+  [eval](poc-demos/agents-mcp/eval/README.md#recorded-results), measured on version
+  3, 20 runs per setting on one local model against a mock server, 9 of 20 runs
+  leaked the private notes with Paztport off and none with it on, and without the
+  planted issue Paztport refused nothing. With it, 9 of the 13 refusals stopped a
+  public write that held no private text: the rule judges what shaped a write, not
+  what the write holds. [Where this could go](docs/directions.md) says what is still
+  open.
+- It is checked end to end. The Java mesh's `demo.sh` makes 27 checks, among them
+  forged stamps, replays, altered bodies and blocks, expired requests, routes the
+  policy does not list, `audit` mode, and the responder's quarantine with its limit on
+  how often it acts; a green run ends `27 passed, 0 failed`
   ([the scenarios](poc-demos/java-mesh/README.md#running-it)).
 - Its cost is measured, on one host. Checking a request takes a few Ed25519
   verifications and SHA-256 hashes. In the
   [Java mesh](poc-demos/java-mesh/README.md#measurements), `enforce` adds about
-  1.9 ms at the median with one hop enforcing, most of it stock-JDK Ed25519, and
-  that section ends with its caveats. The
+  1.9 ms at the median with one hop enforcing, most of it stock-JDK Ed25519,
+  measured on version 4 of the protocol, and that section ends with its caveats. The
   [Envoy Gateway](poc-demos/envoy-gateway/README.md#measurements) processor adds
-  0.35 ms at the median at 1000 requests a second.
+  0.35 ms at the median at 1000 requests a second, measured on version 3.
 
-The code is Apache-2.0. Every cryptographic primitive the SDKs use comes from each
+The code is Apache-2.0. Every cryptographic primitive the SDKs use goes through each
 language's standard library (the JDK, Node's `node:crypto`, Go's `crypto`
 packages); the Java keygen tool also uses Bouncy Castle, to write X.509
-certificates.
+certificates. Before a library verifies an Ed25519 signature, each SDK checks the
+signature's and the key's bytes itself, by the spec's
+[signature rule](poc-sdks/spec/wire.md#signatures), so the SDKs refuse the same
+encodings whatever their libraries would accept. The equation itself is the
+library's, and each SDK's replay of the shared vectors fails on a library that
+checks a different one.
 
 ## Concepts
 
@@ -284,7 +290,7 @@ flowchart LR
 
 | Field | Meaning |
 |---|---|
-| `v` | Version, always `3`. |
+| `v` | Version, always `4`. |
 | `svc` | Service name. The route is rebuilt from these and the `rcv` fields. |
 | `inst` | The signer's instance, as the signer reports it (in the Java mesh, its container's hostname), so whoever acts on a failed check can act on one replica, not a whole service. |
 | `rid` | Request ID, minted by the origin and carried unchanged. |
@@ -292,9 +298,9 @@ flowchart LR
 | `sess` | The id of the session the chain was stamped in, or empty for a chain with no session, as inside one mesh. |
 | `rcv` | The receiver this stamp was signed for: the next stamp's `svc`, or the chain's receiver. Over HTTP it may also name an operation, `service#operation`. |
 | `bind` | The binding of what *this hop sent*. Over HTTP, `SHA-256(METHOD \n PATH \n BODY)` (`PATH` with its query). |
-| `infl` | The commitment to the request's influence; empty for no influence. |
+| `ext` | The commitment to this stamp's block, the claims its signer attaches, such as the influence entries it adds; empty for the empty block. |
 | `prev` | The previous stamp's `sig`; empty at the origin. |
-| `sig` | Ed25519 signature over the canonical bytes `3\|svc\|inst\|rid\|ts\|sess\|rcv\|bind\|infl\|prev`. |
+| `sig` | Ed25519 signature over `paztport-stamp` and a newline, then the canonical (JCS) bytes of the stamp's other ten members, `v` included. |
 
 Why it's built this way:
 
@@ -491,17 +497,18 @@ since a tool call's receiver already names one tool
 
 #### Influence
 
-Influence travels with each call (`X-Path-Influence` over HTTP), and the call's last
-stamp commits to it in `infl`, so a hop can't drop an entry without breaking the
-stamp. Its entries record content such as a ticket's text, a customer's order or a
-tool's result, and each has a class: `third-party` for content from outside the
-trust boundary, which may carry instructions; `private` for data that must not reach
-a public destination unless it belongs to the destination's owner; `public` for
-what is already public; and `local-untrusted` for content nothing vouches for, such
-as a response that was not attested. An entry may also name an owner, an opaque id
-of whose data it is, which the service that served the data takes from its own
-records, never from the content
-([influence](poc-sdks/spec/sessions-and-influence.md#influence)).
+Influence travels with each call as entries in each hop's own block
+(`X-Path-Extensions` over HTTP), and each stamp commits to its signer's block in
+`ext`, so a later hop can't drop or alter an entry without every honest hop after it
+refusing the chain. Its entries record content such as a ticket's text, a customer's
+order or a tool's result, and each has a class: `third-party` for content from
+outside the trust boundary, which may carry instructions; `private` for data that
+must not reach a public destination unless it belongs to the destination's owner;
+`public` for what is already public; and `local-untrusted` for content nothing
+vouches for, such as a response that was not attested. An entry may also name an
+owner, an opaque id of whose data it is, which the service that served the data
+takes from its own records, never from the content
+([influence](poc-sdks/spec/influence.md)).
 
 #### The owner-aware rule
 
@@ -511,15 +518,16 @@ destination owner's, an unknown owner on either side counting as someone else's.
 untrusted content can still steer a customer's own data to that customer, but never
 someone else's data, or data whose owner nobody knows. The service applying the rule
 takes the destination's owner from its own records, never from the request
-([the owner-aware rule](poc-sdks/spec/sessions-and-influence.md#the-owner-aware-rule)).
+([the owner-aware rule](poc-sdks/spec/influence.md#the-owner-aware-rule)).
 
 #### Response attestation
 
 An answer carries a stamp of its own: one more stamp on the request's chain, signed
-for the caller over the status, the body and the labels of what the service
-answered, each label a class and, where the service has one, an owner from its own
-records (over HTTP, the `X-Path-Response` header). A service attests only an answer
-to a request whose chain passed the live order there, so no origin attests, nor a
+for the caller over the status and the body of what the service answered, and
+committing to its block, which holds the labels, each a class and, where the
+service has one, an owner from its own records (over HTTP, the `X-Path-Response`
+header). A service attests only an answer to a request whose chain passed the
+live order there, so no origin attests, nor a
 hop where Paztport is off, and neither a refusal nor a request that failed in
 `audit` mode is attested. A service that confirms its operation a second time, as
 the handler is about to run, attests only an answer whose handler it confirmed. The
@@ -527,7 +535,7 @@ caller adds the labels to its influence only when the whole response verifies, a
 counts any other response as one `local-untrusted` entry, never dropped. An MCP
 server attests a tool's result the same way, only for a call that verified
 ([who attests](poc-sdks/spec/verification.md#http-requests-and-responses),
-[content labels](poc-sdks/spec/sessions-and-influence.md#content-labels)).
+[content labels](poc-sdks/spec/influence.md#content-labels)).
 
 #### Sessions
 
@@ -540,8 +548,8 @@ sender's policy key is one it pinned in advance, the sender's root and keyring
 verify under that key, and both sides' roots and keyrings are current. Otherwise the
 session is unsafe: graded trust, not a refusal, in which the receiving side verifies
 nothing, refuses what it lists as disabled (`UNSAFE_SESSION`) and serves the rest
-([status](poc-sdks/spec/sessions-and-influence.md#status),
-[unsafe sessions](poc-sdks/spec/sessions-and-influence.md#unsafe-sessions)).
+([status](poc-sdks/spec/sessions.md#status),
+[unsafe sessions](poc-sdks/spec/sessions.md#unsafe-sessions)).
 
 Over MCP, in an attested session the server attests the result of each call that
 verified ([Response attestation](#response-attestation)). The client counts a
@@ -551,14 +559,17 @@ result that does not verify, and every result in an unsafe session, as
 Between organisations, the partner must not see the sender's internal chain. In an
 attested session the sender's egress verifies the request's chain and sends one
 stamp of its own in its place, so the internal route stays inside. That stamp
-commits to the request's influence blinded to one entry for each class and owner,
-which is all the partner needs to apply the owner-aware rule. In an unsafe session
-the egress signs no stamp and sends no influence. Either way, a partner does not
-attest its replies (see
+commits to one block. Where the egress acts on influence and every stamp of the
+internal chain it verified names it, the block carries the request's influence
+blinded to one entry for each class and owner, which is all the partner needs to
+apply the owner-aware rule; otherwise the block names nothing, and the partner
+refuses the public writes and trusted records the call would lead to. In an unsafe
+session the egress signs no stamp and sends no influence. Either way, a partner does
+not attest its replies (see
 [Limits of the concept](docs/limits.md#limits-of-the-concept)), so the egress counts
 each one `local-untrusted`. The Java and Go SDKs implement this; the TypeScript SDK
 does not
-([between organisations](poc-sdks/spec/sessions-and-influence.md#between-organisations)).
+([between organisations](poc-sdks/spec/sessions.md#between-organisations)).
 
 ### Design rules
 
@@ -624,8 +635,11 @@ Paztport at a Kubernetes edge, on a local kind cluster. A Go processor, which
 Envoy calls over gRPC for each request through its external processing filter
 (`ext_proc`), and which its own Helm chart installs, stamps each request entering
 the gateway as the origin service `edge`; the Java mesh's `orders` and `payment`
-verify it. Its checks show that a chain a client sends is replaced at the edge,
-not believed, that a request sent around the edge is refused, and that a stamp
+verify it. The processor is built on the Go SDK and stamps version 4. Its checks pass
+on version 4 (12 passed, 0 failed, on 2026-11-16); the measurements below were made
+while it stamped version 3, before the Go SDK moved. Its
+checks show that a chain a client sends is replaced at the edge, not believed, that a
+request sent around the edge is refused, and that a stamp
 taken from the processor is refused from any connection but Envoy's. Its
 measurement run also tested failure. A processor container killed under load cost
 under a second of refused requests and let none through unstamped. With every
@@ -651,7 +665,8 @@ says it did ([the eval](poc-demos/agents-mcp/eval/README.md)).
 
 The most important limits, each linked to its section of
 [docs/limits.md](docs/limits.md), which also lists what a deployment must supply
-for Paztport to hold:
+for Paztport to hold and sets out
+[what adopting it costs](docs/limits.md#what-adopting-it-costs):
 
 - A compromised service on an allowed route keeps that route. On each live request
   that reaches it, it can make the calls its route allows with arguments it chooses,
@@ -786,14 +801,16 @@ the commands.
 ```
 paztport/
 ├── LICENSE, NOTICE           Apache-2.0, copyright
+├── SECURITY.md               how to report a break
+├── CONTRIBUTING.md           how a change is accepted
 ├── LICENSING.md              what each jar and image carries, and why
 ├── THIRD-PARTY.txt           runtime dependencies and their licences (generated)
 ├── licenses/                 licence texts the bundling jars carry, and the licence plugin's shared settings
-├── docs/                     limits.md, the known limits in full; directions.md, where this could go
+├── docs/                     limits.md, the known limits in full; directions.md, where this could go; review-path.md, a reviewer's reading path
 ├── run                       front door: java-mesh, envoy-gateway, agents-mcp, test, bench
 ├── poc-sdks/
-│   ├── spec/                 the protocol spec, and vectors/: v3.json, which every SDK replays (Java and Go all of it but the MCP profile); http-v3.json, Java's and Go's; events.json, all three's; json.json, TypeScript's but its http bindings, Java's and Go's but the MCP profile's sections
-│   ├── scripts/              name check, link check, import check, jar check, tests for ./run, THIRD-PARTY.txt regeneration
+│   ├── spec/                 the protocol spec, and vectors/: v4.json, TypeScript's, and Java's and Go's but the MCP profile's sections; http-v4.json, Java's and Go's; events.json, all three's; json.json, TypeScript's but its http bindings, Java's and Go's but the MCP profile's sections; ed25519.json, all three's
+│   ├── scripts/              name check, link check, import check, review path count check, jar check, tests for ./run, THIRD-PARTY.txt regeneration
 │   ├── java/                 core, http, spring (paztport-core, paztport-http, paztport-spring), tools/keygen, tools/policy-tool, tools/bench
 │   ├── typescript/           core, mcp (@paztport/core, @paztport/mcp), policy-tool
 │   └── go/                   one module: the protocol's packages, and paztporthttp with wire and boundary
@@ -825,12 +842,17 @@ paztport/
   - [poc-demos/envoy-gateway](poc-demos/envoy-gateway/README.md): the edge processor at
     an Envoy Gateway, its chart, and the checks on a local kind cluster.
   - [poc-demos/agents-mcp](poc-demos/agents-mcp/README.md): the agent and MCP demo.
+- [docs/review-path.md](docs/review-path.md): a reading path for a reviewer: the
+  spec and the code of path attestation in one sitting, then each add-on.
 - [docs/limits.md](docs/limits.md): the known limits in full: what a deployment
   must supply, what any design of this kind cannot do, and what this proof of
   concept leaves out.
 - [docs/directions.md](docs/directions.md): where Paztport could go beyond this
   proof of concept, among them post-quantum signatures, production agent runtimes,
   async boundaries and scale.
+- [SECURITY.md](SECURITY.md): how to report a break in the protocol or an SDK.
+- [CONTRIBUTING.md](CONTRIBUTING.md): how a change is accepted, and the path it
+  takes.
 
 ## How it was built
 
@@ -854,10 +876,12 @@ What you can check for yourself:
 - `./run test` runs the repository's own checks, the TypeScript type checks, gofmt,
   go vet and staticcheck, every suite of the three SDKs and the demos, and a check
   of what the built jars carry. It needs no Docker and no model. The repository's
-  own checks are two scripts: `check-links.mjs` fails on a Markdown link to a
-  missing file or heading, and `check-imports.mjs` on a Java import the file does
-  not need. `./run test --container` runs all of it in a container, which is also
-  what CI runs.
+  own checks are three scripts: `check-links.mjs` fails on a Markdown link to a
+  missing file or heading, `check-imports.mjs` on a Java import the file does not
+  need, and `check-review-path.mjs` on a count in
+  [the review path](docs/review-path.md) that is not the lines its row links to.
+  `./run test --container` runs all of it in a container, which is also what CI
+  runs.
 - The Java mesh and Envoy Gateway READMEs say how their numbers were measured, on
   which host and with which versions, and the Envoy Gateway README names the runs
   they come from. The measurement scripts are in the repository. The raw results are

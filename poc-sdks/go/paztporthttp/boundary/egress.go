@@ -21,6 +21,7 @@ import (
 	"github.com/dumbsly/paztport/poc-sdks/go/reason"
 	"github.com/dumbsly/paztport/poc-sdks/go/session"
 	"github.com/dumbsly/paztport/poc-sdks/go/stamp"
+	"github.com/dumbsly/paztport/poc-sdks/go/verify"
 )
 
 // ErrNotVerified is Begin's refusal of a request whose chain did not pass the live order at this hop: an
@@ -28,6 +29,14 @@ import (
 // outside any request. Nothing is signed or sent for it, the handshake included.
 var ErrNotVerified = errors.New("paztport boundary: the request's chain did not pass the live order here, " +
 	"so nothing is signed or sent")
+
+// ErrRequirementUnmet says the egress made no call, because the session open with the partner does not meet
+// Config.Requirement (sessions.md, Between organisations, step 6). Begin returns it for such a session already
+// open, with no exchange, and Answer after the handshake that opens one, ending the exchange Failed; nothing of
+// the call is sent either way. The partner ran nothing for it, so the embedder fails the request; the call is
+// not retried in that session.
+var ErrRequirementUnmet = errors.New(
+	"paztport boundary: the partner's session does not meet the requirement; no call was made")
 
 // ErrCallUnanswered is NoAnswer's refusal of a call: an unanswered call ends nothing. The partner may have
 // acted on it, so it is not retried; nothing came back, so nothing joins the request's influence; and the
@@ -48,8 +57,9 @@ var placeholderID = b64.Encode(make([]byte, sha256.Size))
 
 // Config is an egress's configuration: its own stamper, proof bundle and policy material, the partner it
 // calls and the partner's pinned policy key, its boundary key, how long it keeps a session no call uses,
-// and its clock. Every member is required. New refuses a configuration that lacks one of the settings it
-// names; the material itself is the partner's to judge, in the handshake and on each call.
+// its clock, its extension settings and what it requires of the partner. Every member but the last two is
+// required. New refuses a configuration that lacks one of the settings it names; the material itself is the
+// partner's to judge, in the handshake and on each call.
 type Config struct {
 	// Stamper is the egress service's stamper. Its Svc and Inst are the boundary stamp's, its key signs
 	// it, a key the egress's signed keyring holds for Svc, and its clock dates it.
@@ -83,6 +93,16 @@ type Config struct {
 	// Now is the egress's clock, in milliseconds since the Unix epoch: it ages a session and is the time a
 	// handshake's reply is judged at. It must be safe for concurrent use.
 	Now func() int64
+	// Extensions is the egress's own extension settings, which decide what its boundary block names. They are
+	// read from no Accepted, so they need not be its receiver's: an egress that acts on influence behind a
+	// receiver that does not names nothing, since nothing then says what the internal stamps' blocks name. The
+	// zero value acts on nothing, so the boundary block names nothing.
+	Extensions verify.Extensions
+	// Requirement is what the egress requires of the partner (sessions.md, A client that requires extensions):
+	// it makes calls only in an attested session whose reply lists each required name, unless its switch lets
+	// it go on without them, and each call's block requires what the session allows. The zero Requirement
+	// requires nothing.
+	Requirement session.Requirement
 }
 
 // Egress is an organisation's way out to one partner: it keeps the session open with that partner, which
@@ -104,11 +124,12 @@ type Egress struct {
 	current *partnerSession
 }
 
-// partnerSession is a session open with the partner: its id and whether it is attested, both fixed once
-// it is opened, and when a call last took it, which only the Egress's mutex guards.
+// partnerSession is a session open with the partner: its id, whether it is attested and what calls may be
+// made in it, all fixed once it is opened, and when a call last took it, which only the Egress's mutex guards.
 type partnerSession struct {
 	id       string
 	attested bool
+	calls    session.Calls
 	lastUsed int64
 }
 
@@ -171,13 +192,14 @@ type Step struct {
 	// Body is the request's body, whole.
 	Body []byte
 	// Headers are the headers to send, in order: Content-Type, then for the call X-Path-Session, and in an
-	// attested session X-Path-Chain, X-Path-Proof, and X-Path-Influence when the call carries influence.
+	// attested session X-Path-Chain, X-Path-Proof and X-Path-Extensions, which holds the one boundary block.
 	Headers []wire.Header
-	// Originals are the call's influence, normalised, and Sent the blinded entries it carries in their
-	// place, in an attested session's call only; both are nil otherwise. The embedder keeps them under the
-	// request's rid and the partner's entry service before it sends the call, so that it can later open
-	// any entry it sent (see influence.Opening and influence.Salt); if it cannot keep them, it must not
-	// send the call.
+	// Originals and Sent are set only on a call whose boundary block names influence: the influence the
+	// request holds, normalised, and the blinded entries the block carries, both empty, not nil, when the
+	// request holds none (influence.md, Opening an entry). Before sending the call, the embedder keeps them
+	// under the request's rid and the partner, so that any entry sent can later be opened; it does not send the
+	// call if it cannot keep them; once the call is given as a step its session counts as used all the same,
+	// unlike a call Begin refuses before giving one. Every other step has neither.
 	Originals, Sent []influence.Entry
 }
 
@@ -187,16 +209,18 @@ type Outcome struct {
 	// the Outcome's own copy.
 	Status int
 	Body   []byte
-	// Attested reports whether the call went out in an attested session, stamped and carrying the blinded
-	// influence; an unsafe session's call carries only the session id.
+	// Attested reports whether the call went out in an attested session, stamped; an unsafe session's call
+	// carries only the session id.
 	Attested bool
-	// Influence is the request's influence after the exchange: the influence Begin was given, then one
-	// local-untrusted entry for the partner's answer, its src "http:<Partner>" and its h the answer's
+	// Influence is what the request has added at the egress after the exchange: the entries Begin was given,
+	// then one local-untrusted entry for the partner's answer, its src "http:<Partner>" and its h the answer's
 	// wire.ResultHash. The partner does not attest what it answers, so its answer counts as untrusted
-	// content. When the exchange Failed, it is the influence Begin was given. It is the Outcome's own copy.
+	// content, whatever the egress's settings. When the exchange Failed, it is what Begin was given. It is the
+	// Outcome's own copy.
 	Influence []influence.Entry
-	// Failed reports that nothing of the call was sent: no session could be opened, or, should signing fail
-	// in the session just opened, the call could not be stamped in it, and Answer's error says why.
+	// Failed reports that nothing of the call was sent: no session could be opened; the session opened does
+	// not meet the requirement, and Answer's error is ErrRequirementUnmet; or, should signing fail in the
+	// session just opened, the call could not be stamped in it, and Answer's error says why.
 	Failed bool
 }
 
@@ -216,41 +240,52 @@ const (
 type Exchange struct {
 	e       *Egress
 	inbound stamp.Chain
-	infl    []influence.Entry
-	path    string
-	body    []byte
-	bind    string
-	// sent is the influence blinded and its token, which an attested call carries, and originals the
-	// influence normalised; all three are made by Begin, whatever session the call goes out in.
-	sent      []influence.Entry
-	sentTok   string
-	originals []influence.Entry
-	phase     phase
-	req       session.Request
-	sess      *partnerSession
-	outcome   Outcome
+	added   []influence.Entry
+	// names reports whether the boundary block names influence; originals and sent are then what Step keeps.
+	names           bool
+	originals, sent []influence.Entry
+	path            string
+	body            []byte
+	bind            string
+	phase           phase
+	req             session.Request
+	// first is the full handshake's check, carried to the replacement: "" where no reply was checked.
+	first   session.Check
+	sess    *partnerSession
+	outcome Outcome
 }
 
-// Begin begins the call that POSTs body to path at the partner, for the request a accepted, whose
-// influence so far is infl, and returns its exchange and the first step to send: the call itself, in the
-// session open with the partner, or, when none is, the handshake that opens one. path is the request
-// target exactly as it is to be sent, the raw path and query, which the call's binding covers. Neither infl
-// nor body is changed or kept by reference.
+// Begin begins the call that POSTs body to path at the partner, for the request a accepted, and returns its
+// exchange and the first step to send: the call itself, in the session open with the partner, or, when none
+// is, the handshake that opens one. added is what this service added itself for the request since it was
+// accepted, the answers to its own calls among them, never what it was handed on. path is the request target
+// exactly as it is to be sent, the raw path and query, which the call's binding covers. Neither added nor body
+// is changed or kept by reference.
+//
+// The boundary block names influence only when Config.Extensions acts on it and every stamp of the chain a
+// verified names it, as a's hand-over shows; a hand-over from settings that do not act on influence shows
+// nothing, so the block then names nothing too (influence.md, Blinded influence). Where it names influence,
+// its items are the blinded entries of what the request holds, the entries handed on and then added, by
+// influence.Reduce under the boundary key, [] when there are none. Otherwise it names nothing and no entry is
+// blinded or kept. Either way it requires what the session allows (session.Requirement.CallsAfter).
 //
 // Begin refuses, with ErrNotVerified, a request whose chain did not pass the live order at this hop: the
 // boundary stamp vouches for the request that led to it, so a hop that did not verify it signs nothing,
-// and sends nothing, the handshake included. It also refuses an empty path, and a path that is not valid
-// UTF-8, which has no binding. It refuses, too, a call it cannot stamp, such as one whose influence the
-// boundary key cannot blind: it blinds the influence and checks that the call can be stamped before it
-// gives the first step, whether a session is open or not. A refusal comes with no exchange and nothing
-// to send.
+// and sends nothing, the handshake included. It refuses, with ErrRequirementUnmet, a call in an open session
+// in which no call may be made. It also refuses an empty path, and a path that is not valid UTF-8, which has
+// no binding. It refuses, too, a call it cannot stamp, and one whose entries the block would carry and the
+// boundary key cannot blind: it checks both before it gives the first step, whether a session is open or not.
+// A refusal comes with no exchange and nothing to send.
 //
 // A session no call has used for Config.IdleMs is dropped here, and so is an attested session once the
-// root or the keyring the egress presents has passed its notAfter; the call then opens a new session.
+// root or the keyring the egress presents has passed its notAfter; the call then opens a new session. Only a
+// call Begin gives a step for marks the session used: one it refuses sends nothing, so it keeps no session
+// past the partner's idle period. A session in which no call may be made is never marked used, so it goes at
+// its idle period, and the call after that asks the partner again.
 func (e *Egress) Begin(
-	a paztporthttp.Accepted, infl []influence.Entry, path string, body []byte,
+	a paztporthttp.Accepted, added []influence.Entry, path string, body []byte,
 ) (*Exchange, Step, error) {
-	if !a.Verified || len(a.Inbound) == 0 {
+	if !a.Verified || len(a.Inbound.Chain) == 0 {
 		return nil, Step{}, ErrNotVerified
 	}
 	if path == "" {
@@ -261,24 +296,31 @@ func (e *Egress) Begin(
 		return nil, Step{}, err
 	}
 	cfg := &e.cfg
-	sent, err := influence.Reduce(infl, cfg.BoundaryKey, a.Inbound[0].RID, cfg.Partner, cfg.Stamper.Svc)
-	if err != nil {
-		return nil, Step{}, err
-	}
-	sentTok, err := wire.EncodeInfluence(sent)
-	if err != nil {
-		return nil, Step{}, err
-	}
 	x := &Exchange{
-		e: e, inbound: slices.Clone(a.Inbound), infl: slices.Clone(infl), path: path, body: bytes.Clone(body),
-		bind: bind, sent: sent, sentTok: sentTok, originals: influence.Normalise(infl),
+		e: e, inbound: slices.Clone(a.Inbound.Chain), added: slices.Clone(added), path: path, body: bytes.Clone(body),
+		bind: bind,
+	}
+	if held, names := e.held(a, added); names {
+		sent, err := influence.Reduce(held, cfg.BoundaryKey, x.inbound[0].RID, cfg.Partner, cfg.Stamper.Svc)
+		if err != nil {
+			return nil, Step{}, err
+		}
+		// Empty, not nil, where the request holds nothing: the block still names influence, with [].
+		x.names = true
+		x.originals = append([]influence.Entry{}, influence.Normalise(held)...)
+		x.sent = append([]influence.Entry{}, sent...)
 	}
 	s := e.take()
+	if s != nil && !s.calls.Calls {
+		return nil, Step{}, ErrRequirementUnmet
+	}
 	if s == nil || !s.attested {
 		// No attested session is open, so the call is not about to be stamped: it is stamped with a stand-in
 		// id, and the stamp dropped, so that a call that could not be stamped is refused whatever session
-		// is open, and before any handshake rather than after it.
-		if _, _, err := cfg.Stamper.Boundary(x.inbound, placeholderID, cfg.Partner, bind, sent, e.bundle); err != nil {
+		// is open, and before any handshake rather than after it. Its block requires every name the egress
+		// requires, the most any session allows, so that no session's block can be refused where this one
+		// passed.
+		if _, err := x.sign(placeholderID, cfg.Requirement.Extensions()); err != nil {
 			return nil, Step{}, err
 		}
 	}
@@ -288,6 +330,9 @@ func (e *Egress) Begin(
 		if err != nil {
 			return nil, Step{}, err
 		}
+		// Only now is the call about to go, so only now is the session used: a call refused before this
+		// sent nothing the partner saw, so it must not keep the session past the partner's idle period.
+		e.used(s)
 		x.phase = phaseCall
 		return x, step, nil
 	}
@@ -302,24 +347,31 @@ func (e *Egress) Begin(
 // next step to send and true, or false when the exchange has ended and Result gives its outcome. In order:
 //
 //   - the full handshake's answer opens the session when it is a 200 whose body the client's check
-//     (session.CheckReply, against Config.PartnerPolicyKey and Config.Partner, at Config.Now) finds
-//     genuine, attested or unsafe as it says; any other answer may mean the partner opened a session this
-//     side cannot use, so the next step is the replacement, the same request with no root and a fresh
-//     nonce;
+//     (session.CheckAndReadReply, against Config.PartnerPolicyKey and Config.Partner, at Config.Now, with
+//     Config.Requirement) finds genuine: attested or unsafe as it says, or attested where the reply fails
+//     only step 5, EXTENSION_REQUIRED, which is sound and so is not replaced. Any other answer may mean the
+//     partner opened a session this side cannot use, so the next step is the replacement, the same request
+//     with no root and a fresh nonce;
 //   - the replacement's answer opens an unsafe session when it is a 200 whose body reads as a reply,
 //     whatever status the reply gives, since nothing is signed or carried in it; any other answer ends
 //     the exchange Failed, with nothing of the call sent;
 //   - a reply's sess becomes the call's X-Path-Session only when it has the form every session id has,
 //     canonical base64url of 32 bytes; any other ends the exchange Failed;
+//   - what calls the session allows is Config.Requirement.CallsAfter's, given the full handshake's check, ""
+//     where no reply was checked, and the listing of the reply checked; the replacement's own reply is never
+//     checked, so it lists nothing. A session in which no call may be made is kept, so that the calls after
+//     it within the idle period are refused too, and the exchange ends Failed with ErrRequirementUnmet,
+//     nothing of the call sent;
 //   - the call's answer ends the exchange. A 403 whose body is exactly the wire bytes of the refusal
-//     {"reason":"SESSION_UNKNOWN"} means the partner no longer knows the session, so the session the call
-//     was made in is dropped, and the next call opens a new one; the refused call is not retried, since it
-//     may have changed something. Any other answer keeps the session.
+//     {"reason":"SESSION_UNKNOWN"} means the partner no longer knows the session, and one of
+//     {"reason":"POLICY_EXPIRED"} that it refuses every call in it, the egress's own root or keyring having
+//     expired: either drops the session the call was made in, and the next call opens a new one; the refused
+//     call is not retried, since it may have changed something. Any other answer keeps the session.
 //
-// Answer never panics on any status or body. Its error is for an exchange that has ended or was not
-// begun by Begin, and for a call that, though Begin found it could be stamped, cannot be in the session
-// just opened, such as one whose stamper's clock has left the range a stamp holds; that ends the exchange
-// Failed.
+// Answer never panics on any status or body. Its error is ErrRequirementUnmet for a session that does not
+// meet the requirement, and the error of a call that, though Begin found it could be stamped, cannot be in the
+// session just opened, such as one whose stamper's clock has left the range a stamp holds: both end the
+// exchange Failed. It errs, too, for an exchange that has ended or was not begun by Begin, and changes nothing.
 func (x *Exchange) Answer(status int, body []byte) (Step, bool, error) {
 	if x.e == nil {
 		return Step{}, false, errNotBegun
@@ -327,19 +379,27 @@ func (x *Exchange) Answer(status int, body []byte) (Step, bool, error) {
 	switch x.phase {
 	case phaseFull:
 		if status == 200 {
-			switch session.CheckReply(body, x.req, x.e.cfg.PartnerPolicyKey, x.e.cfg.Partner, x.e.cfg.Now()) {
-			case session.Attested:
-				return x.open(body, true)
-			case session.Unsafe:
-				return x.open(body, false)
+			cfg := &x.e.cfg
+			check, reply := session.CheckAndReadReply(body, x.req, cfg.PartnerPolicyKey, cfg.Partner, cfg.Now(),
+				cfg.Requirement)
+			switch check {
+			case session.Attested, session.Unsafe, session.ExtensionRequired:
+				// Step 5 runs only on a reply step 4 attested, so an EXTENSION_REQUIRED session is attested.
+				return x.open(reply.Sess, check != session.Unsafe, cfg.Requirement.CallsAfter(check, reply.Extensions))
 			}
+			x.first = check
 		}
 		return x.next(x.handshake(nil))
 	case phaseReplacement:
 		if status != 200 {
 			return x.fail()
 		}
-		return x.open(body, false)
+		// Trusted for its id alone, as unsafe: nothing is signed or carried in it.
+		reply, err := session.ParseReply(body)
+		if err != nil {
+			return x.fail()
+		}
+		return x.open(reply.Sess, false, x.e.cfg.Requirement.CallsAfter(x.first, nil))
 	case phaseCall:
 		return x.finish(status, body)
 	default:
@@ -348,12 +408,13 @@ func (x *Exchange) Answer(status int, body []byte) (Step, bool, error) {
 }
 
 // NoAnswer says the handshake last given (a Step whose Handshake is true) had no answer: it was not sent,
-// or nothing came back within the embedder's timeout. It is taken as an answer this side cannot use: the
-// full handshake is followed by the replacement, and the replacement ends the exchange Failed.
+// or nothing came back within the embedder's timeout. It is taken as an answer this side cannot use, with no
+// reply checked: the full handshake is followed by the replacement, and the replacement ends the exchange
+// Failed.
 //
 // On a call it returns ErrCallUnanswered and leaves the exchange as it is: an unanswered call ends nothing,
-// so the embedder abandons the exchange. The request's influence is still the one it passed to Begin, and
-// the session is kept.
+// so the embedder abandons the exchange. What the request added is still what it passed to Begin, and the
+// session is kept.
 func (x *Exchange) NoAnswer() (Step, bool, error) {
 	if x.e == nil {
 		return Step{}, false, errNotBegun
@@ -406,23 +467,82 @@ func (x *Exchange) next(step Step, err error) (Step, bool, error) {
 	return step, true, nil
 }
 
-// open opens the session the reply body issues, attested or unsafe, and returns the call. A body that is
-// not a reply, or whose sess is not in a session id's form, ends the exchange Failed.
-func (x *Exchange) open(body []byte, attested bool) (Step, bool, error) {
-	reply, err := session.ParseReply(body)
-	if err != nil || !isSessionID(reply.Sess) {
+// open opens the session sess, attested or unsafe, in which calls may be made, and returns the call; a sess not
+// in a session id's form ends the exchange Failed. A session in which no call may be made is opened all the
+// same, so that the calls after it are refused until its idle period ends, and the exchange ends Failed with
+// ErrRequirementUnmet.
+func (x *Exchange) open(sess string, attested bool, calls session.Calls) (Step, bool, error) {
+	if !isSessionID(sess) {
 		return x.fail()
 	}
-	x.sess = x.e.install(reply.Sess, attested)
+	x.sess = x.e.install(sess, attested, calls)
+	if !calls.Calls {
+		x.end()
+		return Step{}, false, ErrRequirementUnmet
+	}
 	x.phase = phaseCall
 	return x.next(x.call())
 }
 
-// call returns the call's step in the exchange's session. In an attested session it signs the boundary
-// stamp over the request and the blinded entries, and carries both with the route's proof; in an unsafe
-// one it carries the session id alone.
-func (x *Exchange) call() (Step, error) {
+// held returns what the request holds under influence, the entries a handed on and then added, and true, when
+// the boundary block names influence: the egress acts on it, a's hand-over is verified, and every stamp's block
+// names it with items that read. Otherwise it returns false and the block names nothing. A hand-over from
+// settings that do not act on influence says nothing of what the blocks name, so it counts as not naming it.
+func (e *Egress) held(a paztporthttp.Accepted, added []influence.Entry) ([]influence.Entry, bool) {
+	if !e.cfg.Extensions.ActsOnName(influence.Name) || a.HandOver == nil || !a.HandOver.Verified() {
+		return nil, false
+	}
+	stamps, ok := a.HandOver.Under(influence.Name)
+	if !ok {
+		return nil, false
+	}
+	// A receiver that acts on influence refuses a request holding an item that does not read, so none gets
+	// here; were one here, the block would name nothing.
+	read := influence.ReadRequest(stamps)
+	if !read.Reads() || !read.EveryStampNames {
+		return nil, false
+	}
+	return slices.Concat(read.Entries, added), true
+}
+
+// sign returns the boundary block for a call in the session sess whose block requires requires, its token for
+// X-Path-Extensions, and the boundary stamp's chain and proof, signed over the block. The token is encoded
+// before the stamp is signed, so a block past the wire limit is refused with nothing signed.
+func (x *Exchange) sign(sess string, requires []string) (stamped, error) {
 	cfg := &x.e.cfg
+	var block stamp.Block
+	var err error
+	if x.names {
+		block, err = influence.RequestBlock(x.sent, requires)
+	} else {
+		block, err = stamp.NewBlock(nil, requires)
+	}
+	if err != nil {
+		return stamped{}, err
+	}
+	blocks, err := wire.EncodeBlocks(stamp.Blocks{block})
+	if err != nil {
+		return stamped{}, err
+	}
+	chain, proof, err := cfg.Stamper.Boundary(x.inbound, sess, cfg.Partner, x.bind, block, x.e.bundle)
+	if err != nil {
+		return stamped{}, err
+	}
+	return stamped{chain: chain, proof: proof, blocks: blocks}, nil
+}
+
+// stamped is a boundary stamp's chain and proof, and the token of the block it commits to.
+type stamped struct {
+	chain  stamp.Chain
+	proof  *policy.Proof
+	blocks string
+}
+
+// call returns the call's step in the exchange's session. In an attested session it signs the boundary
+// stamp over the request and the boundary block, and carries the stamp with the route's proof and the block;
+// in an unsafe one it signs nothing and carries the session id alone (sessions.md, Between organisations,
+// step 5).
+func (x *Exchange) call() (Step, error) {
 	step := Step{
 		Path: x.path, Body: x.body,
 		Headers: []wire.Header{contentType, {Name: wire.Session, Value: x.sess.id}},
@@ -430,48 +550,50 @@ func (x *Exchange) call() (Step, error) {
 	if !x.sess.attested {
 		return step, nil
 	}
-	chain, proof, err := cfg.Stamper.Boundary(x.inbound, x.sess.id, cfg.Partner, x.bind, x.sent, x.e.bundle)
+	s, err := x.sign(x.sess.id, x.sess.calls.Requires)
 	if err != nil {
 		return Step{}, err
 	}
-	tok, err := wire.EncodeChain(chain)
+	tok, err := wire.EncodeChain(s.chain)
 	if err != nil {
 		return Step{}, err
 	}
 	step.Headers = append(step.Headers, wire.Header{Name: wire.Chain, Value: tok})
-	if proof != nil {
-		if tok, err = wire.EncodeProof(*proof); err != nil {
+	if s.proof != nil {
+		if tok, err = wire.EncodeProof(*s.proof); err != nil {
 			return Step{}, err
 		}
 		step.Headers = append(step.Headers, wire.Header{Name: wire.Proof, Value: tok})
 	}
-	if x.sentTok != "" {
-		step.Headers = append(step.Headers, wire.Header{Name: wire.Influence, Value: x.sentTok})
+	step.Headers = append(step.Headers, wire.Header{Name: wire.Extensions, Value: s.blocks})
+	if x.names {
+		step.Originals, step.Sent = slices.Clone(x.originals), slices.Clone(x.sent)
 	}
-	step.Originals, step.Sent = slices.Clone(x.originals), slices.Clone(x.sent)
 	return step, nil
 }
 
 // finish ends the exchange with the partner's answer to the call, and drops the call's session when the
-// answer is the refusal SESSION_UNKNOWN.
+// answer is the refusal SESSION_UNKNOWN or POLICY_EXPIRED.
 func (x *Exchange) finish(status int, body []byte) (Step, bool, error) {
 	answer := influence.Entry{
 		Class: influence.LocalUntrusted, Src: "http:" + x.e.cfg.Partner, H: wire.ResultHash(status, body),
 	}
 	x.outcome = Outcome{
 		Status: status, Body: bytes.Clone(body), Attested: x.sess.attested,
-		Influence: slices.Concat(x.infl, []influence.Entry{answer}),
+		Influence: slices.Concat(x.added, []influence.Entry{answer}),
 	}
 	x.phase = phaseDone
-	if status == 403 && refusalReason(body) == reason.SessionUnknown {
-		x.e.drop(x.sess)
+	if status == 403 {
+		if r := refusalReason(body); r == reason.SessionUnknown || r == reason.PolicyExpired {
+			x.e.drop(x.sess)
+		}
 	}
 	return Step{}, false, nil
 }
 
 // end ends the exchange Failed: nothing of the call was sent.
 func (x *Exchange) end() {
-	x.outcome = Outcome{Influence: slices.Clone(x.infl), Failed: true}
+	x.outcome = Outcome{Influence: slices.Clone(x.added), Failed: true}
 	x.phase = phaseDone
 }
 
@@ -481,9 +603,12 @@ func (x *Exchange) fail() (Step, bool, error) {
 	return Step{}, false, nil
 }
 
-// take returns the session open with the partner, marked as used now, or nil when none is; a session no
-// call has used for IdleMs is dropped first, and so is an attested session once the egress's own root or
-// keyring has passed its notAfter, since the partner would refuse every call in it as POLICY_EXPIRED.
+// take returns the session open with the partner, or nil when none is. A session no call has used for IdleMs is
+// dropped first, and so is an attested session once the egress's own root or keyring has passed its notAfter,
+// since the partner would refuse every call in it as POLICY_EXPIRED. take does not mark the session used: Begin
+// does, once the call's step is made, so that a call refused after take sends nothing and uses nothing. A session
+// in which no call may be made is used by no call, so it goes at its idle period and the partner is asked again,
+// which may by then meet the requirement.
 func (e *Egress) take() *partnerSession {
 	now := e.cfg.Now()
 	e.mu.Lock()
@@ -497,14 +622,23 @@ func (e *Egress) take() *partnerSession {
 		e.current = nil
 		return nil
 	}
-	// A clock read earlier, by a call that took the lock later, never moves the time back.
-	s.lastUsed = max(s.lastUsed, now)
 	return s
 }
 
-// install makes the session id, attested or not, the one open with the partner, used now, and returns it.
-func (e *Egress) install(id string, attested bool) *partnerSession {
-	s := &partnerSession{id: id, attested: attested, lastUsed: e.cfg.Now()}
+// used marks s used now, by a call about to go in it. s may have been dropped or replaced since the call found
+// it; marking it then changes nothing the egress reads.
+func (e *Egress) used(s *partnerSession) {
+	now := e.cfg.Now()
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	// A clock read earlier, by a call that took the lock later, never moves the time back.
+	s.lastUsed = max(s.lastUsed, now)
+}
+
+// install makes the session id, attested or not and allowing calls, the one open with the partner, opened now,
+// and returns it.
+func (e *Egress) install(id string, attested bool, calls session.Calls) *partnerSession {
+	s := &partnerSession{id: id, attested: attested, calls: calls, lastUsed: e.cfg.Now()}
 	e.mu.Lock()
 	e.current = s
 	e.mu.Unlock()

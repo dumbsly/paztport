@@ -165,7 +165,7 @@ var (
 )
 
 // ParseOpening reads an opening from its wire bytes, its canonical bytes. The bytes hold an object of
-// exactly cls, one of the four classes; originals, a list of entries as ParseEntries reads one; salt,
+// exactly cls, one of the four classes; originals, an array of entries, each as ParseEntry reads one; salt,
 // canonical base64url of SaltLength bytes; and, when present, owner, a non-empty string. Whether the
 // opening opens anything is Opens's question, not this one's.
 //

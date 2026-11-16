@@ -68,10 +68,10 @@ func TestJoinRoute(t *testing.T) {
 	}
 }
 
-// signedKeyring returns the text of v3.json's signed keyring file.
+// signedKeyring returns the text of v4.json's signed keyring file.
 func signedKeyring(t *testing.T) string {
 	t.Helper()
-	return vectors.Load(t, "v3.json").Get("keyring").Index(0).Get("file").Str()
+	return vectors.Load(t, "v4.json").Get("keyring").Index(0).Get("file").Str()
 }
 
 // keyringText returns a keyring file whose members hold the JSON texts given, then extra.
@@ -82,7 +82,7 @@ func keyringText(notAfter, policyKey, services, sig, extra string) string {
 
 // TestKeyringFileRefuses reads keyrings the schema refuses, each for one fault. A refusal quotes nothing.
 func TestKeyringFileRefuses(t *testing.T) {
-	_, pub := vectors.V3Key(t, "pi")
+	_, pub := vectors.VectorKey(t, "pi")
 	key := `"` + keys.EncodePublic(pub) + `"`
 	const notAfter, sig = "1798761600000", `"secretsig"`
 	services := `{"pi": ` + key + `}`
@@ -128,7 +128,7 @@ func TestKeyringKeys(t *testing.T) {
 		t.Fatalf("Keyring holds %d keys, want 2", len(k))
 	}
 	for _, svc := range []string{"pi", "session"} {
-		_, pub := vectors.V3Key(t, svc)
+		_, pub := vectors.VectorKey(t, svc)
 		if !bytes.Equal(k[svc], pub) {
 			t.Errorf("Keyring()[%q] = %x, want %x", svc, k[svc], pub)
 		}
@@ -143,7 +143,7 @@ func TestKeyringKeys(t *testing.T) {
 }
 
 func TestSignRefuses(t *testing.T) {
-	priv, _ := vectors.V3Key(t, "client-policy")
+	priv, _ := vectors.VectorKey(t, "client-policy")
 	pin := keys.EncodePublic(priv.Public().(ed25519.PublicKey))
 	services := map[string]string{"pi": pin}
 
@@ -208,7 +208,7 @@ func TestRefusalText(t *testing.T) {
 		t.Errorf("ParseKeyringFile error = %v, want %s", err, want)
 	}
 
-	priv, _ := vectors.V3Key(t, "client-policy")
+	priv, _ := vectors.VectorKey(t, "client-policy")
 	pin := keys.EncodePublic(priv.Public().(ed25519.PublicKey))
 	_, signErr := policy.SignKeyring(map[string]string{"": pin}, pin, 1, priv)
 	_, keysErr := policy.KeyringFile{Services: map[string]string{"": pin}}.Keyring()
@@ -226,7 +226,7 @@ func TestRefusalText(t *testing.T) {
 // TestVerifiesNeverPanics hands the verifiers keys and signatures of the wrong length, where ed25519.Verify
 // would panic or a decoder fail: each says false.
 func TestVerifiesNeverPanics(t *testing.T) {
-	priv, pub := vectors.V3Key(t, "client-policy")
+	priv, pub := vectors.VectorKey(t, "client-policy")
 	pin := keys.EncodePublic(pub)
 	root, err := policy.SignRoot(make([]byte, 32), "v1", 1, priv)
 	if err != nil {
@@ -240,7 +240,7 @@ func TestVerifiesNeverPanics(t *testing.T) {
 			t.Errorf("Root.Verifies accepted the pin %q", p)
 		}
 	}
-	if _, other := vectors.V3Key(t, "server-policy"); root.Verifies(keys.EncodePublic(other)) {
+	if _, other := vectors.VectorKey(t, "server-policy"); root.Verifies(keys.EncodePublic(other)) {
 		t.Error("Root.Verifies accepted another policy key")
 	}
 	sig := decode(t, root.Sig)
@@ -301,8 +301,8 @@ func TestVerifiesNeverPanics(t *testing.T) {
 // TestVerifiesUnderPinOnly checks that a keyring or certificate verifies only under the policy key it names:
 // one signed by the pinned key but naming another policy key fails, though its signature is good.
 func TestVerifiesUnderPinOnly(t *testing.T) {
-	priv, pub := vectors.V3Key(t, "server-policy")
-	_, other := vectors.V3Key(t, "client-policy")
+	priv, pub := vectors.VectorKey(t, "server-policy")
+	_, other := vectors.VectorKey(t, "client-policy")
 	pin, named := keys.EncodePublic(pub), keys.EncodePublic(other)
 
 	kf, err := policy.SignKeyring(map[string]string{"pi": pin}, named, 1, priv)
@@ -324,7 +324,7 @@ func TestVerifiesUnderPinOnly(t *testing.T) {
 // TestKeyringBuiltInCode holds a keyring built in code to the route-node rule the reader applies: one that
 // names a service a/b, though the policy key signed it, neither verifies nor decodes.
 func TestKeyringBuiltInCode(t *testing.T) {
-	priv, pub := vectors.V3Key(t, "client-policy")
+	priv, pub := vectors.VectorKey(t, "client-policy")
 	pin := keys.EncodePublic(pub)
 	for _, name := range []string{"a/b", "..", "", "a|b", "\xed\xa0\x80"} {
 		services := map[string]string{"pi": pin, name: pin}
@@ -389,7 +389,7 @@ func TestCurrent(t *testing.T) {
 // TestRootReads reads a root as a file and from a value, as a session message holds one, and refuses one
 // with any member but its four or bytes that are not canonical.
 func TestRootReads(t *testing.T) {
-	c := vectors.Load(t, "v3.json").Get("root").Index(0)
+	c := vectors.Load(t, "v4.json").Get("root").Index(0)
 	file := c.Get("file").Str()
 	root, err := policy.ParseRootFile([]byte(file))
 	if err != nil {
@@ -440,7 +440,7 @@ func TestRootReads(t *testing.T) {
 
 // TestReplyCertReads reads a certificate from its wire bytes, as a session reply carries one.
 func TestReplyCertReads(t *testing.T) {
-	cert, err := policy.ParseReplyCertFile([]byte(vectors.Load(t, "v3.json").Get("replyCert").Index(0).Get("file").Str()))
+	cert, err := policy.ParseReplyCertFile([]byte(vectors.Load(t, "v4.json").Get("replyCert").Index(0).Get("file").Str()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -483,7 +483,7 @@ func withMember(o json.Value, name string, v json.Value) json.Value {
 // proof returns the merkle vectors' proof for route, and their root.
 func proof(t *testing.T, route string) (policy.Proof, []byte) {
 	t.Helper()
-	m := vectors.Load(t, "v3.json").Get("merkle")
+	m := vectors.Load(t, "v4.json").Get("merkle")
 	p, err := policy.ReadProof(m.Get("proofHeaders").Get(route).Str())
 	if err != nil {
 		t.Fatal(err)
@@ -704,7 +704,7 @@ func TestProofsAreAnObject(t *testing.T) {
 // TestLoad reads each kind of file from disk, by the rules its Parse function reads bytes, and names the file
 // in a refusal.
 func TestLoad(t *testing.T) {
-	v3 := vectors.Load(t, "v3.json")
+	v4 := vectors.Load(t, "v4.json")
 	dir := t.TempDir()
 	write := func(name, text string) string {
 		file := filepath.Join(dir, name)
@@ -714,17 +714,17 @@ func TestLoad(t *testing.T) {
 		return file
 	}
 
-	keyringText := v3.Get("keyring").Index(0).Get("file").Str()
+	keyringText := v4.Get("keyring").Index(0).Get("file").Str()
 	kf, err := policy.LoadKeyringFile(write("keyring.json", keyringText))
 	if want, _ := policy.ParseKeyringFile([]byte(keyringText)); err != nil || !reflect.DeepEqual(kf, want) {
 		t.Errorf("LoadKeyringFile = %+v, %v; want %+v", kf, err, want)
 	}
-	rootText := v3.Get("root").Index(0).Get("file").Str()
+	rootText := v4.Get("root").Index(0).Get("file").Str()
 	root, err := policy.LoadRootFile(write("root.json", rootText))
 	if want, _ := policy.ParseRootFile([]byte(rootText)); err != nil || root != want {
 		t.Errorf("LoadRootFile = %+v, %v; want %+v", root, err, want)
 	}
-	certText := v3.Get("replyCert").Index(0).Get("file").Str()
+	certText := v4.Get("replyCert").Index(0).Get("file").Str()
 	cert, err := policy.LoadReplyCertFile(write("reply-cert.json", certText))
 	if want, _ := policy.ParseReplyCertFile([]byte(certText)); err != nil || cert != want {
 		t.Errorf("LoadReplyCertFile = %+v, %v; want %+v", cert, err, want)
@@ -809,7 +809,7 @@ func TestAddressedTo(t *testing.T) {
 // TestKeyringRefusesHashInService refuses a keyring naming a service with '#': the character separates a
 // service from an operation in a stamp's rcv, so a service name holding it could imitate the pair.
 func TestKeyringRefusesHashInService(t *testing.T) {
-	_, pub := vectors.V3Key(t, "pi")
+	_, pub := vectors.VectorKey(t, "pi")
 	key := `"` + keys.EncodePublic(pub) + `"`
 	for _, name := range []string{"orders#createOrder", "#", "a#"} {
 		text := keyringText("1798761600000", key, `{"`+name+`": `+key+`}`, `"sig"`, "")

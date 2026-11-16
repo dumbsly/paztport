@@ -1,11 +1,10 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createPublicKey } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-  decode,
+  isEd25519PublicKey,
   keyFileText,
   readKeyringFile,
   readProofBundleFile,
@@ -24,15 +23,6 @@ const REGENERATE = "regenerate the demo keys with npm run setup-demo -- --force"
 
 function readText(path: string): string {
   return keyFileText(readFileSync(path, "utf8"));
-}
-
-/** Whether `key` decodes as an Ed25519 SPKI public key, the form the policy-tool writes; never throws. */
-function isPublicKey(key: string): boolean {
-  try {
-    return createPublicKey({ key: Buffer.from(decode(key)), format: "der", type: "spki" }).asymmetricKeyType === "ed25519";
-  } catch {
-    return false;
-  }
 }
 
 /** Runs the SDK's whole server-policy check at `now`; its refusal is passed on with where the files came from and the fix. */
@@ -88,7 +78,7 @@ export function loadServerConfig(dir: string, now: number = Date.now()): ServerP
     throw new Error(`${pinPath} is missing: regenerate the demo keys with npm run setup-demo -- --force`);
   }
   const clientPin = readText(pinPath);
-  if (!isPublicKey(clientPin)) {
+  if (!isEd25519PublicKey(clientPin)) {
     throw new Error(`${pinPath} is not a public key: regenerate the demo keys with npm run setup-demo -- --force`);
   }
   const cfg: ServerPolicy = {

@@ -16,7 +16,7 @@ class OpeningsWiringTest {
 
     @Test
     void presentWhenTheFlagIsOn() {
-        runner.withPropertyValues("paztport.openings=true").run(context -> {
+        runner.withPropertyValues("mesh.openings=true").run(context -> {
             assertEquals(1, context.getBeanNamesForType(ReceivedInfluence.class).length);
             assertEquals(1, context.getBeanNamesForType(OpeningCheckController.class).length);
         });
@@ -28,7 +28,7 @@ class OpeningsWiringTest {
             assertEquals(0, context.getBeanNamesForType(ReceivedInfluence.class).length);
             assertEquals(0, context.getBeanNamesForType(OpeningCheckController.class).length);
         });
-        runner.withPropertyValues("paztport.openings=false").run(context -> {
+        runner.withPropertyValues("mesh.openings=false").run(context -> {
             assertEquals(0, context.getBeanNamesForType(ReceivedInfluence.class).length);
             assertEquals(0, context.getBeanNamesForType(OpeningCheckController.class).length);
         });

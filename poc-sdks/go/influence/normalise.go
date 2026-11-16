@@ -5,11 +5,9 @@ package influence
 
 import (
 	"cmp"
-	"crypto/sha256"
 	"slices"
 	"strings"
 
-	"github.com/dumbsly/paztport/poc-sdks/go/internal/b64"
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/json"
 )
 
@@ -18,26 +16,12 @@ import (
 // in; an absent cid or owner sorts before any present one. Two entries are duplicates when their wire
 // forms are equal, so an entry with an owner and the same entry without one are both kept.
 //
-// Normalising first means the order a client happened to record things in doesn't change the
-// commitment.
+// Normalising first means the order a client happened to record things in doesn't change a commitment
+// made over the list, such as a blinded group's (Reduce).
 func Normalise(es []Entry) []Entry {
 	sorted := slices.Clone(es)
 	slices.SortStableFunc(sorted, compare)
 	return slices.CompactFunc(sorted, func(a, b Entry) bool { return compare(a, b) == 0 })
-}
-
-// Commit returns the commitment to es that a stamp carries as infl: "" when es is empty, and otherwise
-// b64url(SHA-256(JCS(Normalise(es)))). It refuses what EntriesWire refuses.
-func Commit(es []Entry) (string, error) {
-	if len(es) == 0 {
-		return "", nil
-	}
-	b, err := EntriesWire(Normalise(es))
-	if err != nil {
-		return "", err
-	}
-	sum := sha256.Sum256(b)
-	return b64.Encode(sum[:]), nil
 }
 
 // compare orders a and b as Normalise sorts them. It returns 0 exactly when their wire forms are equal:

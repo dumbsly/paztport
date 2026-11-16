@@ -4,11 +4,9 @@
 package org.paztport.core.stamp;
 
 import java.nio.charset.StandardCharsets;
-import java.util.List;
 import org.paztport.core.crypto.Crypto;
 import org.paztport.core.encoding.Base64Url;
 import org.paztport.core.encoding.Text;
-import org.paztport.core.influence.ContentLabel;
 
 /**
  * What a stamp's {@code bind} field commits to, by kind. The prompt binding hashes its own domain prefix
@@ -35,19 +33,18 @@ public final class Bindings {
     }
 
     /**
-     * The response binding: {@code b64url(SHA-256(utf8(resultHash + "\n" + callId + "\n" + JCS(labels))))}, the
-     * labels written by {@link ContentLabel#toJson(List)}. A newline in
-     * the call id would let two (hash, id) pairs share bytes, and a lone surrogate would encode as {@code ?}, so both
-     * are refused with {@link IllegalArgumentException}.
+     * The response binding (spec wire.md, Bindings): {@code b64url(SHA-256(utf8(resultHash + "\n" + callId)))}, with
+     * no prefix. A newline in the call id would let two (hash, id) pairs share bytes, and a lone surrogate would
+     * encode as {@code ?}, so both are refused with {@link IllegalArgumentException}.
      */
-    public static String response(String resultHash, String callId, List<ContentLabel> labels) {
+    public static String response(String resultHash, String callId) {
         if (!Text.isWellFormed(resultHash) || !Text.isWellFormed(callId)) {
             throw new IllegalArgumentException("response: not well-formed Unicode");
         }
         if (callId.contains("\n")) {
             throw new IllegalArgumentException("response: callId must not contain newlines");
         }
-        String text = resultHash + "\n" + callId + "\n" + ContentLabel.toJson(labels);
+        String text = resultHash + "\n" + callId;
         return Base64Url.encode(Crypto.sha256(text.getBytes(StandardCharsets.UTF_8)));
     }
 }

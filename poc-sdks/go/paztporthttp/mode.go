@@ -13,8 +13,7 @@ import (
 // two different reasons.
 //
 // A mode applies at an origin too: there it decides whether a request is refused or reported, though an
-// origin never carries the request's chain or influence, never takes the chain as verified and never
-// attests.
+// origin never carries the request's chain or blocks, never takes the chain as verified and never attests.
 //
 // The zero Mode is ModeEnforce, and a value that is none of the four is treated as ModeEnforce, so a mode
 // left unset, or set to nonsense, fails closed: a service that cannot tell which mode it is in must
@@ -25,16 +24,20 @@ type Mode int
 const (
 	// ModeEnforce verifies each request and refuses one whose result is not OK, with that result's code.
 	ModeEnforce Mode = iota
-	// ModeAudit verifies each request and refuses nothing: a request that fails is served, but not as
-	// verified, so its response is not attested and it cannot write a trusted record. Influence that
-	// does not read is still refused, since it may not be dropped.
+	// ModeAudit verifies each request and refuses none that fails: a request that fails is served, but not as
+	// verified, so its response is not attested and it cannot write a trusted record. Blocks that do not match
+	// their stamps are still refused, 400 EXTENSION_MISMATCH, since none may be dropped or altered, and so, at a
+	// service acting on influence, is an influence item that does not read, 400 INFLUENCE_MISMATCH.
 	ModeAudit
 	// ModeOff is a hop its deployment has switched Paztport off on: it verifies, attests and reports
-	// nothing, so its callers count its responses untrusted. The chain and the influence are still
-	// carried, and influence that does not read is still refused.
+	// nothing, so its callers count its responses untrusted. The chain and its blocks are still carried and
+	// their items handed on, not verified, and blocks that do not match their stamps, or an influence item that
+	// does not read at a service acting on influence, are still refused with 400.
 	ModeOff
 	// ModeNone is a service that verifies no requests and has no mode to switch: it refuses no chain,
-	// but it is not off, so where it can attest, it verifies the chain once to decide whether it does.
+	// but it is not off, so where it can attest, it verifies the chain once to decide whether it does. As under
+	// ModeOff, blocks that do not match their stamps are refused, and so, at a service acting on influence, is an
+	// influence item that does not read.
 	ModeNone
 )
 

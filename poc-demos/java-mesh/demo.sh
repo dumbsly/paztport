@@ -201,15 +201,22 @@ check_reason "2  no headers" 403 CHAIN_MISSING
 mreq POST "https://search:8080/attack/forge-gateway"
 check_reason "3  forged gateway stamp" 403 BAD_SIGNATURE
 
-# 4 — forward a real gateway->search chain to payment (no proof exists)
+# 4 — forward a real gateway->search chain to payment, with the blocks it came with (no proof exists)
 mreq GET "https://gateway:8080/find"
 mreq POST "https://search:8080/attack/forward-stolen"
 check_reason "4  forward stolen chain" 403 PATH_NOT_ALLOWED
 
-# 5 — replay a captured valid request
+# 4b — the same, with one stolen block altered: the gateway's block gains an influence entry its stamp never
+# committed to, so payment refuses the chain at check 9a, before its route
+mreq GET "https://gateway:8080/find"
+mreq POST "https://search:8080/attack/forward-altered"
+check_reason "4b forward stolen chain, one block altered" 403 EXTENSION_MISMATCH
+
+# 5 — a captured valid request re-sent by another service: search sends orders' call to payment from its own
+# connection, so payment refuses it at the peer check, before its nonce is spent (row 16b shows REPLAY)
 mreq POST "https://gateway:8080/checkout" -H 'Content-Type: application/json' -d '{}'
 mreq POST "https://search:8080/attack/replay"
-check_reason "5  replay" 403 REPLAY
+check_reason "5  replay sent by another service" 403 PEER_MISMATCH
 
 # 6 — valid chain, body altered after the last stamp
 mreq POST "https://gateway:8080/checkout" -H 'Content-Type: application/json' -d '{}'

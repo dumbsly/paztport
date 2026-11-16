@@ -22,11 +22,11 @@ import org.springframework.stereotype.Component;
  * the latest {@value #CAPACITY} requests so a long run cannot grow it without end, and only the last call of a rid
  * to a partner, since each of the demo's requests calls the PSP at most once (a sender whose requests may call one
  * partner again after the nonce window keeps every call's originals). Enabled only when
- * {@code paztport.openings=true}; as the egress's only {@link BoundaryListener}, it is then told of every attested
+ * {@code mesh.openings=true}; as the egress's only {@link BoundaryListener}, it is then told of every attested
  * call before it goes. The originals are the shop's secrets, so nothing here logs them.
  */
 @Component
-@ConditionalOnProperty(name = "paztport.openings", havingValue = "true")
+@ConditionalOnProperty(name = "mesh.openings", havingValue = "true")
 public final class BoundaryOpenings implements BoundaryListener {
 
     /** Enough for every request of a demo run several times over. */

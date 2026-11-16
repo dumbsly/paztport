@@ -15,23 +15,25 @@ import org.paztport.core.policy.Routes;
 import org.paztport.core.verify.ReasonCode;
 
 /**
- * Reads a chain off the wire, strictly: the first two checks of the live order. The chain's text must be the JCS
- * text of an array of stamps, each with exactly the stamp's members, and it never throws; every malformed input,
- * text that is not JSON included, comes back as a {@link ParsedChain} carrying a reason.
+ * Reads a chain off the wire, strictly: check 1 of the live order (spec verification.md, The live order). The
+ * chain's text must be the JCS text of an array of stamps, each with exactly the stamp's members, and it never
+ * throws; every malformed input, text that is not JSON included, comes back as a {@link ParsedChain} carrying
+ * {@code CHAIN_MISSING}.
  */
 public final class Chains {
 
     private static final Set<String> MEMBERS =
-            Set.of("v", "svc", "inst", "rid", "ts", "sess", "rcv", "bind", "infl", "prev", "sig");
+            Set.of("v", "svc", "inst", "rid", "ts", "sess", "rcv", "bind", "ext", "prev", "sig");
 
     private Chains() {
     }
 
     /**
-     * Check 1: the chain is read from its bytes (the JCS text of a non-empty array of stamps, each with exactly the
-     * stamp's members, {@code v} 3, {@code ts} a protocol integer, the rest strings, {@code sig} canonical
-     * base64url), all {@code CHAIN_MISSING}. Check 2: no signed field holds {@code |}, {@code BAD_SIGNATURE}. Null
-     * is {@code CHAIN_MISSING} too.
+     * Check 1: the chain is read from its bytes (spec wire.md, Chains and Stamp field rules): the JCS text of a
+     * non-empty array of stamps, each with exactly the stamp's members, {@code v} {@link Stamp#VERSION}, {@code ts} a
+     * protocol integer, the rest strings, {@code sig} canonical base64url. Anything else, null included, is
+     * {@code CHAIN_MISSING}. A field holding {@code |} reads, and {@code ext} is never decoded: check 9a compares it
+     * as text.
      */
     public static ParsedChain parse(String json) {
         if (json == null) {
@@ -48,13 +50,6 @@ public final class Chains {
             }
         } catch (IllegalArgumentException e) {
             return ParsedChain.fail(ReasonCode.CHAIN_MISSING);
-        }
-        for (Stamp s : out) {
-            try {
-                s.signingBytes();
-            } catch (IllegalArgumentException e) {
-                return ParsedChain.fail(ReasonCode.BAD_SIGNATURE);
-            }
         }
         return new ParsedChain(out, null);
     }
@@ -98,8 +93,8 @@ public final class Chains {
     private static Stamp stamp(JsonValue item) {
         JsonValue.Obj o = JsonFields.object(item);
         JsonFields.exactly(o, MEMBERS, Set.of());
-        if (JsonFields.integer(o, "v") != 3) {
-            throw new IllegalArgumentException("member v is not 3");
+        if (JsonFields.integer(o, "v") != Stamp.VERSION) {
+            throw new IllegalArgumentException("member v is not " + Stamp.VERSION);
         }
         String sig = JsonFields.string(o, "sig");
         try {
@@ -109,6 +104,6 @@ public final class Chains {
         }
         return new Stamp(JsonFields.string(o, "svc"), JsonFields.string(o, "inst"), JsonFields.string(o, "rid"),
                 JsonFields.integer(o, "ts"), JsonFields.string(o, "sess"), JsonFields.string(o, "rcv"),
-                JsonFields.string(o, "bind"), JsonFields.string(o, "infl"), JsonFields.string(o, "prev"), sig);
+                JsonFields.string(o, "bind"), JsonFields.string(o, "ext"), JsonFields.string(o, "prev"), sig);
     }
 }

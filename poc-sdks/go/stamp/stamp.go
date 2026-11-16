@@ -7,8 +7,6 @@ import (
 	"crypto/ed25519"
 	"errors"
 	"fmt"
-	"strconv"
-	"strings"
 
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/b64"
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/json"
@@ -16,11 +14,15 @@ import (
 	"github.com/dumbsly/paztport/poc-sdks/go/keys"
 )
 
-// version is the stamp version this package reads and writes, its v.
-const version = 3
+// Version is the protocol version this package reads and writes, a stamp's v. It is the one place in the module
+// the number is written: the reader, the writer and the signed bytes all take it from here.
+const Version = 4
+
+// signingPrefix is the stamp's domain prefix, which starts its signed bytes (wire.md, Encodings).
+const signingPrefix = "paztport-stamp\n"
 
 // Stamp is one hop's signed statement about a request. On the wire it is the object {v, svc, inst, rid,
-// ts, sess, rcv, bind, infl, prev, sig}, with v always 3, which a writer adds.
+// ts, sess, rcv, bind, ext, prev, sig}, with v always Version, which a writer adds.
 type Stamp struct {
 	// Svc is the signing service, whose key a verifier looks up by this name.
 	Svc string
@@ -38,8 +40,9 @@ type Stamp struct {
 	Rcv string
 	// Bind is the binding of what this hop sent.
 	Bind string
-	// Infl is the commitment to the influence that shaped the call, or "" for none.
-	Infl string
+	// Ext is the commitment to the block of claims the signer attaches (Block.Commit): "" for the empty block.
+	// It is compared as text and never decoded.
+	Ext string
 	// Prev is the previous stamp's Sig, exactly as written, or "" at the origin.
 	Prev string
 	// Sig is the base64url of the signer's Ed25519 signature over the stamp's signing bytes.
@@ -53,7 +56,11 @@ func Sign(f Stamp, key ed25519.PrivateKey) (Stamp, error) {
 	if err := f.fault(); err != nil {
 		return Stamp{}, fmt.Errorf("paztport stamp: can't sign: %w", err)
 	}
-	sig, err := keys.Sign(key, f.signingBytes())
+	msg, err := f.signingBytes()
+	if err != nil {
+		return Stamp{}, fmt.Errorf("paztport stamp: can't sign: %w", err)
+	}
+	sig, err := keys.Sign(key, msg)
 	if err != nil {
 		return Stamp{}, fmt.Errorf("paztport stamp: can't sign: %w", err)
 	}
@@ -61,18 +68,24 @@ func Sign(f Stamp, key ed25519.PrivateKey) (Stamp, error) {
 	return f, nil
 }
 
-// SigningBytes returns the bytes the stamp's signature covers:
+// SigningBytes returns the bytes the stamp's signature covers (wire.md, Fields and signed bytes):
 //
-//	utf8("3|" svc "|" inst "|" rid "|" ts "|" sess "|" rcv "|" bind "|" infl "|" prev)
+//	utf8("paztport-stamp\n") || utf8(JCS(the stamp without sig))
 //
-// with ts in decimal. They do not depend on Sig. It refuses a stamp no signer may sign: a TS outside
-// [0, 2^53 - 1], or a signed field that holds "|", is not valid UTF-8 (the bytes of a lone surrogate
-// among them) or holds a noncharacter. The error names the field and never quotes it.
+// the domain prefix, then the canonical bytes of an object of the ten members other than sig, v included. JCS
+// escapes every string, so two different stamps never share signed bytes, and a field holding "|" signs like
+// any other. They do not depend on Sig. It refuses a stamp no signer may sign: a TS outside [0, 2^53 - 1], or a
+// string field that is not valid UTF-8 (the bytes of a lone surrogate among them) or holds a noncharacter. The
+// error names the field and never quotes it.
 func (s Stamp) SigningBytes() ([]byte, error) {
 	if err := s.fault(); err != nil {
 		return nil, fmt.Errorf("paztport stamp: no signing bytes: %w", err)
 	}
-	return s.signingBytes(), nil
+	msg, err := s.signingBytes()
+	if err != nil {
+		return nil, fmt.Errorf("paztport stamp: no signing bytes: %w", err)
+	}
+	return msg, nil
 }
 
 // Wire returns the stamp's wire bytes, its canonical bytes. It refuses what SigningBytes refuses, and a
@@ -84,11 +97,14 @@ func (s Stamp) Wire() ([]byte, error) {
 	return wire(s.value())
 }
 
-// signingBytes returns the signing bytes of s, whose fields fault has passed.
-func (s Stamp) signingBytes() []byte {
-	b := []byte("3|" + s.Svc + "|" + s.Inst + "|" + s.RID + "|")
-	b = strconv.AppendInt(b, s.TS, 10)
-	return append(b, "|"+s.Sess+"|"+s.Rcv+"|"+s.Bind+"|"+s.Infl+"|"+s.Prev...)
+// signingBytes returns the signing bytes of s, whose fields fault has passed. The writer refuses only what fault
+// has refused, and an object over the wire limit, which no chain that reads holds.
+func (s Stamp) signingBytes() ([]byte, error) {
+	b, err := json.Wire(s.object(false))
+	if err != nil {
+		return nil, err
+	}
+	return append([]byte(signingPrefix), b...), nil
 }
 
 // fault says why no signer may sign s, naming the field, or returns nil if one may.
@@ -98,8 +114,6 @@ func (s Stamp) fault() error {
 	}
 	for _, f := range s.signed() {
 		switch {
-		case strings.Contains(f.value, "|"):
-			return fmt.Errorf(`the field %s holds "|"`, f.name)
 		case !text.Valid(f.value):
 			return fmt.Errorf("the field %s is not valid UTF-8", f.name)
 		case text.HasNoncharacter(f.value):
@@ -114,11 +128,11 @@ type field struct {
 	name, value string
 }
 
-// signed returns the stamp's signed string fields, in the order they are signed.
+// signed returns the stamp's signed string fields.
 func (s Stamp) signed() []field {
 	return []field{
 		{"svc", s.Svc}, {"inst", s.Inst}, {"rid", s.RID}, {"sess", s.Sess}, {"rcv", s.Rcv},
-		{"bind", s.Bind}, {"infl", s.Infl}, {"prev", s.Prev},
+		{"bind", s.Bind}, {"ext", s.Ext}, {"prev", s.Prev},
 	}
 }
 
@@ -135,19 +149,28 @@ func (s Stamp) writable() error {
 
 // value returns the stamp as a JSON object.
 func (s Stamp) value() json.Value {
-	return json.Obj(
-		json.Member{Name: "v", Value: json.I(version)},
-		json.Member{Name: "svc", Value: json.S(s.Svc)},
-		json.Member{Name: "inst", Value: json.S(s.Inst)},
-		json.Member{Name: "rid", Value: json.S(s.RID)},
-		json.Member{Name: "ts", Value: json.I(s.TS)},
-		json.Member{Name: "sess", Value: json.S(s.Sess)},
-		json.Member{Name: "rcv", Value: json.S(s.Rcv)},
-		json.Member{Name: "bind", Value: json.S(s.Bind)},
-		json.Member{Name: "infl", Value: json.S(s.Infl)},
-		json.Member{Name: "prev", Value: json.S(s.Prev)},
-		json.Member{Name: "sig", Value: json.S(s.Sig)},
-	)
+	return s.object(true)
+}
+
+// object returns the stamp as a JSON object, with its sig when withSig, and without it for its signed bytes.
+// The writer puts the members in JCS order.
+func (s Stamp) object(withSig bool) json.Value {
+	ms := []json.Member{
+		{Name: "v", Value: json.I(Version)},
+		{Name: "svc", Value: json.S(s.Svc)},
+		{Name: "inst", Value: json.S(s.Inst)},
+		{Name: "rid", Value: json.S(s.RID)},
+		{Name: "ts", Value: json.I(s.TS)},
+		{Name: "sess", Value: json.S(s.Sess)},
+		{Name: "rcv", Value: json.S(s.Rcv)},
+		{Name: "bind", Value: json.S(s.Bind)},
+		{Name: "ext", Value: json.S(s.Ext)},
+		{Name: "prev", Value: json.S(s.Prev)},
+	}
+	if withSig {
+		ms = append(ms, json.Member{Name: "sig", Value: json.S(s.Sig)})
+	}
+	return json.Obj(ms...)
 }
 
 // wire returns v's wire bytes, with a writer's refusal in this package's words.

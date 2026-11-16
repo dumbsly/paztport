@@ -5,6 +5,7 @@ package paztporthttp_test
 
 import (
 	"encoding/hex"
+	"fmt"
 	"testing"
 
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/b64"
@@ -16,16 +17,16 @@ import (
 	"github.com/dumbsly/paztport/poc-sdks/go/verify"
 )
 
-// TestOperationsReceiveVectors replays http-v3.json's operations.receive: the receiver enters the request
+// TestOperationsReceiveVectors replays http-v4.json's operations.receive: the receiver enters the request
 // under the name its embedder's routing gives, and its answer is compared with expected. The harness plays
 // the embedder: Name is the service, '#' and the case's operation when the chain's last rcv names an
 // operation and the case has one, and the service otherwise. A case on rules material holds the keyed
 // table as the receiver's own.
 func TestOperationsReceiveVectors(t *testing.T) {
-	file := vectors.Load(t, "http-v3.json")
+	file := vectors.Load(t, "http-v4.json")
 	cases := file.Get("operations").Get("receive")
-	if cases.Len() == 0 {
-		t.Fatal("http-v3.json has no operations.receive case")
+	if cases.Len() != 11 {
+		t.Fatalf("http-v4.json has %d operations.receive cases, want 11", cases.Len())
 	}
 	cases.Each(func(name string, c vectors.Node) {
 		t.Run(name, func(t *testing.T) {
@@ -41,17 +42,17 @@ func TestOperationsReceiveVectors(t *testing.T) {
 				r.Operations = &table
 			}
 			r.Verifier = operationsVerifier(t, c)
-			got := r.Accept(t.Context(), req, nil, caseMode(t, c.Get("mode")))
-			g, want := answer{refusal: got.Refusal}, answer{}
+			got := answerOf(r.Accept(t.Context(), req, nil, caseMode(t, c.Get("mode")))).refusal
+			want := "null"
 			if r := c.Get("expected").Get("refusal"); !r.IsNull() {
 				body, err := hex.DecodeString(r.Get("body").Str())
 				if err != nil {
 					t.Fatalf("the refusal's body: %v", err)
 				}
-				want.refusal = &paztporthttp.Answer{Status: int(r.Get("status").Int()), Body: body}
+				want = fmt.Sprintf("%d %s", r.Get("status").Int(), body)
 			}
-			if !g.equal(want) {
-				t.Fatalf("got %s\nwant %s", g, want)
+			if got != want {
+				t.Fatalf("refusal %s, want %s", got, want)
 			}
 		})
 	})
@@ -75,8 +76,8 @@ func embedderName(t *testing.T, c vectors.Node, req paztporthttp.InboundRequest,
 }
 
 // operationsVerifier returns the verifier of an operations.receive case: pinned to the root of the rules
-// material or the v3.json policy it names, with the keyring and windows the case gives and a nonce cache
-// holding its spent keys.
+// material or the v4.json policy it names, with the keyring, windows and extension settings the case gives and
+// a nonce cache holding its spent keys.
 func operationsVerifier(t *testing.T, c vectors.Node) *verify.Verifier {
 	t.Helper()
 	rootText, rootID := "", ""
@@ -84,7 +85,7 @@ func operationsVerifier(t *testing.T, c vectors.Node) *verify.Verifier {
 		m := vectors.Rules(t).Get("material").Get(c.Get("material").Str()).Get("root")
 		rootText, rootID = m.Get("root").Str(), m.Get("rootId").Str()
 	} else {
-		p := vectors.Load(t, "v3.json").Get("policies").Get(c.Get("policy").Str())
+		p := vectors.Load(t, "v4.json").Get("policies").Get(c.Get("policy").Str())
 		rootText, rootID = p.Get("root").Str(), p.Get("rootId").Str()
 	}
 	root, err := b64.Decode(rootText)
@@ -115,5 +116,6 @@ func operationsVerifier(t *testing.T, c vectors.Node) *verify.Verifier {
 		Now:            func() int64 { return now },
 		CallMaxAgeMs:   c.Get("callMaxAgeMs").Int(),
 		RunMaxAgeMs:    c.Get("runMaxAgeMs").Int(),
+		Extensions:     caseSettings(t, c),
 	})
 }

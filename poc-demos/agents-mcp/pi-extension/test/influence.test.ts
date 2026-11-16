@@ -6,17 +6,16 @@ import { bindResult } from "@paztport/core";
 import { InfluenceStore, contentHash } from "../src/influence.ts";
 
 describe("InfluenceStore", () => {
-  it("labelsBecomeEntriesWithCid", () => {
+  it("addAppendsAReadingsEntries", () => {
     const s = new InfluenceStore();
-    s.recordLabels("github", [{ cls: "third-party", cid: "c1" }, { cls: "private", cid: "c2" }], "H1");
-    expect(s.entries()).toEqual(
-      expect.arrayContaining([
-        { cls: "third-party", src: "server:github", h: "H1", cid: "c1" },
-        { cls: "private", src: "server:github", h: "H1", cid: "c2" },
-      ]),
-    );
-    expect(s.entries()).toHaveLength(2);
-    expect(s.classes()).toEqual(new Set(["third-party", "private"]));
+    s.add([{ cls: "third-party", src: "server:github", h: "H1", cid: "c1" }, { cls: "private", src: "server:github", h: "H1", cid: "c2", owner: "alice" }]);
+    s.add([{ cls: "public", src: "server:github", h: "H2" }]);
+    expect(s.entries()).toEqual([
+      { cls: "third-party", src: "server:github", h: "H1", cid: "c1" },
+      { cls: "private", src: "server:github", h: "H1", cid: "c2", owner: "alice" },
+      { cls: "public", src: "server:github", h: "H2" },
+    ]);
+    expect(s.classes()).toEqual(new Set(["third-party", "private", "public"]));
   });
 
   it("untrustedEntry", () => {
@@ -31,43 +30,37 @@ describe("InfluenceStore", () => {
     const s = new InfluenceStore();
     s.recordUnknown("local:branch_summary", "H4");
     expect(s.entries()).toEqual([
-      { cls: "local-untrusted", src: "local:branch_summary", h: "H4" },
       { cls: "private", src: "local:branch_summary", h: "H4" },
+      { cls: "local-untrusted", src: "local:branch_summary", h: "H4" },
     ]);
   });
 
   it("classesBecomeEntriesWithoutCid", () => {
-    // rebuilt from a restored session branch, which keeps label classes but no cids
+    // a server result rebuilt from a restored session branch, which keeps label classes but no cids, and a local read's
+    // labels: each entry has the source as given
     const s = new InfluenceStore();
-    s.recordClasses("github", ["third-party", "private"], "H3");
+    s.recordClasses("server:github", ["third-party", "private"], "H3");
+    s.recordClasses("local:read", ["public"], "H5");
     expect(s.entries()).toEqual([
-      { cls: "private", src: "server:github", h: "H3" },
       { cls: "third-party", src: "server:github", h: "H3" },
+      { cls: "private", src: "server:github", h: "H3" },
+      { cls: "public", src: "local:read", h: "H5" },
     ]);
-    expect(s.classes()).toEqual(new Set(["third-party", "private"]));
+    expect(s.classes()).toEqual(new Set(["third-party", "private", "public"]));
   });
 
-  it("entriesNormalisedAndDeduped", () => {
+  it("entriesComeBackInTheOrderRecordedWithRepeatsKept", () => {
     const s = new InfluenceStore();
     s.recordUntrusted("b", "Z");
     s.recordUntrusted("a", "A");
     s.recordUntrusted("a", "A");
-    s.recordLabels("s", [{ cls: "public", cid: "c" }], "M");
-    s.recordLabels("s", [{ cls: "public", cid: "c" }], "M");
-    const e = s.entries();
-    expect(e).toHaveLength(3);
-    expect(e.map((x) => x.h)).toEqual(["A", "M", "Z"]);
-  });
-
-  it("a label's owner becomes the entry's owner", () => {
-    const s = new InfluenceStore();
-    s.recordLabels("github", [{ cls: "private", cid: "c", owner: "alice" }], "h");
-    expect(s.entries()).toEqual([{ cls: "private", src: "server:github", h: "h", cid: "c", owner: "alice" }]);
+    expect(s.entries().map((x) => [x.src, x.h])).toEqual([["b", "Z"], ["a", "A"], ["a", "A"]]);
+    expect(s.summary()["local-untrusted"]).toBe(3);
   });
 
   it("summaryHasNoHashes", () => {
     const s = new InfluenceStore();
-    s.recordLabels("github", [{ cls: "third-party", cid: "CID-SECRET" }], "HASH-SECRET");
+    s.add([{ cls: "third-party", src: "server:github", h: "HASH-SECRET", cid: "CID-SECRET" }]);
     s.recordUntrusted("SRC-SECRET", "HASH2");
     s.recordUntrusted("SRC-SECRET2", "HASH3");
     const sum = s.summary();

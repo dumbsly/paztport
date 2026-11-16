@@ -2,34 +2,44 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package verify checks chains received live: the spec's live order of checks, its windows, the nonce
-// cache that stops replays, and who a result names.
+// cache that stops replays, the extension settings, what a verified chain hands its service, and who a result
+// names.
 //
 // A [Verifier] holds a [Config]: the keyrings and roots it pins, the origins and session it allows, its
-// clock, its freshness windows and its [NonceCache]. It pins one or more of each, a [PinnedKeyring] or a
-// [PinnedRoot] with its own window, so that a rollover can pin the old and the new together, and uses
-// only those current at its clock: check 4 looks a stamp's key up in every current keyring, by its
-// service's own name, and check 11 proves the route against a current root with the proof's rootId.
+// clock, its freshness windows, its [NonceCache] and its [Extensions]. It pins one or more of each keyring and
+// root, a [PinnedKeyring] or a [PinnedRoot] with its own window, so that a rollover can pin the old and the new
+// together, and uses only those current at its clock: check 3 looks a stamp's key up in every current keyring,
+// by its service's own name, and check 12 proves the route against a current root with the proof's rootId.
 // [Pinned] fills them in from keyring files and roots that verify under the pinned policy key and are
 // current, recording the earlier of the latest keyring's window and the latest root's.
 //
-// For each request, [Verifier.Verify] takes an [Input], the tokens that came with the request and what
-// the receiver knows of it, and runs checks 0 to 12 in the spec's order. The first that fails is the
-// [Result], whose reason.Code is the spec's for that check; a request that passes them all is OK. The
-// order is part of the protocol: two verifiers that ran the checks in another order would give
-// different codes for the same request.
+// For each request, [Verifier.Verify] takes an [Input], the tokens that came with the request, the blocks token
+// among them, and what the receiver knows of it, and runs checks 0 to 12 in the spec's order: 0 the policy
+// window, 1 the chain reads, 2 to 6 the origin, signatures and links, receivers, rid and session, 7 freshness,
+// 8 the binding, 9a to 9c the blocks, 10 the peer, 11 the nonce and 12 the route. The first that fails is the
+// [Result], whose reason.Code is the spec's for that check; a request that passes them all is OK, and its Result
+// carries a [HandOver]: for each extension the service acts on, one [StampItems] per stamp, each item the JCS
+// text of one JSON value. The core reads no item. The order is part of the protocol: two verifiers that ran the
+// checks in another order would give different codes for the same request.
 //
 // Check 0 is about the verifier's own material, not the request: once its clock passes the policy's
 // window, no keyring it holds, or no root, still says which keys and routes the policy owner allows. So it
-// comes first, before the chain is read, and it names no one and spends no nonce key. The nonce cache is
-// consulted only after checks 1 to 9 have held, and a cache that forgets sooner than twice the call
-// window refuses every key before recording any, since it could forget a key while a replay of it is
-// still fresh. A context passed to Verify reaches only the nonce cache, which may block on a store.
+// comes first, before the chain is read, and it names no one and spends no nonce key. Check 9a matches each
+// block to its stamp's ext before 9b and 9c read any name in it. The peer is checked before the nonce, so a
+// request another peer sends spends nothing, and the nonce cache is consulted only after checks 1 to 10 have
+// held; a cache that forgets sooner than twice the call window refuses every key before recording any, since it
+// could forget a key while a replay of it is still fresh. A context passed to Verify reaches only the nonce
+// cache, which may block on a store.
+//
+// The live verifier always runs check 9c, which holds the caller's last block's requires to the extensions the
+// service acts on; the offline verifier never does, since a record does not hold the settings it was checked
+// against live. [NonceKey] writes a chain's key in the cache as the JCS text of its parts.
 //
 // A Result names a suspect, the party a responder may act against, for the verifier's own logs and
 // events, never for the caller. With a [Peer], the sender the transport authenticated, every result but
 // POLICY_EXPIRED names the peer. Without one, only OK and PATH_NOT_ALLOWED name the last stamp's svc and
-// inst: by then its signature, receiver, times, binding and nonce key have held, so its key really signed
-// this request for this receiver. Any earlier name would be unsigned, or belong to another request.
+// inst: by then its signature, receiver, times, binding, blocks and nonce key have held, so its key really
+// signed this request for this receiver. Any earlier name would be unsigned, or belong to another request.
 //
 // Times and windows are int64 milliseconds since the Unix epoch, and every difference between them is
 // computed exactly: a clock or a window at either end of int64 never passes a check by wrapping.

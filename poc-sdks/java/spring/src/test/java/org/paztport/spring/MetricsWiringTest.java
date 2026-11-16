@@ -27,6 +27,7 @@ import org.paztport.core.encoding.Base64Url;
 import org.paztport.core.policy.KeyringFile;
 import org.paztport.core.policy.PolicyBuilder;
 import org.paztport.core.session.ReplyCert;
+import org.paztport.core.stamp.Block;
 import org.paztport.core.stamp.Stamper;
 import org.paztport.http.RequestContext;
 import org.paztport.http.wire.HttpWire;
@@ -247,7 +248,7 @@ class MetricsWiringTest {
             byte[] body = "{\"amount\":100}".getBytes();
             Stamper.Stamped stamped = new Stamper("gateway", "gw-1", gateway.getPrivate(), true, () -> "rid-1",
                     () -> System.currentTimeMillis())
-                    .next(null, "payment", RequestBinding.compute("POST", "/pay", body), List.of(),
+                    .next(null, "payment", RequestBinding.compute("POST", "/pay", body), Block.EMPTY,
                             built.bundles().get("gateway"));
             MockHttpServletRequest request = new MockHttpServletRequest("POST", "/pay");
             request.addHeader(PaztportHeaders.CHAIN, HttpWire.encodeChain(stamped.chain()));

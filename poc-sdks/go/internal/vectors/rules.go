@@ -8,32 +8,32 @@ import (
 	"testing"
 )
 
-// The fixtures http-v3.json's rules section shares between its cases: keys, each organisation's policy
+// The fixtures http-v4.json's rules section shares between its cases: keys, each organisation's policy
 // material, client certificates and handshake bodies. They are handed over as the file holds them, as
 // text or bytes, never as SDK values, so that each package's tests read them with the SDK's own readers.
 
-// rulesFile is the vector file holding the rules section.
-const rulesFile = "http-v3.json"
+// rulesFile is the vector file holding the rules section paztporthttp's tests read.
+const rulesFile = "http-v4.json"
 
-// Rules returns http-v3.json's rules section.
+// Rules returns http-v4.json's rules section.
 func Rules(t testing.TB) Node {
 	t.Helper()
 	return Load(t, rulesFile).Get("rules")
 }
 
-// RulesKey returns the key called name as the rules section finds it: in its own keys, then in
-// http-v3.json's keys, then in v3.json's. Every one is derived by v3.json's rule, so it fails the test
-// unless the keys listed under name are the ones that rule derives.
+// RulesKey returns the key called name as the rules section finds it: in its own keys, then in the version 4
+// files' keys (VectorKey). Every one is derived by the vector files' rule, so it fails the test unless the keys
+// listed under name are the ones that rule derives.
 func RulesKey(t testing.TB, name string) (ed25519.PrivateKey, ed25519.PublicKey) {
 	t.Helper()
 	keys := Rules(t).Get("keys")
 	if !keys.Has(name) {
-		return V3Key(t, name)
+		return VectorKey(t, name)
 	}
 	priv, pub, wantPriv, wantPub := derivedKey(name)
 	key := keys.Get(name)
 	if key.Get("priv").Str() != wantPriv || key.Get("pub").Str() != wantPub {
-		t.Fatalf("vectors: the rules give key %q other than v3.json's rule derives", name)
+		t.Fatalf("vectors: the rules give key %q other than the vector files' rule derives", name)
 	}
 	return priv, pub
 }
@@ -58,10 +58,17 @@ type RouteProof struct {
 	Text  []byte
 }
 
-// RulesMaterial returns the material called name.
+// RulesMaterial returns the material called name, from the rules section paztporthttp's tests read.
 func RulesMaterial(t testing.TB, name string) Material {
 	t.Helper()
-	m := Rules(t).Get("material").Get(name)
+	return RulesMaterialIn(t, rulesFile, name)
+}
+
+// RulesMaterialIn returns the material called name from the rules section of the vector file file, such as
+// http-v4.json.
+func RulesMaterialIn(t testing.TB, file, name string) Material {
+	t.Helper()
+	m := Load(t, file).Get("rules").Get("material").Get(name)
 	out := Material{
 		PolicyKey: m.Get("policyKey").Str(),
 		Root:      m.Get("root").Raw(),

@@ -900,7 +900,7 @@ function localSections(step, record, plain, attested) {
       "section",
       {},
       h("h3", {}, "What the agent held when this was decided"),
-      unreadable(record, "influence")
+      unreadable(record, "influence") || unreadable(record, "blocks")
         ? unreadableNote("influence")
         : held.length
           ? h("ul", {}, held.map((c) => h("li", {}, h("code", {}, c), plain[c] ? ` (${plain[c]})` : "")))
@@ -960,23 +960,23 @@ function openDrawer(step, ctx, opener) {
   const local = step.local ? shown.find((s) => s.record.type === "local") : undefined;
   if (step.local) sections.push(...localSections(step, local, plain, attested));
 
-  // labels: from the signed reply when there is one, else what the logs recorded
+  // labels: from the signed reply when there is one, else the server's own outcome log
   let labels = [];
   let source = "";
-  if (Array.isArray(attestation?.labels)) {
-    labels = attestation.labels.map((l) => (isObj(l) ? l.cls : undefined));
+  if (Array.isArray(reply?.display?.labels)) {
+    labels = reply.display.labels.map((l) => (isObj(l) ? l.cls : undefined));
     source = "Attached by the server to its signed reply.";
-  } else {
-    const response = events.find((e) => e.type === "response");
-    if (Array.isArray(response?.labels)) {
-      labels = response.labels;
-      source = "Recorded by Paztport for the server's reply.";
-    } else if (ev.outcome?.label) {
-      labels = [ev.outcome.label];
-      source = "Recorded in the mock server's outcome log.";
-    }
+  } else if (ev.outcome?.label) {
+    labels = [ev.outcome.label];
+    source = "Recorded in the mock server's outcome log.";
   }
   labels = [...new Set(labels.filter((l) => typeof l === "string"))];
+  // what the client added to the session's influence for the result, whether or not the reply verified: for one that
+  // did not, local-untrusted, whatever labels it holds
+  const added = Array.isArray(step.added) ? step.added : undefined;
+  const recorded = added === undefined
+    ? null
+    : h("p", {}, "What the client recorded: ", added.length ? added.flatMap((c, i) => [i > 0 ? ", " : null, h("code", {}, c)]) : "nothing", ".");
   if (!step.local) sections.push(
     h(
       "section",
@@ -985,9 +985,12 @@ function openDrawer(step, ctx, opener) {
       labels.length
         ? [h("ul", {}, labels.map((l) => h("li", {}, h("code", {}, l), plain[l] ? ` (${plain[l]})` : ""))), h("p", { class: "note" }, source)]
         : h("p", { class: "muted" }, step.result === "refused" ? "None: the server's refusal carries no labels." : "No labels were recorded for this call."),
+      recorded,
     ),
   );
 
+  // the blocks the request carried (`paztport/extensions`): the session's influence and what it required of the server
+  const blocksNote = unreadable(call, "paztport/extensions") ? unreadableNote("blocks token") : null;
   if (!step.local) sections.push(
     h(
       "section",
@@ -998,6 +1001,7 @@ function openDrawer(step, ctx, opener) {
         : unreadable(call, "paztport/chain")
           ? unreadableNote("request chain")
           : h("p", { class: "muted" }, attested ? "No signed request was recorded for this call." : "Paztport was off for this run, so requests were not signed."),
+      blocksNote,
     ),
   );
 

@@ -5,7 +5,7 @@ package org.paztport.http;
 
 import java.util.List;
 import java.util.Objects;
-import org.paztport.core.influence.InfluenceEntry;
+import org.paztport.core.stamp.Block;
 import org.paztport.core.stamp.Chains;
 import org.paztport.core.stamp.ParsedChain;
 import org.paztport.core.stamp.Stamp;
@@ -30,17 +30,18 @@ import org.slf4j.LoggerFactory;
  * its certificate's issuer and common name ({@link PeerCert}):
  *
  * <ul>
- *   <li>No header means the caller never opened a session, which is treated as unsafe.</li>
+ *   <li>No header, or a blank one, means the caller never opened a session, which is treated as unsafe.</li>
  *   <li>A header that does not name a live session this peer opened is refused {@code 403 SESSION_UNKNOWN}: another
  *       peer's id (another name, or the same name under another issuer), an evicted or expired one, one from
  *       before a restart, or a caller with no certificate. It is never taken as unsafe, or a caller could step down
  *       from a session it was refused in by naming a wrong one.</li>
- *   <li>In an unsafe session nothing is verified, so nothing from the request is believed: the handler starts with
- *       no influence and no verified chain, whatever headers came, and the endpoints switched off for such sessions
- *       are refused ({@link UnsafeEndpoints}).</li>
- *   <li>In an attested session the chain is verified in the live order by that session's own verifier, with this
- *       service as receiver and the peer as last signer, and a failure is refused {@code 403} with its code. Only
- *       on {@code OK} does the handler get the verified influence, owners included, and the verified chain.</li>
+ *   <li>In an unsafe session nothing is verified, so nothing from the request is believed: the handler is handed
+ *       nothing and holds no verified chain, whatever headers came, its blocks included, which are not read, and the
+ *       endpoints switched off for such sessions are refused ({@link UnsafeEndpoints}).</li>
+ *   <li>In an attested session the chain is verified in the live order by that session's own verifier, which
+ *       carries this partner's extension settings, with this service as receiver and the peer as last signer, and a
+ *       failure is refused {@code 403} with its code. Only on {@code OK} does the handler get the verified chain, its
+ *       one block, and the verified hand-over, owners included.</li>
  * </ul>
  *
  * <p>Each call logs one {@code PAZTPORT_TRACE request} line naming its session's status. Like {@link HttpReceiver},
@@ -50,8 +51,6 @@ import org.slf4j.LoggerFactory;
 public final class PartnerReceiver {
 
     private static final Logger TRACE = LoggerFactory.getLogger("PAZTPORT_TRACE");
-
-    private static final HttpAnswer UNREADABLE_INFLUENCE = HttpAnswer.refusal(400, ReasonCode.INFLUENCE_MISMATCH);
 
     private final PartnerSessions sessions;
     private final String receiver;
@@ -72,7 +71,7 @@ public final class PartnerReceiver {
      * @param peer the client certificate the transport authenticated, or null without one
      */
     public PartnerAccepted accept(InboundRequest request, PeerCert peer) {
-        String sessionHeader = request.header(PaztportHeaders.SESSION);
+        String sessionHeader = HttpWire.headerValue(request.header(PaztportHeaders.SESSION));
         String chainHeader = request.header(PaztportHeaders.CHAIN);
         Peer sender = peer == null ? null : peer.peer();
         // Read once: for the trace line, and then for the call, but nothing is taken from it until it has verified.
@@ -87,32 +86,32 @@ public final class PartnerReceiver {
                     sessionHeader);
             if (session == null) {
                 VerifyResult unknown = new VerifyResult(ReasonCode.SESSION_UNKNOWN,
-                        sender == null ? "" : sender.svc(), sender == null ? "" : sender.inst());
-                trace(HttpReceiver.traceLine(rid, unknown, receiver, sender, null, "unknown"));
+                        sender == null ? "" : sender.svc(), sender == null ? "" : sender.inst(), null);
+                trace(HttpReceiver.traceLine(rid, unknown, receiver, sender, List.of(), "unknown"));
                 return PartnerAccepted.refused(HttpAnswer.refusal(403, ReasonCode.SESSION_UNKNOWN), null);
             }
         }
         if (session == null || !session.attested()) {
             trace(String.format("PAZTPORT_TRACE request rid=%s reason=- receiver=%s %s session=unsafe",
                     rid.isEmpty() ? "-" : LogSafe.of(rid), LogSafe.of(receiver), HttpReceiver.peerField(sender)));
-            return PartnerAccepted.unsafe();
+            return PartnerAccepted.unsafe(sessions.extensions());
         }
 
+        String blocksHeader = request.header(PaztportHeaders.EXTENSIONS);
         VerifyInput input = VerifyInputs.request(chain, parsed, request.header(PaztportHeaders.PROOF),
-                request.header(PaztportHeaders.INFLUENCE), request.method(), request.target(), request.body(),
-                receiver, null, sender);
+                blocksHeader, request.method(), request.target(), request.body(), receiver, null, sender);
         VerifyResult result = session.verifier().verify(input);
-        // On OK these are the entries the boundary stamp committed to; otherwise what was received.
-        List<InfluenceEntry> influence = HttpReceiver.parseInfluence(input.influence());
-        trace(HttpReceiver.traceLine(rid, result, receiver, sender, influence, "attested"));
+        trace(HttpReceiver.traceLine(rid, result, receiver, sender, HttpReceiver.classes(result), "attested"));
         if (!result.ok()) {
             return PartnerAccepted.refused(HttpAnswer.refusal(403, result.reason()), result);
         }
-        if (influence == null || received == null) {
-            // Not reachable after OK; refused rather than served with less than was committed to.
-            return PartnerAccepted.refused(UNREADABLE_INFLUENCE, result);
+        HttpAnswer unread = HttpReceiver.unreadInfluence(sessions.extensions(), result.handOver(), rid);
+        if (unread != null) {
+            return PartnerAccepted.refused(unread, result);
         }
-        return PartnerAccepted.attested(received, influence, result);
+        // Check 9a held, so the blocks read as one per stamp.
+        List<Block> blocks = HttpReceiver.carriedBlocks(received, HttpWire.decodeBlocks(blocksHeader));
+        return PartnerAccepted.attested(received, blocks, result, sessions.extensions());
     }
 
     private static void trace(String line) {

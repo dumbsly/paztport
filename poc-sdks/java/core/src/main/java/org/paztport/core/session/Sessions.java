@@ -195,20 +195,20 @@ public final class Sessions {
         SessionReply bare = new SessionReply(unsigned.serverRoot(), unsigned.serverPolicyKey(),
                 unsigned.serverKeyring(), unsigned.serverKeyringSig(), unsigned.serverKeyringNotAfter(),
                 unsigned.serverReplyCert(), unsigned.nonce(), unsigned.sess(), unsigned.status(), unsigned.disabled(),
-                null);
+                unsigned.extensions(), null);
         String sig = Base64Url.encode(Crypto.sign(signingKey, replySigningBytes(bare)));
         return new SessionReply(bare.serverRoot(), bare.serverPolicyKey(), bare.serverKeyring(),
                 bare.serverKeyringSig(), bare.serverKeyringNotAfter(), bare.serverReplyCert(), bare.nonce(),
-                bare.sess(), bare.status(), bare.disabled(), sig);
+                bare.sess(), bare.status(), bare.disabled(), bare.extensions(), sig);
     }
 
     /**
      * The client's live check of a reply against the request it sent, the server policy key it pinned, the server's
      * entry service from its own configuration (never from the reply) and the time {@code nowMs}, in the spec's
-     * order: shape, pin, then signature, roots and session id, then status. Takes the reply's wire bytes as text,
-     * not a parsed reply, so that reading it is the first outcome: text that does not read as a reply by
-     * {@link SessionReply#parse}, null included, is {@code MALFORMED_REPLY}. The signature is then checked over the
-     * reply read, which is the reply as received. Never throws.
+     * order: shape, pin, then signature, roots and session id, then status, then the client's requirement. Takes
+     * the reply's wire bytes as text, not a parsed reply, so that reading it is the first outcome: text that does
+     * not read as a reply by {@link SessionReply#parse}, null included, is {@code MALFORMED_REPLY}. The signature is
+     * then checked over the reply read, which is the reply as received. Never throws.
      *
      * <p>The form is decided by which fields are present, never by which key verifies: trying the policy key and
      * then the entry key would let a reply stripped of its certificate, or carrying a certificate it should not,
@@ -221,25 +221,31 @@ public final class Sessions {
      * window included, so the reply's own signature cannot vouch for either. A degraded server, its own material
      * expired, therefore ends up unsafe at the client too. A recorded handshake is read offline instead, by
      * {@link #attestedOffline}.
+     *
+     * <p>Step 5 is the client's own requirement of the server: an attested session whose reply does not list every
+     * extension {@code requires} names is {@code EXTENSION_REQUIRED}, and only an attested one, so that no earlier
+     * outcome is hidden by it. What the client does after each outcome is {@link Requirement#callsAfter}.
      */
     public static ReplyCheck checkReply(String reply, SessionRequest req, String pinnedServerPolicyKey,
-            String serverEntry, long nowMs) {
+            String serverEntry, long nowMs, Requirement requires) {
+        Objects.requireNonNull(requires, "requires");
         return checkReply(readOrNull(() -> SessionReply.parse(reply)), req, pinnedServerPolicyKey, serverEntry,
-                nowMs);
+                nowMs, requires);
     }
 
     /**
-     * {@link #checkReply(String, SessionRequest, String, String, long)} over a reply body as it arrived: its wire
-     * bytes, read as they are.
+     * {@link #checkReply(String, SessionRequest, String, String, long, Requirement)} over a reply body as it
+     * arrived: its wire bytes, read as they are.
      */
     public static ReplyCheck checkReply(byte[] reply, SessionRequest req, String pinnedServerPolicyKey,
-            String serverEntry, long nowMs) {
+            String serverEntry, long nowMs, Requirement requires) {
+        Objects.requireNonNull(requires, "requires");
         return checkReply(readOrNull(() -> SessionReply.parse(reply)), req, pinnedServerPolicyKey, serverEntry,
-                nowMs);
+                nowMs, requires);
     }
 
     /**
-     * Whether a recorded handshake opened an attested session, judged at {@code at} (sessions-and-influence.md
+     * Whether a recorded handshake opened an attested session, judged at {@code at} (sessions.md
      * &sect;Recorded handshakes): the reply, as recorded, is attested and passes the client's check against the
      * recorded pin and the server's entry service from the verifier's own configuration, both roots verify under
      * their sides' policy keys, and the client keyring's signature verifies. Never throws.
@@ -257,8 +263,8 @@ public final class Sessions {
             return false;
         }
         try {
-            if (checkReply(readOrNull(() -> SessionReply.parse(reply)), req, pinnedServerPolicyKey, serverEntry, at)
-                    != ReplyCheck.ATTESTED) {
+            if (checkReply(readOrNull(() -> SessionReply.parse(reply)), req, pinnedServerPolicyKey, serverEntry, at,
+                    Requirement.NONE) != ReplyCheck.ATTESTED) {
                 return false;
             }
             // An attested reply has passed with both roots present, and the server's verified under the pin.
@@ -314,7 +320,7 @@ public final class Sessions {
      * session id.
      */
     private static ReplyCheck checkReply(SessionReply reply, SessionRequest req, String pinnedServerPolicyKey,
-            String serverEntry, long nowMs) {
+            String serverEntry, long nowMs, Requirement requires) {
         if (reply == null) {
             return ReplyCheck.MALFORMED_REPLY;
         }
@@ -336,7 +342,12 @@ public final class Sessions {
             if (expected == null || !expected.equals(reply.sess())) {
                 return ReplyCheck.BAD_SIGNATURE;
             }
-            return attested ? ReplyCheck.ATTESTED : ReplyCheck.UNSAFE;
+            if (!attested) {
+                return ReplyCheck.UNSAFE;
+            }
+            // Step 5, only once steps 1 to 4 gave ATTESTED, so no earlier outcome is hidden by it.
+            return reply.extensions().containsAll(requires.extensions()) ? ReplyCheck.ATTESTED
+                    : ReplyCheck.EXTENSION_REQUIRED;
         } catch (RuntimeException e) {
             return ReplyCheck.BAD_SIGNATURE;
         }

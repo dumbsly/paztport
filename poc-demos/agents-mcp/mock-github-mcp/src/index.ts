@@ -7,6 +7,5 @@ export { GithubState, GITHUB_TOOLS, type GithubTool, type ToolOutcome, type Pull
 export { OutcomeLog, taskDone, type Mode, type OutcomeRecord } from "./outcome.ts";
 export { loadServerConfig } from "./paztport.ts";
 export { META_VERDICT, type ServerPolicy, type SessionRules } from "@paztport/mcp";
-export { influenceDecision } from "./rules.ts";
 export type { CallToolResult } from "./mcp.ts";
 export { BUILTIN_SCENARIO_DIR, loadScenario, scenarioFixtures, type Scenario, type TaskCheck } from "./scenario.ts";

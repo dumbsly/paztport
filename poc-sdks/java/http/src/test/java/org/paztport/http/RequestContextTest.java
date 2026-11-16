@@ -32,12 +32,16 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.paztport.core.crypto.Crypto;
 import org.paztport.core.influence.ContentLabel;
+import org.paztport.core.influence.Influence;
 import org.paztport.core.influence.InfluenceClass;
 import org.paztport.core.influence.InfluenceEntry;
 import org.paztport.core.policy.Keyring;
 import org.paztport.core.policy.PolicyBuilder;
+import org.paztport.core.stamp.Block;
 import org.paztport.core.stamp.Stamp;
 import org.paztport.core.stamp.Stamper;
+import org.paztport.core.verify.ExtensionSettings;
+import org.paztport.core.verify.HandOver;
 import org.paztport.core.verify.InMemoryNonceCache;
 import org.paztport.core.verify.PinnedKeyring;
 import org.paztport.core.verify.PinnedRoot;
@@ -72,12 +76,12 @@ class RequestContextTest {
     }
 
     @Test
-    void influenceAccumulatesInOrder() {
-        assertTrue(RequestContext.influence().isEmpty());
+    void addedInfluenceAccumulatesInOrder() {
+        assertTrue(RequestContext.added().isEmpty());
         RequestContext.addInfluence(WEB);
         RequestContext.addInfluence(MINE, WEB);
-        assertEquals(List.of(WEB, MINE, WEB), RequestContext.influence());
-        assertThrows(UnsupportedOperationException.class, () -> RequestContext.influence().clear());
+        assertEquals(List.of(WEB, MINE, WEB), RequestContext.added());
+        assertThrows(UnsupportedOperationException.class, () -> RequestContext.added().clear());
     }
 
     @Test
@@ -94,15 +98,57 @@ class RequestContextTest {
 
     @Test
     void clearResetsEverything() {
-        RequestContext.setInboundChain(chain);
+        RequestContext.setInbound(chain, List.of(Block.EMPTY));
         RequestContext.addInfluence(WEB);
         RequestContext.label(InfluenceClass.PUBLIC, null);
 
         RequestContext.clear();
 
         assertNull(RequestContext.inboundChain());
-        assertTrue(RequestContext.influence().isEmpty());
+        assertNull(RequestContext.inboundBlocks());
+        assertTrue(RequestContext.added().isEmpty());
         assertTrue(RequestContext.labels().isEmpty());
+    }
+
+    /** A chain set by hand is carried with one empty block per stamp, never with blocks held for another chain. */
+    @Test
+    void settingTheInboundChainByHandDropsTheBlocksHeld() {
+        RequestContext.setInbound(chain, List.of(Influence.block(List.of(WEB), List.of())));
+
+        RequestContext.setInboundChain(chain);
+
+        assertSame(chain, RequestContext.inboundChain());
+        assertNull(RequestContext.inboundBlocks());
+    }
+
+    /** A chain set with its blocks is forwarded with them, then the caller's own block. */
+    @Test
+    void aChainSetWithItsBlocksIsForwardedWithThem() {
+        Block held = Influence.block(List.of(WEB), List.of());
+        List<Stamp> inbound = List.of(Stamp.sign("gateway", "gw-1", "rid-1", 1L, "", "orders", "b", held.commit(),
+                "", Crypto.generateEd25519KeyPair().getPrivate()));
+        KeyPair orders = Crypto.generateEd25519KeyPair();
+        HttpCaller caller = HttpCaller.builder("orders",
+                new Stamper("orders", "ord-1", orders.getPrivate(), false, () -> "x", () -> 2000L)).build();
+
+        HttpCaller.Outbound sent;
+        try (RequestContext.Scope scope = RequestContext.open()) {
+            RequestContext.setInboundChain(inbound, List.of(held));
+            assertEquals(List.of(held), RequestContext.inboundBlocks());
+            sent = caller.stampFromContext("POST", java.net.URI.create("http://payment:8080/pay"), new byte[0]);
+        }
+
+        assertEquals(List.of(held, Block.EMPTY), Block.parseAll(HttpWire.decodeBlocks(
+                sent.headers().get(PaztportHeaders.EXTENSIONS))), "those blocks, then the caller's own");
+    }
+
+    @Test
+    void blocksOfTheWrongLengthAreRefused() {
+        assertThrows(IllegalArgumentException.class, () -> RequestContext.setInboundChain(chain, List.of()));
+        assertThrows(IllegalArgumentException.class,
+                () -> RequestContext.setInboundChain(chain, List.of(Block.EMPTY, Block.EMPTY)));
+        assertNull(RequestContext.inboundChain(), "nothing was set");
+        assertNull(RequestContext.inboundBlocks());
     }
 
     @Test
@@ -113,7 +159,7 @@ class RequestContextTest {
 
         Thread other = new Thread(() -> {
             seenByOther[0] = RequestContext.inboundChain();
-            seenByOther[1] = RequestContext.influence();
+            seenByOther[1] = RequestContext.added();
         });
         other.start();
         other.join();
@@ -129,7 +175,7 @@ class RequestContextTest {
 
         try (RequestContext.Scope scope = RequestContext.open()) {
             assertTrue(RequestContext.isOpen());
-            assertEquals(List.of(), RequestContext.influence(), "a scope never inherits what came before it");
+            assertEquals(List.of(), RequestContext.added(), "a scope never inherits what came before it");
             RequestContext.setInboundChain(chain);
             RequestContext.addInfluence(MINE);
             RequestContext.label(InfluenceClass.PRIVATE, "alice");
@@ -137,7 +183,7 @@ class RequestContextTest {
 
         assertFalse(RequestContext.isOpen());
         assertNull(RequestContext.inboundChain());
-        assertTrue(RequestContext.influence().isEmpty());
+        assertTrue(RequestContext.added().isEmpty());
         assertTrue(RequestContext.labels().isEmpty());
     }
 
@@ -155,7 +201,7 @@ class RequestContextTest {
         try (RequestContext.Scope scope = RequestContext.open()) {
             RequestContext.addInfluence(WEB);
             RequestContext.clear();
-            assertTrue(RequestContext.influence().isEmpty());
+            assertTrue(RequestContext.added().isEmpty());
             assertTrue(RequestContext.isOpen());
         }
     }
@@ -170,7 +216,7 @@ class RequestContextTest {
             stale.close();
             stale.close();
             assertTrue(RequestContext.isOpen(), "a scope that has ended cannot end another");
-            assertEquals(List.of(WEB), RequestContext.influence());
+            assertEquals(List.of(WEB), RequestContext.added());
         }
         assertFalse(RequestContext.isOpen());
     }
@@ -183,7 +229,7 @@ class RequestContextTest {
         RequestContext.reset();
 
         assertFalse(RequestContext.isOpen());
-        assertTrue(RequestContext.influence().isEmpty());
+        assertTrue(RequestContext.added().isEmpty());
         try (RequestContext.Scope current = RequestContext.open()) {
             leaked.close();
             assertTrue(RequestContext.isOpen(), "the leaked scope, closed late, does not end the new one");
@@ -198,15 +244,20 @@ class RequestContextTest {
     private final PolicyBuilder.Result policy = PolicyBuilder.build(List.of(List.of("gateway", "orders")), 4,
             NOT_AFTER, Crypto.generateEd25519KeyPair().getPrivate());
 
-    /** A request from {@code gateway} to {@code orders}, stamped, proven and carrying {@code influence}. */
+    /** Gateway's block for a request carrying {@code influence}: it names influence with those entries, if any. */
+    private static Block block(List<InfluenceEntry> influence) {
+        return influence.isEmpty() ? Block.EMPTY : Influence.block(influence, List.of());
+    }
+
+    /** A request from {@code gateway} to {@code orders}, stamped, proven, its block holding {@code influence}. */
     private InboundRequest request(List<InfluenceEntry> influence) {
         Stamper.Stamped gw = new Stamper("gateway", "gw-1", gateway.getPrivate(), true, () -> "rid-1",
-                System::currentTimeMillis).next(null, "orders", RequestBinding.compute("POST", "/x", BODY), influence,
-                policy.bundles().get("gateway"));
+                System::currentTimeMillis).next(null, "orders", RequestBinding.compute("POST", "/x", BODY),
+                block(influence), policy.bundles().get("gateway"));
         Map<String, String> headers = new HashMap<>();
         headers.put(PaztportHeaders.CHAIN, HttpWire.encodeChain(gw.chain()));
         headers.put(PaztportHeaders.PROOF, HttpWire.encodeProof(gw.proof()));
-        headers.put(PaztportHeaders.INFLUENCE, HttpWire.encodeInfluence(influence)); // null, so unsent, when empty
+        headers.put(PaztportHeaders.EXTENSIONS, HttpWire.encodeBlocks(List.of(block(influence))));
         return new InboundRequest("POST", "/x", headers, BODY);
     }
 
@@ -216,7 +267,8 @@ class RequestContextTest {
         Verifier verifier = new Verifier(new VerifierConfig(
                 List.of(new PinnedKeyring(Keyring.of(Map.of("gateway", gateway.getPublic())), notAfter)),
                 List.of(new PinnedRoot(policy.signedRoot().rootBytes(), policy.signedRoot().rootId(), notAfter)),
-                notAfter, Set.of("gateway"), "", new InMemoryNonceCache(), System::currentTimeMillis, 5000, 5000));
+                notAfter, Set.of("gateway"), "", new InMemoryNonceCache(), System::currentTimeMillis, 5000, 5000,
+                ExtensionSettings.of(Set.of(Influence.NAME), null)));
         EventPublisher none = event -> {
         };
         return HttpReceiver.builder("orders").verifier(verifier).verifyRequests(true).publisher(none)
@@ -251,10 +303,27 @@ class RequestContextTest {
             assertTrue(RequestContext.isOpen());
             assertEquals(accepted.inbound(), RequestContext.inboundChain());
             assertEquals(accepted.inbound(), RequestContext.verifiedChain(), "it passed the live order here");
-            assertEquals(List.of(MINE), RequestContext.influence());
         }
         assertFalse(RequestContext.isOpen());
         assertNull(RequestContext.verifiedChain());
+    }
+
+    @Test
+    void theScopeHoldsTheInboundBlocksAndTheHandOverAndClearsThem() {
+        try (RequestContext.Entered<Accepted> entered = RequestContext.accept(orders(null), request(List.of(MINE)),
+                null, VerificationMode.ENFORCE)) {
+            Accepted accepted = entered.result();
+            assertEquals(List.of(block(List.of(MINE))), RequestContext.inboundBlocks());
+            assertSame(accepted.handOver(), RequestContext.handedOn());
+            assertEquals(List.of(new HandOver.StampItems("gateway", List.of(MINE.toJson()))),
+                    RequestContext.handedOn().under(Influence.NAME));
+            assertEquals(List.of(), RequestContext.added(), "nothing received is put among what the service added");
+            RequestContext.addInfluence(WEB);
+            assertEquals(List.of(WEB), RequestContext.added(), "only what addInfluence put");
+        }
+        assertNull(RequestContext.inboundBlocks());
+        assertNull(RequestContext.handedOn());
+        assertEquals(List.of(), RequestContext.added());
     }
 
     @Test
@@ -275,7 +344,8 @@ class RequestContextTest {
             assertNull(entered.result().refusal());
             assertEquals(1, RequestContext.inboundChain().size(), "carried for the handler's calls");
             assertNull(RequestContext.verifiedChain(), "but nothing checked it");
-            assertEquals(List.of(WEB), RequestContext.influence());
+            assertEquals(List.of(block(List.of(WEB))), RequestContext.inboundBlocks(), "nor its blocks");
+            assertFalse(RequestContext.handedOn().verified(), "its items are handed on as not verified");
         }
     }
 
@@ -302,7 +372,7 @@ class RequestContextTest {
             assertEquals(403, entered.result().refusal().status());
             assertTrue(RequestContext.isOpen());
             assertNull(RequestContext.verifiedChain());
-            assertEquals(List.of(), RequestContext.influence());
+            assertEquals(List.of(), RequestContext.added());
         }
         assertFalse(RequestContext.isOpen());
     }
@@ -318,9 +388,9 @@ class RequestContextTest {
         try (RequestContext.Entered<Accepted> entered = RequestContext.accept(orders((chain, proof, influence,
                 method, target, body) -> {
             seen.add(warnings.list.size());
-            seen.add(RequestContext.influence());
+            seen.add(RequestContext.added());
         }), request(List.of()), null, VerificationMode.ENFORCE)) {
-            assertEquals(List.of(), RequestContext.influence(), "nothing the leaked scope held is carried");
+            assertEquals(List.of(), RequestContext.added(), "nothing the leaked scope held is carried");
             leaked.close();
             assertTrue(RequestContext.isOpen(), "and closing it late does not end the request's own");
         }
@@ -340,7 +410,7 @@ class RequestContextTest {
         }
 
         assertFalse(RequestContext.isOpen(), "the thread is clean after a refusal");
-        assertEquals(List.of(), RequestContext.influence());
+        assertEquals(List.of(), RequestContext.added());
         assertEquals(1, warnings.list.size());
     }
 
@@ -357,7 +427,7 @@ class RequestContextTest {
 
         assertSame(fault, thrown);
         assertFalse(RequestContext.isOpen(), "neither the leaked scope nor the request's own is left open");
-        assertEquals(List.of(), RequestContext.influence());
+        assertEquals(List.of(), RequestContext.added());
         assertEquals(1, warnings.list.size());
     }
 
@@ -403,14 +473,16 @@ class RequestContextTest {
     }
 
     /**
-     * Only {@link RequestContext#accept}, from the result of the receiver it ran, may mark a chain verified, since the
-     * boundary signer and the public-writes rule trust the chain marked, and only it may end a scope that other code
+     * Only {@link RequestContext#accept}, from the result of the receiver it ran, may mark a chain verified or set what
+     * the request was handed, since the boundary signer and the public-writes rule trust both, and only it may end a
+     * scope that other code
      * opened; neither may widen. {@code current()} stays package-private too, because it lets {@code HttpCaller}
      * tell which scope a call was stamped in.
      */
     @Test
     void guardIsNotPublic() throws Exception {
         for (Method m : List.of(RequestContext.class.getDeclaredMethod("markVerified", List.class),
+                RequestContext.class.getDeclaredMethod("handOn", HandOver.class),
                 RequestContext.class.getDeclaredMethod("reset"),
                 RequestContext.class.getDeclaredMethod("current"))) {
             assertFalse(Modifier.isPublic(m.getModifiers()), m.getName() + " must not be public");

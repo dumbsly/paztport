@@ -2,9 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { bindPrompt, buildTree, commitInfluence, generateKeyPair, randomBytes, signStamp, writeToken } from "@paztport/core";
-import type { InfluenceEntry, OfflineConfig } from "@paztport/core";
-import { META_CALL_ID, META_CHAIN, META_INFLUENCE, META_PROOF, META_VERDICT, bindMcpCall, hasRefusalShape, verifyRecordedCall } from "../src/index.ts";
+import {
+  INFLUENCE, bindPrompt, buildTree, commitBlock, extensionSettings, generateKeyPair, influenceBlock,
+  makeBlock, nonceKey, randomBytes, recordedCallReason, signStamp, writeBlocks, writeToken,
+} from "@paztport/core";
+import type { Block, InfluenceEntry, JsonValue, OfflineConfig, RecordedSession } from "@paztport/core";
+import {
+  META_CALL_ID, META_CHAIN, META_EXTENSIONS, META_PROOF, META_VERDICT, bindMcpCall, hasRefusalShape, verifyRecordedCall,
+} from "../src/index.ts";
 import { retoken, tokenOf } from "./helpers/client.ts";
 
 // Recorded long ago: offline the call is checked against the time recorded with it, not a clock.
@@ -14,7 +19,9 @@ const SESS = "sess-1";
 const PROMPT = "fix the typo";
 const TOOL = "create_pull_request";
 const ROUTE = `session/pi/mcp:github.${TOOL}`;
-const infl: InfluenceEntry[] = [{ cls: "third-party", src: "web:example.com", h: "h1" }];
+const entries: InfluenceEntry[] = [{ cls: "third-party", src: "web:example.com", h: "h1" }];
+/** The blocks a recorded call carries by default: the origin names influence with nothing, the hop holds `entries`. */
+const BLOCKS: readonly Block[] = [influenceBlock([]), influenceBlock(entries)];
 
 function world() {
   const harness = generateKeyPair();
@@ -25,24 +32,26 @@ function world() {
     allowedOrigins: ["session"],
     sess: SESS,
     seen,
+    extensions: extensionSettings([INFLUENCE]),
   });
   const params = (
     callId = "call-1",
     args: Record<string, unknown> = { title: "t" },
     times = { run: RUN_TS, call: CALL_TS },
     rcv = `mcp:github.${TOOL}`,
+    blocks: readonly Block[] = BLOCKS,
   ): Record<string, unknown> => {
-    const mk = (svc: string, r: string, ts: number, bind: string, i: string, prev: string) =>
-      signStamp({ svc, inst: `${svc}-1`, rid: "rid-1", ts, sess: SESS, rcv: r, bind, infl: i, prev }, harness.privateKey);
-    const s0 = mk("session", "pi", times.run, bindPrompt(PROMPT), "", "");
-    const s1 = mk("pi", rcv, times.call, bindMcpCall(TOOL, callId, args), commitInfluence(infl), s0.sig);
+    const mk = (svc: string, r: string, ts: number, bind: string, ext: string, prev: string) =>
+      signStamp({ svc, inst: `${svc}-1`, rid: "rid-1", ts, sess: SESS, rcv: r, bind, ext, prev }, harness.privateKey);
+    const s0 = mk("session", "pi", times.run, bindPrompt(PROMPT), commitBlock(blocks[0]!), "");
+    const s1 = mk("pi", rcv, times.call, bindMcpCall(TOOL, callId, args), commitBlock(blocks[1]!), s0.sig);
     return {
       name: TOOL,
       arguments: args,
       _meta: {
         [META_CHAIN]: writeToken([s0, s1]),
         [META_PROOF]: writeToken(tree.proofFor(ROUTE)),
-        [META_INFLUENCE]: writeToken(infl),
+        [META_EXTENSIONS]: writeBlocks(blocks),
         [META_CALL_ID]: callId,
       },
     };
@@ -55,8 +64,38 @@ describe("verifyRecordedCall", () => {
   it("aRecordedCallVerifiesLongAfterItWasMade", () => {
     const w = world();
     const r = verifyRecordedCall(w.params(), w.call, w.cfg());
-    expect(r.result).toEqual({ ok: true, reason: "OK", suspectSvc: "pi", suspectInst: "pi-1" });
-    expect([r.rid, r.callId, r.influence]).toEqual(["rid-1", "call-1", infl]);
+    expect(r.result).toEqual({
+      ok: true, reason: "OK", suspectSvc: "pi", suspectInst: "pi-1",
+      handOver: new Map([[INFLUENCE, [{ svc: "session", items: [] }, { svc: "pi", items: entries }]]]),
+    });
+    expect([r.rid, r.callId]).toEqual(["rid-1", "call-1"]);
+  });
+
+  it("aRecordedCallRunsCheck9aAndNot9c", () => {
+    const w = world();
+    // the hop requires an extension the verifier does not act on: 9c is live only, so the call verifies
+    const requiring = [BLOCKS[0]!, makeBlock({ [INFLUENCE]: entries as unknown as JsonValue[] }, ["example"])];
+    expect(verifyRecordedCall(w.params("call-1", { title: "t" }, undefined, undefined, requiring), w.call, w.cfg()).result.reason)
+      .toBe("OK");
+    // a block that does not match its stamp is refused by 9a
+    const p = w.params();
+    (p._meta as Record<string, string>)[META_EXTENSIONS] = writeBlocks([BLOCKS[0]!, influenceBlock([])]);
+    expect(verifyRecordedCall(p, w.call, w.cfg()).result.reason).toBe("EXTENSION_MISMATCH");
+  });
+
+  it("anItemThatIsNotAnEntryIsInfluenceMismatchBeforeTheSessionsLimits", () => {
+    const w = world();
+    // a session attested only before the call: the call is past its limits
+    const session: RecordedSession = {
+      attested: true, attestedAt: (at) => at < CALL_TS, responseNotAfter: undefined, callConfig: () => undefined,
+    };
+    const result = (blocks: readonly Block[]) => {
+      const r = verifyRecordedCall(w.params("call-1", { title: "t" }, undefined, undefined, blocks), w.call, w.cfg());
+      return recordedCallReason(r.result, session, CALL_TS);
+    };
+    expect(result(BLOCKS)).toBe("OUTSIDE_SESSION");
+    const bad = [BLOCKS[0]!, influenceBlock([{ ...entries[0]!, owner: "" }])];
+    expect(result(bad)).toBe("INFLUENCE_MISMATCH");
   });
 
   it("aRecordedCallMustNameTheRecordsReceiver", () => {
@@ -72,9 +111,9 @@ describe("verifyRecordedCall", () => {
     expect(verifyRecordedCall(w.params(), { ...w.call, stampedAt: CALL_TS + 1 }, w.cfg()).result.reason).toBe("TIME_MISMATCH");
   });
 
-  it("aStampWhoseVersionIsNotThreeIsChainMissing", () => {
+  it("aStampWhoseVersionIsNotFourIsChainMissing", () => {
     const w = world();
-    for (const v of [1, 2, 4]) {
+    for (const v of [1, 2, 3, 5]) {
       for (const at of [0, 1]) {
         const p = w.params();
         const meta = p._meta as Record<string, string>;
@@ -115,11 +154,11 @@ describe("verifyRecordedCall", () => {
     };
     expect(reason((m) => edited(m, META_CHAIN, (c) => [c[0], { ...c[1], ts: -1 }]))).toBe("CHAIN_MISSING");
     expect(reason((m) => edited(m, META_CHAIN, (c) => [c[0], { ...c[1], extra: 1 }]))).toBe("CHAIN_MISSING");
-    expect(reason((m) => { m[META_INFLUENCE] = tokenOf([{ ...infl[0], owner: "" }]); })).toBe("INFLUENCE_MISMATCH");
+    expect(reason((m) => edited(m, META_EXTENSIONS, (blocks) => [blocks[0], { ...blocks[1], extra: 1 }]))).toBe("EXTENSION_MISMATCH");
     expect(reason((m) => edited(m, META_PROOF, (proof) => ({ ...proof, extra: 1 })))).toBe("PATH_NOT_ALLOWED");
     // a recorded member that is not a token gets the same refusals
     expect(reason((m) => { m[META_CHAIN] = []; })).toBe("CHAIN_MISSING");
-    expect(reason((m) => { m[META_INFLUENCE] = infl; })).toBe("INFLUENCE_MISMATCH");
+    expect(reason((m) => { m[META_EXTENSIONS] = BLOCKS; })).toBe("EXTENSION_MISMATCH");
     expect(reason((m) => { m[META_PROOF] = {}; })).toBe("PATH_NOT_ALLOWED");
   });
 
@@ -128,7 +167,7 @@ describe("verifyRecordedCall", () => {
     const seen = new Set<string>();
     expect(verifyRecordedCall(w.params(), w.call, w.cfg(seen)).result.reason).toBe("OK");
     expect(verifyRecordedCall(w.params(), w.call, w.cfg(seen)).result.reason).toBe("REPLAY");
-    expect([...seen]).toEqual(["rid-1|call-1|req"]);
+    expect([...seen]).toEqual([nonceKey(["rid-1", "call-1", "req"])]);
   });
 });
 

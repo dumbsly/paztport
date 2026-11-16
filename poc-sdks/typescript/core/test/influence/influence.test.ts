@@ -2,93 +2,96 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { encode } from "../../src/encoding/b64url.ts";
-import { utf8 } from "../../src/crypto/crypto.ts";
-import { writeToken } from "../../src/encoding/jcs.ts";
-import { MalformedJson } from "../../src/encoding/json-rules.ts";
+import { canonicalize } from "../../src/encoding/jcs.ts";
+import type { JsonValue } from "../../src/encoding/json.ts";
 import {
-  commitInfluence, influenceClasses, normalizeInfluence, readInfluence, type InfluenceEntry,
+  entryOf, INFLUENCE, influenceBlock, influenceClasses, influenceEntry, type InfluenceClass, type InfluenceEntry,
 } from "../../src/influence/influence.ts";
-
-/** A token holding exactly `text`'s bytes. */
-const raw = (text: string): string => encode(utf8(text));
+import { commitBlock, itemsUnder } from "../../src/stamp/block.ts";
 
 const a: InfluenceEntry = { cls: "third-party", src: "web:example.com", h: "hhh1" };
 const b: InfluenceEntry = { cls: "private", src: "file:notes", h: "hhh2" };
 const c: InfluenceEntry = { cls: "private", src: "file:other", h: "hhh2" };
 
-describe("influence", () => {
-  it("emptyCommitsToEmptyString", () => {
-    expect(commitInfluence([])).toBe("");
+describe("entryOf", () => {
+  it("readsAnEntryWithoutCidOrOwner", () => {
+    expect(entryOf({ cls: "public", h: "x", src: "s" })).toEqual({ cls: "public", src: "s", h: "x" });
   });
-  it("orderInsensitive", () => {
-    expect(commitInfluence([a, b, c])).toBe(commitInfluence([c, a, b]));
-    expect(commitInfluence([a, b, c])).not.toBe("");
+
+  it("readsAnEntryWithCidAndOwner", () => {
+    const item = { cid: "c", cls: "private", h: "x", owner: "o", src: "s" };
+    expect(entryOf(item)).toEqual({ cls: "private", src: "s", h: "x", cid: "c", owner: "o" });
   });
-  it("duplicatesCollapse", () => {
-    expect(commitInfluence([a, b, a, { ...b }])).toBe(commitInfluence([a, b]));
+
+  it.each([
+    ["a string", "x"],
+    ["an array", [{ cls: "public", h: "x", src: "s" }]],
+    ["another member", { cls: "public", extra: 1, h: "x", src: "s" }],
+    ["an unknown cls", { cls: "nope", h: "x", src: "s" }],
+    ["a number as src", { cls: "public", h: "x", src: 1 }],
+    ["a number as h", { cls: "public", h: 2, src: "s" }],
+    ["a number as cid", { cid: 3, cls: "public", h: "x", src: "s" }],
+    ["an empty owner", { cls: "private", h: "x", owner: "", src: "s" }],
+  ])("refuses %s", (_name, item) => {
+    expect(() => entryOf(item as JsonValue)).toThrow(Error);
   });
-  it("cidChangesCommitment", () => {
-    expect(commitInfluence([{ ...a, cid: "call-1" }])).not.toBe(commitInfluence([a]));
+});
+
+describe("influenceEntry", () => {
+  it("buildsTheEntryEntryOfReads", () => {
+    const full = influenceEntry("private", "github:acme/app#42", "h1", "alice", "cid-1");
+    expect(full).toEqual({ cls: "private", src: "github:acme/app#42", h: "h1", cid: "cid-1", owner: "alice" });
+    expect(entryOf(JSON.parse(canonicalize(full)) as JsonValue)).toEqual(full);
+    // an absent member is left out, not written as undefined, so the entry's JCS is the literal's
+    const bare = influenceEntry("local-untrusted", "local:read", "h2");
+    expect(Object.keys(bare)).toEqual(["cls", "src", "h"]);
+    expect(canonicalize(bare)).toBe(canonicalize({ cls: "local-untrusted", src: "local:read", h: "h2" }));
+    expect(Object.keys(influenceEntry("public", "s", "h", undefined, "c"))).toEqual(["cls", "src", "h", "cid"]);
   });
-  it("classesCollected", () => {
+
+  // what Java's constructor refuses: a member missing, an empty owner, a lone surrogate or a noncharacter; and, since
+  // a class here is a string, one that is not a class
+  it("influenceEntryRefusesWhatJavaRefuses", () => {
+    const refused: [string, () => InfluenceEntry][] = [
+      ["a lone surrogate in src", () => influenceEntry("public", "web:\uD800", "h")],
+      ["a noncharacter in h", () => influenceEntry("public", "s", "\uFFFE")],
+      ["a noncharacter in owner", () => influenceEntry("private", "s", "h", "\uFDD0")],
+      ["a lone surrogate in cid", () => influenceEntry("public", "s", "h", undefined, "\uDC00")],
+      ["an unknown class", () => influenceEntry("secret" as InfluenceClass, "s", "h")],
+      ["an empty owner", () => influenceEntry("private", "s", "h", "")],
+      ["no src", () => influenceEntry("public", undefined as unknown as string, "h")],
+      ["a number as h", () => influenceEntry("public", "s", 7 as unknown as string)],
+    ];
+    for (const [name, build] of refused) expect(build, name).toThrow(Error);
+    // a member that is not a string is named as such, not as text it could not carry
+    for (const [name, build] of [
+      ["a null owner", () => influenceEntry("private", "s", "h", null as unknown as string)],
+      ["a number as cid", () => influenceEntry("public", "s", "h", undefined, 7 as unknown as string)],
+    ] as [string, () => InfluenceEntry][]) {
+      expect(build, name).toThrow("an influence entry's owner and cid, when given, are strings");
+    }
+    // a surrogate pair is well-formed text
+    expect(influenceEntry("public", "web:\uD83D\uDE00", "h").src).toBe("web:\u{1F600}");
+  });
+});
+
+describe("influenceClasses", () => {
+  it("collectsEachClassOnce", () => {
     expect(influenceClasses([a, b, c])).toEqual(new Set(["third-party", "private"]));
     expect(influenceClasses([])).toEqual(new Set());
   });
-  it("cidAbsentVsEmptyOrderIndependent", () => {
-    const e = { ...a, cid: "" };
-    expect(commitInfluence([a, e])).toBe(commitInfluence([e, a]));
+});
+
+describe("influenceBlock", () => {
+  it("namesInfluenceWithNothingToAddAndIsNotTheEmptyBlock", () => {
+    const block = influenceBlock([]);
+    expect(canonicalize(block as unknown as JsonValue)).toBe('{"items":{"influence":[]},"requires":[]}');
+    expect(commitBlock(block)).not.toBe("");
   });
-  it("nonAdjacentDuplicatesCollapse", () => {
-    expect(commitInfluence([a, b, a])).toBe(commitInfluence([a, a, b]));
-    expect(commitInfluence([a, b, a])).toBe(commitInfluence([a, b]));
-  });
-  it("normalizeInfluence sorts owner after cid, absent first", () => {
-    const x = { cls: "private", src: "s", h: "h", cid: "c" } as const;
-    const y = { ...x, owner: "bob" };
-    const z = { ...x, owner: "alice" };
-    expect(normalizeInfluence([y, x, z])).toEqual([x, z, y]);
-  });
-  it("an entry with an owner commits differently from the same entry without one", () => {
-    const e = [{ cls: "private", src: "s", h: "h" }] as InfluenceEntry[];
-    expect(commitInfluence(e)).not.toBe(commitInfluence([{ ...e[0]!, owner: "alice" }]));
-  });
-  it("readInfluence keeps a string owner and refuses an empty or non-string one, naming it", () => {
-    expect(readInfluence(writeToken([{ cls: "private", src: "s", h: "h", owner: "alice" }]))[0]!.owner).toBe("alice");
-    for (const owner of ["", 7]) {
-      const token = writeToken([{ cls: "private", src: "s", h: "h", owner }]);
-      expect(() => readInfluence(token), String(owner)).toThrow("owner");
-    }
-  });
-  it("readInfluence refuses what is not a list of entries", () => {
-    const bad = [
-      {}, "x", [1], [[]], [{ cls: "nope", src: "s", h: "x" }], [{ src: "s", h: "x" }],
-      [{ cls: "public", src: 1, h: "x" }],
-      [{ cls: "public", src: "s", h: 2 }], [{ cls: "public", src: "s", h: "x", cid: 3 }],
-      [{ cls: "public", src: "s", h: "x", cid: null }],
-    ];
-    for (const value of bad) {
-      expect(() => readInfluence(writeToken(value)), JSON.stringify(value)).toThrow(Error);
-    }
-    const good = [{ cid: "c", cls: "private", h: "x", owner: "o", src: "s" }];
-    expect(readInfluence(writeToken(good))).toEqual(good);
-  });
-  it("readInfluence refuses bytes that do not read, a lone surrogate or a noncharacter among them", () => {
-    const tokens = [
-      raw('[{"cls":"public","h":"x","src":"\\ud800"}]'), raw('[{"cls":"public","h":"x","src":"\uFDD0"}]'),
-      "not*base64url", "",
-    ];
-    for (const token of tokens) {
-      expect(() => readInfluence(token), token).toThrow(MalformedJson);
-    }
-  });
-  it("anEntryWithAnExtraMemberIsRefused", () => {
-    const token = writeToken([{ cls: "public", extra: 1, h: "x", src: "s" }]);
-    expect(() => readInfluence(token)).toThrow("a member the object does not define");
-  });
-  it("aListInWireMemberOrderIsRefused", () => {
-    expect(() => readInfluence(raw('[{"cls":"public","src":"s","h":"x"}]'))).toThrow(MalformedJson);
-    expect(() => readInfluence(raw('[ {"cls":"public","h":"x","src":"s"}]'))).toThrow(MalformedJson);
-    expect(readInfluence(raw('[{"cls":"public","h":"x","src":"s"}]'))).toEqual([{ cls: "public", src: "s", h: "x" }]);
+
+  it("holdsTheItemsInOrderAndTheRequiresSorted", () => {
+    const block = influenceBlock([b, a], ["influence", "example"]);
+    expect(itemsUnder(block, INFLUENCE)).toEqual([b, a]);
+    expect(block.requires).toEqual(["example", "influence"]);
   });
 });

@@ -4,7 +4,6 @@
 package paztporthttp
 
 import (
-	"github.com/dumbsly/paztport/poc-sdks/go/influence"
 	"github.com/dumbsly/paztport/poc-sdks/go/paztporthttp/wire"
 	"github.com/dumbsly/paztport/poc-sdks/go/reason"
 	"github.com/dumbsly/paztport/poc-sdks/go/stamp"
@@ -20,10 +19,12 @@ type InboundRequest struct {
 	// what was sent (net/http: Request.RequestURI; a gateway's external processor: the :path header). It
 	// is never one rebuilt from a parsed URL.
 	Target string
-	// Chain, Proof, Influence and Session are the values of the X-Path-* headers of those names, each as
-	// received, or "" when the header is absent. A repeated header's first value is the one Paztport
-	// reads; NewInboundRequest takes it.
-	Chain, Proof, Influence, Session string
+	// Chain, Proof, Extensions and Session are the values of the X-Path-Chain, X-Path-Proof, X-Path-Extensions
+	// and X-Path-Session headers, each as received, or "" when the header is absent. A repeated header's first
+	// value is the one Paztport reads; NewInboundRequest takes it. A value that is blank, nothing but HTTP's
+	// optional whitespace, is read as no header, so a blank X-Path-Extensions is one empty block per stamp, as an
+	// absent one is.
+	Chain, Proof, Extensions, Session string
 	// Body is the body, whole. The receiver binds it as given and never changes it. An adapter that
 	// cannot hold the body whole, such as one that would have to truncate it, must refuse the request
 	// itself rather than pass on part of it.
@@ -45,31 +46,32 @@ func NewInboundRequest(method, target string, body []byte, header func(name stri
 		return ""
 	}
 	return InboundRequest{
-		Method:    method,
-		Target:    target,
-		Chain:     first(wire.Chain),
-		Proof:     first(wire.Proof),
-		Influence: first(wire.Influence),
-		Session:   first(wire.Session),
-		Body:      body,
+		Method:     method,
+		Target:     target,
+		Chain:      first(wire.Chain),
+		Proof:      first(wire.Proof),
+		Extensions: first(wire.Extensions),
+		Session:    first(wire.Session),
+		Body:       body,
 	}
 }
 
 // requestInput reads req's chain and returns the live order's input for req at the service named
 // receiver, with the chain it read, or nil when there is none or it does not read. The input is the
-// spec's for a request at its receiver: receiver in the route, the expected binding req's own (none when
-// it has none, which never matches), the tokens of its headers (an absent header none), the nonce key
-// <rid>|<last svc>|<last rcv>|req from the chain (none when it does not read, which the verifier refuses
-// first) and peer. Where the chain names a keyed operation, the receiver completes the input in readKey:
-// the nonce key becomes <rid>|<last svc>|<last rcv>|<key value>|req, or, where the target gives no key
-// value, the receiver is the service alone. The verifier reads the chain again for itself, as it must.
+// spec's for a request at its receiver (verification.md, HTTP requests and responses): receiver in the route,
+// the expected binding req's own (none when it has none, which never matches), the tokens of its headers (an
+// absent header none: no blocks token is one empty block per stamp), the nonce key from the chain, the JCS text
+// of [rid, last svc, last rcv, "req"] (none when the chain does not read, which the verifier refuses first), and
+// peer. Where the chain names a keyed operation, the receiver completes the input in readKey: the key value joins
+// the nonce key, or, where the target gives no key value, the receiver is the service alone. The verifier reads
+// the chain again for itself, as it must.
 func requestInput(req InboundRequest, receiver string, peer *verify.Peer) (verify.Input, stamp.Chain) {
 	in := verify.Input{Receiver: receiver, ReceiverInRoute: true, Peer: peer}
 	if bind, err := wire.Bind(req.Method, req.Target, req.Body); err == nil {
 		in.ExpectedBind = &bind
 	}
 	in.Proof = token(req.Proof)
-	in.Influence = token(req.Influence)
+	in.Blocks = token(req.Extensions)
 	in.Chain = token(req.Chain)
 	if in.Chain == nil {
 		return in, nil
@@ -79,9 +81,23 @@ func requestInput(req InboundRequest, receiver string, peer *verify.Peer) (verif
 		return in, nil
 	}
 	last := chain[len(chain)-1]
-	key := chain[0].RID + "|" + last.Svc + "|" + last.Rcv + "|req"
+	key := wire.RequestNonceKey(chain[0].RID, last.Svc, last.Rcv, "")
 	in.NonceKey = &key
 	return in, chain
+}
+
+// carried returns the blocks a request whose chain read and is to be served carries on with chain: those its
+// token holds, or one empty block per stamp where it has none (wire.md, Blocks). It returns false where they do
+// not read as one block per stamp, which check 9a has already refused on every path that calls it.
+func carried(chain stamp.Chain, tok *string) (stamp.Blocks, bool) {
+	if tok == nil {
+		return make(stamp.Blocks, len(chain)), true
+	}
+	bs, err := stamp.ReadBlocks(*tok)
+	if err != nil || len(bs) != len(chain) {
+		return nil, false
+	}
+	return bs, true
 }
 
 // token returns the token a header value holds, or nil when the header is absent.
@@ -90,15 +106,4 @@ func token(header string) *string {
 		return &tok
 	}
 	return nil
-}
-
-// readInfluence returns the entries of an X-Path-Influence header value, none when it is absent, and
-// whether it reads. Influence that does not read must never be dropped.
-func readInfluence(header string) ([]influence.Entry, bool) {
-	tok := token(header)
-	if tok == nil {
-		return nil, true
-	}
-	es, err := influence.ReadEntries(*tok)
-	return es, err == nil
 }

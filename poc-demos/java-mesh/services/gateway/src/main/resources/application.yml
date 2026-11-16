@@ -4,6 +4,9 @@ server:
   # default 5), then this graceful shutdown lets requests in progress finish, up to the timeout below. The drain is
   # not bounded by that timeout; keep it well under the pods' termination grace.
   shutdown: graceful
+  # Paztport's headers outgrow Tomcat's 8 KB default long before the wire's limits: the chain, proof and blocks
+  # tokens may each be 256 KiB decoded, about 342 KiB encoded, and all three fit here together at their largest.
+  max-http-request-header-size: 2MB
   # Mutual TLS: every caller presents a certificate from the mesh CA, and the
   # filter takes the service it names as the sender.
   ssl:
@@ -25,6 +28,10 @@ spring:
 
 paztport:
   service-name: gateway
+  # The origin: its block starts every chain, and a guarded write downstream needs every stamp to name
+  # influence; it also takes orders' answers, which are labelled private.
+  extensions:
+    acts-on: [influence]
   origin: true
   key-path: ${PAZTPORT_KEY_PATH:/config/keys/gateway.key}
   proofs-path: ${PAZTPORT_PROOFS_PATH:/config/policy/proofs-gateway.json}

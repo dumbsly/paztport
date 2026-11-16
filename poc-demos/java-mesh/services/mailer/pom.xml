@@ -32,6 +32,14 @@
             <artifactId>spring-boot-starter-test</artifactId>
             <scope>test</scope>
         </dependency>
+        <!-- TestScopes: a hand-opened request scope acting on influence, as the filter would set it. -->
+        <dependency>
+            <groupId>org.paztport</groupId>
+            <artifactId>paztport-http</artifactId>
+            <version>${paztport.sdk.version}</version>
+            <type>test-jar</type>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>

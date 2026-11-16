@@ -3,19 +3,46 @@
 
 package org.paztport.spring;
 
+import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.paztport.http.PartnerSessions;
 import org.springframework.beans.factory.InitializingBean;
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.context.properties.bind.BindContext;
+import org.springframework.boot.context.properties.bind.BindHandler;
+import org.springframework.boot.context.properties.bind.Bindable;
+import org.springframework.boot.context.properties.bind.Binder;
+import org.springframework.boot.context.properties.bind.PropertySourcesPlaceholdersResolver;
+import org.springframework.boot.context.properties.source.ConfigurationProperty;
+import org.springframework.boot.context.properties.source.ConfigurationPropertyName;
+import org.springframework.boot.convert.ApplicationConversionService;
+import org.springframework.boot.origin.Origin;
+import org.springframework.boot.origin.PropertySourceOrigin;
+import org.springframework.boot.origin.SystemEnvironmentOrigin;
+import org.springframework.boot.context.properties.source.ConfigurationPropertySources;
+import org.springframework.context.EnvironmentAware;
+import org.springframework.core.env.ConfigurableEnvironment;
+import org.springframework.core.env.Environment;
+import org.springframework.core.env.StandardEnvironment;
+import org.springframework.core.env.SystemEnvironmentPropertySource;
 
-/** Configuration for the path-attestation glue, bound from {@code paztport.*}. */
-@ConfigurationProperties(prefix = "paztport")
-public class PaztportProperties implements InitializingBean {
+/**
+ * Configuration for the path-attestation glue, bound from {@code paztport.*}. A key under the prefix that this class
+ * does not define fails the start, naming it: several properties guard something, and a misspelt one that left its
+ * default in place would fail open.
+ */
+@ConfigurationProperties(prefix = "paztport", ignoreUnknownFields = false)
+public class PaztportProperties implements InitializingBean, EnvironmentAware {
 
     /** This service's name, used as the stamp svc and the verifier's receiving service. */
     private String serviceName;
+
+    /** The environment this bean is in, which the check for unknown variables reads. */
+    private Environment environment;
 
     /** This instance's id for stamps; defaults to the container hostname. */
     private String instance;
@@ -257,6 +284,20 @@ public class PaztportProperties implements InitializingBean {
          */
         private long sessionIdleMs = 600_000;
 
+        /**
+         * The extensions this egress requires of the partner: it makes a call only in a session whose attested reply
+         * lists each one, unless {@code continue-without-required} lets it go on without (spec sessions.md, A client
+         * that requires extensions), and each call's boundary block requires them. Empty, the default, requires
+         * nothing.
+         */
+        private Set<String> requires = new LinkedHashSet<>();
+
+        /**
+         * Whether the egress still makes its calls in a session that does not give it what paztport.boundary.requires
+         * names, each call then requiring only what the partner listed. False, the default, makes no call there.
+         */
+        private boolean continueWithoutRequired = false;
+
         public String getPartner() {
             return partner;
         }
@@ -303,6 +344,79 @@ public class PaztportProperties implements InitializingBean {
 
         public void setSessionIdleMs(long sessionIdleMs) {
             this.sessionIdleMs = sessionIdleMs;
+        }
+
+        public Set<String> getRequires() {
+            return requires;
+        }
+
+        public void setRequires(Set<String> requires) {
+            this.requires = requires;
+        }
+
+        public boolean isContinueWithoutRequired() {
+            return continueWithoutRequired;
+        }
+
+        public void setContinueWithoutRequired(boolean continueWithoutRequired) {
+            this.continueWithoutRequired = continueWithoutRequired;
+        }
+    }
+
+    /** The extensions this service acts on, the names it carries, and what its calls require of their receivers. */
+    private final Extensions extensions = new Extensions();
+
+    /**
+     * {@code paztport.extensions.*}: the service's extension settings, stated once and given to everything that
+     * verifies, receives or calls for it (spec verification.md, Inputs). Unset, the service acts on no extension and
+     * carries any name, as a mesh with no model runs none of them (spec influence.md). A service whose handlers use
+     * {@code PublicWrites} or label what they answer acts on {@code influence}. The names are checked, and the start
+     * refused, where the settings are built ({@code ExtensionSettings.of}).
+     */
+    public static class Extensions {
+
+        /** The extensions this service acts on, such as influence; empty, the default, for none. */
+        private Set<String> actsOn = new LinkedHashSet<>();
+
+        /**
+         * The extension names this service's verifier carries. Absent, the default, carries any name; present and
+         * empty carries none, which refuses the start beside any paztport.extensions.acts-on, since a service cannot
+         * act on a name it does not carry.
+         */
+        private Set<String> allowed;
+
+        /**
+         * What this service's calls require of each receiver, by the receiver's policy name: every call to it names
+         * these in its own block, and a receiver that does not act on each answers {@code EXTENSION_REQUIRED}: it
+         * refuses the call in {@code enforce} and serves it in {@code audit}, as with any refusal (spec
+         * verification.md, Modes). For example {@code paztport.extensions.requires.payment=influence}. A receiver not
+         * listed, or listed with none, is required nothing.
+         */
+        private Map<String, Set<String>> requires = new LinkedHashMap<>();
+
+        public Set<String> getActsOn() {
+            return actsOn;
+        }
+
+        public void setActsOn(Set<String> actsOn) {
+            this.actsOn = actsOn;
+        }
+
+        /** The names carried, or null where the property is absent and any name is carried. */
+        public Set<String> getAllowed() {
+            return allowed;
+        }
+
+        public void setAllowed(Set<String> allowed) {
+            this.allowed = allowed;
+        }
+
+        public Map<String, Set<String>> getRequires() {
+            return requires;
+        }
+
+        public void setRequires(Map<String, Set<String>> requires) {
+            this.requires = requires;
         }
     }
 
@@ -506,6 +620,7 @@ public class PaztportProperties implements InitializingBean {
      */
     @Override
     public void afterPropertiesSet() {
+        refuseUnknownEnvironmentVariables();
         InboundFilter.requireWellFormed(unverifiedPaths);
         boolean overlapping = !overlap.getKeyringPaths().isEmpty() || !overlap.getRootPaths().isEmpty();
         if (overlapping && (keyringPath == null || rootPath == null || policyKeyPath == null)) {
@@ -519,6 +634,11 @@ public class PaztportProperties implements InitializingBean {
                     + "paztport.policy-key-path are not all set: a table is used only where the signed root covers "
                     + "it, which the proofs show against the pinned roots");
         }
+    }
+
+    @Override
+    public void setEnvironment(Environment environment) {
+        this.environment = environment;
     }
 
     public Overlap getOverlap() {
@@ -623,5 +743,57 @@ public class PaztportProperties implements InitializingBean {
 
     public Boundary getBoundary() {
         return boundary;
+    }
+
+    public Extensions getExtensions() {
+        return extensions;
+    }
+
+    /**
+     * Boot's strict binding skips the process environment, which holds many variables that are not the application's,
+     * so {@code PAZTPORT_VERFY=true} would leave {@code verify} at its default and the service would start unguarded.
+     * The environment is bound again here, on its own, and a {@code PAZTPORT_} variable that the binding did not
+     * consume is refused by name. Boot's own mapping decides what a variable binds to, in each spelling it accepts
+     * ({@code PAZTPORT_RUN_MAX_AGE_MS} and {@code PAZTPORT_RUNMAXAGEMS} alike), so this check restates none of it.
+     */
+    private void refuseUnknownEnvironmentVariables() {
+        if (!(environment instanceof ConfigurableEnvironment configurable)) {
+            return;
+        }
+        var named = configurable.getPropertySources().get(StandardEnvironment.SYSTEM_ENVIRONMENT_PROPERTY_SOURCE_NAME);
+        if (!(named instanceof SystemEnvironmentPropertySource env)) {
+            return;
+        }
+        Set<String> consumed = new HashSet<>();
+        BindHandler recorder = new BindHandler() {
+            @Override
+            public Object onSuccess(ConfigurationPropertyName name, Bindable<?> target, BindContext context,
+                    Object result) {
+                ConfigurationProperty property = context.getConfigurationProperty();
+                if (property != null && property.getOrigin() != null) {
+                    consumed.add(variableOf(property.getOrigin()));
+                }
+                return result;
+            }
+        };
+        new Binder(ConfigurationPropertySources.from(env), new PropertySourcesPlaceholdersResolver(environment),
+                ApplicationConversionService.getSharedInstance())
+                .bind("paztport", Bindable.of(PaztportProperties.class), recorder);
+        for (String variable : env.getPropertyNames()) {
+            if (variable.regionMatches(true, 0, "PAZTPORT_", 0, "PAZTPORT_".length()) && !consumed.contains(variable)) {
+                throw new IllegalStateException("the environment variable " + variable + " is not a property the "
+                        + "Paztport starter defines (the properties are paztport.*, as in the Java README)");
+            }
+        }
+    }
+
+    private static String variableOf(Origin origin) {
+        if (origin instanceof SystemEnvironmentOrigin system) {
+            return system.getProperty();
+        }
+        if (origin instanceof PropertySourceOrigin source) {
+            return source.getPropertyName();
+        }
+        return origin.toString();
     }
 }

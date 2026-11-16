@@ -6,8 +6,12 @@ package org.paztport.spring.outbound;
 import io.micrometer.observation.ObservationRegistry;
 import java.time.Clock;
 import java.time.Duration;
+import java.util.HashSet;
+import java.util.Set;
 import org.paztport.core.policy.ProofBundle;
+import org.paztport.core.policy.Routes;
 import org.paztport.core.stamp.Stamper;
+import org.paztport.core.verify.ExtensionSettings;
 import org.paztport.core.verify.Verifier;
 import org.paztport.http.HttpCaller;
 import org.paztport.spring.PaztportAutoConfiguration;
@@ -27,30 +31,67 @@ import org.springframework.context.annotation.Configuration;
 /**
  * The beans for this service's own calls: the stamping customizer on the shared {@code RestClient.Builder}, which
  * names each receiver by {@code paztport.receiver-names} or else by its host, names the operation a call invokes on a
- * receiver whose table it holds ({@link OperationConfiguration#receiverTables}) and checks each response with the
- * {@link ResponseVerifier}, and the pooled client that presents {@code paztport.tls-bundle} with its customizer. The
- * two customizers are defined here in the order the builder applies them. {@link PaztportAutoConfiguration} imports
- * it; it is not for an application to use directly.
+ * receiver whose table it holds ({@link OperationConfiguration#receiverTables}), signs its own block under this
+ * service's extension settings with what {@code paztport.extensions.requires} asks of each receiver, and checks each
+ * response with the {@link ResponseVerifier}, and the pooled client that presents {@code paztport.tls-bundle} with
+ * its customizer. The two customizers are defined here in the order the builder applies them.
+ * {@link PaztportAutoConfiguration} imports it; it is not for an application to use directly.
  */
 @Configuration(proxyBeanMethods = false)
 public class OutboundConfiguration {
 
     private static final Logger LOG = LoggerFactory.getLogger(OutboundConfiguration.class);
 
+    /**
+     * The stamping customizer. The extension settings go to the caller even beside a verifier, which holds the same
+     * instance: a service with a stamp key and no trust paths has no verifier, and its own blocks would otherwise
+     * act on nothing whatever {@code paztport.extensions.acts-on} says. Where the service holds proofs, each
+     * {@code paztport.extensions.requires} key must be a receiver they reach ({@link #receiversReached}): a key that
+     * names none is a requirement of no call, and the calls it was meant for would require nothing. Without proofs
+     * the starter cannot know the receivers, and the key is taken as given.
+     */
     @Bean
     @ConditionalOnProperty("paztport.key-path")
     RestClientCustomizer paztportRestClientCustomizer(
             Stamper stamper, ObjectProvider<ProofBundle> bundle, ObjectProvider<ResponseVerifier> responses,
-            PaztportProperties props, ObjectProvider<ObservationRegistry> observations) {
+            PaztportProperties props, ExtensionSettings extensions,
+            ObjectProvider<ObservationRegistry> observations) {
         ResponseVerifier checks = responses.getIfAvailable();
         Verifier verifier = checks != null ? checks.verifier() : null;
         ProofBundle proofs = bundle.getIfAvailable();
-        OutboundInterceptor interceptor = new OutboundInterceptor(HttpCaller.builder(props.getServiceName(), stamper)
+        HttpCaller.Builder caller = HttpCaller.builder(props.getServiceName(), stamper)
                 .bundle(proofs).verifier(verifier).receivers(props.getReceiverNames())
-                .operations(OperationConfiguration.receiverTables(props, proofs, checks)).build(),
+                .operations(OperationConfiguration.receiverTables(props, proofs, checks)).extensions(extensions);
+        Set<String> reached = proofs != null ? receiversReached(proofs) : null;
+        props.getExtensions().getRequires().forEach((receiver, names) -> {
+            try {
+                caller.requires(receiver, names);
+            } catch (IllegalArgumentException refused) {
+                throw new IllegalStateException("paztport.extensions.requires." + receiver + " is refused: "
+                        + refused.getMessage(), refused);
+            }
+            if (reached != null && !reached.contains(receiver)) {
+                throw new IllegalStateException("paztport.extensions.requires." + receiver + " names no receiver "
+                        + "this service's proofs reach (paztport.proofs-path), so it would require nothing of any "
+                        + "call: the key is the receiver's policy name, the service a route in the bundle ends at");
+            }
+        });
+        OutboundInterceptor interceptor = new OutboundInterceptor(caller.build(),
                 observations.getIfAvailable(() -> ObservationRegistry.NOOP),
                 unconnectedRetry(props));
         return builder -> builder.requestInterceptor(interceptor);
+    }
+
+    /**
+     * The receivers {@code proofs} reach: the service of each route's last node. A call's route ends at its receiver,
+     * and no route node holds {@code /} (wire.md, Routes), so the last node is the text after the last {@code /}.
+     */
+    private static Set<String> receiversReached(ProofBundle proofs) {
+        Set<String> reached = new HashSet<>();
+        for (String route : proofs.proofs().keySet()) {
+            reached.add(Routes.service(route.substring(route.lastIndexOf('/') + 1)));
+        }
+        return reached;
     }
 
     /**

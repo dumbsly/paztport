@@ -6,38 +6,80 @@ package influence_test
 import (
 	"bytes"
 	"encoding/hex"
+	"slices"
 	"testing"
 
 	"github.com/dumbsly/paztport/poc-sdks/go/influence"
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/b64"
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/json"
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/vectors"
+	"github.com/dumbsly/paztport/poc-sdks/go/reason"
+	"github.com/dumbsly/paztport/poc-sdks/go/verify"
 )
 
-// TestInfluence replays v3.json's influence cases. Each case's entries, read from their wire bytes,
-// normalise to the case's normalized list, byte for byte, and commit to its commitment.
-func TestInfluence(t *testing.T) {
-	vectors.Load(t, "v3.json").Get("influence").Each(func(name string, c vectors.Node) {
+// The extension's sections of v4.json, its member influence, and http-v4.json's boundaryInfluence are replayed
+// here; offline replays influence.recordedCall. As spec/README.md's Conformance section says of an implementation
+// that does not implement the MCP profile, influence.response and the influence.request cases whose served is not
+// empty are not replayed: they record the extension over MCP, what a client adds for a response whose every stamp
+// is the server's and what a server decides with the classes it served in its session.
+
+// TestEntryVectors replays v4.json's influence.entries: ParseEntry reads the item's text exactly when the case
+// says it reads.
+func TestEntryVectors(t *testing.T) {
+	cases := vectors.Load(t, "v4.json").Get("influence").Get("entries")
+	if cases.Len() != 17 {
+		t.Fatalf("v4.json has %d influence.entries cases, want 17", cases.Len())
+	}
+	readsBoth(t, cases, func(item string) error {
+		_, err := influence.ParseEntry(item)
+		return err
+	})
+}
+
+// TestLabelVectors replays v4.json's influence.labels: ParseLabel reads the item's text exactly when the case
+// says it reads.
+func TestLabelVectors(t *testing.T) {
+	cases := vectors.Load(t, "v4.json").Get("influence").Get("labels")
+	if cases.Len() != 9 {
+		t.Fatalf("v4.json has %d influence.labels cases, want 9", cases.Len())
+	}
+	readsBoth(t, cases, func(item string) error {
+		_, err := influence.ParseLabel(item)
+		return err
+	})
+}
+
+// readsBoth runs read over each case's item, as its JCS text, against the case's reads, and checks the section
+// holds items that read and items that do not.
+func readsBoth(t *testing.T, cases vectors.Node, read func(item string) error) {
+	t.Helper()
+	seen := map[bool]bool{}
+	cases.Each(func(_ string, c vectors.Node) {
+		seen[c.Get("reads").Bool()] = true
+	})
+	if !seen[true] || !seen[false] {
+		t.Fatalf("the section's items all read, or none does: %v", seen)
+	}
+	cases.Each(func(name string, c vectors.Node) {
 		t.Run(name, func(t *testing.T) {
 			c := c.With(t)
-			es := entries(t, c.Get("entries"))
-			got, err := influence.EntriesWire(influence.Normalise(es))
-			equalBytes(t, "the normalised entries", got, err, canonical(t, build(c.Get("normalized"))))
-			commits(t, es, c.Get("commitment").Str())
+			err := read(string(canonical(t, build(c.Get("item")))))
+			if want := c.Get("reads").Bool(); (err == nil) != want {
+				t.Fatalf("read it: %t (%v), want %t", err == nil, err, want)
+			}
 		})
 	})
 }
 
-// TestCommitInfluence replays v3.json's commitInfluence.
-func TestCommitInfluence(t *testing.T) {
-	c := vectors.Load(t, "v3.json").Get("commitInfluence")
-	commits(t, entries(t, c.Get("entries")), c.Get("expected").Str())
-}
-
-// TestRule replays v3.json's rule cases, the owner-aware rule's truth table. A case gives each entry's
+// TestRule replays v4.json's influence.rule, the owner-aware rule's truth table, through PublicWriteRefused and
+// through GuardedWriteRefused with every stamp naming influence and with one not. A case gives each entry's
 // class and owner, all the rule reads. A null destination owner is unknown, as "" is.
 func TestRule(t *testing.T) {
-	vectors.Load(t, "v3.json").Get("rule").Each(func(name string, c vectors.Node) {
+	cases := vectors.Load(t, "v4.json").Get("influence").Get("rule")
+	if cases.Len() != 13 {
+		t.Fatalf("v4.json has %d influence.rule cases, want 13", cases.Len())
+	}
+	cases.Each(func(name string, c vectors.Node) {
 		t.Run(name, func(t *testing.T) {
 			c := c.With(t)
 			var es []influence.Entry
@@ -48,22 +90,101 @@ func TestRule(t *testing.T) {
 				}
 				es = append(es, e)
 			})
-			destination := ""
-			if d := c.Get("destinationOwner"); !d.IsNull() {
-				destination = d.Str()
-			}
-			if got, want := influence.PublicWriteRefused(es, destination), c.Get("refused").Bool(); got != want {
+			want := c.Get("refused").Bool()
+			if got := influence.PublicWriteRefused(es, owner(c)); got != want {
 				t.Fatalf("PublicWriteRefused = %v, want %v", got, want)
+			}
+			// Where every stamp names influence the guarded write is the owner-aware rule's alone; where one
+			// does not, it is refused whatever the entries say.
+			if got := influence.GuardedWriteRefused(true, es, owner(c)); got != want {
+				t.Fatalf("GuardedWriteRefused(true) = %v, want %v", got, want)
+			}
+			if !influence.GuardedWriteRefused(false, es, owner(c)) {
+				t.Fatal("GuardedWriteRefused(false) allows the write")
 			}
 		})
 	})
 }
 
-// TestBoundaryInfluence replays http-v3.json's boundaryInfluence. Its input entries reduce to its reduced
+// TestRequestVectors replays v4.json's influence.request cases whose served is empty: Decide over the items
+// handed on, with nothing added, gives the case's reason, and, where the case gives one, its everyStampNames. A
+// case gives null for everyStampNames only beside INFLUENCE_MISMATCH, where no rule is reached; the replay checks
+// that from the file rather than assuming it. A stamp whose items are null is one whose block does not name
+// influence, as the hand-over gives it.
+func TestRequestVectors(t *testing.T) {
+	cases := vectors.Load(t, "v4.json").Get("influence").Get("request")
+	replayed := 0
+	occur := map[reason.Code]bool{}
+	cases.Each(func(name string, c vectors.Node) {
+		if c.Get("served").Len() != 0 {
+			return // the MCP profile's: see the note at the top of this file
+		}
+		replayed++
+		occur[reason.Code(c.Get("expected").Get("reason").Str())] = true
+		t.Run(name, func(t *testing.T) {
+			c := c.With(t)
+			var stamps []verify.StampItems
+			c.Get("stamps").Each(func(_ string, st vectors.Node) {
+				s := verify.StampItems{Svc: st.Get("svc").Str()}
+				if items := st.Get("items"); !items.IsNull() {
+					s.Named, s.Items = true, []string{}
+					items.Each(func(_ string, item vectors.Node) {
+						s.Items = append(s.Items, string(canonical(t, build(item))))
+					})
+				}
+				stamps = append(stamps, s)
+			})
+			got := influence.Decide(stamps, nil, c.Get("write").Bool(), owner(c))
+			want := c.Get("expected")
+			if w := reason.Code(want.Get("reason").Str()); got.Reason != w {
+				t.Fatalf("Decide = %+v, want the reason %s", got, w)
+			}
+			every := want.Get("everyStampNames")
+			if every.IsNull() {
+				if got.Reason != reason.InfluenceMismatch {
+					t.Fatalf("the case gives no everyStampNames beside %s", got.Reason)
+				}
+				// A signer may be "", so the signer's name cannot say the request was refused: Reads does,
+				// and Decide names the signer ReadRequest found, the svc of a block naming influence.
+				r := influence.ReadRequest(stamps)
+				if r.Reads() || got.UnreadSigner != r.UnreadSigner {
+					t.Fatalf("Decide = %+v beside ReadRequest = %+v, want it unread and the same signer", got, r)
+				}
+				if !slices.ContainsFunc(stamps, func(s verify.StampItems) bool {
+					return s.Named && s.Svc == got.UnreadSigner
+				}) {
+					t.Fatalf("Decide names %q, no signer of a block naming influence", got.UnreadSigner)
+				}
+				return
+			}
+			if got.EveryStampNames != every.Bool() {
+				t.Fatalf("Decide = %+v, want everyStampNames %t", got, every.Bool())
+			}
+		})
+	})
+	if replayed != 12 {
+		t.Fatalf("v4.json has %d influence.request cases whose served is empty, want 12", replayed)
+	}
+	for _, code := range []reason.Code{reason.OK, reason.InfluenceDenied, reason.InfluenceMismatch} {
+		if !occur[code] {
+			t.Errorf("no replayed influence.request case expects %s", code)
+		}
+	}
+}
+
+// owner returns case c's destinationOwner, "" where it is null.
+func owner(c vectors.Node) string {
+	if d := c.Get("destinationOwner"); !d.IsNull() {
+		return d.Str()
+	}
+	return ""
+}
+
+// TestBoundaryInfluence replays http-v4.json's boundaryInfluence. Its input entries reduce to its reduced
 // list, each group's salt is the case's, and each opening, read from its body, is written back as those
 // bytes and opens its sent entry exactly when the case says it does.
 func TestBoundaryInfluence(t *testing.T) {
-	b := vectors.Load(t, "http-v3.json").Get("boundaryInfluence")
+	b := vectors.Load(t, "http-v4.json").Get("boundaryInfluence")
 	key := decode(t, b.Get("key").Str())
 	rid, rcv := b.Get("rid").Str(), b.Get("rcv").Str()
 
@@ -119,31 +240,28 @@ func TestBoundaryInfluence(t *testing.T) {
 	})
 }
 
-// entries reads vector node n, an entry or a list of them, from its wire bytes, failing t if
-// ParseEntries refuses them.
+// entries reads vector node n, an entry or a list of them, each entry from its canonical text, failing t if
+// ParseEntry refuses one.
 func entries(t *testing.T, n vectors.Node) []influence.Entry {
 	t.Helper()
-	v := build(n)
 	if n.Kind() == vectors.Object {
-		v = json.Arr(v)
+		return []influence.Entry{entry(t, n)}
 	}
-	es, err := influence.ParseEntries(canonical(t, v))
-	if err != nil {
-		t.Fatalf("ParseEntries: %v", err)
+	es := make([]influence.Entry, n.Len())
+	for i := range es {
+		es[i] = entry(t, n.Index(i))
 	}
 	return es
 }
 
-// commits checks es's commitment against want.
-func commits(t *testing.T, es []influence.Entry, want string) {
+// entry reads vector node n, one entry, from its canonical text, failing t if ParseEntry refuses it.
+func entry(t *testing.T, n vectors.Node) influence.Entry {
 	t.Helper()
-	got, err := influence.Commit(es)
+	e, err := influence.ParseEntry(string(canonical(t, build(n))))
 	if err != nil {
-		t.Fatalf("Commit: %v", err)
+		t.Fatalf("ParseEntry: %v", err)
 	}
-	if got != want {
-		t.Fatalf("Commit = %q, want %q", got, want)
-	}
+	return e
 }
 
 // class returns the class whose wire name is s, failing t if there is none.

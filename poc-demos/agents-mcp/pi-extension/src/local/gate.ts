@@ -9,6 +9,7 @@ import {
   CALL_MAX_AGE_MS,
   decideLocalCall,
   earliestNotAfter,
+  influenceBlock,
   influenceClasses,
   localReceiver,
   NOTHING_RESOLVED,
@@ -17,6 +18,7 @@ import {
   rulesHash,
   RUN_MAX_AGE_MS,
   stampLocalStep,
+  writeBlocks,
   writeToken,
   type InfluenceClass,
   type LocalRules,
@@ -25,11 +27,11 @@ import {
 } from "@paztport/core";
 import type { ExtensionMode } from "../config.ts";
 import type { EventLog } from "../events.ts";
-import type { EvidenceLog } from "../evidence.ts";
+import { EVIDENCE_VERSION, type EvidenceLog } from "../evidence.ts";
 import type { InfluenceStore } from "../influence.ts";
 import { CLIENT_CHAIN, PI_SVC, type ClientMaterial } from "../keys.ts";
 import { EXPIRED_TEXT, localRefusalText, POLICY_EXPIRED_TEXT, SCOPE_TEXT } from "../refusals.ts";
-import type { RunState } from "../runs.ts";
+import { ORIGIN_BLOCK, type RunState } from "../runs.ts";
 import { PINNED_PATH, resolveBash } from "./bash.ts";
 import { canonical, resolveFileTool, type PathContext } from "./paths.ts";
 import { encodePlaceholders } from "./placeholders.ts";
@@ -79,13 +81,13 @@ function spellings(path: string): string[] {
 }
 
 /**
- * Checks pi tool calls against the signed client rules. In enforce mode each checked call during a
- * run is a signed client-mesh step: a v3 stamp with an empty `sess`, naming `local:<tool>` as its receiver,
- * chained from the run's origin and bound to the input and the decision (the call id, what the gate resolved,
- * the verdict, whether the route is listed and the rules' hash), written to the evidence file with the decision,
- * the chain, the route proof and the influence as tokens. The input is bound and recorded with the workspace and
- * home folder paths replaced by "<workspace>" and "<home>" (encodePlaceholders, reversible); the tool runs with the
- * input as given.
+ * Checks pi tool calls against the signed client rules. In enforce mode each checked call during a run is a signed
+ * client-mesh step: a version 4 stamp with an empty `sess`, naming `local:<tool>` as its receiver, chained from the
+ * run's origin and bound to the input and the decision (the call id, what the gate resolved, the verdict, whether
+ * the route is listed and the rules' hash), written to the evidence file with the decision, the chain, the route
+ * proof and the blocks (the origin's, then the step's, which holds the session's influence) as tokens. The input is
+ * bound and recorded with the workspace and home folder paths replaced by "<workspace>" and "<home>"
+ * (encodePlaceholders, reversible); the tool runs with the input as given.
  * no-root mode has no rules to check against and refuses every call.
  * off mode allows everything and records nothing.
  *
@@ -166,6 +168,7 @@ export class LocalGate {
 
     try {
       const origin = runs.origin("", material.sessionKey, INST);
+      const block = influenceBlock(entries);
       const routeAllowed = proof !== null;
       const hash = rules !== undefined ? rulesHash(rules) : null;
       const signedInput = encodePlaceholders(input, { workspace: spellings(this.deps.workspace), home: spellings(this.deps.home ?? homedir()) });
@@ -177,18 +180,18 @@ export class LocalGate {
           ts: now,
           prev: origin.sig,
           toolName,
-          toolCallId,
+          callId: toolCallId,
           input: signedInput,
           resolved,
           verdict,
           listed: routeAllowed,
           rulesHash: hash,
-          influence: entries,
+          block,
         },
         material.piKey,
       );
       evidence.write({
-        v: 1,
+        v: EVIDENCE_VERSION,
         type: "local",
         tool: toolName,
         callId: toolCallId,
@@ -198,7 +201,7 @@ export class LocalGate {
         decision: writeToken({ callId: toolCallId, resolved, verdict, routeAllowed, rulesHash: hash }),
         chain: writeToken([origin, stamp]),
         proof: proof === null ? null : writeToken(proof),
-        influence: writeToken(entries),
+        blocks: writeBlocks([ORIGIN_BLOCK, block]),
       });
     } catch {
       // a call that cannot be bound, signed or recorded (input JCS rejects, a tool name that cannot be bound, a

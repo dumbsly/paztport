@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -34,7 +35,9 @@ import org.paztport.core.session.ReplyCert;
 import org.paztport.core.session.ReplyCheck;
 import org.paztport.core.session.SessionReply;
 import org.paztport.core.session.SessionRequest;
+import org.paztport.core.session.Requirement;
 import org.paztport.core.session.Sessions;
+import org.paztport.core.verify.ExtensionSettings;
 import org.paztport.core.verify.InMemoryNonceCache;
 import org.paztport.core.verify.ReasonCode;
 import org.paztport.core.verify.VerifyResult;
@@ -94,7 +97,7 @@ class PartnerSessionsTest {
     private PartnerSessions partner(int maxPerPeer) {
         return new PartnerSessions(psp.root(), psp.keyring(), psp.pin(), "psp", psp.key().getPrivate(), psp.cert(),
                 Set.of(shop.pin()), Set.of("payment"), DISABLED, new InMemoryNonceCache(15_000), now::get, 5000, 5000,
-                maxPerPeer, IDLE_MS);
+                maxPerPeer, IDLE_MS, ExtensionSettings.NONE);
     }
 
     /** Opens an attested session for the peer {@code issuer}, {@code svc} and returns its id. */
@@ -107,7 +110,7 @@ class PartnerSessionsTest {
     }
 
     private ReplyCheck check(SessionReply reply, SessionRequest req) {
-        return Sessions.checkReply(reply.toJson(), req, psp.pin(), "psp", System.currentTimeMillis());
+        return Sessions.checkReply(reply.toJson(), req, psp.pin(), "psp", System.currentTimeMillis(), Requirement.NONE);
     }
 
     @Test
@@ -134,9 +137,10 @@ class PartnerSessionsTest {
         assertEquals(ReplyCheck.ATTESTED, check(reply, req));
         SessionReply stripped = new SessionReply(reply.serverRoot(), reply.serverPolicyKey(), reply.serverKeyring(),
                 null, reply.serverKeyringNotAfter(), null, reply.nonce(), reply.sess(), reply.status(),
-                reply.disabled(), reply.sig());
+                reply.disabled(), reply.extensions(), reply.sig());
         assertEquals(ReplyCheck.BAD_SIGNATURE,
-                Sessions.checkReply(stripped.toJson(), req, psp.pin(), "psp", System.currentTimeMillis()));
+                Sessions.checkReply(stripped.toJson(), req, psp.pin(), "psp", System.currentTimeMillis(),
+                        Requirement.NONE));
     }
 
     // A certificate for another service, or for a key the keyring does not hold for this one, would sign replies
@@ -150,7 +154,7 @@ class PartnerSessionsTest {
         for (ReplyCert cert : List.of(otherService, otherKey)) {
             assertThrows(IllegalArgumentException.class, () -> new PartnerSessions(psp.root(), psp.keyring(),
                     psp.pin(), "psp", psp.key().getPrivate(), cert, Set.of(shop.pin()), Set.of("payment"), DISABLED,
-                    new InMemoryNonceCache(15_000), now::get, 5000, 5000, 16, IDLE_MS));
+                    new InMemoryNonceCache(15_000), now::get, 5000, 5000, 16, IDLE_MS, ExtensionSettings.NONE));
         }
     }
 
@@ -184,7 +188,7 @@ class PartnerSessionsTest {
             now.set(expiry - 1000);
             PartnerSessions degrading = new PartnerSessions(own.root(), own.keyring(), own.pin(), "psp",
                     own.key().getPrivate(), own.cert(), Set.of(shop.pin()), Set.of("payment"), DISABLED,
-                    new InMemoryNonceCache(15_000), now::get, 5000, 5000, 16, IDLE_MS);
+                    new InMemoryNonceCache(15_000), now::get, 5000, 5000, 16, IDLE_MS, ExtensionSettings.NONE);
             String earlier = open(degrading, SHOP_CA, "orders");
             assertTrue(degrading.find(SHOP_CA, "orders", earlier).attested());
 
@@ -194,9 +198,9 @@ class PartnerSessionsTest {
             assertEquals("unsafe", reply.status());
             assertEquals(DISABLED, reply.disabled());
             assertEquals(ReplyCheck.BAD_SIGNATURE,
-                    Sessions.checkReply(reply.toJson(), req, own.pin(), "psp", now.get()));
+                    Sessions.checkReply(reply.toJson(), req, own.pin(), "psp", now.get(), Requirement.NONE));
             assertEquals(ReplyCheck.UNSAFE,
-                    Sessions.checkReply(reply.toJson(), req, own.pin(), "psp", expiry - 1000));
+                    Sessions.checkReply(reply.toJson(), req, own.pin(), "psp", expiry - 1000, Requirement.NONE));
             assertEquals(ReasonCode.CHAIN_MISSING,
                     degrading.find(SHOP_CA, "orders", earlier).verifier().verify(null).reason());
         }
@@ -218,9 +222,46 @@ class PartnerSessionsTest {
             PartnerSessions.Session session = partner.find(SHOP_CA, "orders", reply.sess());
             assertEquals(ReasonCode.CHAIN_MISSING, session.verifier().verify(null).reason(), "at notAfter");
             now.set(expiry + 1);
-            assertEquals(new VerifyResult(ReasonCode.POLICY_EXPIRED, "", ""),
+            assertEquals(new VerifyResult(ReasonCode.POLICY_EXPIRED, "", "", null),
                     partner.find(SHOP_CA, "orders", reply.sess()).verifier().verify(null), "one ms past");
         }
+    }
+
+    @Test
+    void theReplyListsWhatThePartnerActsOn() {
+        ExtensionSettings settings = ExtensionSettings.of(Set.of("influence", "example"), null);
+        PartnerSessions acting = new PartnerSessions(psp.root(), psp.keyring(), psp.pin(), "psp",
+                psp.key().getPrivate(), psp.cert(), Set.of(shop.pin()), Set.of("payment"), DISABLED,
+                new InMemoryNonceCache(15_000), now::get, 5000, 5000, 16, IDLE_MS, settings);
+        Org stranger = Org.of("payment", Crypto.generateEd25519KeyPair());
+
+        SessionReply attested = acting.open(request(shop, shop.root()), SHOP_CA, "orders");
+        SessionReply unsafe = acting.open(request(stranger, stranger.root()), SHOP_CA, "orders");
+        SessionReply none = partner.open(request(shop, shop.root()), SHOP_CA, "orders");
+
+        assertEquals("attested", attested.status());
+        assertEquals(List.of("example", "influence"), SessionReply.parse(attested.toJson()).extensions(),
+                "sorted, as the reply's schema needs");
+        assertEquals("unsafe", unsafe.status());
+        assertEquals(List.of("example", "influence"), SessionReply.parse(unsafe.toJson()).extensions(),
+                "whatever the status");
+        assertEquals(List.of(), SessionReply.parse(none.toJson()).extensions());
+    }
+
+    /** The partner states its settings once: each attested session's verifier carries them, as its reply lists. */
+    @Test
+    void eachSessionsVerifierCarriesThePartnersSettings() {
+        ExtensionSettings settings = ExtensionSettings.of(Set.of("influence"), Set.of("influence"));
+        PartnerSessions acting = PartnerSessions.builder().ownRoot(psp.root()).ownKeyring(psp.keyring())
+                .ownPolicyKey(psp.pin()).ownService("psp").ownServiceKey(psp.key().getPrivate())
+                .ownReplyCert(psp.cert()).pinnedClientKeys(Set.of(shop.pin())).clientOrigins(Set.of("payment"))
+                .callMaxAgeMs(5000).extensions(settings).build();
+
+        String sess = open(acting, SHOP_CA, "orders");
+
+        assertSame(settings, acting.find(SHOP_CA, "orders", sess).verifier().extensions());
+        assertSame(ExtensionSettings.NONE, partner.find(SHOP_CA, "orders", open(partner, SHOP_CA, "orders"))
+                .verifier().extensions(), "none unless given");
     }
 
     @Test
@@ -339,7 +380,7 @@ class PartnerSessionsTest {
         assertThrows(IllegalArgumentException.class, () -> partner(0));
         assertThrows(IllegalArgumentException.class, () -> new PartnerSessions(psp.root(), psp.keyring(), psp.pin(),
                 "psp", psp.key().getPrivate(), psp.cert(), Set.of(shop.pin()), Set.of("payment"), DISABLED,
-                new InMemoryNonceCache(15_000), now::get, 5000, 5000, 16, 0));
+                new InMemoryNonceCache(15_000), now::get, 5000, 5000, 16, 0, ExtensionSettings.NONE));
     }
 
     @Test

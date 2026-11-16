@@ -6,6 +6,7 @@ package session_test
 import (
 	"bytes"
 	"crypto/ed25519"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -17,7 +18,7 @@ import (
 	"github.com/dumbsly/paztport/poc-sdks/go/session"
 )
 
-// handshake is a handshake to change: v3.json's sessionReply case "entry-key form attested", read.
+// handshake is a handshake to change: v4.json's sessionReply case "entry-key form attested", read.
 type handshake struct {
 	req    session.Request
 	reply  session.Reply
@@ -32,9 +33,9 @@ type handshake struct {
 
 func attestedHandshake(t *testing.T) handshake {
 	t.Helper()
-	v3 := vectors.Load(t, "v3.json")
+	v4 := vectors.Load(t, "v4.json")
 	var c vectors.Node
-	v3.Get("sessionReply").Each(func(name string, n vectors.Node) {
+	v4.Get("sessionReply").Each(func(name string, n vectors.Node) {
 		if name == "entry-key form attested" {
 			c = n.With(t)
 		}
@@ -48,12 +49,12 @@ func attestedHandshake(t *testing.T) handshake {
 	if err != nil {
 		t.Fatalf("ParseReply: %v", err)
 	}
-	h := handshake{req: req, reply: reply, wire: wire, pin: pub(t, v3, c.Get("pin").Str()),
+	h := handshake{req: req, reply: reply, wire: wire, pin: pub(t, v4, c.Get("pin").Str()),
 		entry: c.Get("serverEntry").Str(), now: c.Get("now").Int()}
-	h.signer, _ = vectors.V3Key(t, h.entry)
-	h.client, _ = vectors.V3Key(t, "client-policy")
-	h.server, _ = vectors.V3Key(t, "server-policy")
-	if got := session.CheckReply(wire, req, h.pin, h.entry, h.now); got != session.Attested {
+	h.signer, _ = vectors.VectorKey(t, h.entry)
+	h.client, _ = vectors.VectorKey(t, "client-policy")
+	h.server, _ = vectors.VectorKey(t, "server-policy")
+	if got := session.CheckReply(wire, req, h.pin, h.entry, h.now, session.Requirement{}); got != session.Attested {
 		t.Fatalf("the handshake's reply is %s", got)
 	}
 	return h
@@ -112,13 +113,13 @@ func TestID(t *testing.T) {
 	}
 }
 
-// signersByPub returns the private key of each of v3.json's keys, by its public key.
-func signersByPub(t *testing.T, v3 vectors.Node) map[string]ed25519.PrivateKey {
+// signersByPub returns the private key of each of v4.json's keys, by its public key.
+func signersByPub(t *testing.T, v4 vectors.Node) map[string]ed25519.PrivateKey {
 	t.Helper()
 	signers := map[string]ed25519.PrivateKey{}
-	for _, name := range v3.With(t).Get("keys").Names() {
-		priv, _ := vectors.V3Key(t, name)
-		signers[pub(t, v3, name)] = priv
+	for _, name := range v4.With(t).Get("keys").Names() {
+		priv, _ := vectors.VectorKey(t, name)
+		signers[pub(t, v4, name)] = priv
 	}
 	return signers
 }
@@ -157,7 +158,7 @@ func TestEmptyKeyringSig(t *testing.T) {
 	if _, err := session.ParseReply(wire); err != nil {
 		t.Fatalf("ParseReply refused a reply with an empty serverKeyringSig: %v", err)
 	}
-	if got := session.CheckReply(wire, h.req, h.pin, h.entry, h.now); got != session.BadSignature {
+	if got := session.CheckReply(wire, h.req, h.pin, h.entry, h.now, session.Requirement{}); got != session.BadSignature {
 		t.Fatalf("CheckReply = %s, want %s", got, session.BadSignature)
 	}
 
@@ -206,13 +207,14 @@ func TestNullServerRoot(t *testing.T) {
 				t.Fatalf("ParseReply read the root %+v from null", *read.ServerRoot)
 			}
 			roundTrip(t, read, wire)
-			if got := session.CheckReply(wire, h.req, h.pin, h.entry, h.now); got != session.Unsafe {
+			if got := session.CheckReply(wire, h.req, h.pin, h.entry, h.now, session.Requirement{}); got != session.Unsafe {
 				t.Fatalf("CheckReply = %s, want %s", got, session.Unsafe)
 			}
 
 			reply.Status = session.StatusAttested
 			wire = h.sign(t, h.req, reply, form.key)
-			if got := session.CheckReply(wire, h.req, h.pin, h.entry, h.now); got != session.BadSignature {
+			got := session.CheckReply(wire, h.req, h.pin, h.entry, h.now, session.Requirement{})
+			if got != session.BadSignature {
 				t.Fatalf("an attested reply with no server root: CheckReply = %s, want %s", got,
 					session.BadSignature)
 			}
@@ -228,7 +230,7 @@ func TestNullServerRoot(t *testing.T) {
 		reply := h.reply
 		reply.Status = status
 		wire := h.sign(t, noRoot, reply, h.signer)
-		if got := session.CheckReply(wire, noRoot, h.pin, h.entry, h.now); got != want {
+		if got := session.CheckReply(wire, noRoot, h.pin, h.entry, h.now, session.Requirement{}); got != want {
 			t.Fatalf("a request with no client root, a reply %s: CheckReply = %s, want %s", status, got, want)
 		}
 	}
@@ -251,7 +253,7 @@ func TestSessionIDMismatch(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Wire: %v", err)
 		}
-		if got := session.CheckReply(wire, h.req, h.pin, h.entry, h.now); got != session.BadSignature {
+		if got := session.CheckReply(wire, h.req, h.pin, h.entry, h.now, session.Requirement{}); got != session.BadSignature {
 			t.Fatalf("another session id, %s: CheckReply = %s, want %s", status, got, session.BadSignature)
 		}
 	}
@@ -269,7 +271,7 @@ func TestSessionIDMismatch(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Wire: %v", err)
 		}
-		if got := session.CheckReply(wire, h.req, h.pin, h.entry, h.now); got != session.BadSignature {
+		if got := session.CheckReply(wire, h.req, h.pin, h.entry, h.now, session.Requirement{}); got != session.BadSignature {
 			t.Fatalf("a 15-byte nonce, sess %q: CheckReply = %s, want %s", sess, got, session.BadSignature)
 		}
 	}
@@ -291,12 +293,12 @@ func TestUnsafeReplyServerRoot(t *testing.T) {
 	reply := h.reply
 	reply.Status = session.StatusUnsafe
 	wire := h.sign(t, h.req, reply, h.signer)
-	if got := session.CheckReply(wire, h.req, h.pin, h.entry, h.now); got != session.Unsafe {
+	if got := session.CheckReply(wire, h.req, h.pin, h.entry, h.now, session.Requirement{}); got != session.Unsafe {
 		t.Fatalf("the unsafe reply as it is: CheckReply = %s, want %s", got, session.Unsafe)
 	}
 	reply.ServerRoot = &other
 	wire = h.sign(t, h.req, reply, h.signer)
-	if got := session.CheckReply(wire, h.req, h.pin, h.entry, h.now); got != session.BadSignature {
+	if got := session.CheckReply(wire, h.req, h.pin, h.entry, h.now, session.Requirement{}); got != session.BadSignature {
 		t.Fatalf("a server root signed by the entry key: CheckReply = %s, want %s", got, session.BadSignature)
 	}
 }
@@ -305,20 +307,21 @@ func TestUnsafeReplyServerRoot(t *testing.T) {
 // them gives the earlier one's code.
 func TestCheckOrder(t *testing.T) {
 	h := attestedHandshake(t)
-	other := pub(t, vectors.Load(t, "v3.json"), "client-policy")
+	other := pub(t, vectors.Load(t, "v4.json"), "client-policy")
 
 	// Malformed, and naming another policy key.
 	wire := replace(t, replace(t, h.wire, "serverPolicyKey", json.S(other)), "status", json.S("pending"))
-	if got := session.CheckReply(wire, h.req, h.pin, h.entry, h.now); got != session.MalformedReply {
+	got := session.CheckReply(wire, h.req, h.pin, h.entry, h.now, session.Requirement{})
+	if got != session.MalformedReply {
 		t.Fatalf("malformed and another key: CheckReply = %s, want %s", got, session.MalformedReply)
 	}
 	// Naming another policy key, and so signed by no key the pin allows.
-	if got := session.CheckReply(h.wire, h.req, other, h.entry, h.now); got != session.PinMismatch {
+	if got := session.CheckReply(h.wire, h.req, other, h.entry, h.now, session.Requirement{}); got != session.PinMismatch {
 		t.Fatalf("another pin: CheckReply = %s, want %s", got, session.PinMismatch)
 	}
 	// A bad signature, on an unsafe reply.
 	wire = replace(t, h.wire, "status", json.S(session.StatusUnsafe))
-	if got := session.CheckReply(wire, h.req, h.pin, h.entry, h.now); got != session.BadSignature {
+	if got := session.CheckReply(wire, h.req, h.pin, h.entry, h.now, session.Requirement{}); got != session.BadSignature {
 		t.Fatalf("an unsafe reply signed as attested: CheckReply = %s, want %s", got, session.BadSignature)
 	}
 }
@@ -340,7 +343,7 @@ func TestAttestedOffline(t *testing.T) {
 	badRoot := h.req
 	badRoot.ClientRoot = &moved
 	for name, req := range map[string]session.Request{"keyring signature": badRingSig, "root signature": badRoot} {
-		if got := session.CheckReply(h.wire, req, h.pin, h.entry, at); got != session.Attested {
+		if got := session.CheckReply(h.wire, req, h.pin, h.entry, at, session.Requirement{}); got != session.Attested {
 			t.Fatalf("%s: CheckReply = %s, want %s", name, got, session.Attested)
 		}
 		if session.AttestedOffline(h.wire, req, h.pin, h.entry, at) {
@@ -380,7 +383,7 @@ func TestAttestedOffline(t *testing.T) {
 	}
 }
 
-// TestParseRequestRefuses checks each member's rule in reading a request, beyond the cases v3.json pins:
+// TestParseRequestRefuses checks each member's rule in reading a request, beyond the cases v4.json pins:
 // each request here is the attested handshake's with one member changed.
 func TestParseRequestRefuses(t *testing.T) {
 	h := attestedHandshake(t)
@@ -421,7 +424,7 @@ func TestParseRequestRefuses(t *testing.T) {
 	}
 }
 
-// TestParseReplyRefuses checks each member's rule in reading a reply, beyond the cases v3.json pins: each
+// TestParseReplyRefuses checks each member's rule in reading a reply, beyond the cases v4.json pins: each
 // reply here is the attested handshake's with one member changed, and the client's check of it is
 // MALFORMED_REPLY.
 func TestParseReplyRefuses(t *testing.T) {
@@ -454,15 +457,17 @@ func TestParseReplyRefuses(t *testing.T) {
 			if _, err := session.ParseReply(b); err == nil {
 				t.Fatal("ParseReply read it")
 			}
-			if got := session.CheckReply(b, h.req, h.pin, h.entry, h.now); got != session.MalformedReply {
+			if got := session.CheckReply(b, h.req, h.pin, h.entry, h.now, session.Requirement{}); got != session.MalformedReply {
 				t.Fatalf("CheckReply = %s, want %s", got, session.MalformedReply)
 			}
 		})
 	}
-	if got := session.CheckReply(append(h.wire, '\n'), h.req, h.pin, h.entry, h.now); got != session.MalformedReply {
+	newline := append(slices.Clone(h.wire), '\n')
+	got := session.CheckReply(newline, h.req, h.pin, h.entry, h.now, session.Requirement{})
+	if got != session.MalformedReply {
 		t.Fatalf("a reply followed by a newline: CheckReply = %s, want %s", got, session.MalformedReply)
 	}
-	if got := session.CheckReply(nil, h.req, h.pin, h.entry, h.now); got != session.MalformedReply {
+	if got := session.CheckReply(nil, h.req, h.pin, h.entry, h.now, session.Requirement{}); got != session.MalformedReply {
 		t.Fatalf("no reply: CheckReply = %s, want %s", got, session.MalformedReply)
 	}
 }
@@ -508,6 +513,10 @@ func TestWritersRefuse(t *testing.T) {
 			n := window + json.MaxSafe
 			r.ServerKeyringNotAfter = &n
 		},
+		"extensions unsorted":             func(r *session.Reply) { r.Extensions = []string{"influence", "example"} },
+		"extensions naming one twice":     func(r *session.Reply) { r.Extensions = []string{"example", "example"} },
+		"extensions naming Example":       func(r *session.Reply) { r.Extensions = []string{"Example"} },
+		"extensions naming the empty one": func(r *session.Reply) { r.Extensions = []string{""} },
 	}
 	for name, change := range replies {
 		reply := h.reply
@@ -524,6 +533,191 @@ func TestWritersRefuse(t *testing.T) {
 	}
 	if _, err := session.SignReply(h.reply, nil); err == nil {
 		t.Error("SignReply signed with no key")
+	}
+}
+
+// signedAs returns wire, an object, signed by key over its every member but sig, whatever its members: a
+// reply the writer would refuse, signed as a server could sign it.
+func signedAs(t *testing.T, wire []byte, key ed25519.PrivateKey) []byte {
+	t.Helper()
+	body := edit(t, wire, "sig", nil)
+	sig := ed25519.Sign(key, append([]byte("paztport-session-reply\n"), body...))
+	return replace(t, body, "sig", json.S(b64.Encode(sig)))
+}
+
+// TestReplyExtensions checks the reply's extensions: each malformed form, though signed and attested, is
+// MALFORMED_REPLY; a list changed after signing is BAD_SIGNATURE; and step 5, run only on a reply steps 1 to
+// 4 attest, is EXTENSION_REQUIRED where the reply does not list every name the client requires, and gives
+// way to every earlier step. The offline reading runs steps 1 to 4 only.
+func TestReplyExtensions(t *testing.T) {
+	h := attestedHandshake(t)
+	if h.reply.Extensions == nil || len(h.reply.Extensions) != 0 {
+		t.Fatalf("the handshake's reply lists %#v, want an empty list", h.reply.Extensions)
+	}
+	names := func(ns ...string) *json.Value {
+		items := make([]json.Value, len(ns))
+		for i, n := range ns {
+			items[i] = json.S(n)
+		}
+		return ptr(json.Arr(items...))
+	}
+	none := session.Requirement{}
+	// The policy-key form of the same reply, signed by the policy key: attested as it is, so that a row in this
+	// form fails only by its extensions.
+	policyForm := h.wire
+	for _, member := range []string{"serverKeyringSig", "serverKeyringNotAfter", "serverReplyCert"} {
+		policyForm = edit(t, policyForm, member, nil)
+	}
+	got := session.CheckReply(signedAs(t, policyForm, h.server), h.req, h.pin, h.entry, h.now, none)
+	if got != session.Attested {
+		t.Fatalf("the policy-key form of the handshake's reply: CheckReply = %s, want %s", got, session.Attested)
+	}
+	for _, c := range []struct {
+		name       string
+		value      *json.Value // nil: the member removed
+		policyForm bool        // the policy-key form, signed by the policy key; otherwise the entry-key form
+	}{
+		{"no extensions", nil, false},
+		{"extensions null", ptr(json.Null()), false},
+		{"extensions not an array", ptr(json.S("example")), false},
+		{"extensions holding a value that is not a string", ptr(json.Arr(json.I(1))), false},
+		{"extensions unsorted", names("influence", "example"), false},
+		{"extensions naming one twice", names("example", "example"), false},
+		{"extensions naming Example", names("Example"), false},
+		{"extensions naming the empty name", names(""), false},
+		{"extensions naming a 33-character name", names(strings.Repeat("a", 33)), false},
+		{"extensions unsorted, the policy-key form", names("influence", "example"), true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			wire := signedAs(t, edit(t, h.wire, "extensions", c.value), h.signer)
+			if c.policyForm {
+				wire = signedAs(t, edit(t, policyForm, "extensions", c.value), h.server)
+			}
+			if _, err := session.ParseReply(wire); err == nil {
+				t.Fatal("ParseReply read it")
+			}
+			if got := session.CheckReply(wire, h.req, h.pin, h.entry, h.now, none); got != session.MalformedReply {
+				t.Fatalf("CheckReply = %s, want %s", got, session.MalformedReply)
+			}
+		})
+	}
+
+	// The writer's own list, the reply otherwise the handshake's.
+	listing := func(status string, ns ...string) []byte {
+		reply := h.reply
+		reply.Status = status
+		reply.Extensions = ns
+		return h.sign(t, h.req, reply, h.signer)
+	}
+	influence := requirement(t, []string{"influence"}, false)
+	two := requirement(t, []string{"influence", "example"}, false)
+	changed := replace(t, listing(session.StatusAttested), "extensions", *names("influence"))
+	otherPin := h.req.ClientPolicyKey
+	tests := []struct {
+		name  string
+		reply []byte
+		pin   string
+		need  session.Requirement
+		want  session.Check
+	}{
+		{"a list changed after signing", changed, h.pin, none, session.BadSignature},
+		{"listing nothing, no requirement", listing(session.StatusAttested), h.pin, none, session.Attested},
+		{"listing nothing, a requirement", listing(session.StatusAttested), h.pin, influence,
+			session.ExtensionRequired},
+		{"listing what is required", listing(session.StatusAttested, "influence"), h.pin, influence,
+			session.Attested},
+		{"listing more than is required", listing(session.StatusAttested, "example", "influence", "z-9"), h.pin,
+			influence, session.Attested},
+		{"listing one of two required", listing(session.StatusAttested, "influence"), h.pin, two,
+			session.ExtensionRequired},
+		{"listing two of two required", listing(session.StatusAttested, "example", "influence"), h.pin, two,
+			session.Attested},
+		{"unsafe, listing nothing, a requirement", listing(session.StatusUnsafe), h.pin, influence, session.Unsafe},
+		{"under another pin, a requirement", listing(session.StatusAttested), otherPin, influence,
+			session.PinMismatch},
+		{"a list changed after signing, a requirement", changed, h.pin, influence, session.BadSignature},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := session.CheckReply(tt.reply, h.req, tt.pin, h.entry, h.now, tt.need); got != tt.want {
+				t.Fatalf("CheckReply = %s, want %s", got, tt.want)
+			}
+		})
+	}
+
+	nothing := listing(session.StatusAttested)
+	if !session.AttestedOffline(nothing, h.req, h.pin, h.entry, h.now) {
+		t.Fatal("AttestedOffline = false for an attested reply listing nothing")
+	}
+	several := listing(session.StatusAttested, "example", "influence")
+	read, err := session.ParseReply(several)
+	if err != nil || !slices.Equal(read.Extensions, []string{"example", "influence"}) {
+		t.Fatalf("ParseReply read %q, %v", read.Extensions, err)
+	}
+	roundTrip(t, read, several)
+}
+
+// TestCheckAndReadReplyGivesTheReplyItChecked checks that CheckAndReadReply gives CheckReply's outcome and the
+// reply it read: the reply as ParseReply reads it whatever the outcome once step 1 has read it, so a client reads
+// a sound reply's listing, and an ExtensionRequired reply's, from the reply it checked; and the zero Reply where
+// step 1 refused it.
+func TestCheckAndReadReplyGivesTheReplyItChecked(t *testing.T) {
+	h := attestedHandshake(t)
+	listing := func(status string, ns ...string) []byte {
+		reply := h.reply
+		reply.Status = status
+		reply.Extensions = ns
+		return h.sign(t, h.req, reply, h.signer)
+	}
+	two := requirement(t, []string{"example", "influence"}, false)
+	for _, c := range []struct {
+		name  string
+		reply []byte
+		pin   string
+		need  session.Requirement
+		want  session.Check
+		read  bool // whether the reply read at step 1
+	}{
+		{"attested", listing(session.StatusAttested, "example", "influence"), h.pin, two, session.Attested, true},
+		{"unsafe", listing(session.StatusUnsafe, "influence"), h.pin, two, session.Unsafe, true},
+		{"failing step 5", listing(session.StatusAttested, "influence"), h.pin, two, session.ExtensionRequired, true},
+		{"under another pin", listing(session.StatusAttested, "influence"), h.req.ClientPolicyKey, two,
+			session.PinMismatch, true},
+		{"followed by a newline", append(listing(session.StatusAttested, "influence"), '\n'), h.pin, two,
+			session.MalformedReply, false},
+		{"no reply", nil, h.pin, two, session.MalformedReply, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			check, reply := session.CheckAndReadReply(c.reply, h.req, c.pin, h.entry, h.now, c.need)
+			if check != c.want {
+				t.Fatalf("CheckAndReadReply's check = %s, want %s", check, c.want)
+			}
+			if got := session.CheckReply(c.reply, h.req, c.pin, h.entry, h.now, c.need); got != check {
+				t.Fatalf("CheckReply = %s, CheckAndReadReply %s", got, check)
+			}
+			want := session.Reply{}
+			if c.read {
+				var err error
+				if want, err = session.ParseReply(c.reply); err != nil {
+					t.Fatalf("ParseReply: %v", err)
+				}
+			}
+			if !reflect.DeepEqual(reply, want) {
+				t.Fatalf("CheckAndReadReply's reply = %+v, want %+v", reply, want)
+			}
+		})
+	}
+}
+
+// TestNilExtensions checks that a reply built with no extensions is written as listing none, and reads back
+// as an empty list.
+func TestNilExtensions(t *testing.T) {
+	h := attestedHandshake(t)
+	reply := h.reply
+	reply.Extensions = nil
+	wire := h.sign(t, h.req, reply, h.signer)
+	if !bytes.Equal(wire, h.wire) || !bytes.Contains(wire, []byte(`"extensions":[]`)) {
+		t.Fatalf("a reply with nil Extensions wrote %s, want %s", wire, h.wire)
 	}
 }
 
@@ -665,13 +859,13 @@ func TestDeriveIDLengths(t *testing.T) {
 	}
 }
 
-// TestStatus checks the server's status beyond the cases v3.json pins: no client root, no root of the
+// TestStatus checks the server's status beyond the cases v4.json pins: no client root, no root of the
 // server's own, an own root that does not verify under the server's own policy key, and no pinned client
 // key.
 func TestStatus(t *testing.T) {
-	v3 := vectors.Load(t, "v3.json")
+	v4 := vectors.Load(t, "v4.json")
 	var c vectors.Node
-	v3.Get("sessionStatus").Each(func(name string, n vectors.Node) {
+	v4.Get("sessionStatus").Each(func(name string, n vectors.Node) {
 		if name == "attested" {
 			c = n.With(t)
 		}
@@ -688,7 +882,7 @@ func TestStatus(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseKeyringFile: %v", err)
 	}
-	own, client := pub(t, v3, "server-policy"), pub(t, v3, "client-policy")
+	own, client := pub(t, v4, "server-policy"), pub(t, v4, "client-policy")
 	now := c.Get("now").Int()
 	if got := session.Status(req, &root, kf, own, []string{client}, now); got != session.StatusAttested {
 		t.Fatalf("Status = %q for the attested case", got)
@@ -741,7 +935,7 @@ func TestCertificateForEntry(t *testing.T) {
 		reply := h.reply
 		reply.ServerReplyCert = &cert
 		wire := h.sign(t, h.req, reply, h.signer)
-		if got := session.CheckReply(wire, h.req, h.pin, h.entry, h.now); got != want {
+		if got := session.CheckReply(wire, h.req, h.pin, h.entry, h.now, session.Requirement{}); got != want {
 			t.Errorf("a certificate for %s with the entry's key: CheckReply = %s, want %s", svc, got, want)
 		}
 	}

@@ -3,19 +3,30 @@
 
 package org.paztport.core.offline;
 
+import java.security.PublicKey;
 import java.util.Arrays;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.OptionalLong;
+import java.util.Set;
 import java.util.function.Supplier;
+import org.paztport.core.crypto.Crypto;
+import org.paztport.core.encoding.Base64Url;
 import org.paztport.core.internal.JsonReader;
 import org.paztport.core.internal.JsonValue;
+import org.paztport.core.policy.Keyring;
 import org.paztport.core.policy.SignedRoot;
 import org.paztport.core.session.SessionRequest;
 import org.paztport.core.session.Sessions;
+import org.paztport.core.verify.ExtensionSettings;
+import org.paztport.core.verify.PinnedKeyring;
+import org.paztport.core.verify.PinnedRoot;
 
 /**
  * A handshake read back from a record set, and what it gives the records that rely on it
- * (sessions-and-influence.md &sect;Recorded handshakes): whether it opened an attested session at a given time and
+ * (sessions.md &sect;Recorded handshakes): whether it opened an attested session at a given time and
  * at all, and the limit on a response recorded in it. It is built from the request and reply
  * as recorded, the server policy key the client pinned, and the server's entry service from the verifier's own
  * configuration, never the record's.
@@ -97,6 +108,36 @@ public final class RecordedSession {
      */
     public OptionalLong responseNotAfter() {
         return responseNotAfter;
+    }
+
+    /**
+     * The config a call recorded in this session is checked with (verification.md &sect;Offline verification, a
+     * recorded call): the client's keyring and root from the recorded request, with no window of their own, since the
+     * session's limits judge them ({@link RecordSet#callInSession}), and the reply's session id. The other members
+     * are as given: {@code seen} is the record set's spent keys ({@link RecordSet#spent}), held, not copied, so the
+     * call's own key is added to it. Null for a session that is not attested at all ({@link #attested}).
+     *
+     * <p>A key in the keyring that does not decode, or a root that does not decode, can stand in a signed request: the
+     * policy key signed their text. Such a key verifies no signature, so it is left out, and such a root proves no
+     * route, so it is pinned as no bytes; a call that relies on either is refused by the check that needs it.
+     */
+    public OfflineConfig callConfig(Set<String> allowedOrigins, Set<String> seen, Long runMaxAgeMs, Long callMaxAgeMs,
+            ExtensionSettings extensions) {
+        if (!attested) {
+            return null;
+        }
+        Map<String, PublicKey> keys = new LinkedHashMap<>();
+        request.clientKeyring().forEach((svc, key) -> {
+            PublicKey decoded = readOrNull(() -> Crypto.decodePublicKey(Base64Url.decode(key)));
+            if (decoded != null) {
+                keys.put(svc, decoded);
+            }
+        });
+        SignedRoot root = request.clientRoot();
+        byte[] rootBytes = readOrNull(root::rootBytes);
+        return new OfflineConfig(List.of(new PinnedKeyring(Keyring.of(keys), Long.MAX_VALUE)),
+                List.of(new PinnedRoot(rootBytes == null ? new byte[0] : rootBytes, root.rootId(), Long.MAX_VALUE)),
+                allowedOrigins, sess, seen, null, runMaxAgeMs, callMaxAgeMs, extensions);
     }
 
     /** The earliest of {@code windows}, or 0 when none of them is set, as only for a request that does not read. */

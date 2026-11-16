@@ -87,6 +87,60 @@ describe("loadConfig", () => {
     expect(() => loadConfig(write([]))).toThrow(/config/);
   });
 
+  it("requiresIsAListOfExtensionNames", () => {
+    const server = (requires: unknown) => ({ ...base, servers: [{ id: "github", command: "node", attested: true, requires }] });
+    const cfg = loadConfig(write(server(["influence"])));
+    expect(cfg.servers[0]!.requires).toEqual(["influence"]);
+    expect(cfg.servers[0]!.continueWithoutRequired).toBeUndefined();
+    expect(loadConfig(write(base)).servers[0]!.requires).toBeUndefined();
+    // a name that is not an extension name, and a string where a list belongs, whose letters would each be one
+    for (const requires of [["Influence"], [""], "influence", [1], {}]) {
+      expect(() => loadConfig(write(server(requires))), JSON.stringify(requires)).toThrow(/servers\[0\]\.requires/);
+    }
+  });
+
+  it("requiresNeedsAnAttestedServer", () => {
+    const docs = { id: "docs", command: "node", attested: false, requires: ["influence"] };
+    expect(() => loadConfig(write({ ...base, servers: [docs] }))).toThrow(/servers\[0\]\.requires .*attested/);
+  });
+
+  it("continueWithoutRequiredIsABoolean", () => {
+    const server = (continueWithoutRequired: unknown) => ({
+      ...base,
+      servers: [{ id: "github", command: "node", attested: true, requires: ["influence"], continueWithoutRequired }],
+    });
+    expect(loadConfig(write(server(true))).servers[0]!.continueWithoutRequired).toBe(true);
+    expect(loadConfig(write(server(false))).servers[0]!.continueWithoutRequired).toBe(false);
+    for (const v of ["yes", 1, null]) {
+      expect(() => loadConfig(write(server(v))), JSON.stringify(v)).toThrow(/servers\[0\]\.continueWithoutRequired/);
+    }
+  });
+
+  it("anUnknownTopLevelKeyIsRefused", () => {
+    // a requirement put at the top level, or a misspelt key, would otherwise configure nothing, silently
+    expect(() => loadConfig(write({ ...base, requires: ["influence"] }))).toThrow(/^config requires is not a config key$/);
+    expect(() => loadConfig(write({ ...base, evidencelog: "e.jsonl" }))).toThrow(/^config evidencelog is not a config key$/);
+  });
+
+  it("anUnknownServerKeyIsRefused", () => {
+    const server = (extra: Record<string, unknown>) => ({ ...base, servers: [{ id: "github", command: "node", attested: true, ...extra }] });
+    expect(() => loadConfig(write(server({ requries: ["influence"] })))).toThrow(/^config servers\[0\]\.requries is not a config key$/);
+    expect(() => loadConfig(write(server({ requires: ["influence"], continueWithoutRequire: true })))).toThrow(
+      /^config servers\[0\]\.continueWithoutRequire is not a config key$/,
+    );
+    const second = { ...base, servers: [base.servers[0], { id: "docs", command: "node", attested: false, pins: "x.pub" }] };
+    expect(() => loadConfig(write(second))).toThrow(/^config servers\[1\]\.pins is not a config key$/);
+  });
+
+  it("theSwitchWithoutARequirementIsRefused", () => {
+    const server = (extra: Record<string, unknown>) => ({ ...base, servers: [{ id: "github", command: "node", attested: true, ...extra }] });
+    for (const extra of [{ continueWithoutRequired: true }, { continueWithoutRequired: false }, { requires: [], continueWithoutRequired: true }]) {
+      expect(() => loadConfig(write(server(extra))), JSON.stringify(extra)).toThrow(/^config servers\[0\]\.continueWithoutRequired /);
+    }
+    const docs = { ...base, servers: [{ id: "docs", command: "node", attested: false, continueWithoutRequired: true }] };
+    expect(() => loadConfig(write(docs))).toThrow(/^config servers\[0\]\.continueWithoutRequired /);
+  });
+
   it("unreadableOrInvalidJsonNamesPath", () => {
     expect(() => loadConfig(join(tmp, "missing.json"))).toThrow(/missing\.json/);
     const bad = join(tmp, "bad.json");

@@ -10,8 +10,8 @@ import (
 	"testing"
 )
 
-// TestRulesKey finds a key in the rules' own keys, then in http-v3.json's, then in v3.json's, and fails
-// the test for a key none lists.
+// TestRulesKey finds a key in the rules' own keys, then in the version 4 files', and fails the test for a key
+// none lists.
 func TestRulesKey(t *testing.T) {
 	for _, name := range []string{"shop-policy", "psp", "shop-ca", "payment", "gateway"} {
 		priv, pub := RulesKey(t, name)
@@ -19,7 +19,7 @@ func TestRulesKey(t *testing.T) {
 			t.Errorf("RulesKey(%q) gives a public key that is not the private key's", name)
 		}
 		if want, _, _, _ := derivedKey(name); !priv.Equal(want) {
-			t.Errorf("RulesKey(%q) is not the key v3.json's rule derives", name)
+			t.Errorf("RulesKey(%q) is not the key the vector files' rule derives", name)
 		}
 	}
 	if msg := failure(t, func(tb testing.TB) { RulesKey(tb, "nobody") }); msg == "" {

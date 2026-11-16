@@ -25,6 +25,8 @@ export type ReplyRules = {
   pinnedClientKeys: readonly string[];
   /** Tools refused in an unsafe session, named in the reply. */
   disabledWhenUnsafe: readonly string[];
+  /** The extensions this server acts on, named in the reply in either status; each call states them. */
+  extensions: readonly string[];
 };
 
 /**
@@ -52,6 +54,7 @@ export function buildSessionReply(source: ReplySource, request: SessionRequest, 
       sess,
       status,
       disabled: status === "unsafe" ? [...rules.disabledWhenUnsafe] : [],
+      extensions: [...rules.extensions].sort(),
     },
     source.entryPrivateKey,
   );

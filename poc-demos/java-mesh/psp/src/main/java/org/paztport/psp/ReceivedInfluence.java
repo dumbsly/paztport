@@ -20,10 +20,10 @@ import org.springframework.stereotype.Component;
  * <p>A demo stand-in for the PSP's own audit log, which the demo does not build: in memory, holding only the
  * latest {@value #CAPACITY} requests so a long run cannot grow it without end, and only the last call of a rid,
  * since each of the shop's requests calls the PSP at most once in the demo. Enabled only when
- * {@code paztport.openings=true}.
+ * {@code mesh.openings=true}.
  */
 @Component
-@ConditionalOnProperty(name = "paztport.openings", havingValue = "true")
+@ConditionalOnProperty(name = "mesh.openings", havingValue = "true")
 public final class ReceivedInfluence {
 
     /** Enough for every request of a demo run several times over. */

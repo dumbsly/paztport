@@ -115,7 +115,7 @@ describe("the documents follow the code", () => {
 
   it("theClassesNoteSaysWhatPiCanAndCannotChange", () => {
     expect(CLASSES_NOTE).toBe(
-      "Every class comes from the mock server's outcome log, except that a run can also be marked an error from pi's own record (for example a model provider error or an answer cut off at the length limit). Nothing is scored from what the model says it did, and nothing in pi's record can give a run credit.",
+      "Every class comes from the mock server's outcome log, except that a run can also be marked an error from pi's own record (for example a model provider error or an answer cut off at the length limit), and a run with Paztport on from the extension's events log, when it shows the client got no attested session with the server. Nothing is scored from what the model says it did, and nothing in pi's record or the events log can give a run credit.",
     );
     expect(EVAL_README).toContain(CLASSES_NOTE);
     for (const text of [EVAL_README, readFileSync(join(AGENTS, "eval/src/report.ts"), "utf8"), readFileSync(join(AGENTS, "demo-ui/public/app.js"), "utf8")]) {
@@ -197,6 +197,50 @@ describe("the documents follow the code", () => {
   it("theDocsAreInPlainWords", () => {
     for (const [name, text] of [["eval", EVAL_README], ["demo", DEMO_README]] as const) {
       expect(text, name).not.toMatch(/attack|danger|exploit|catastroph|dramatic|hijack|malicious|bulletproof|guarantee/i);
+    }
+  });
+
+  it("thePiReadmeDocumentsRequiresAndItsSwitch", () => {
+    // every key loadConfig reads, of the config (`raw`) and of each server (`v`)
+    const source = readFileSync(join(AGENTS, "pi-extension/src/config.ts"), "utf8");
+    const keys = new Set([...source.matchAll(/\b(?:raw|v)\.([A-Za-z]+)\b/g)].map((m) => m[1]!));
+    for (const key of ["requires", "continueWithoutRequired", "mode", "servers", "attested"]) expect(keys, key).toContain(key);
+    // only the Config section counts: both keys are named elsewhere in the README too
+    const from = PI_README.indexOf("\n## Config\n");
+    expect(from).toBeGreaterThan(0);
+    const config = PI_README.slice(from, PI_README.indexOf("\n## ", from + 1));
+    for (const key of keys) expect(config, key).toMatch(new RegExp(`\`${key}[\`\\[]`));
+    // the requirement and its switch each have a list item of their own, nested under servers[]
+    for (const key of ["requires", "continueWithoutRequired"]) expect(config, key).toMatch(new RegExp(`^ +- \`${key}\` `, "m"));
+  });
+
+  it("noDemoDocumentSaysProtocolV3OfTheDemo", () => {
+    // the recorded eval was run on version 3, and its section says so; elsewhere version 3 is named only in a sentence
+    // that speaks of format 1, the evidence an earlier version of the demo wrote for it
+    const V3 = /protocol v(?:ersion ?)?3\b|\bversion 3\b/i;
+    const ofFormat1 = /format 1/;
+    const readmes = (d: string): string[] =>
+      readdirSync(d, { withFileTypes: true }).flatMap((e) =>
+        e.name === "node_modules" || e.name.startsWith(".") ? [] : e.isDirectory() ? readmes(join(d, e.name)) : e.name === "README.md" ? [join(d, e.name)] : [],
+      );
+    const files = readmes(AGENTS);
+    expect(files.map((f) => relative(AGENTS, f)).sort()).toEqual(
+      ["README.md", "demo-ui/README.md", "eval/README.md", "mock-github-mcp/README.md", "pi-extension/README.md"],
+    );
+    for (const f of files) {
+      let text = readFileSync(f, "utf8");
+      if (f === join(AGENTS, "eval/README.md")) {
+        const from = text.indexOf("\n## Recorded results\n");
+        expect(from).toBeGreaterThan(0);
+        text = text.slice(0, from) + text.slice(text.indexOf("\n## ", from + 1));
+      }
+      for (const s of flat(text).split(/(?<=[.!?])\s+/).filter((x) => V3.test(x))) {
+        expect(s, `${relative(AGENTS, f)}: ${s}`).toMatch(ofFormat1);
+      }
+    }
+    // the check itself fails a sentence that says it of the demo, in either spelling
+    for (const s of ["This demo speaks protocol version 3.", "The demo uses Protocol v3.", "Calls are stamped as version 3 says."]) {
+      expect(V3.test(s) && !ofFormat1.test(s), s).toBe(true);
     }
   });
 

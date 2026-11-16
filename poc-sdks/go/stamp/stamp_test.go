@@ -7,11 +7,17 @@ import (
 	"bytes"
 	"crypto/ed25519"
 	"crypto/sha256"
+	"go/parser"
+	"go/token"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
-	"github.com/dumbsly/paztport/poc-sdks/go/influence"
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/b64"
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/json"
 	"github.com/dumbsly/paztport/poc-sdks/go/keys"
@@ -33,7 +39,7 @@ var (
 	unsaved = stamp.Stamp{Svc: "pi", Inst: "pi-1", RID: "rid-1", TS: 1000, Sess: "s", Rcv: "next", Bind: "b"}
 
 	// signedFields are the names of the string fields a stamp's signature covers.
-	signedFields = []string{"svc", "inst", "rid", "sess", "rcv", "bind", "infl", "prev"}
+	signedFields = []string{"svc", "inst", "rid", "sess", "rcv", "bind", "ext", "prev"}
 )
 
 // signed returns unsaved, signed with key.
@@ -152,8 +158,8 @@ func TestChainWireIsCanonical(t *testing.T) {
 		t.Fatalf("Wire: %v", err)
 	}
 	s := signed(t)
-	want := `[{"bind":"b","infl":"","inst":"pi-1","prev":"","rcv":"next","rid":"rid-1","sess":"s","sig":"` + s.Sig +
-		`","svc":"pi","ts":1000,"v":3}]`
+	want := `[{"bind":"b","ext":"","inst":"pi-1","prev":"","rcv":"next","rid":"rid-1","sess":"s","sig":"` + s.Sig +
+		`","svc":"pi","ts":1000,"v":4}]`
 	if string(b) != want {
 		t.Fatalf("Wire = %s, want %s", b, want)
 	}
@@ -166,8 +172,8 @@ func TestNotAChain(t *testing.T) {
 	}
 	canonical := chain(t, members(t))
 	// The members in the order the spec lists them, not in JCS order.
-	listed := `[{"v":3,"svc":"pi","inst":"pi-1","rid":"rid-1","ts":1000,"sess":"s","rcv":"next","bind":"b",` +
-		`"infl":"","prev":"","sig":"` + signed(t).Sig + `"}]`
+	listed := `[{"v":4,"svc":"pi","inst":"pi-1","rid":"rid-1","ts":1000,"sess":"s","rcv":"next","bind":"b",` +
+		`"ext":"","prev":"","sig":"` + signed(t).Sig + `"}]`
 	for name, b := range map[string][]byte{
 		"no bytes":            nil,
 		"not JSON":            []byte("chain"),
@@ -202,18 +208,49 @@ func TestEveryMemberIsRequired(t *testing.T) {
 
 func TestNoOtherMember(t *testing.T) {
 	reads(t, reason.ChainMissing, chain(t, with(members(t), "extra", json.B(true))))
-	reads(t, reason.ChainMissing, chain(t, with(members(t), "V", json.I(3))))
+	reads(t, reason.ChainMissing, chain(t, with(members(t), "V", json.I(stamp.Version))))
 }
 
-func TestVersionIsThree(t *testing.T) {
+// TestVersionIsFour reads only a stamp whose v is 4: version 3's stamps, whose signed bytes and members differ,
+// do not read, so a version 3 chain is CHAIN_MISSING wherever its stamp is.
+func TestVersionIsFour(t *testing.T) {
+	if stamp.Version != 4 {
+		t.Fatalf("Version = %d, want 4", stamp.Version)
+	}
 	for name, v := range map[string]json.Value{
-		"1": json.I(1), "2": json.I(2), "4": json.I(4), "0": json.I(0), "text": json.S("3"), "null": json.Null(),
+		"1": json.I(1), "3": json.I(3), "5": json.I(5), "0": json.I(0), "text": json.S("4"), "null": json.Null(),
 	} {
 		t.Run(name, func(t *testing.T) {
 			odd := with(members(t), "v", v)
 			reads(t, reason.ChainMissing, chain(t, odd))
 			reads(t, reason.ChainMissing, chain(t, odd, members(t)))
 			reads(t, reason.ChainMissing, chain(t, members(t), odd))
+		})
+	}
+}
+
+// TestVersionThreesMemberDoesNotRead: version 3's infl in place of ext, or beside it, is a member a stamp does
+// not have, so neither reads.
+func TestVersionThreesMemberDoesNotRead(t *testing.T) {
+	ext := members(t)
+	infl := with(without(ext, "ext"), "infl", json.S(""))
+	both := with(ext, "infl", json.S(""))
+	for name, ms := range map[string][]json.Member{"infl in place of ext": infl, "infl beside ext": both} {
+		t.Run(name, func(t *testing.T) {
+			reads(t, reason.ChainMissing, chain(t, ms))
+			reads(t, reason.ChainMissing, chain(t, members(t), ms))
+		})
+	}
+}
+
+// TestAFieldHoldingThePipeReads: the signed bytes are JCS, so no field needs a rule against "|", and a stamp
+// with one in each string field reads as itself.
+func TestAFieldHoldingThePipeReads(t *testing.T) {
+	for _, name := range signedFields {
+		t.Run(name, func(t *testing.T) {
+			bar := with(members(t), name, json.S("a|b"))
+			reads(t, reason.OK, chain(t, bar))
+			reads(t, reason.OK, chain(t, members(t), bar))
 		})
 	}
 }
@@ -287,31 +324,6 @@ func TestSigIsCanonicalBase64url(t *testing.T) {
 	}
 }
 
-func TestDelimiterIsABadSignature(t *testing.T) {
-	for _, name := range signedFields {
-		t.Run(name, func(t *testing.T) {
-			bar := with(members(t), name, json.S("a|b"))
-			reads(t, reason.BadSignature, chain(t, bar))
-			reads(t, reason.BadSignature, chain(t, members(t), bar))
-		})
-	}
-}
-
-// TestStructuralFaultOutranksDelimiter checks that every stamp is read before any is checked for the
-// delimiter, so a chain with both faults is CHAIN_MISSING, wherever each fault is.
-func TestStructuralFaultOutranksDelimiter(t *testing.T) {
-	bar := with(members(t), "inst", json.S("a|b"))
-	for name, broken := range map[string][]json.Member{
-		"a member missing": without(members(t), "rcv"),
-		"ts as text":       with(members(t), "ts", json.S("1")),
-	} {
-		t.Run(name, func(t *testing.T) {
-			reads(t, reason.ChainMissing, chain(t, broken, bar))
-			reads(t, reason.ChainMissing, chain(t, bar, broken))
-		})
-	}
-}
-
 // TestWireRefuses writes a stamp no reader would read, alone and in a chain: each writer refuses it.
 func TestWireRefuses(t *testing.T) {
 	s := signed(t)
@@ -321,9 +333,8 @@ func TestWireRefuses(t *testing.T) {
 		return c
 	}
 	for name, bad := range map[string]stamp.Stamp{
-		"a delimiter":            edit(func(s *stamp.Stamp) { s.Rcv = "a|b" }),
 		"a lone surrogate":       edit(func(s *stamp.Stamp) { s.Bind = surrogate }),
-		"a noncharacter":         edit(func(s *stamp.Stamp) { s.Infl = string(rune(0xFFFE)) }),
+		"a noncharacter":         edit(func(s *stamp.Stamp) { s.Ext = string(rune(0xFFFE)) }),
 		"a negative ts":          edit(func(s *stamp.Stamp) { s.TS = -1 }),
 		"ts past 2^53 - 1":       edit(func(s *stamp.Stamp) { s.TS = json.MaxSafe + 1 }),
 		"a padded sig":           edit(func(s *stamp.Stamp) { s.Sig = "a=" }),
@@ -358,7 +369,9 @@ func TestSign(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SigningBytes: %v", err)
 	}
-	if want := "3|pi|pi-1|rid-1|1000|s|next|b||"; string(msg) != want {
+	want := "paztport-stamp\n" +
+		`{"bind":"b","ext":"","inst":"pi-1","prev":"","rcv":"next","rid":"rid-1","sess":"s","svc":"pi","ts":1000,"v":4}`
+	if string(msg) != want {
 		t.Fatalf("SigningBytes = %q, want %q", msg, want)
 	}
 	sig, err := b64.Decode(s.Sig)
@@ -395,7 +408,7 @@ func TestSignRefuses(t *testing.T) {
 		{"sess", func(s *stamp.Stamp, v string) { s.Sess = v }},
 		{"rcv", func(s *stamp.Stamp, v string) { s.Rcv = v }},
 		{"bind", func(s *stamp.Stamp, v string) { s.Bind = v }},
-		{"infl", func(s *stamp.Stamp, v string) { s.Infl = v }},
+		{"ext", func(s *stamp.Stamp, v string) { s.Ext = v }},
 		{"prev", func(s *stamp.Stamp, v string) { s.Prev = v }},
 	}
 	if len(setters) != len(signedFields) {
@@ -403,7 +416,6 @@ func TestSignRefuses(t *testing.T) {
 	}
 	for _, f := range setters {
 		for what, v := range map[string]string{
-			"a delimiter":      "a|b",
 			"a lone surrogate": "a" + surrogate,
 			"a cut-short rune": "a\xc3",
 			"a noncharacter":   "a" + string(rune(0xFDEF)),
@@ -453,6 +465,149 @@ func refusal(t *testing.T, s stamp.Stamp) string {
 	return err.Error()
 }
 
+// TestTheSpecsExampleSignsTheSpecsBytes is wire.md's example under Fields and signed bytes, byte for byte.
+func TestTheSpecsExampleSignsTheSpecsBytes(t *testing.T) {
+	s := stamp.Stamp{Svc: "pi", Inst: "pi-\u00e9", RID: "rid-1", TS: 1767225600000, Sess: "", Rcv: "local:read",
+		Bind: "bind-2", Ext: "", Prev: "prev-2"}
+	want := "paztport-stamp\n" +
+		`{"bind":"bind-2","ext":"","inst":"pi-` + "\u00e9" +
+		`","prev":"prev-2","rcv":"local:read","rid":"rid-1","sess":"","svc":"pi","ts":1767225600000,"v":4}`
+	got, err := s.SigningBytes()
+	if err != nil || string(got) != want {
+		t.Fatalf("SigningBytes = %q, %v, want %q", got, err, want)
+	}
+	if !bytes.Contains(got, []byte{'p', 'i', '-', 0xc3, 0xa9}) {
+		t.Fatal("the signed bytes do not hold the UTF-8 of the e with an acute accent")
+	}
+}
+
+// TestAFieldHoldingThePipeSignsAndVerifies: "|" is a character like any other in the version 4 signed bytes.
+func TestAFieldHoldingThePipeSignsAndVerifies(t *testing.T) {
+	f := unsaved
+	f.RID, f.Inst = "r|1", "i|2"
+	s, err := stamp.Sign(f, key)
+	if err != nil {
+		t.Fatalf("Sign: %v", err)
+	}
+	verifies(t, s, key)
+	c, code := stamp.ParseChain(mustWire(t, stamp.Chain{s}))
+	if code != reason.OK || c[0] != s {
+		t.Fatalf("ParseChain = %+v, %s, want the stamp signed", c, code)
+	}
+}
+
+// TestStampsDifferingOnlyInWhereAQuoteFallsDoNotShareBytes: two stamps that the same text, unescaped and joined,
+// would describe, a quote ending inst in one and prev in the other, sign different bytes, so neither's
+// signature verifies for the other. JCS escapes every string, which is what keeps them apart.
+func TestStampsDifferingOnlyInWhereAQuoteFallsDoNotShareBytes(t *testing.T) {
+	a, b := unsaved, unsaved
+	a.Inst, a.Prev = `a","prev":"b`, ""
+	b.Inst, b.Prev = "a", `b","prev":"`
+	ab, err := a.SigningBytes()
+	if err != nil {
+		t.Fatalf("SigningBytes: %v", err)
+	}
+	bb, err := b.SigningBytes()
+	if err != nil {
+		t.Fatalf("SigningBytes: %v", err)
+	}
+	if bytes.Equal(ab, bb) {
+		t.Fatalf("both stamps sign %q", ab)
+	}
+	signedA, err := stamp.Sign(a, key)
+	if err != nil {
+		t.Fatalf("Sign: %v", err)
+	}
+	sig, err := b64.Decode(signedA.Sig)
+	if err != nil || keys.Verify(pub, bb, sig) {
+		t.Fatal("a's signature verifies over b's signed bytes")
+	}
+}
+
+// TestANoncharacterOrInvalidUTF8IsNeverSigned: each string field in turn, holding a noncharacter, a lone
+// surrogate's bytes or a cut-short rune, has no signed bytes, and Sign refuses it without quoting it.
+func TestANoncharacterOrInvalidUTF8IsNeverSigned(t *testing.T) {
+	set := map[string]func(*stamp.Stamp, string){
+		"svc": func(s *stamp.Stamp, v string) { s.Svc = v }, "inst": func(s *stamp.Stamp, v string) { s.Inst = v },
+		"rid": func(s *stamp.Stamp, v string) { s.RID = v }, "sess": func(s *stamp.Stamp, v string) { s.Sess = v },
+		"rcv": func(s *stamp.Stamp, v string) { s.Rcv = v }, "bind": func(s *stamp.Stamp, v string) { s.Bind = v },
+		"ext": func(s *stamp.Stamp, v string) { s.Ext = v }, "prev": func(s *stamp.Stamp, v string) { s.Prev = v },
+	}
+	if len(set) != len(signedFields) {
+		t.Fatal("a signed field has no setter")
+	}
+	for name, f := range set {
+		for what, v := range map[string]string{
+			"U+FDD0":                   "a" + string(rune(0xFDD0)),
+			"U+10FFFF":                 "a" + string(rune(0x10FFFF)),
+			"a lone surrogate's bytes": "a" + surrogate,
+			"a cut-short rune":         "a\xc3",
+		} {
+			t.Run(name+" with "+what, func(t *testing.T) {
+				s := unsaved
+				f(&s, v)
+				refuses(t, s, key)
+				if msg := refusal(t, s); strings.Contains(msg, v) || !strings.Contains(msg, name) {
+					t.Errorf("the refusal %q quotes the field or does not name it", msg)
+				}
+			})
+		}
+	}
+}
+
+// TestTheVersionIsWrittenOnce walks the module's non-test sources: no line outside stamp/stamp.go writes "v" beside
+// a 3 or a 4, and in stamp.go the only code line holding a 3 or a 4 is the constant. So the number a stamp is
+// written and read with has one home.
+func TestTheVersionIsWrittenOnce(t *testing.T) {
+	beside := regexp.MustCompile(`"v".*\b[34]\b|\b[34]\b.*"v"`)
+	digit := regexp.MustCompile(`\b[34]\b`)
+	comment := regexp.MustCompile(`^\s*//`)
+	var seen int
+	err := filepath.WalkDir("..", func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return err
+		}
+		b, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		seen++
+		home := filepath.ToSlash(path) == "../stamp/stamp.go"
+		for i, line := range strings.Split(string(b), "\n") {
+			if comment.MatchString(line) {
+				continue
+			}
+			switch {
+			case home && digit.MatchString(line) && strings.TrimSpace(line) != "const Version = 4":
+				t.Errorf("%s:%d writes a 3 or a 4 outside the constant: %s", path, i+1, strings.TrimSpace(line))
+			case !home && beside.MatchString(line):
+				t.Errorf("%s:%d writes a stamp version: %s", path, i+1, strings.TrimSpace(line))
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if seen < 30 {
+		t.Fatalf("the walk read %d source files; it is not walking the module", seen)
+	}
+	b, err := os.ReadFile("stamp.go")
+	if err != nil || !strings.Contains(string(b), "\nconst Version = 4\n") {
+		t.Fatal("stamp.go does not hold the constant")
+	}
+}
+
+// mustWire returns c's wire bytes.
+func mustWire(t *testing.T, c stamp.Chain) []byte {
+	t.Helper()
+	b, err := c.Wire()
+	if err != nil {
+		t.Fatalf("Wire: %v", err)
+	}
+	return b
+}
+
 func TestPromptBinding(t *testing.T) {
 	got, err := stamp.PromptBinding("fix the typo")
 	sum := sha256.Sum256([]byte("prompt\nfix the typo"))
@@ -466,37 +621,27 @@ func TestPromptBinding(t *testing.T) {
 	}
 }
 
+// TestResponseBinding pins the version 4 response binding: utf8(resultHash || "\n" || callID), with no labels
+// (wire.md, Bindings). v4.json's bindResponse gives the hash; the parts are refused when they could run into each
+// other or have no UTF-8 form.
 func TestResponseBinding(t *testing.T) {
-	ls := []influence.Label{{Class: influence.Private, CID: "c1", Owner: "alice"}, {Class: influence.Public, CID: "c2"}}
-	got, err := stamp.ResponseBinding("rh", "call-1", ls)
-	sum := sha256.Sum256([]byte(`rh` + "\n" + `call-1` + "\n" +
-		`[{"cid":"c1","cls":"private","owner":"alice"},{"cid":"c2","cls":"public"}]`))
-	if err != nil || got != b64.Encode(sum[:]) {
+	got, err := stamp.ResponseBinding("result-hash", "call-1")
+	if err != nil || got != "Ecs64bp8x8_Ehoe7svvulYX563R0KNdS25sfSg0hzXw" {
 		t.Fatalf("ResponseBinding = %s, %v", got, err)
 	}
-	none, err := stamp.ResponseBinding("rh", "call-1", nil)
-	sum = sha256.Sum256([]byte("rh\ncall-1\n[]"))
-	if err != nil || none != b64.Encode(sum[:]) {
-		t.Fatalf("ResponseBinding with no labels = %s, %v", none, err)
+	sum := sha256.Sum256([]byte("result-hash\ncall-1"))
+	if got != b64.Encode(sum[:]) {
+		t.Fatal("ResponseBinding is not the hash of the result hash, a newline and the call id")
 	}
 	for name, args := range map[string][2]string{
 		"a newline in the call id":            {"rh", "call\n1"},
 		"a call id ending in a newline":       {"rh", "call-1\n"},
 		"a lone surrogate in the result hash": {"rh" + surrogate, "call-1"},
 		"a lone surrogate in the call id":     {"rh", "call-" + surrogate},
+		"a cut-short rune in the call id":     {"rh", "call-\xc3"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			if got, err := stamp.ResponseBinding(args[0], args[1], ls); err == nil {
-				t.Fatalf("ResponseBinding computed %s", got)
-			}
-		})
-	}
-	for name, l := range map[string]influence.Label{
-		"an unknown class":      {Class: "secret", CID: "c1"},
-		"a cid not valid UTF-8": {Class: influence.Public, CID: surrogate},
-	} {
-		t.Run(name, func(t *testing.T) {
-			if got, err := stamp.ResponseBinding("rh", "call-1", []influence.Label{l}); err == nil {
+			if got, err := stamp.ResponseBinding(args[0], args[1]); err == nil {
 				t.Fatalf("ResponseBinding computed %s", got)
 			}
 		})
@@ -514,8 +659,17 @@ var (
 	gatewayKey = ed25519.NewKeyFromSeed(bytes.Repeat([]byte{1}, ed25519.SeedSize))
 	ordersKey  = ed25519.NewKeyFromSeed(bytes.Repeat([]byte{2}, ed25519.SeedSize))
 	paymentKey = ed25519.NewKeyFromSeed(bytes.Repeat([]byte{3}, ed25519.SeedSize))
-	shaped     = []influence.Entry{{Class: influence.ThirdParty, Src: "web:example.com", H: "h1"}}
 )
+
+// shaped is a block naming a made-up extension, example, with two items, and requiring it of the receiver.
+func shaped(t *testing.T) stamp.Block {
+	t.Helper()
+	b, err := stamp.NewBlock(map[string][]string{"example": {`{"note":"n1"}`, "7"}}, []string{"example"})
+	if err != nil {
+		t.Fatalf("NewBlock: %v", err)
+	}
+	return b
+}
 
 // stamper returns svc's stamper, its instance svc-1, signing at now. An origin mints rid; any other
 // service mints another, so that a stamp which should carry its inbound chain's rid is seen not to take
@@ -563,12 +717,9 @@ func proofFor(t *testing.T, p *policy.Proof, route string) {
 }
 
 func TestNextAtTheOrigin(t *testing.T) {
-	commit, err := influence.Commit(shaped)
-	if err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
+	block := shaped(t)
 	ignored := stamp.Chain{signed(t)}
-	c, p, err := stamper("gateway", gatewayKey, true).Next(ignored, "orders", "b1", shaped, bundle("gateway/orders"))
+	c, p, err := stamper("gateway", gatewayKey, true).Next(ignored, "orders", "b1", block, bundle("gateway/orders"))
 	if err != nil {
 		t.Fatalf("Next: %v", err)
 	}
@@ -576,7 +727,7 @@ func TestNextAtTheOrigin(t *testing.T) {
 		t.Fatalf("the origin's chain has %d stamps, want 1", len(c))
 	}
 	want := stamp.Stamp{Svc: "gateway", Inst: "gateway-1", RID: rid, TS: now, Sess: "", Rcv: "orders", Bind: "b1",
-		Infl: commit, Prev: "", Sig: c[0].Sig}
+		Ext: block.Commit(), Prev: "", Sig: c[0].Sig}
 	if c[0] != want {
 		t.Fatalf("the origin stamp is %+v, want %+v", c[0], want)
 	}
@@ -587,7 +738,7 @@ func TestNextAtTheOrigin(t *testing.T) {
 // TestNextAppends appends to a two-stamp chain whose stamps differ in rid and sess, as no verified chain
 // does, to show where each comes from: the rid is the origin's, and the sess the last stamp's.
 func TestNextAppends(t *testing.T) {
-	origin, _, err := stamper("gateway", gatewayKey, true).Next(nil, "orders", "b1", nil, bundle())
+	origin, _, err := stamper("gateway", gatewayKey, true).Next(nil, "orders", "b1", stamp.EmptyBlock, bundle())
 	if err != nil {
 		t.Fatalf("Next: %v", err)
 	}
@@ -601,7 +752,7 @@ func TestNextAppends(t *testing.T) {
 	kept := slices.Clone(roomy[:cap(roomy)])
 
 	payment := stamper("payment", paymentKey, false)
-	c, p, err := payment.Next(roomy, "bank", "b3", nil, bundle("gateway/orders/payment/bank"))
+	c, p, err := payment.Next(roomy, "bank", "b3", stamp.EmptyBlock, bundle("gateway/orders/payment/bank"))
 	if err != nil {
 		t.Fatalf("Next: %v", err)
 	}
@@ -609,7 +760,7 @@ func TestNextAppends(t *testing.T) {
 		t.Fatalf("the chain is %+v, want the inbound stamps then one more", c)
 	}
 	want := stamp.Stamp{Svc: "payment", Inst: "payment-1", RID: rid, TS: now, Sess: "sess-1", Rcv: "bank", Bind: "b3",
-		Infl: "", Prev: hop.Sig, Sig: c[2].Sig}
+		Ext: "", Prev: hop.Sig, Sig: c[2].Sig}
 	if c[2] != want {
 		t.Fatalf("the appended stamp is %+v, want %+v", c[2], want)
 	}
@@ -619,7 +770,7 @@ func TestNextAppends(t *testing.T) {
 		t.Fatal("Next wrote into the inbound chain's spare capacity")
 	}
 
-	_, p, err = payment.Next(inbound, "search", "b3", nil, bundle("gateway/orders/payment/bank"))
+	_, p, err = payment.Next(inbound, "search", "b3", stamp.EmptyBlock, bundle("gateway/orders/payment/bank"))
 	if err != nil {
 		t.Fatalf("Next: %v", err)
 	}
@@ -630,35 +781,34 @@ func TestNextRefuses(t *testing.T) {
 	orders := stamper("orders", ordersKey, false)
 	inbound := stamp.Chain{signed(t)}
 	for name, f := range map[string]func() error{
-		"no inbound chain": func() error { _, _, err := orders.Next(nil, "payment", "b", nil, bundle()); return err },
+		"no inbound chain": func() error {
+			_, _, err := orders.Next(nil, "payment", "b", stamp.EmptyBlock, bundle())
+			return err
+		},
 		"an empty inbound chain": func() error {
-			_, _, err := orders.Next(stamp.Chain{}, "payment", "b", nil, bundle())
+			_, _, err := orders.Next(stamp.Chain{}, "payment", "b", stamp.EmptyBlock, bundle())
 			return err
 		},
 		"a delimiter in the receiver": func() error {
-			_, _, err := orders.Next(inbound, "pay|ment", "b", nil, bundle())
-			return err
-		},
-		"influence that can't be committed": func() error {
-			_, _, err := orders.Next(inbound, "payment", "b", []influence.Entry{{Class: "secret"}}, bundle())
+			_, _, err := orders.Next(inbound, "pay|ment", "b", stamp.EmptyBlock, bundle())
 			return err
 		},
 		"no clock": func() error {
 			s := *orders
 			s.Now = nil
-			_, _, err := s.Next(inbound, "payment", "b", nil, bundle())
+			_, _, err := s.Next(inbound, "payment", "b", stamp.EmptyBlock, bundle())
 			return err
 		},
 		"an origin with no rid": func() error {
 			s := *stamper("gateway", gatewayKey, true)
 			s.NewRID = nil
-			_, _, err := s.Next(nil, "orders", "b", nil, bundle())
+			_, _, err := s.Next(nil, "orders", "b", stamp.EmptyBlock, bundle())
 			return err
 		},
 		"a clock past 2^53 - 1": func() error {
 			s := *orders
 			s.Now = func() int64 { return json.MaxSafe + 1 }
-			_, _, err := s.Next(inbound, "payment", "b", nil, bundle())
+			_, _, err := s.Next(inbound, "payment", "b", stamp.EmptyBlock, bundle())
 			return err
 		},
 	} {
@@ -671,16 +821,13 @@ func TestNextRefuses(t *testing.T) {
 }
 
 func TestBoundary(t *testing.T) {
-	commit, err := influence.Commit(shaped)
-	if err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
-	internal, _, err := stamper("gateway", gatewayKey, true).Next(nil, "orders", "b1", nil, bundle())
+	block := shaped(t)
+	internal, _, err := stamper("gateway", gatewayKey, true).Next(nil, "orders", "b1", stamp.EmptyBlock, bundle())
 	if err != nil {
 		t.Fatalf("Next: %v", err)
 	}
 	orders := stamper("orders", ordersKey, false)
-	c, p, err := orders.Boundary(internal, "sess-1", "psp", "b3", shaped, bundle("orders/psp", "gateway/orders/psp"))
+	c, p, err := orders.Boundary(internal, "sess-1", "psp", "b3", block, bundle("orders/psp", "gateway/orders/psp"))
 	if err != nil {
 		t.Fatalf("Boundary: %v", err)
 	}
@@ -688,23 +835,24 @@ func TestBoundary(t *testing.T) {
 		t.Fatalf("the boundary chain has %d stamps, want 1", len(c))
 	}
 	want := stamp.Stamp{Svc: "orders", Inst: "orders-1", RID: rid, TS: now, Sess: "sess-1", Rcv: "psp", Bind: "b3",
-		Infl: commit, Prev: "", Sig: c[0].Sig}
+		Ext: block.Commit(), Prev: "", Sig: c[0].Sig}
 	if c[0] != want {
 		t.Fatalf("the boundary stamp is %+v, want %+v", c[0], want)
 	}
 	verifies(t, c[0], ordersKey)
 	proofFor(t, p, "orders/psp")
 
-	if _, p, err = orders.Boundary(internal, "sess-1", "psp", "b3", nil, bundle("gateway/orders/psp")); err != nil {
+	_, p, err = orders.Boundary(internal, "sess-1", "psp", "b3", stamp.EmptyBlock, bundle("gateway/orders/psp"))
+	if err != nil {
 		t.Fatalf("Boundary: %v", err)
 	}
 	proofFor(t, p, "")
 
-	if _, _, err := orders.Boundary(internal, "", "psp", "b3", nil, bundle()); err == nil {
+	if _, _, err := orders.Boundary(internal, "", "psp", "b3", stamp.EmptyBlock, bundle()); err == nil {
 		t.Error("Boundary stamped a call in no session, which would be a valid in-mesh origin stamp")
 	}
 	for _, none := range []stamp.Chain{nil, {}} {
-		if _, _, err := orders.Boundary(none, "sess-1", "psp", "b3", nil, bundle()); err == nil {
+		if _, _, err := orders.Boundary(none, "sess-1", "psp", "b3", stamp.EmptyBlock, bundle()); err == nil {
 			t.Error("Boundary stamped a call with no internal chain")
 		}
 	}
@@ -714,7 +862,7 @@ func TestBoundary(t *testing.T) {
 // does, to show where each field comes from: the rid is the origin's, and the sess, rcv and prev the last
 // stamp's, so the response names the caller.
 func TestRespond(t *testing.T) {
-	origin, _, err := stamper("gateway", gatewayKey, true).Next(nil, "orders", "b1", nil, bundle())
+	origin, _, err := stamper("gateway", gatewayKey, true).Next(nil, "orders", "b1", stamp.EmptyBlock, bundle())
 	if err != nil {
 		t.Fatalf("Next: %v", err)
 	}
@@ -725,30 +873,30 @@ func TestRespond(t *testing.T) {
 	}
 	request := stamp.Chain{origin[0], hop}
 
-	ls := []influence.Label{{Class: influence.Private, CID: "c1", Owner: "alice"}}
+	block := shaped(t)
 	payment := stamper("payment", paymentKey, false)
 	payment.Now = func() int64 { return now + 5 }
-	s, err := payment.Respond(request, "rh", rid, ls)
+	s, err := payment.Respond(request, "rh", rid, block)
 	if err != nil {
 		t.Fatalf("Respond: %v", err)
 	}
-	bind, err := stamp.ResponseBinding("rh", rid, ls)
+	bind, err := stamp.ResponseBinding("rh", rid)
 	if err != nil {
 		t.Fatalf("ResponseBinding: %v", err)
 	}
 	want := stamp.Stamp{Svc: "payment", Inst: "payment-1", RID: rid, TS: now + 5, Sess: "sess-1", Rcv: "orders",
-		Bind: bind, Infl: "", Prev: hop.Sig, Sig: s.Sig}
+		Bind: bind, Ext: block.Commit(), Prev: hop.Sig, Sig: s.Sig}
 	if s != want {
 		t.Fatalf("the response stamp is %+v, want %+v", s, want)
 	}
 	verifies(t, s, paymentKey)
 
 	for _, none := range []stamp.Chain{nil, {}} {
-		if _, err := payment.Respond(none, "rh", rid, nil); err == nil {
+		if _, err := payment.Respond(none, "rh", rid, stamp.EmptyBlock); err == nil {
 			t.Error("Respond stamped a response to no request")
 		}
 	}
-	if _, err := payment.Respond(request, "rh", "call\n1", nil); err == nil {
+	if _, err := payment.Respond(request, "rh", "call\n1", stamp.EmptyBlock); err == nil {
 		t.Error("Respond stamped a response whose binding can't be computed")
 	}
 }
@@ -759,7 +907,7 @@ func TestRespond(t *testing.T) {
 // named.
 func TestAnOriginNeverResponds(t *testing.T) {
 	forged := stamp.Chain{{Svc: "orders", Inst: "x", RID: rid, TS: now, Rcv: "gateway", Bind: "b"}}
-	if s, err := stamper("gateway", gatewayKey, true).Respond(forged, "h", rid, nil); err == nil {
+	if s, err := stamper("gateway", gatewayKey, true).Respond(forged, "h", rid, stamp.EmptyBlock); err == nil {
 		t.Fatalf("the origin responded with %+v", s)
 	}
 }
@@ -773,23 +921,23 @@ func TestStamperRefusesWhatIsNotARouteNode(t *testing.T) {
 	for _, bad := range []string{"", ".", "a/b"} {
 		for name, f := range map[string]func() (stamp.Chain, error){
 			"Next with svc": func() (stamp.Chain, error) {
-				c, _, err := named(bad).Next(inbound, "payment", "b", nil, bundle())
+				c, _, err := named(bad).Next(inbound, "payment", "b", stamp.EmptyBlock, bundle())
 				return c, err
 			},
 			"Next with rcv": func() (stamp.Chain, error) {
-				c, _, err := named("orders").Next(inbound, bad, "b", nil, bundle())
+				c, _, err := named("orders").Next(inbound, bad, "b", stamp.EmptyBlock, bundle())
 				return c, err
 			},
 			"Boundary with svc": func() (stamp.Chain, error) {
-				c, _, err := named(bad).Boundary(inbound, "sess-1", "psp", "b", nil, bundle())
+				c, _, err := named(bad).Boundary(inbound, "sess-1", "psp", "b", stamp.EmptyBlock, bundle())
 				return c, err
 			},
 			"Boundary with partner": func() (stamp.Chain, error) {
-				c, _, err := named("orders").Boundary(inbound, "sess-1", bad, "b", nil, bundle())
+				c, _, err := named("orders").Boundary(inbound, "sess-1", bad, "b", stamp.EmptyBlock, bundle())
 				return c, err
 			},
 			"Respond with svc": func() (stamp.Chain, error) {
-				s, err := named(bad).Respond(inbound, "rh", rid, nil)
+				s, err := named(bad).Respond(inbound, "rh", rid, stamp.EmptyBlock)
 				if s != (stamp.Stamp{}) {
 					return stamp.Chain{s}, err
 				}
@@ -803,7 +951,7 @@ func TestStamperRefusesWhatIsNotARouteNode(t *testing.T) {
 				if err != nil {
 					t.Fatalf("Sign: %v", err)
 				}
-				s, err := named("orders").Respond(stamp.Chain{last}, "rh", rid, nil)
+				s, err := named("orders").Respond(stamp.Chain{last}, "rh", rid, stamp.EmptyBlock)
 				if s != (stamp.Stamp{}) {
 					return stamp.Chain{s}, err
 				}
@@ -855,18 +1003,19 @@ func TestRouteOf(t *testing.T) {
 // TestNextLooksUpTheRouteFromRcv finds the proof by the route the chain's rcv values name, so an operation a
 // hop names selects the proof for that operation's route.
 func TestNextLooksUpTheRouteFromRcv(t *testing.T) {
-	origin, _, err := stamper("gateway", gatewayKey, true).Next(nil, "orders#createOrder", "b1", nil, bundle())
+	gateway := stamper("gateway", gatewayKey, true)
+	origin, _, err := gateway.Next(nil, "orders#createOrder", "b1", stamp.EmptyBlock, bundle())
 	if err != nil {
 		t.Fatalf("Next: %v", err)
 	}
 	b := bundle("gateway/orders#createOrder/payment#charge", "gateway/orders/payment")
-	_, p, err := stamper("orders", ordersKey, false).Next(origin, "payment#charge", "b2", nil, b)
+	_, p, err := stamper("orders", ordersKey, false).Next(origin, "payment#charge", "b2", stamp.EmptyBlock, b)
 	if err != nil {
 		t.Fatalf("Next: %v", err)
 	}
 	proofFor(t, p, "gateway/orders#createOrder/payment#charge")
 
-	_, p, err = stamper("orders", ordersKey, false).Next(origin, "payment#refund", "b2", nil, b)
+	_, p, err = stamper("orders", ordersKey, false).Next(origin, "payment#refund", "b2", stamp.EmptyBlock, b)
 	if err != nil {
 		t.Fatalf("Next: %v", err)
 	}
@@ -876,7 +1025,7 @@ func TestNextLooksUpTheRouteFromRcv(t *testing.T) {
 // TestStamperRefusesHashInSvc refuses to sign as a service whose name holds '#', which would imitate a
 // service and operation.
 func TestStamperRefusesHashInSvc(t *testing.T) {
-	_, _, err := stamper("orders#createOrder", ordersKey, true).Next(nil, "payment", "b1", nil, bundle())
+	_, _, err := stamper("orders#createOrder", ordersKey, true).Next(nil, "payment", "b1", stamp.EmptyBlock, bundle())
 	if err == nil {
 		t.Fatal("Next signed as a service named with '#'")
 	}
@@ -889,11 +1038,73 @@ func TestStamperRefusesHashInSvc(t *testing.T) {
 // operation name.
 func TestStamperRefusesMalformedRcv(t *testing.T) {
 	for _, rcv := range []string{"payment#", "a#b#c", "#pay"} {
-		_, _, err := stamper("gateway", gatewayKey, true).Next(nil, rcv, "b1", nil, bundle())
+		_, _, err := stamper("gateway", gatewayKey, true).Next(nil, rcv, "b1", stamp.EmptyBlock, bundle())
 		if err == nil {
 			t.Errorf("Next signed for the rcv %q", rcv)
 		} else if !strings.Contains(err.Error(), "rcv") {
 			t.Errorf("Next(%q) = %v, want a refusal of the rcv", rcv, err)
+		}
+	}
+}
+
+// TestTheStampCommitsToItsBlock: Next, Boundary and Respond each sign their block's commitment as ext, which is
+// "" for the empty block and the block's hash otherwise (wire.md, Blocks).
+func TestTheStampCommitsToItsBlock(t *testing.T) {
+	origin, _, err := stamper("gateway", gatewayKey, true).Next(nil, "orders", "b1", stamp.EmptyBlock, bundle())
+	if err != nil {
+		t.Fatalf("Next: %v", err)
+	}
+	orders := stamper("orders", ordersKey, false)
+	named, err := stamp.NewBlock(map[string][]string{"example": {}}, nil)
+	if err != nil {
+		t.Fatalf("NewBlock: %v", err)
+	}
+	for name, block := range map[string]stamp.Block{
+		"the empty block": stamp.EmptyBlock, "a block naming example with nothing": named, "a block with items": shaped(t),
+	} {
+		t.Run(name, func(t *testing.T) {
+			want := block.Commit()
+			if (block.Commit() == "") != (name == "the empty block") {
+				t.Fatalf("the block commits to %q", want)
+			}
+			c, _, err := orders.Next(origin, "payment", "b2", block, bundle())
+			if err != nil {
+				t.Fatalf("Next: %v", err)
+			}
+			b, _, err := orders.Boundary(origin, "sess-1", "psp", "b3", block, bundle())
+			if err != nil {
+				t.Fatalf("Boundary: %v", err)
+			}
+			r, err := orders.Respond(origin, "rh", rid, block)
+			if err != nil {
+				t.Fatalf("Respond: %v", err)
+			}
+			for what, s := range map[string]stamp.Stamp{"Next": c[1], "Boundary": b[0], "Respond": r} {
+				if s.Ext != want {
+					t.Errorf("%s signed ext %q, want %q", what, s.Ext, want)
+				}
+				verifies(t, s, ordersKey)
+			}
+		})
+	}
+}
+
+// TestStamperImportsNoExtension: the core commits to a block and never reads an item, so no file of the stamp
+// package, its tests included, imports an extension.
+func TestStamperImportsNoExtension(t *testing.T) {
+	files, err := filepath.Glob("*.go")
+	if err != nil || len(files) < 5 {
+		t.Fatalf("the package's files: %v, %v", files, err)
+	}
+	for _, f := range files {
+		parsed, err := parser.ParseFile(token.NewFileSet(), f, nil, parser.ImportsOnly)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, imp := range parsed.Imports {
+			if path, _ := strconv.Unquote(imp.Path.Value); strings.HasSuffix(path, "/influence") {
+				t.Errorf("%s imports %s", f, path)
+			}
 		}
 	}
 }

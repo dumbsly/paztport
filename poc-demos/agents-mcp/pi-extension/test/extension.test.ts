@@ -235,7 +235,7 @@ describe("paztport pi extension", { timeout: 30_000 }, () => {
   });
 
   it("refusesWhenConfigOrPinInsideWorkspace", async () => {
-    // R14: a config the agent can edit is refused, and its eventsLog is not trusted either
+    // a config the agent can edit is refused, and its eventsLog is not trusted either
     const cfg = setup([github()], { configDir: workspace });
     await expect(cfg.pi.emit("session_start", { reason: "startup" })).rejects.toThrow(/config .* is inside the workspace/);
     expect(cfg.pi.registrations).toEqual([]);
@@ -272,6 +272,17 @@ describe("paztport pi extension", { timeout: 30_000 }, () => {
     const fetch = pi.tools.get("mcp__docs__fetch_docs")!;
     expect(fetch.annotations).toEqual({ readOnlyHint: true });
     expect(fetch.namespace).toEqual({ name: "mcp__docs", aliases: ["docs"] });
+  });
+
+  it("noToolIsRegisteredForAServerTheClientMakesNoCallTo", async () => {
+    // the mock server lists ["influence"]; "example" is a valid name it does not act on, so the session makes no calls
+    const { pi, eventsPath } = setup([{ ...github(), requires: ["example", "influence"] }, docs()]);
+    await pi.emit("session_start", { reason: "startup" });
+    expect(pi.registrations.filter((name) => name.startsWith("mcp__github__"))).toEqual([]);
+    expect(pi.registrations).toContain("mcp__docs__fetch_docs");
+    expect(records(eventsPath)).toContainEqual(
+      expect.objectContaining({ type: "session", server: "github", status: "no-calls", reason: "EXTENSION_REQUIRED" }),
+    );
   });
 
   it("sanitisesNamesAndDefaultsSchemaType", async () => {
@@ -350,7 +361,7 @@ describe("paztport pi extension", { timeout: 30_000 }, () => {
     expect(out.isError).toBe(false);
     expect(out.content).toEqual([{ type: "text", text: expect.stringContaining(CANARY) }]);
     expect(JSON.stringify(out.content)).not.toMatch(/paztport\/|_meta|"sig"/);
-    expect(out.details).toMatchObject({ server: "github", verify: "OK", labels: ["private"], session: "attested" });
+    expect(out.details).toMatchObject({ server: "github", verify: "OK", added: ["private"], session: "attested" });
     expect(out.details.influence).toEqual({ ...ZERO, "third-party": 1, private: 1 });
     expect(out.details.refused).toBeUndefined();
 
@@ -549,11 +560,11 @@ describe("paztport pi extension", { timeout: 30_000 }, () => {
     (parent as unknown as { message: Record<string, unknown> }).message.nestedCalls = nested;
     expect(await restore([parent])).toEqual({ ...ZERO, private: 1, "local-untrusted": 3 });
     expect(await restore([parent], "off")).toEqual(ZERO);
-    // the same for a foreign tool with an mcp__ name: its nested calls are unknown (private and local-untrusted,
-    // the same entry as its own local-untrusted content)
+    // the same for a foreign tool with an mcp__ name: its nested calls are unknown (private and local-untrusted),
+    // and its own content local-untrusted, an entry like the first but kept, as the store keeps every entry recorded
     const mcpParent = toolResultEntry("mcp__other__run", text("done"), { server: "other", tool: "run" });
     (mcpParent as unknown as { message: Record<string, unknown> }).message.nestedCalls = nested;
-    expect(await restore([mcpParent])).toEqual({ ...ZERO, private: 1, "local-untrusted": 2 });
+    expect(await restore([mcpParent])).toEqual({ ...ZERO, private: 1, "local-untrusted": 3 });
     expect(await restore([mcpParent], "off")).toEqual({ ...ZERO, "local-untrusted": 1 });
     // unlabelled: it may hold anything
     const unlabelled = toolResultEntry("read", text("notes"));
@@ -607,11 +618,39 @@ describe("paztport pi extension", { timeout: 30_000 }, () => {
     expect(await restore([toolResultEntry("mcp__github__list_issues", lone, own({}))])).toEqual({ ...ZERO, private: 1, "local-untrusted": 2 });
   });
 
+  it("aResultSavedWithLabelsAndNoAddedIsRestoredAsUntrusted", async () => {
+    const text = (t: string) => [{ type: "text", text: t }];
+    const own = (extra: Record<string, unknown>) => ({ server: "github", callId: id(), influence: ZERO, session: "attested", ...extra });
+    const restore = async (branch: SessionEntry[]) => {
+      const s = setup([github(), docs()]);
+      s.pi.branch = branch;
+      await s.pi.emit("session_start", { reason: "resume" });
+      // the docs server is unattested: its live result adds one local-untrusted entry
+      return (await s.pi.execute("mcp__docs__fetch_docs", { page: "contributing" }, id())).details.influence;
+    };
+    const notes = (extra: Record<string, unknown>, isError = false) =>
+      toolResultEntry("mcp__github__get_file_contents", text("notes"), own({ verify: "OK", ...extra }), isError);
+    // saved before `added` replaced `labels`: the cautious reading, local-untrusted, never nothing
+    expect(await restore([notes({ labels: ["private"] })])).toEqual({ ...ZERO, "local-untrusted": 2 });
+    expect(await restore([notes({ labels: [] })])).toEqual({ ...ZERO, "local-untrusted": 2 });
+    // `added` is what counts, as recorded
+    expect(await restore([notes({ labels: ["third-party"], added: ["private"] })])).toEqual({ ...ZERO, private: 1, "local-untrusted": 1 });
+    expect(await restore([notes({ added: ["private", "private"] })])).toEqual({ ...ZERO, private: 2, "local-untrusted": 1 });
+    // a result that added nothing (every block named influence, with no label) restores nothing
+    expect(await restore([notes({ added: [] })])).toEqual({ ...ZERO, "local-untrusted": 1 });
+    // `added` that is not a list of classes: local-untrusted
+    expect(await restore([notes({ added: ["secret"] })])).toEqual({ ...ZERO, "local-untrusted": 2 });
+    // a withheld result restores what it added; without `added` (a client that read no influence), local-untrusted
+    const withheld = { verify: "EXTENSION_REQUIRED", withheld: true };
+    expect(await restore([notes({ ...withheld, added: ["local-untrusted"] }, true)])).toEqual({ ...ZERO, "local-untrusted": 2 });
+    expect(await restore([notes(withheld, true)])).toEqual({ ...ZERO, "local-untrusted": 2 });
+  });
+
   it("restoredBranchRecordedLikeLivePath", async () => {
     const own = (extra: Record<string, unknown>) => ({ server: "github", callId: id(), influence: ZERO, ...extra });
     const branch = [
-      // this extension's results: verified labels are re-recorded as their classes
-      toolResultEntry("mcp__github__get_file_contents", [{ type: "text", text: "notes" }], own({ session: "attested", verify: "OK", labels: ["private"] })),
+      // this extension's results: the classes a verified result added are recorded again
+      toolResultEntry("mcp__github__get_file_contents", [{ type: "text", text: "notes" }], own({ session: "attested", verify: "OK", added: ["private"] })),
       // unverified, or from an unsafe session: local-untrusted
       toolResultEntry("mcp__github__list_issues", [{ type: "text", text: "issues" }], own({ session: "unsafe", sessionReason: "PIN_MISMATCH" })),
       // a refusal carries no server content and is never recorded
@@ -743,7 +782,7 @@ describe("paztport pi extension", { timeout: 30_000 }, () => {
     expect(await restore([user, summary(undefined)])).toEqual({ ...ZERO, private: 1, "local-untrusted": 2 });
 
     // a broken chain: what resolves is recorded, and the summary too
-    const notes = { ...toolResultEntry("mcp__github__get_file_contents", [{ type: "text", text: "notes" }], own({ verify: "OK", labels: ["private"] })), id: "a", parentId: "missing" } as SessionEntry;
+    const notes = { ...toolResultEntry("mcp__github__get_file_contents", [{ type: "text", text: "notes" }], own({ verify: "OK", added: ["private"] })), id: "a", parentId: "missing" } as SessionEntry;
     const broken = [notes, user, summary("a")];
     expect(await restore(broken)).toEqual({ ...ZERO, private: 2, "local-untrusted": 2 });
 
@@ -939,6 +978,31 @@ describe("local gate wiring", { timeout: 30_000 }, () => {
     const r = await pi.call("tool_result", { toolName: "read", toolCallId: readId, input: {}, content, isError: false, details: undefined });
     expect(r).toEqual({ content: [{ type: "text", text: UNRECORDABLE_TEXT }], isError: true, details: undefined });
     // nothing was recorded for it: the public read would otherwise show as a public entry
+    const out = await pi.execute("mcp__github__list_issues", LIST, id());
+    expect(out.details.influence).toEqual({ ...ZERO, "third-party": 1 });
+  });
+
+  it("aToolResultWhoseEntryIsRefusedIsWithheld", async () => {
+    const cwd = join(tmp, `local-ws-${n++}`);
+    mkdirSync(join(cwd, "website"), { recursive: true });
+    writeFileSync(join(cwd, "website", "README.md"), "# Acme\n");
+    const raw = JSON.stringify({ mode: "enforce", clientDir: join(demo, "client"), clientPolicyDir: join(demo, "client/local-tools"), servers: [github()] });
+    const { pi } = setup([], { cwd, raw });
+    await pi.emit("session_start", { reason: "startup" });
+    await pi.prompt("fix the typo");
+    const content = [{ type: "text", text: "secret text" }];
+    const withheldResult = { content: [{ type: "text", text: UNRECORDABLE_TEXT }], isError: true, details: undefined };
+    // an MCP tool of another extension whose name an entry cannot carry
+    for (const toolName of ["mcp__other__x\ud800", "mcp__other__x\ufdd0"]) {
+      const r = await pi.call("tool_result", { toolName, toolCallId: id(), input: {}, content, isError: false, details: undefined });
+      expect(r, toolName).toEqual(withheldResult);
+    }
+    // a gated local result whose labels the gate gave, under a name an entry cannot carry
+    const readId = id();
+    expect(await pi.call("tool_call", { toolName: "read", toolCallId: readId, input: { path: "website/README.md" } })).toBeUndefined();
+    const r = await pi.call("tool_result", { toolName: "read\ud800", toolCallId: readId, input: {}, content, isError: false, details: undefined });
+    expect(r).toEqual(withheldResult);
+    // nothing was recorded for any of them: the next call's influence is the prompt's alone
     const out = await pi.execute("mcp__github__list_issues", LIST, id());
     expect(out.details.influence).toEqual({ ...ZERO, "third-party": 1 });
   });

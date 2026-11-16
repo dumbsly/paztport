@@ -12,6 +12,7 @@ import (
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/b64"
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/json"
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/vectors"
+	"github.com/dumbsly/paztport/poc-sdks/go/keys"
 	"github.com/dumbsly/paztport/poc-sdks/go/offline"
 	"github.com/dumbsly/paztport/poc-sdks/go/policy"
 	"github.com/dumbsly/paztport/poc-sdks/go/reason"
@@ -30,9 +31,10 @@ const prompt = "refund order 7"
 func ptr[T any](v T) *T { return &v }
 
 // setup is one recorded chain, the offline verifier's Config for it and the record set it is verified in.
-// The fixture is the mesh policy of v3.json: gateway, then orders, calling payment, in a run started with
-// prompt, in a record set that has spent nothing.
+// The fixture is the mesh policy of v4.json: gateway, then orders, calling payment, in a run started with
+// prompt, each attaching the empty block and recorded with no blocks token, in a record set that has spent nothing.
 type setup struct {
+	t       testing.TB
 	stamps  []stamp.Stamp                 // nil for no chain
 	pre     []func(i int, s *stamp.Stamp) // before signing, once prev links to the stamp before
 	post    []func(i int, s *stamp.Stamp) // after signing
@@ -45,7 +47,7 @@ type setup struct {
 // mesh returns the fixture's setup, which verifies OK.
 func mesh(t testing.TB) *setup {
 	t.Helper()
-	p := vectors.Load(t, "v3.json").Get("policies").Get("mesh")
+	p := vectors.Load(t, "v4.json").Get("policies").Get("mesh")
 	root, err := b64.Decode(p.Get("root").Str())
 	if err != nil {
 		t.Fatal(err)
@@ -55,6 +57,7 @@ func mesh(t testing.TB) *setup {
 		t.Fatal(err)
 	}
 	return &setup{
+		t: t,
 		stamps: []stamp.Stamp{
 			{Svc: "gateway", Inst: "gw-1", RID: "rid-1", TS: start, Rcv: "orders", Bind: bind},
 			{Svc: "orders", Inst: "ord-1", RID: "rid-1", TS: end, Rcv: "payment", Bind: "bind-1"},
@@ -84,7 +87,7 @@ func mesh(t testing.TB) *setup {
 
 func pub(t testing.TB, name string) []byte {
 	t.Helper()
-	_, pub := vectors.V3Key(t, name)
+	_, pub := vectors.VectorKey(t, name)
 	return pub
 }
 
@@ -124,7 +127,7 @@ func (s *setup) token(t testing.TB) string {
 		for _, f := range s.pre {
 			f(i, &st)
 		}
-		priv, _ := vectors.V3Key(t, s.stamps[i].Svc)
+		priv, _ := vectors.VectorKey(t, s.stamps[i].Svc)
 		signed, err := stamp.Sign(st, priv)
 		if err != nil {
 			t.Fatalf("Sign: %v", err)
@@ -144,14 +147,58 @@ func (s *setup) token(t testing.TB) string {
 	return b64.Encode(b)
 }
 
-// run verifies the setup's recorded chain once.
-func (s *setup) run(t *testing.T) verify.Result {
+// attach makes each stamp i commit to bs[i] and records bs as the blocks token.
+func (s *setup) attach(t testing.TB, bs ...stamp.Block) {
+	t.Helper()
+	for i, b := range bs {
+		s.edit(i, func(st *stamp.Stamp) { st.Ext = b.Commit() })
+	}
+	tok, err := stamp.Blocks(bs).Token()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.in.Blocks = &tok
+}
+
+// block returns the block naming each extension in items with its items, requiring requires.
+func block(t testing.TB, items map[string][]string, requires ...string) stamp.Block {
+	t.Helper()
+	b, err := stamp.NewBlock(items, requires)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
+
+// full verifies the setup's recorded chain once and returns the result, its hand-over included.
+func (s *setup) full(t *testing.T) verify.Result {
 	t.Helper()
 	in := s.in
 	if s.stamps != nil {
 		in.Chain = ptr(s.token(t))
 	}
 	return s.records.Verify(in, s.cfg)
+}
+
+// run verifies the setup's recorded chain once, and returns the result less its hand-over, once bare has checked
+// it.
+func (s *setup) run(t *testing.T) verify.Result {
+	t.Helper()
+	return bare(t, s.full(t))
+}
+
+// bare checks that r carries a hand-over exactly when it is OK, a verified one, and returns r without it, so that
+// a test compares the rest with ==.
+func bare(t *testing.T, r verify.Result) verify.Result {
+	t.Helper()
+	if (r.HandOver != nil) != r.OK() {
+		t.Fatalf("a %s result has the hand-over %v", r.Reason, r.HandOver)
+	}
+	if r.HandOver != nil && !r.HandOver.Verified() {
+		t.Fatal("an OK result hands over items as not verified")
+	}
+	r.HandOver = nil
+	return r
 }
 
 // named returns the result the spec names for code: the last stamp for OK and PATH_NOT_ALLOWED, and no
@@ -182,10 +229,8 @@ var faults = []fault{
 		s.stamps = nil
 		s.in.Chain = ptr("")
 	}},
-	{"a delimiter in rcv", reason.BadSignature, func(s *setup) {
-		s.wire = func(b []byte) []byte {
-			return bytes.Replace(b, []byte(`"rcv":"payment"`), []byte(`"rcv":"pay|ment"`), 1)
-		}
+	{"a stamp of version 3", reason.ChainMissing, func(s *setup) {
+		s.wire = func(b []byte) []byte { return bytes.Replace(b, []byte(`"v":4`), []byte(`"v":3`), 1) }
 	}},
 	{"an origin not allowed", reason.BadOrigin, func(s *setup) { s.cfg.AllowedOrigins = []string{"orders"} }},
 	{"a bad signature", reason.BadSignature, func(s *setup) { s.tamper(1, func(st *stamp.Stamp) { st.Inst = "ord-2" }) }},
@@ -222,7 +267,11 @@ var faults = []fault{
 	}},
 	{"another binding", reason.BindingMismatch, func(s *setup) { s.in.ExpectedBind = ptr("bind-0") }},
 	{"no expected binding", reason.BindingMismatch, func(s *setup) { s.in.ExpectedBind = nil }},
-	{"an empty influence token", reason.InfluenceMismatch, func(s *setup) { s.in.Influence = ptr("") }},
+	{"an empty blocks token", reason.ExtensionMismatch, func(s *setup) { s.in.Blocks = ptr("") }},
+	{"a name not allowed", reason.ExtensionNotAllowed, func(s *setup) {
+		s.attach(s.t, stamp.EmptyBlock, block(s.t, map[string][]string{"other": {}}))
+		s.cfg.Extensions = allowing(s.t, nil, []string{"example"})
+	}},
 	{"no nonce key", reason.Replay, func(s *setup) { s.in.NonceKey = nil }},
 	{"a key spent in the record set", reason.Replay, func(s *setup) {
 		s.records = offline.NewRecordSet("rid-1|orders|req")
@@ -263,7 +312,7 @@ func TestOrder(t *testing.T) {
 	pairs := [][2]string{
 		{"no keyring counting for the record", "no chain"},
 		{"no root counting for the record", "an empty chain token"},
-		{"a delimiter in rcv", "an origin not allowed"},
+		{"a stamp of version 3", "an origin not allowed"},
 		{"an origin not allowed", "a bad signature"},
 		{"a bad signature", "an inner rcv for another hop"},
 		{"a broken link", "a chain for another receiver"},
@@ -279,10 +328,13 @@ func TestOrder(t *testing.T) {
 		{"no limits, a run past the default run age", "no prompt"},
 		{"another recorded time", "another prompt"},
 		{"another prompt", "another binding"},
-		{"no prompt", "an empty influence token"},
-		{"another binding", "an empty influence token"},
-		{"an empty influence token", "no nonce key"},
-		{"an empty influence token", "a key spent in the record set"},
+		{"no prompt", "an empty blocks token"},
+		{"another binding", "an empty blocks token"},
+		{"another binding", "a name not allowed"},
+		{"an empty blocks token", "no nonce key"},
+		{"an empty blocks token", "a key spent in the record set"},
+		{"a name not allowed", "no nonce key"},
+		{"a name not allowed", "a key spent in the record set"},
 		{"no nonce key", "no proof"},
 		{"a key spent in the record set", "a proof for another tree"},
 	}
@@ -430,8 +482,8 @@ func TestRID(t *testing.T) {
 	}
 }
 
-// TestSpending pins check 10: a chain spends its key only once checks 1 to 9 hold, and spends it whatever
-// check 11 then says; a spent key is a replay however much later its copy was recorded. Whether a fault
+// TestSpending pins check 11: a chain spends its key only once checks 1 to 9b hold, and spends it whatever
+// check 12 then says; a spent key is a replay however much later its copy was recorded. Whether a fault
 // spent the key shows in the record set: the fixture's own chain, verified in it next, is a replay or not.
 func TestSpending(t *testing.T) {
 	for _, f := range faults {
@@ -462,23 +514,23 @@ func TestSpending(t *testing.T) {
 	}
 }
 
-// handshake returns v3.json's recordedHandshake case name: its request's and reply's bytes, its pin and
+// handshake returns v4.json's recordedHandshake case name: its request's and reply's bytes, its pin and
 // its configured entry.
 func handshake(t *testing.T, name string) (request, reply []byte, pin, entry string) {
 	t.Helper()
-	v3 := vectors.Load(t, "v3.json")
+	v4 := vectors.Load(t, "v4.json")
 	found := false
-	v3.Get("recordedHandshake").Each(func(n string, c vectors.Node) {
+	v4.Get("recordedHandshake").Each(func(n string, c vectors.Node) {
 		if n != name {
 			return
 		}
 		c = c.With(t)
 		request, reply = decode(t, c.Get("requestToken").Str()), decode(t, c.Get("replyToken").Str())
-		pin = v3.Get("keys").Get(c.Get("pin").Str()).Get("pub").Str()
+		pin = v4.Get("keys").Get(c.Get("pin").Str()).Get("pub").Str()
 		entry, found = c.Get("serverEntry").Str(), true
 	})
 	if !found {
-		t.Fatalf("v3.json has no recordedHandshake case %q", name)
+		t.Fatalf("v4.json has no recordedHandshake case %q", name)
 	}
 	return request, reply, pin, entry
 }
@@ -593,7 +645,7 @@ func TestSess(t *testing.T) {
 }
 
 // TestResponseNotAfter checks that the response window counts only once the server's signatures over it
-// verify: a reply edited in the record and not signed again gives none, as do v3.json's replies with no
+// verify: a reply edited in the record and not signed again gives none, as do v4.json's replies with no
 // server root and with one another key signed; the keyring's window counts only in the entry-key form.
 func TestResponseNotAfter(t *testing.T) {
 	request, reply, pin, entry := handshake(t, "server keyring's notAfter")
@@ -650,8 +702,9 @@ func TestRecordedSessionKeepsItsOwn(t *testing.T) {
 }
 
 // TestCall pins a recorded call's result in its session: the chain is verified once, and a call that
-// verifies is OUTSIDE_SESSION, naming no one, when its last stamp's ts is past one of the session's limits.
-// The time judged is the chain's own: here the origin is inside the limit and nothing else is recorded.
+// verifies is OUTSIDE_SESSION, naming no one and handing nothing over, when its last stamp's ts is past one of the
+// session's limits. The time judged is the chain's own: here the origin is inside the limit and nothing else is
+// recorded.
 func TestCall(t *testing.T) {
 	s := offline.Record(handshake(t, "entry-key form, limited by the certificate"))
 	tests := []struct {
@@ -679,12 +732,12 @@ func TestCall(t *testing.T) {
 			tt.make(c)
 			in := c.in
 			in.Chain = ptr(c.token(t))
-			got, ok := c.records.Call(in, c.cfg, s)
-			if !ok || got != tt.want {
+			got, ok := c.records.Call(in, c.cfg, s, nil)
+			if !ok || bare(t, got) != tt.want {
 				t.Fatalf("Call = %+v, %t; want %+v", got, ok, tt.want)
 			}
-			// The chain was verified once: a call that reached check 10 spent its key.
-			again, _ := c.records.Call(in, c.cfg, s)
+			// The chain was verified once: a call that reached check 11 spent its key.
+			again, _ := c.records.Call(in, c.cfg, s, nil)
 			spent := tt.want.Reason != reason.BadSignature
 			if spent != (again.Reason == reason.Replay) {
 				t.Fatalf("the same call again = %+v; spent the first time: %t", again, spent)
@@ -726,7 +779,7 @@ func TestCallJudgesInItsSession(t *testing.T) {
 			tt.make(c)
 			in := c.in
 			in.Chain = ptr(c.token(t))
-			got, ok := c.records.Call(in, c.cfg, s)
+			got, ok := c.records.Call(in, c.cfg, s, nil)
 			if !ok || got.Reason != tt.want {
 				t.Fatalf("Call = %+v, %t; want %s", got, ok, tt.want)
 			}
@@ -741,10 +794,10 @@ func TestCallInAnUnsafeSession(t *testing.T) {
 	c := mesh(t)
 	in := c.in
 	in.Chain = ptr(c.token(t))
-	if got, ok := c.records.Call(in, c.cfg, unsafe); ok || got != (verify.Result{}) {
+	if got, ok := c.records.Call(in, c.cfg, unsafe, nil); ok || got != (verify.Result{}) {
 		t.Fatalf("Call = %+v, %t; want no result", got, ok)
 	}
-	if got := c.records.Verify(in, c.cfg); got != named(reason.OK) {
+	if got := bare(t, c.records.Verify(in, c.cfg)); got != named(reason.OK) {
 		t.Fatalf("Verify after Call = %+v, want OK: Call spent the key", got)
 	}
 }
@@ -784,5 +837,210 @@ func TestRecordSet(t *testing.T) {
 				t.Fatalf("in another record set: Verify = %+v, want OK", got)
 			}
 		})
+	}
+}
+
+// allowing returns extension settings acting on actsOn and carrying only allowed.
+func allowing(t testing.TB, actsOn, allowed []string) verify.Extensions {
+	t.Helper()
+	e, err := verify.NewExtensionsAllowing(actsOn, allowed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return e
+}
+
+// acting returns extension settings acting on actsOn and carrying any name.
+func acting(t testing.TB, actsOn ...string) verify.Extensions {
+	t.Helper()
+	e, err := verify.NewExtensions(actsOn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return e
+}
+
+// example is a block naming the made-up extension example with two items.
+func example(t testing.TB) stamp.Block {
+	return block(t, map[string][]string{"example": {`{"note":"n1"}`, "7"}})
+}
+
+// TestALastBlockRequiringAnExtensionNotActedOnIsOKOffline: check 9c is live only, since a record does not hold
+// the actsOn it was checked against live; so a last block is OK here whatever it requires,
+// even two names of which only one is acted on, which the live verifier refuses.
+func TestALastBlockRequiringAnExtensionNotActedOnIsOKOffline(t *testing.T) {
+	for _, requires := range [][]string{{"example"}, {"example", "other"}} {
+		s := mesh(t)
+		s.attach(t, stamp.EmptyBlock, block(t, nil, requires...))
+		s.cfg.Extensions = acting(t, "example")
+		if got := s.run(t); got != named(reason.OK) {
+			t.Fatalf("requiring %q: Verify = %+v, want OK", requires, got)
+		}
+	}
+}
+
+// TestAnItemAlteredIsExtensionMismatchOffline: check 9a runs offline as live.
+func TestAnItemAlteredIsExtensionMismatchOffline(t *testing.T) {
+	s := mesh(t)
+	s.attach(t, example(t), stamp.EmptyBlock)
+	tok, err := stamp.Blocks{block(t, map[string][]string{"example": {`{"note":"n2"}`, "7"}}), stamp.EmptyBlock}.Token()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.in.Blocks = &tok
+	if got := s.run(t); got != named(reason.ExtensionMismatch) {
+		t.Fatalf("Verify = %+v, want EXTENSION_MISMATCH", got)
+	}
+}
+
+// TestANameOutsideTheAllowedListIsExtensionNotAllowedOffline: check 9b runs when the offline verifier is given a
+// list of its own, and with none every name is carried.
+func TestANameOutsideTheAllowedListIsExtensionNotAllowedOffline(t *testing.T) {
+	s := mesh(t)
+	s.attach(t, block(t, nil, "other"), stamp.EmptyBlock)
+	s.cfg.Extensions = allowing(t, []string{"example"}, []string{"example"})
+	if got := s.run(t); got != named(reason.ExtensionNotAllowed) {
+		t.Fatalf("Verify = %+v, want EXTENSION_NOT_ALLOWED", got)
+	}
+	s.cfg.Extensions = acting(t, "example")
+	if got := s.run(t); got != named(reason.OK) {
+		t.Fatalf("with no list: Verify = %+v, want OK", got)
+	}
+}
+
+// TestOnOKTheOfflineHandOverIsVerified: an OK record hands over, verified, one entry per stamp for each name the
+// offline verifier acts on.
+func TestOnOKTheOfflineHandOverIsVerified(t *testing.T) {
+	s := mesh(t)
+	s.attach(t, block(t, map[string][]string{"example": {}}), example(t))
+	s.cfg.Extensions = acting(t, "example")
+	r := s.full(t)
+	if bare(t, r) != named(reason.OK) {
+		t.Fatalf("Verify = %+v, want OK", r)
+	}
+	got, ok := r.HandOver.Under("example")
+	want := []verify.StampItems{
+		{Svc: "gateway", Named: true, Items: []string{}},
+		{Svc: "orders", Named: true, Items: []string{`{"note":"n1"}`, "7"}},
+	}
+	same := func(a, b verify.StampItems) bool {
+		return a.Svc == b.Svc && a.Named == b.Named && slices.Equal(a.Items, b.Items)
+	}
+	if !r.HandOver.Verified() || !ok || !slices.EqualFunc(got, want, same) {
+		t.Fatalf("the hand-over is verified %t, Under(example) = %+v, %t", r.HandOver.Verified(), got, ok)
+	}
+}
+
+// TestCallRunsTheItemCheckBeforeTheSessionsLimits: an extension's item check runs once the offline order gives OK,
+// before the session's limits, so its code beats OUTSIDE_SESSION and names no one; with none the call is
+// OUTSIDE_SESSION; and it is never called for a chain that fails (verification.md, Offline verification).
+func TestCallRunsTheItemCheckBeforeTheSessionsLimits(t *testing.T) {
+	s := offline.Record(handshake(t, "entry-key form, limited by the certificate"))
+	var handed []*verify.HandOver
+	mismatch := func(h *verify.HandOver) reason.Code {
+		handed = append(handed, h)
+		return reason.InfluenceMismatch
+	}
+	for _, tt := range []struct {
+		name   string
+		items  offline.ItemCheck
+		make   func(*setup)
+		want   verify.Result
+		called bool
+	}{
+		{"an item check refusing, past the limit", mismatch, nil, verify.Result{Reason: reason.InfluenceMismatch}, true},
+		{"no item check, past the limit", nil, nil, verify.Result{Reason: reason.OutsideSession}, false},
+		{"an item check, a chain that fails", mismatch, func(c *setup) {
+			c.tamper(1, func(st *stamp.Stamp) { st.Inst = "ord-2" })
+		}, named(reason.BadSignature), false},
+		{"an item check accepting, past the limit", func(h *verify.HandOver) reason.Code {
+			handed = append(handed, h)
+			return reason.OK
+		}, nil, verify.Result{Reason: reason.OutsideSession}, true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			handed = nil
+			c := mesh(t)
+			inSession(c, s)
+			c.times(certNotAfter-1000, certNotAfter+1)
+			c.cfg.Extensions = acting(t, "example")
+			if tt.make != nil {
+				tt.make(c)
+			}
+			in := c.in
+			in.Chain = ptr(c.token(t))
+			got, ok := c.records.Call(in, c.cfg, s, tt.items)
+			if !ok || got != tt.want {
+				t.Fatalf("Call = %+v, %t; want %+v", got, ok, tt.want)
+			}
+			if called := len(handed) == 1; called != tt.called {
+				t.Fatalf("the item check was called %d times", len(handed))
+			}
+			if tt.called && (handed[0] == nil || !handed[0].Verified() || len(handed[0].Names()) != 1) {
+				t.Fatalf("the item check was handed %v", handed[0])
+			}
+		})
+	}
+}
+
+// TestCallConfigHoldsTheClientsKeyringAndRootAndTheRepliesSession: the config of a call recorded in an attested
+// session pins the client's keyring and root from the recorded request with no window of their own, since the
+// session's limits judge them, carries the reply's session id, and copies what it is given.
+func TestCallConfigHoldsTheClientsKeyringAndRootAndTheRepliesSession(t *testing.T) {
+	s := offline.Record(handshake(t, "entry-key form, limited by the certificate"))
+	req, ok := s.Request()
+	if !ok || req.ClientRoot == nil {
+		t.Fatal("the handshake's request does not read, or has no client root")
+	}
+	origins, run, call := []string{"gateway"}, ptr[int64](10), ptr[int64](20)
+	ext := acting(t, "example")
+	cfg, ok := s.CallConfig(origins, run, call, ext)
+	if !ok {
+		t.Fatal("CallConfig is false for an attested session")
+	}
+	if len(cfg.Keyrings) != 1 || len(cfg.Roots) != 1 {
+		t.Fatalf("CallConfig pins %d keyrings and %d roots, want one of each", len(cfg.Keyrings), len(cfg.Roots))
+	}
+	k, r := cfg.Keyrings[0], cfg.Roots[0]
+	if k.NotAfter != math.MaxInt64 || r.NotAfter != math.MaxInt64 {
+		t.Fatalf("the members have windows %d and %d, want none", k.NotAfter, r.NotAfter)
+	}
+	if len(k.Keys) != len(req.ClientKeyring) || len(k.Keys) == 0 {
+		t.Fatalf("the keyring has %d keys, the request %d", len(k.Keys), len(req.ClientKeyring))
+	}
+	for svc, text := range req.ClientKeyring {
+		want, err := keys.ParsePublic(text)
+		if err != nil {
+			t.Fatalf("the request's key for %s: %v", svc, err)
+		}
+		if got, ok := k.Keys[svc]; !ok || !got.Equal(want) {
+			t.Errorf("the keyring holds %x for %s, want the request's %x", got, svc, want)
+		}
+	}
+	root, err := req.ClientRoot.Bytes()
+	if err != nil || !bytes.Equal(r.Root, root) || r.RootID != req.ClientRoot.RootID {
+		t.Fatalf("the root is %x %q, want the request's", r.Root, r.RootID)
+	}
+	if cfg.Sess != s.Sess() || cfg.Sess == "" || !slices.Equal(cfg.AllowedOrigins, origins) ||
+		*cfg.RunMaxAgeMs != 10 || *cfg.CallMaxAgeMs != 20 || !slices.Equal(cfg.Extensions.ActsOn(), []string{"example"}) {
+		t.Fatalf("CallConfig = %+v", cfg)
+	}
+	origins[0], *run, *call = "orders", 11, 21
+	if cfg.AllowedOrigins[0] != "gateway" || *cfg.RunMaxAgeMs != 10 || *cfg.CallMaxAgeMs != 20 {
+		t.Fatal("CallConfig keeps what it was given by reference")
+	}
+	none, ok := s.CallConfig(nil, nil, nil, verify.Extensions{})
+	if !ok || none.RunMaxAgeMs != nil || none.CallMaxAgeMs != nil {
+		t.Fatalf("with no limits, CallConfig = %+v, %t, want limits left to their defaults", none, ok)
+	}
+}
+
+// TestCallConfigIsFalseForASessionThatIsNotAttested: a call relying on a session not attested at all has no
+// result, and no config.
+func TestCallConfigIsFalseForASessionThatIsNotAttested(t *testing.T) {
+	for _, s := range []offline.RecordedSession{offline.Record(handshake(t, "unsafe")), {}} {
+		if cfg, ok := s.CallConfig([]string{"gateway"}, nil, nil, verify.Extensions{}); ok || cfg.Keyrings != nil {
+			t.Fatalf("CallConfig = %+v, %t, want none", cfg, ok)
+		}
 	}
 }

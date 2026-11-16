@@ -30,19 +30,27 @@ npm test
 `npm run demo` opens a local page for one run ([demo-ui](demo-ui/README.md)).
 `npm run eval -- --model ollama/<model>` repeats the runs and writes a results table ([eval](eval/README.md)).
 
-## Protocol v3
+## Protocol version 4
 
-The SDK and this demo speak protocol v3 ([spec](../../poc-sdks/spec/README.md)):
+The SDK and this demo speak protocol version 4 ([spec](../../poc-sdks/spec/README.md)):
 
 - **Every stamp names its receiver.** The run's origin names `pi`, a call names `mcp:<server>.<tool>`, a
   response chain ends at `pi`, the client that made the call, and a local step names `local:<tool>`. A chain
   sent anywhere else is refused `BINDING_MISMATCH`. The receiver names the tool, so the HTTP form
   `service#operation`, where a service names its handlers, is not used here; the MCP profile has no operations
   ([Operations](../../README.md#operations)).
-- **Objects as tokens.** A call's chain, proof and influence, the attestation or verdict on its result, and the
+- **Objects as tokens.** A call's chain, proof and blocks, the attestation or verdict on its result, and the
   handshake's request and reply each travel as a token, the base64url of the object's JCS bytes, and the SDK reads
   each from those bytes, never through the MCP transport's JSON parser. The evidence file keeps each token as sent
   or received, so `npm run verify` reads the bytes the live check read.
+- **Influence is an extension.** Each stamp commits to a block of its own, and a call carries its chain's blocks in
+  `paztport/extensions` ([blocks](../../poc-sdks/spec/wire.md#blocks)). Influence is the extension `influence`
+  ([influence.md](../../poc-sdks/spec/influence.md)), each hop's entries in its own block: the run's origin names it
+  with no entries, pi's block holds every entry the session has recorded, and the server's last block on a response
+  holds the label for the result. The extension and the mock server both act on `influence`. The example config, and
+  the configs the eval and the demo page write for runs with Paztport on, require it of the GitHub server, so the
+  client calls that server only in an attested session whose reply lists it
+  ([pi-extension](pi-extension/README.md#config)).
 - **No transport peer here.** The SDK's verifier checks the sender a transport authenticated, and names it in
   every result. The MCP servers here run over stdio, which has no TLS, so there is no peer, and the peer check
   doesn't apply: attribution falls back to the chain's own rule.

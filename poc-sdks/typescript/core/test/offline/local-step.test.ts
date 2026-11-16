@@ -5,13 +5,15 @@
 
 import { describe, expect, it } from "vitest";
 import { generateKeyPair, randomBytes } from "../../src/crypto/crypto.ts";
-import type { InfluenceEntry } from "../../src/influence/influence.ts";
-import type { LocalVerdict, Resolved } from "../../src/influence/local-decision.ts";
-import { stampLocalStep } from "../../src/influence/local-step.ts";
+import { influenceBlock, type InfluenceEntry } from "../../src/influence/influence.ts";
+import type { LocalVerdict, Resolved } from "../../src/local/local-decision.ts";
+import { stampLocalStep } from "../../src/local/local-step.ts";
 import { parseLocalRules, rulesHash, type LocalRules } from "../../src/policy/local-rules.ts";
 import { writeToken } from "../../src/encoding/jcs.ts";
+import type { JsonValue } from "../../src/encoding/json.ts";
 import { buildTree, type MerkleProof } from "../../src/policy/merkle.ts";
 import { bindPrompt } from "../../src/stamp/binding.ts";
+import { commitBlock, EMPTY_BLOCK, makeBlock, type Block } from "../../src/stamp/block.ts";
 import { signStamp, type Stamp } from "../../src/stamp/stamp.ts";
 import { verifyRecordedLocalStep, type LocalStepClient, type RecordedLocalStep } from "../../src/offline/local-step.ts";
 
@@ -23,6 +25,8 @@ const RULES: LocalRules = parseLocalRules({ v: 1, folders: [{ path: ".", access:
 const READ: Resolved = { paths: [{ need: "read", at: "notes.md" }], programs: [], parse: "ok", readOnly: true };
 const NOTHING: Resolved = { paths: [], programs: [], parse: "ok", readOnly: false };
 const INFLUENCE: InfluenceEntry[] = [{ cls: "private", src: "file:notes.md", h: "h1" }];
+/** The run's origin names `influence` with nothing to add; the client hop's block holds the session's influence. */
+const ORIGIN_BLOCK = influenceBlock([]);
 
 type Decision = { tool: string; callId: string; input: unknown; resolved: Resolved; verdict: LocalVerdict; routeAllowed: boolean; rulesHash: string | null };
 
@@ -46,19 +50,31 @@ function world() {
     ...over,
   });
   const origin = (over: Partial<Omit<Stamp, "v" | "sig">> = {}) =>
-    signStamp({ svc: "session", inst: "pi-1", rid: "rid-1", ts: RUN_TS, sess: "", rcv: "pi", bind: bindPrompt(PROMPT), infl: "", prev: "", ...over }, session.privateKey);
-  /** A step the gate signed for `d`, its proof the tree's for the tool's route when `routeAllowed`. */
+    signStamp(
+      {
+        svc: "session", inst: "pi-1", rid: "rid-1", ts: RUN_TS, sess: "", rcv: "pi", bind: bindPrompt(PROMPT),
+        ext: commitBlock(ORIGIN_BLOCK), prev: "", ...over,
+      },
+      session.privateKey,
+    );
+  /**
+   * A step the gate signed for `d`, its proof the tree's for the tool's route when `routeAllowed`. `block` is the
+   * client hop's block, the session's influence by default, and `blocks` the token recorded in place of the two signed.
+   */
   type StepOver = {
     key?: string; ts?: number; proof?: MerkleProof | null; originOver?: Partial<Omit<Stamp, "v" | "sig">>;
+    block?: Block; blocks?: string | null;
   };
   const step = (d: Partial<Decision> = {}, o: StepOver = {}): RecordedLocalStep => {
     const decision: Decision = { tool: "read", callId: "tc-1", input: { path: "notes.md" }, resolved: READ, verdict: "OK", routeAllowed: true, rulesHash: rulesHash(RULES), ...d };
     const first = origin(o.originOver);
     const ts = o.ts ?? STEP_TS;
+    const block = o.block ?? influenceBlock(INFLUENCE);
     const stamp = stampLocalStep(
       {
-        svc: "pi", inst: "pi-1", rid: "rid-1", ts, prev: first.sig, toolName: decision.tool, toolCallId: decision.callId, input: decision.input,
-        resolved: decision.resolved, verdict: decision.verdict, listed: decision.routeAllowed, rulesHash: decision.rulesHash, influence: INFLUENCE,
+        svc: "pi", inst: "pi-1", rid: "rid-1", ts, prev: first.sig, toolName: decision.tool, callId: decision.callId, input: decision.input,
+        resolved: decision.resolved, verdict: decision.verdict, listed: decision.routeAllowed,
+        rulesHash: decision.rulesHash, block,
       },
       o.key ?? pi.privateKey,
     );
@@ -68,7 +84,8 @@ function world() {
     return {
       tool, input, callId: decision.callId, decision: decisionToken(decision), rid: "rid-1", now: ts,
       chain: writeToken([first, stamp]),
-      proof: proof === null ? null : writeToken(proof), influence: writeToken(INFLUENCE),
+      proof: proof === null ? null : writeToken(proof),
+      blocks: Object.hasOwn(o, "blocks") ? o.blocks! : writeToken([ORIGIN_BLOCK, block] as unknown as JsonValue),
     };
   };
   const run = { prompt: PROMPT, ts: new Set([RUN_TS]) };
@@ -138,12 +155,12 @@ describe("verifyRecordedLocalStep", () => {
     expect(w.check(w.step(), w.client({ keyring: { session: w.session.publicKey, pi: generateKeyPair().publicKey } })).reason).toBe("BAD_SIGNATURE");
   });
 
-  // "nonceKey = <rid>|<callId>|local"
+  // "nonceKey = JCS([rid, callId, "local"])"
   it("theNonceKeyIsSpentInTheRecordSet", () => {
     const w = world();
     const seen = new Set<string>();
     expect(w.check(w.step(), w.client(), seen).reason).toBe("OK");
-    expect([...seen]).toEqual(["rid-1|tc-1|local"]);
+    expect([...seen]).toEqual(['["rid-1","tc-1","local"]']);
     expect(w.check(w.step(), w.client(), seen).reason).toBe("REPLAY");
     expect(w.check(w.step({ callId: "tc-2" }), w.client(), seen).reason).toBe("OK");
   });
@@ -264,5 +281,85 @@ describe("verifyRecordedLocalStep", () => {
     expect(at(RUN_TS, RUN_TS + 1_800_001, { runMaxAgeMs: 1_800_001 })).toBe("OK");
     expect(at(RUN_TS + 5_001, RUN_TS, { callMaxAgeMs: 5_001 })).toBe("OK");
     expect(at(RUN_TS, RUN_TS + 11, { runMaxAgeMs: 10 })).toBe("EXPIRED");
+  });
+
+  // "A record carries the token of its chain's blocks beside the chain, and a recorded local step's stamp commits to
+  // its block like any other stamp."
+  it("aStepVerifiesWithItsBlocksToken", () => {
+    const w = world();
+    expect(w.check(w.step()).reason).toBe("OK");
+    // no token is every block empty, which reads only when the stamps committed to nothing
+    expect(w.check(w.step({}, { blocks: null })).reason).toBe("EXTENSION_MISMATCH");
+    const silent = w.step({}, { originOver: { ext: "" }, block: EMPTY_BLOCK, blocks: null });
+    expect(w.check(silent)).toEqual({ reason: "OK", verdict: "OK" });
+  });
+
+  it("anAlteredBlockIsExtensionMismatch", () => {
+    const w = world();
+    const swapped = writeToken([ORIGIN_BLOCK, influenceBlock([{ cls: "public", src: "file:notes.md", h: "h1" }])] as
+      unknown as JsonValue);
+    expect(w.check(w.step({}, { blocks: swapped })).reason).toBe("EXTENSION_MISMATCH");
+    expect(w.check(w.step({}, { blocks: writeToken([ORIGIN_BLOCK] as unknown as JsonValue) })).reason)
+      .toBe("EXTENSION_MISMATCH");
+    expect(w.check(w.step({}, { blocks: "not*base64url" })).reason).toBe("EXTENSION_MISMATCH");
+  });
+
+  // "Then the extension's reading of the items in the step's blocks: an item under influence that does not read is
+  // INFLUENCE_MISMATCH." Then, at the step's ts, POLICY_EXPIRED.
+  it("anItemUnderInfluenceThatIsNotAnEntryIsInfluenceMismatch", () => {
+    const w = world();
+    const block = makeBlock({ influence: [{ cls: "third-party", src: "web:example.com" }] });
+    expect(w.check(w.step({}, { block })).reason).toBe("INFLUENCE_MISMATCH");
+    expect(w.check(w.step({}, { block }), w.client({ rootNotAfter: STEP_TS - 1 })).reason).toBe("INFLUENCE_MISMATCH");
+    // an unlisted tool's refusal goes on past the chain check, and so is read too
+    const refusal = {
+      tool: "bash", input: {}, resolved: NOTHING, verdict: "PATH_NOT_ALLOWED", routeAllowed: false,
+    } as const;
+    const unlisted = w.step(refusal, { block });
+    expect(w.check(unlisted).reason).toBe("INFLUENCE_MISMATCH");
+    // only items under influence are read
+    expect(w.check(w.step({}, { block: makeBlock({ example: ["x"] }) }))).toEqual({ reason: "OK", verdict: "OK" });
+  });
+
+  it("theVerdictIsReDerivedFromTheClassesOfTheEntriesInTheBlocks", () => {
+    const w = world();
+    const publicSite = parseLocalRules({
+      v: 1,
+      folders: [{ path: ".", access: ["read"] }, { path: "website", access: ["read", "write"], destination: "public" }],
+      programs: [],
+    });
+    const c = w.client({ rules: publicSite });
+    const write: Resolved = {
+      paths: [{ need: "write", at: "website/a.md" }], programs: [], parse: "ok", readOnly: false,
+    };
+    const d = { tool: "write", input: { path: "website/a.md" }, resolved: write, rulesHash: rulesHash(publicSite) };
+    const steered = influenceBlock([...INFLUENCE, { cls: "third-party", src: "server:github", h: "h2" }]);
+    expect(w.check(w.step({ ...d, verdict: "INFLUENCE_DENIED" }, { block: steered }), c))
+      .toEqual({ reason: "OK", verdict: "INFLUENCE_DENIED" });
+    expect(w.check(w.step({ ...d, verdict: "OK" }, { block: steered }), c).reason).toBe("VERDICT_MISMATCH");
+    // the origin's entries count as the client hop's do
+    const fromOrigin = { originOver: { ext: commitBlock(steered) }, block: influenceBlock([]) };
+    const both = writeToken([steered, influenceBlock([])] as unknown as JsonValue);
+    expect(w.check(w.step({ ...d, verdict: "INFLUENCE_DENIED" }, { ...fromOrigin, blocks: both }), c))
+      .toEqual({ reason: "OK", verdict: "INFLUENCE_DENIED" });
+    // with only the private entry, the write is allowed, and a refusal is not what the rules give
+    expect(w.check(w.step({ ...d, verdict: "OK" }), c)).toEqual({ reason: "OK", verdict: "OK" });
+    expect(w.check(w.step({ ...d, verdict: "INFLUENCE_DENIED" }), c).reason).toBe("VERDICT_MISMATCH");
+  });
+
+  it("aRidOrCallIdNoStampCarriesGivesTheChainChecksResultAndDoesNotThrow", () => {
+    // a lone surrogate forms no nonce key, and a noncharacter forms one; no stamp or decision read from a token holds
+    // either, so the strict readers refuse both alike
+    const w = world();
+    for (const rid of ["rid-1\ud800", "rid-1\ufdd0", "rid-1\uffff"]) {
+      const seen = new Set<string>();
+      expect(w.check({ ...w.step(), rid }, w.client(), seen).reason, JSON.stringify(rid)).toBe("RID_MISMATCH");
+      expect(seen.size).toBe(0);
+    }
+    // an earlier check of the chain still comes first
+    expect(w.check({ ...w.step({}, { key: w.session.privateKey }), rid: "rid-1\ud800" }).reason).toBe("BAD_SIGNATURE");
+    for (const callId of ["tc-1\ud800", "tc-1\ufdd0"]) {
+      expect(w.check({ ...w.step(), callId }).reason, JSON.stringify(callId)).toBe("BINDING_MISMATCH");
+    }
   });
 });

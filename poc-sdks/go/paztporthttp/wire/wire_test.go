@@ -15,9 +15,9 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"github.com/dumbsly/paztport/poc-sdks/go/influence"
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/json"
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/vectors"
+	"github.com/dumbsly/paztport/poc-sdks/go/internal/vectors/handover"
 	"github.com/dumbsly/paztport/poc-sdks/go/paztporthttp/wire"
 	"github.com/dumbsly/paztport/poc-sdks/go/policy"
 	"github.com/dumbsly/paztport/poc-sdks/go/reason"
@@ -33,18 +33,22 @@ const surrogate = "\xed\xa0\x80"
 // whitespace.
 const nbsp = "\xc2\xa0"
 
-// okLabels are the labels the "response ok" case's attestation carries.
-var okLabels = []influence.Label{{Class: influence.Private, CID: "cid-receipt-1", Owner: "alice"}}
+// noncharacter is U+FDD0, which no stamp field may hold, so a stamp holding it has no wire form.
+const noncharacter = "\uFDD0"
 
-// okSigner is the suspect an OK check of the "response ok" case names.
+// okSigner is the result, without its hand-over, of an OK check of the "response ok" case.
 var okSigner = verify.Result{Reason: reason.OK, SuspectSvc: "payment", SuspectInst: "pay-1"}
+
+// okResponse is the response stamp's own entry under influence in the "response ok" case: its block names
+// influence with no item.
+var okResponse = verify.StampItems{Svc: "payment", Named: true, Items: []string{}}
 
 // TestHeaderNames pins the header names, the content type and the handshake path the spec gives.
 func TestHeaderNames(t *testing.T) {
 	for _, c := range []struct{ got, want string }{
 		{wire.Chain, "X-Path-Chain"},
 		{wire.Proof, "X-Path-Proof"},
-		{wire.Influence, "X-Path-Influence"},
+		{wire.Extensions, "X-Path-Extensions"},
 		{wire.Response, "X-Path-Response"},
 		{wire.Session, "X-Path-Session"},
 		{wire.ContentType, "application/json"},
@@ -262,9 +266,7 @@ func TestCheckResponseHeaderValues(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			got := check(t, rc, c.header)
 			if c.ok {
-				if got.Result != okSigner || !slices.Equal(got.Labels, okLabels) {
-					t.Fatalf("check = %+v, want OK with the case's labels", got)
-				}
+				wantOK(t, got)
 				return
 			}
 			refused(t, got, rc, reason.ChainMissing)
@@ -272,95 +274,89 @@ func TestCheckResponseHeaderValues(t *testing.T) {
 	}
 }
 
-// TestCheckResponseShape refuses a header that does not hold exactly labels and stamp, or whose labels
-// are not well formed, as CHAIN_MISSING; the stamp itself is the verifier's to read.
-func TestCheckResponseShape(t *testing.T) {
+// TestAResponseHeaderNotBlockAndStampIsChainMissing refuses, as CHAIN_MISSING, a header that does not read as an
+// object of exactly block and stamp whose block reads as a block, version 3's {labels, stamp} among them. The
+// stamp itself is the verifier's to read. None of them spends the response's nonce key, so the response as sent
+// then verifies under the same verifier.
+func TestAResponseHeaderNotBlockAndStampIsChainMissing(t *testing.T) {
 	rc := okCase(t)
-	labels, stampValue := attestation(t, rc.header)
+	block, stampValue := attestation(t, rc.header)
 	member := func(name string, v json.Value) json.Member { return json.Member{Name: name, Value: v} }
-	for _, c := range []struct {
-		name    string
-		members []json.Member
-	}{
-		{"an extra member", []json.Member{member("labels", labels), member("stamp", stampValue), member("x", json.I(0))}},
-		{"an extra null member", []json.Member{
-			member("labels", labels), member("sess", json.Null()), member("stamp", stampValue),
-		}},
-		{"no labels", []json.Member{member("stamp", stampValue)}},
-		{"no stamp", []json.Member{member("labels", labels)}},
-		{"no members", nil},
-		{"labels an object", []json.Member{member("labels", json.Obj()), member("stamp", stampValue)}},
-		{"labels null", []json.Member{member("labels", json.Null()), member("stamp", stampValue)}},
-		{"a label of an unknown class", []json.Member{
-			member("labels", json.Arr(json.Obj(member("cid", json.S("c")), member("cls", json.S("secret"))))),
-			member("stamp", stampValue),
-		}},
-		{"a label with an empty owner", []json.Member{
-			member("labels", json.Arr(json.Obj(member("cid", json.S("c")), member("cls", json.S("private")),
-				member("owner", json.S(""))))),
-			member("stamp", stampValue),
-		}},
-		{"a label with an extra member", []json.Member{
-			member("labels", json.Arr(json.Obj(member("cid", json.S("cid-receipt-1")), member("cls", json.S("private")),
-				member("owner", json.S("alice")), member("x", json.S(""))))),
-			member("stamp", stampValue),
-		}},
-		{"a stamp that is not a stamp", []json.Member{member("labels", labels), member("stamp", json.I(3))}},
-	} {
-		t.Run(c.name, func(t *testing.T) {
-			refused(t, check(t, rc, token(t, json.Obj(c.members...))), rc, reason.ChainMissing)
+	withBlock := func(b json.Value) string {
+		return token(t, json.Obj(member("block", b), member("stamp", stampValue)))
+	}
+	names := func(ns ...string) json.Value {
+		vs := make([]json.Value, len(ns))
+		for i, n := range ns {
+			vs[i] = json.S(n)
+		}
+		return json.Arr(vs...)
+	}
+	bw, err := json.Wire(block)
+	if err != nil {
+		t.Fatalf("Wire: %v", err)
+	}
+	sw, err := json.Wire(stampValue)
+	if err != nil {
+		t.Fatalf("Wire: %v", err)
+	}
+	raw := func(text string) string { return base64.RawURLEncoding.EncodeToString([]byte(text)) }
+	beside := func(m json.Member) string {
+		return token(t, json.Obj(member("block", block), m, member("stamp", stampValue)))
+	}
+	headers := map[string]string{
+		"the stamp alone":          token(t, json.Obj(member("stamp", stampValue))),
+		"the block alone":          token(t, json.Obj(member("block", block))),
+		"no members":               token(t, json.Obj()),
+		"a member beside them":     beside(member("x", json.I(1))),
+		"a null member beside":     beside(member("sess", json.Null())),
+		"version 3's labels":       token(t, json.Obj(member("labels", json.Arr()), member("stamp", stampValue))),
+		"an array":                 token(t, json.Arr(block, stampValue)),
+		"a block without requires": withBlock(json.Obj(member("items", json.Obj()))),
+		"a null block":             withBlock(json.Null()),
+		"an array of blocks":       withBlock(json.Arr(block)),
+		"requires unsorted":        withBlock(json.Obj(member("items", json.Obj()), member("requires", names("b", "a")))),
+		"a name that is no extension name": withBlock(json.Obj(
+			member("items", json.Obj(member("Example", json.Arr()))), member("requires", json.Arr()))),
+		"block bytes not canonical":   raw(`{"block":{"items":{"influence":[]}, "requires":[]},"stamp":` + string(sw) + `}`),
+		"members reordered":           raw(`{"stamp":` + string(sw) + `,"block":` + string(bw) + `}`),
+		"a stamp that is not a stamp": withStamp(t, block, json.I(3)),
+	}
+	v := rc.verifier()
+	for name, header := range headers {
+		t.Run(name, func(t *testing.T) {
+			got, err := wire.CheckResponse(t.Context(), v, rc.sent, rc.sentBlocks, &rc.proof, header, rc.status,
+				rc.body, rc.caller, "")
+			if err != nil {
+				t.Fatalf("CheckResponse: %v", err)
+			}
+			refused(t, got, rc, reason.ChainMissing)
 		})
 	}
-	t.Run("bytes not canonical", func(t *testing.T) {
-		b, err := json.Wire(json.Obj(
-			json.Member{Name: "labels", Value: labels}, json.Member{Name: "stamp", Value: stampValue},
-		))
-		if err != nil {
-			t.Fatalf("Wire: %v", err)
-		}
-		lb, err := json.Wire(labels)
-		if err != nil {
-			t.Fatalf("Wire: %v", err)
-		}
-		sb, err := json.Wire(stampValue)
-		if err != nil {
-			t.Fatalf("Wire: %v", err)
-		}
-		for name, text := range map[string]string{
-			"members reordered": `{"stamp":` + string(sb) + `,"labels":` + string(lb) + `}`,
-			"a space":           `{"labels": ` + string(lb) + `,"stamp":` + string(sb) + `}`,
-			"a trailing space":  string(b) + " ",
-		} {
-			t.Run(name, func(t *testing.T) {
-				header := base64.RawURLEncoding.EncodeToString([]byte(text))
-				refused(t, check(t, rc, header), rc, reason.ChainMissing)
-			})
-		}
-	})
-	t.Run("an array", func(t *testing.T) {
-		refused(t, check(t, rc, token(t, json.Arr(labels, stampValue))), rc, reason.ChainMissing)
-	})
+	got, err := wire.CheckResponse(t.Context(), v, rc.sent, rc.sentBlocks, &rc.proof, rc.header, rc.status, rc.body,
+		rc.caller, "")
+	if err != nil {
+		t.Fatalf("CheckResponse: %v", err)
+	}
+	wantOK(t, got)
 }
 
 // TestCheckResponseStampToVerifier hands the response stamp to the verifier unread, so its live order
 // answers for it: the policy's window first, then the chain's reading.
 func TestCheckResponseStampToVerifier(t *testing.T) {
 	rc := okCase(t)
-	labels, stampValue := attestation(t, rc.header)
-	header := func(s json.Value) string {
-		return token(t, json.Obj(json.Member{Name: "labels", Value: labels}, json.Member{Name: "stamp", Value: s}))
-	}
-	notAStamp := header(json.Obj(json.Member{Name: "v", Value: json.I(3)}))
-	piped := make([]json.Member, 0, len(stampValue.Members()))
+	block, stampValue := attestation(t, rc.header)
+	notAStamp := withStamp(t, block, json.Obj(json.Member{Name: "v", Value: json.I(4)}))
+	other := make([]json.Member, 0, len(stampValue.Members()))
 	for _, m := range stampValue.Members() {
 		if m.Name == "inst" {
-			m.Value = json.S("pay|1")
+			m.Value = json.S("pay-2")
 		}
-		piped = append(piped, m)
+		other = append(other, m)
 	}
 
 	refused(t, check(t, rc, notAStamp), rc, reason.ChainMissing)
-	refused(t, check(t, rc, header(json.Obj(piped...))), rc, reason.BadSignature)
+	refused(t, check(t, rc, withStamp(t, block, json.Obj(other...))), rc, reason.BadSignature)
 
 	expired := rc
 	expired.cfg.PolicyNotAfter = rc.cfg.Now() - 1
@@ -368,17 +364,18 @@ func TestCheckResponseStampToVerifier(t *testing.T) {
 }
 
 // TestCheckResponseSentChain checks the chain the caller passes: none is CHAIN_MISSING, a rid the
-// response binding cannot carry is BINDING_MISMATCH, and the chain is left as it was.
+// response binding cannot carry is BINDING_MISMATCH, as is a key value the nonce key cannot, and the chain is
+// left as it was.
 func TestCheckResponseSentChain(t *testing.T) {
 	rc := okCase(t)
 	t.Run("nil", func(t *testing.T) {
 		c := rc
-		c.sent = nil
+		c.sent, c.sentBlocks = nil, nil
 		refused(t, check(t, c, c.header), c, reason.ChainMissing)
 	})
 	t.Run("empty", func(t *testing.T) {
 		c := rc
-		c.sent = stamp.Chain{}
+		c.sent, c.sentBlocks = stamp.Chain{}, stamp.Blocks{}
 		refused(t, check(t, c, c.header), c, reason.ChainMissing)
 	})
 	for _, c := range []struct{ name, rid string }{
@@ -393,10 +390,18 @@ func TestCheckResponseSentChain(t *testing.T) {
 			refused(t, check(t, bad, bad.header), bad, reason.BindingMismatch)
 		})
 	}
+	t.Run("a key value with a lone surrogate", func(t *testing.T) {
+		got, err := wire.CheckResponse(t.Context(), rc.verifier(), rc.sent, rc.sentBlocks, &rc.proof, rc.header,
+			rc.status, rc.body, rc.caller, "A"+surrogate)
+		if err != nil {
+			t.Fatalf("CheckResponse: %v", err)
+		}
+		refused(t, got, rc, reason.BindingMismatch)
+	})
 	t.Run("a stamp with no wire form", func(t *testing.T) {
 		c := rc
 		c.sent = slices.Clone(rc.sent)
-		c.sent[1].Inst = "ord|1"
+		c.sent[1].Inst = "ord-" + noncharacter
 		refused(t, check(t, c, c.header), c, reason.ChainMissing)
 	})
 	t.Run("left as it was", func(t *testing.T) {
@@ -404,9 +409,7 @@ func TestCheckResponseSentChain(t *testing.T) {
 		backing := append(slices.Clone(rc.sent), spare)
 		c := rc
 		c.sent = backing[:len(rc.sent)]
-		if got := check(t, c, c.header); got.Result != okSigner {
-			t.Fatalf("Result = %+v, want %+v", got.Result, okSigner)
-		}
+		wantOK(t, check(t, c, c.header))
 		if !slices.Equal(c.sent, rc.sent) || backing[len(rc.sent)] != spare {
 			t.Fatal("CheckResponse changed the caller's chain or wrote past its end")
 		}
@@ -430,8 +433,8 @@ func TestCheckResponseProof(t *testing.T) {
 	unwritable.RootID = "mesh\xff"
 	for name, proof := range map[string]*policy.Proof{"none": nil, "unwritable": &unwritable} {
 		t.Run(name, func(t *testing.T) {
-			got, err := wire.CheckResponse(t.Context(), rc.verifier(), rc.sent, proof, rc.header, rc.status, rc.body,
-				rc.caller, "")
+			got, err := wire.CheckResponse(t.Context(), rc.verifier(), rc.sent, rc.sentBlocks, proof, rc.header,
+				rc.status, rc.body, rc.caller, "")
 			if err != nil {
 				t.Fatalf("CheckResponse: %v", err)
 			}
@@ -439,23 +442,52 @@ func TestCheckResponseProof(t *testing.T) {
 			if got.Result != w {
 				t.Fatalf("Result = %+v, want %+v", got.Result, w)
 			}
-			if got.Labels != nil {
-				t.Fatalf("Labels = %+v on a check that failed", got.Labels)
+			if r := got.Response(influence); r != nil {
+				t.Fatalf("Response = %+v on a check that failed", r)
 			}
 		})
 	}
 }
 
-// TestCheckResponseNonceKey spends the key <rid>|<last rcv>|resp, last rcv being the sent chain's last
-// stamp's rcv, whole (operation included).
+// TestNonceKeysAreJCSArrays writes each nonce key as the JCS text of its parts, so no part can run into
+// its neighbour, and the key value comes before the direction.
+func TestNonceKeysAreJCSArrays(t *testing.T) {
+	for _, c := range []struct{ got, want string }{
+		{wire.ResponseNonceKey("rid-http-1", "payment", ""), `["rid-http-1","payment","resp"]`},
+		{wire.ResponseNonceKey("rid-http-1", "payment#refund", "k1"), `["rid-http-1","payment#refund","k1","resp"]`},
+		{wire.RequestNonceKey("r", "orders", "payment", ""), `["r","orders","payment","req"]`},
+		{wire.RequestNonceKey("r", "orders", "payment#pay", "A1"), `["r","orders","payment#pay","A1","req"]`},
+		{wire.RequestNonceKey("a\"b", "x", "y", ""), `["a\"b","x","y","req"]`},
+	} {
+		if c.got != c.want {
+			t.Errorf("nonce key %s, want %s", c.got, c.want)
+		}
+	}
+	if wire.RequestNonceKey("a|orders", "x", "payment", "") == wire.RequestNonceKey("a", "orders|x", "payment", "") {
+		t.Error("two requests whose parts differ only in where a | falls share a nonce key")
+	}
+	if wire.ResponseNonceKey("r", "payment", "resp") == wire.RequestNonceKey("r", "payment", "resp", "") {
+		t.Error("a response key and a request key share their text")
+	}
+	for name, key := range map[string]func(){
+		"request":  func() { wire.RequestNonceKey("r"+surrogate, "orders", "payment", "") },
+		"response": func() { wire.ResponseNonceKey("r", "payment", surrogate) },
+	} {
+		if !panics(key) {
+			t.Errorf("a %s key with a part that is not UTF-8 did not panic", name)
+		}
+	}
+}
+
+// TestCheckResponseNonceKey spends the response key of the sent chain's rid and last stamp's rcv, whole
+// (operation included).
 func TestCheckResponseNonceKey(t *testing.T) {
 	rc := okCase(t)
 	cache := &recordingCache{}
 	rc.cfg.Nonces = cache
-	if got := check(t, rc, rc.header); got.Result != okSigner {
-		t.Fatalf("Result = %+v, want %+v", got.Result, okSigner)
-	}
-	if want := []string{"rid-http-1|payment|resp"}; !slices.Equal(cache.keys, want) {
+	wantOK(t, check(t, rc, rc.header))
+	want := []string{`["rid-http-1","payment","resp"]`}
+	if !slices.Equal(cache.keys, want) || cache.keys[0] != wire.ResponseNonceKey("rid-http-1", "payment", "") {
 		t.Fatalf("nonce keys %q, want %q", cache.keys, want)
 	}
 }
@@ -466,17 +498,102 @@ func TestCheckResponseCacheError(t *testing.T) {
 	rc.cfg.Nonces = &recordingCache{}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	got, err := wire.CheckResponse(ctx, rc.verifier(), rc.sent, &rc.proof, rc.header, rc.status, rc.body,
-		rc.caller, "")
+	got, err := wire.CheckResponse(ctx, rc.verifier(), rc.sent, rc.sentBlocks, &rc.proof, rc.header, rc.status,
+		rc.body, rc.caller, "")
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v, want the cache's context.Canceled", err)
 	}
-	if got.Result.OK() || got.Labels != nil {
+	if got.Result.OK() || got.Result.HandOver != nil || got.Response(influence) != nil {
 		t.Fatalf("check = %+v alongside an error", got)
 	}
 	if got.ResultHash != wire.ResultHash(rc.status, rc.body) {
 		t.Fatalf("ResultHash = %s, want the response's", got.ResultHash)
 	}
+}
+
+// TestCheckResponseChecksTheSentBlocks checks a response against the blocks the call sent, then the response's
+// own: the hand-over holds each stamp's entry, the response stamp's last; a sent block other than the one its
+// stamp committed to is EXTENSION_MISMATCH, and so are blocks that together pass the wire limit. Sent blocks
+// that are not one per stamp sent are a program fault.
+func TestCheckResponseChecksTheSentBlocks(t *testing.T) {
+	rc := okCase(t)
+	ext, err := verify.NewExtensions([]string{"example"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rc.cfg.Extensions = ext
+	sentBlocks := stamp.Blocks{stamp.EmptyBlock, newBlock(t, "example", "7")}
+	respBlock := newBlock(t, "example", "8")
+	sent, header := signedCall(t, rc, sentBlocks, respBlock)
+	run := func(blocks stamp.Blocks, header string) wire.ResponseCheck {
+		got, err := wire.CheckResponse(t.Context(), rc.verifier(), sent, blocks, &rc.proof, header, rc.status, rc.body,
+			rc.caller, "")
+		if err != nil {
+			t.Fatalf("CheckResponse: %v", err)
+		}
+		return got
+	}
+
+	got := run(sentBlocks, header)
+	if plain(got.Result) != okSigner {
+		t.Fatalf("Result = %+v, want %+v", plain(got.Result), okSigner)
+	}
+	want := verify.StampItems{Svc: "payment", Named: true, Items: []string{"8"}}
+	if r := got.Response("example"); r == nil || !handover.Same(*r, want) {
+		t.Fatalf(`Response("example") = %+v, want %+v`, r, want)
+	}
+	under, ok := got.Result.HandOver.Under("example")
+	wantUnder := []verify.StampItems{{Svc: "gateway"}, {Svc: "orders", Named: true, Items: []string{"7"}}, want}
+	if !ok || !slices.EqualFunc(under, wantUnder, handover.Same) {
+		t.Fatalf(`Under("example") = %+v, %t, want %+v`, under, ok, wantUnder)
+	}
+
+	altered := stamp.Blocks{stamp.EmptyBlock, newBlock(t, "example", "9")}
+	refused(t, run(altered, header), rc, reason.ExtensionMismatch)
+
+	big := func(n string) stamp.Block { return newBlock(t, "example", `"`+strings.Repeat(n, 140000)+`"`) }
+	bigSent := stamp.Blocks{stamp.EmptyBlock, big("a")}
+	bigChain, bigHeader := signedCall(t, rc, bigSent, big("b"))
+	got, err = wire.CheckResponse(t.Context(), rc.verifier(), bigChain, bigSent, &rc.proof, bigHeader, rc.status,
+		rc.body, rc.caller, "")
+	if err != nil {
+		t.Fatalf("CheckResponse: %v", err)
+	}
+	refused(t, got, rc, reason.ExtensionMismatch)
+
+	for _, blocks := range []stamp.Blocks{nil, {stamp.EmptyBlock}, append(slices.Clone(sentBlocks), respBlock)} {
+		if !panics(func() { run(blocks, header) }) {
+			t.Errorf("%d sent blocks for %d stamps sent did not panic", len(blocks), len(sent))
+		}
+	}
+}
+
+// TestResponseIsNilUnlessOKAndActedOn hands out the response stamp's own entry only from a check that gave OK, and
+// only for a name the caller acts on.
+func TestResponseIsNilUnlessOKAndActedOn(t *testing.T) {
+	rc := okCase(t)
+	if r := (wire.ResponseCheck{}).Response(influence); r != nil {
+		t.Fatalf("the zero ResponseCheck's Response = %+v", r)
+	}
+	wrong := rc
+	wrong.caller = "gateway"
+	if r := check(t, wrong, wrong.header).Response(influence); r != nil {
+		t.Fatalf("a refused check's Response = %+v", r)
+	}
+	none, err := verify.NewExtensions(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	notActing := rc
+	notActing.cfg.Extensions = none
+	got := check(t, notActing, notActing.header)
+	if plain(got.Result) != okSigner {
+		t.Fatalf("Result = %+v, want %+v", plain(got.Result), okSigner)
+	}
+	if r := got.Response(influence); r != nil {
+		t.Fatalf("Response at a caller not acting on influence = %+v", r)
+	}
+	wantOK(t, check(t, rc, rc.header))
 }
 
 // TestEncodeChain writes a chain's token, which reads back as the chain, and refuses a chain that is empty
@@ -494,13 +611,13 @@ func TestEncodeChain(t *testing.T) {
 		t.Fatalf("EncodeChain(nil) = %q", tok)
 	}
 	bad := slices.Clone(rc.sent)
-	bad[1].Inst = "ord|1"
+	bad[1].Inst = "ord-" + noncharacter
 	if tok, err := wire.EncodeChain(bad); err == nil {
 		t.Fatalf("EncodeChain wrote a stamp no signer may sign as %q", tok)
 	}
 }
 
-// TestEncodeProof writes the mesh proof's token as v3.json holds it, and refuses a proof that can't be
+// TestEncodeProof writes the mesh proof's token as v4.json holds it, and refuses a proof that can't be
 // written.
 func TestEncodeProof(t *testing.T) {
 	rc := okCase(t)
@@ -508,7 +625,7 @@ func TestEncodeProof(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EncodeProof: %v", err)
 	}
-	want := vectors.Load(t, "v3.json").Get("policies").Get("mesh").Get("proofTokens").Get("gateway/orders/payment").Str()
+	want := vectors.Load(t, "v4.json").Get("policies").Get("mesh").Get("proofTokens").Get("gateway/orders/payment").Str()
 	if tok != want {
 		t.Fatalf("EncodeProof = %s, want %s", tok, want)
 	}
@@ -519,69 +636,87 @@ func TestEncodeProof(t *testing.T) {
 	}
 }
 
-// TestEncodeInfluence sends no header for no influence, and otherwise the entries in the order given.
-func TestEncodeInfluence(t *testing.T) {
-	for _, none := range [][]influence.Entry{nil, {}} {
-		if tok, err := wire.EncodeInfluence(none); tok != "" || err != nil {
-			t.Fatalf("EncodeInfluence(%#v) = %q, %v, want no header", none, tok, err)
-		}
-	}
-	es := []influence.Entry{
-		{Class: influence.ThirdParty, Src: "web:z", H: "h-2"},
-		{Class: influence.Private, Src: "http:orders", H: "h-1", CID: "", HasCID: true, Owner: "alice"},
-	}
-	tok, err := wire.EncodeInfluence(es)
+// TestEncodeBlocksWritesTheToken writes the blocks' token, one block per stamp in the order given, and refuses
+// blocks whose wire bytes would pass the wire limit rather than drop any.
+func TestEncodeBlocksWritesTheToken(t *testing.T) {
+	tok, err := wire.EncodeBlocks(stamp.Blocks{stamp.EmptyBlock})
 	if err != nil {
-		t.Fatalf("EncodeInfluence = %q, %v", tok, err)
+		t.Fatalf("EncodeBlocks: %v", err)
 	}
-	if got, err := influence.ReadEntries(tok); err != nil || !slices.Equal(got, es) {
-		t.Fatalf("the token reads as %+v, %v", got, err)
+	if got := decode(t, tok); got != `[{"items":{},"requires":[]}]` {
+		t.Fatalf("the token holds %s", got)
 	}
-	if tok, err := wire.EncodeInfluence([]influence.Entry{{Class: "secret", Src: "s", H: "h"}}); err == nil || tok != "" {
-		t.Fatalf("EncodeInfluence of an unknown class = %q, %v", tok, err)
+	two := stamp.Blocks{newBlock(t, "example", "7"), stamp.EmptyBlock}
+	tok, err = wire.EncodeBlocks(two)
+	if err != nil {
+		t.Fatalf("EncodeBlocks: %v", err)
+	}
+	if got := decode(t, tok); got != `[{"items":{"example":[7]},"requires":[]},{"items":{},"requires":[]}]` {
+		t.Fatalf("the token holds %s", got)
+	}
+	big := func(n string) stamp.Block { return newBlock(t, "example", `"`+strings.Repeat(n, 140000)+`"`) }
+	if tok, err := wire.EncodeBlocks(stamp.Blocks{big("a"), big("b")}); err == nil {
+		t.Fatalf("EncodeBlocks wrote blocks past the wire limit as a token of %d characters", len(tok))
 	}
 }
 
-// TestEncodeResponse writes the "response ok" case's header byte for byte from its stamp and labels.
-func TestEncodeResponse(t *testing.T) {
+// TestEncodeResponseWritesBlockThenStamp writes the "response ok" case's header byte for byte from its stamp and
+// block: the token of exactly {"block":<block>,"stamp":<stamp>}. It refuses a stamp no signer may sign and a
+// header past the wire limit.
+func TestEncodeResponseWritesBlockThenStamp(t *testing.T) {
 	rc := okCase(t)
-	_, stampValue := attestation(t, rc.header)
-	b, err := json.Wire(json.Arr(stampValue))
+	blockValue, stampValue := attestation(t, rc.header)
+	bw, err := json.Wire(blockValue)
 	if err != nil {
 		t.Fatalf("Wire: %v", err)
 	}
-	resp, code := stamp.ParseChain(b)
+	block, err := stamp.ParseBlock(bw)
+	if err != nil {
+		t.Fatalf("the case's block: %v", err)
+	}
+	sw, err := json.Wire(json.Arr(stampValue))
+	if err != nil {
+		t.Fatalf("Wire: %v", err)
+	}
+	resp, code := stamp.ParseChain(sw)
 	if code != reason.OK {
 		t.Fatalf("the case's response stamp: %s", code)
 	}
-	got, err := wire.EncodeResponse(resp[0], okLabels)
+	got, err := wire.EncodeResponse(resp[0], block)
 	if err != nil {
 		t.Fatalf("EncodeResponse: %v", err)
 	}
 	if got != rc.header {
 		t.Fatalf("EncodeResponse = %s, want %s", got, rc.header)
 	}
-
-	none, err := wire.EncodeResponse(resp[0], nil)
+	stampText, err := resp[0].Wire()
 	if err != nil {
-		t.Fatalf("EncodeResponse with no labels: %v", err)
+		t.Fatalf("Wire: %v", err)
 	}
-	if ls, _ := attestation(t, none); ls.Kind() != json.KindArray || len(ls.Items()) != 0 {
-		t.Fatal("no labels are not written as []")
+	if text := decode(t, got); text != `{"block":`+string(block.Wire())+`,"stamp":`+string(stampText)+`}` {
+		t.Fatalf("the header holds %s", text)
+	}
+	empty, err := wire.EncodeResponse(resp[0], stamp.EmptyBlock)
+	if err != nil {
+		t.Fatalf("EncodeResponse with the empty block: %v", err)
+	}
+	if text := decode(t, empty); text != `{"block":{"items":{},"requires":[]},"stamp":`+string(stampText)+`}` {
+		t.Fatalf("the header holds %s", text)
 	}
 
 	bad := resp[0]
-	bad.Rcv = "or|ders"
-	if tok, err := wire.EncodeResponse(bad, okLabels); err == nil {
+	bad.Rcv = "or" + noncharacter + "ders"
+	if tok, err := wire.EncodeResponse(bad, block); err == nil {
 		t.Fatalf("EncodeResponse wrote a stamp no signer may sign as %q", tok)
 	}
-	if tok, err := wire.EncodeResponse(resp[0], []influence.Label{{Class: "secret", CID: "c"}}); err == nil {
-		t.Fatalf("EncodeResponse wrote a label of an unknown class as %q", tok)
+	huge := newBlock(t, "example", `"`+strings.Repeat("a", 262000)+`"`)
+	if tok, err := wire.EncodeResponse(resp[0], huge); err == nil {
+		t.Fatalf("EncodeResponse wrote a header past the wire limit as a token of %d characters", len(tok))
 	}
 }
 
 // FuzzCheckResponseHeader checks the "response ok" case under any header value: CheckResponse never
-// panics, always returns the result hash, and returns labels only with an OK check.
+// panics, always returns the result hash, and hands out the response's entry only with an OK check.
 func FuzzCheckResponseHeader(f *testing.F) {
 	rc := okCase(f)
 	for _, s := range []string{rc.header, rc.header + " ", rc.header + nbsp, "", " ", "e30", "W10", rc.header[1:]} {
@@ -593,24 +728,27 @@ func FuzzCheckResponseHeader(f *testing.F) {
 		if got.ResultHash != hash {
 			t.Fatalf("ResultHash = %s, want %s", got.ResultHash, hash)
 		}
-		if !got.Result.OK() && got.Labels != nil {
-			t.Fatalf("labels %+v with %s", got.Labels, got.Result.Reason)
+		if r := got.Response(influence); !got.Result.OK() && r != nil {
+			t.Fatalf("Response %+v with %s", r, got.Result.Reason)
 		}
 	})
 }
 
-// okCase returns http-v3.json's "response ok" case, read.
+// influence is the extension the "response ok" case's caller acts on.
+const influence = "influence"
+
+// okCase returns http-v4.json's "response ok" case, read.
 func okCase(t testing.TB) responseCase {
 	t.Helper()
 	var rc *responseCase
-	vectors.Load(t, "http-v3.json").Get("responses").Each(func(name string, c vectors.Node) {
+	vectors.Load(t, "http-v4.json").Get("responses").Each(func(name string, c vectors.Node) {
 		if name == "response ok" {
 			r := readResponseCase(t, c)
 			rc = &r
 		}
 	})
 	if rc == nil {
-		t.Fatal(`http-v3.json has no "response ok" case`)
+		t.Fatal(`http-v4.json has no "response ok" case`)
 	}
 	return *rc
 }
@@ -618,42 +756,65 @@ func okCase(t testing.TB) responseCase {
 // check runs CheckResponse once on rc with header, under a verifier of its own.
 func check(t testing.TB, rc responseCase, header string) wire.ResponseCheck {
 	t.Helper()
-	got, err := wire.CheckResponse(t.Context(), rc.verifier(), rc.sent, &rc.proof, header, rc.status, rc.body,
-		rc.caller, "")
+	got, err := wire.CheckResponse(t.Context(), rc.verifier(), rc.sent, rc.sentBlocks, &rc.proof, header, rc.status,
+		rc.body, rc.caller, "")
 	if err != nil {
 		t.Fatalf("CheckResponse: %v", err)
 	}
 	return got
 }
 
-// refused fails t unless got is a refusal for code that names no one, carries no labels and has rc's
-// result hash.
+// wantOK fails t unless got is the "response ok" case's OK check, handing out the response stamp's entry.
+func wantOK(t *testing.T, got wire.ResponseCheck) {
+	t.Helper()
+	if plain(got.Result) != okSigner {
+		t.Fatalf("Result = %+v, want %+v", plain(got.Result), okSigner)
+	}
+	if r := got.Response(influence); r == nil || !handover.Same(*r, okResponse) {
+		t.Fatalf("Response = %+v, want %+v", r, okResponse)
+	}
+}
+
+// refused fails t unless got is a refusal for code that names no one, hands nothing over and has rc's result
+// hash.
 func refused(t *testing.T, got wire.ResponseCheck, rc responseCase, code reason.Code) {
 	t.Helper()
 	if w := (verify.Result{Reason: code}); got.Result != w {
 		t.Errorf("Result = %+v, want %+v", got.Result, w)
 	}
-	if got.Labels != nil {
-		t.Errorf("Labels = %+v on a check that failed", got.Labels)
+	if r := got.Response(influence); r != nil {
+		t.Errorf("Response = %+v on a check that failed", r)
 	}
 	if h := wire.ResultHash(rc.status, rc.body); got.ResultHash != h {
 		t.Errorf("ResultHash = %s, want %s", got.ResultHash, h)
 	}
 }
 
-// attestation returns the labels and stamp the response header holds.
-func attestation(t *testing.T, header string) (labels, s json.Value) {
+// plain returns r without its hand-over, for comparing the rest with ==.
+func plain(r verify.Result) verify.Result {
+	r.HandOver = nil
+	return r
+}
+
+// attestation returns the block and stamp the response header holds.
+func attestation(t *testing.T, header string) (block, s json.Value) {
 	t.Helper()
 	v, err := json.ReadToken(header)
 	if err != nil {
 		t.Fatalf("the header: %v", err)
 	}
-	labels, okL := json.Field(v, "labels")
+	block, okB := json.Field(v, "block")
 	s, okS := json.Field(v, "stamp")
-	if !okL || !okS {
-		t.Fatal("the header lacks labels or stamp")
+	if !okB || !okS {
+		t.Fatal("the header lacks block or stamp")
 	}
-	return labels, s
+	return block, s
+}
+
+// withStamp returns the token of the header holding block and s.
+func withStamp(t *testing.T, block, s json.Value) string {
+	t.Helper()
+	return token(t, json.Obj(json.Member{Name: "block", Value: block}, json.Member{Name: "stamp", Value: s}))
 }
 
 // token returns v's token.
@@ -664,6 +825,64 @@ func token(t *testing.T, v json.Value) string {
 		t.Fatalf("Token: %v", err)
 	}
 	return tok
+}
+
+// decode returns the text a token holds, decoded apart from the package under test.
+func decode(t *testing.T, tok string) string {
+	t.Helper()
+	b, err := base64.RawURLEncoding.DecodeString(tok)
+	if err != nil {
+		t.Fatalf("the token: %v", err)
+	}
+	return string(b)
+}
+
+// newBlock returns the block naming name with items, each the canonical text of one value.
+func newBlock(t *testing.T, name string, items ...string) stamp.Block {
+	t.Helper()
+	b, err := stamp.NewBlock(map[string][]string{name: items}, nil)
+	if err != nil {
+		t.Fatalf("NewBlock: %v", err)
+	}
+	return b
+}
+
+// signedCall signs, under the vector keys, the call the "response ok" case describes, gateway to orders to
+// payment, with each sent stamp committing to its block of sentBlocks, and payment's response to rc's status and
+// body committing to respBlock. It returns the chain sent and the response header.
+func signedCall(t *testing.T, rc responseCase, sentBlocks stamp.Blocks, respBlock stamp.Block) (stamp.Chain, string) {
+	t.Helper()
+	now := rc.cfg.Now()
+	sign := func(s stamp.Stamp) stamp.Stamp {
+		key, _ := vectors.VectorKey(t, s.Svc)
+		signed, err := stamp.Sign(s, key)
+		if err != nil {
+			t.Fatalf("Sign: %v", err)
+		}
+		return signed
+	}
+	gw := sign(stamp.Stamp{Svc: "gateway", Inst: "gw-1", RID: "rid-blocks", TS: now - 1000, Rcv: "orders", Bind: "b",
+		Ext: sentBlocks[0].Commit()})
+	ord := sign(stamp.Stamp{Svc: "orders", Inst: "ord-1", RID: "rid-blocks", TS: now - 500, Rcv: "payment", Bind: "b",
+		Ext: sentBlocks[1].Commit(), Prev: gw.Sig})
+	bind, err := stamp.ResponseBinding(wire.ResultHash(rc.status, rc.body), "rid-blocks")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp := sign(stamp.Stamp{Svc: "payment", Inst: "pay-1", RID: "rid-blocks", TS: now, Rcv: "orders", Bind: bind,
+		Ext: respBlock.Commit(), Prev: ord.Sig})
+	header, err := wire.EncodeResponse(resp, respBlock)
+	if err != nil {
+		t.Fatalf("EncodeResponse: %v", err)
+	}
+	return stamp.Chain{gw, ord}, header
+}
+
+// panics reports whether f panics.
+func panics(f func()) (did bool) {
+	defer func() { did = recover() != nil }()
+	f()
+	return false
 }
 
 // sha returns b64url(SHA-256(s)), computed apart from the package under test.
@@ -688,14 +907,14 @@ func (c *recordingCache) SeenBefore(ctx context.Context, key string, _ int64) (b
 
 func (c *recordingCache) TTL() int64 { return verify.NonceTTLMs }
 
-// TestCheckResponseNonceKeyKeepsTheOperation spends <rid>|<service>#<operation>|resp when the sent chain's last
-// rcv names an operation, so a second check of the same response is a replay and the service's key alone is
-// left unspent.
+// TestCheckResponseNonceKeyKeepsTheOperation spends the response key of <service>#<operation> when the sent
+// chain's last rcv names an operation, so a second check of the same response is a replay and the service's key
+// alone is left unspent.
 func TestCheckResponseNonceKeyKeepsTheOperation(t *testing.T) {
 	rc := okCase(t)
 	now := rc.cfg.Now()
-	gwKey, _ := vectors.V3Key(t, "gateway")
-	ordKey, _ := vectors.V3Key(t, "orders")
+	gwKey, _ := vectors.VectorKey(t, "gateway")
+	ordKey, _ := vectors.VectorKey(t, "orders")
 	sign := func(s stamp.Stamp, k ed25519.PrivateKey) stamp.Stamp {
 		signed, err := stamp.Sign(s, k)
 		if err != nil {
@@ -706,13 +925,13 @@ func TestCheckResponseNonceKeyKeepsTheOperation(t *testing.T) {
 	sent := stamp.Chain{sign(stamp.Stamp{Svc: "gateway", Inst: "gw-1", RID: "rid-op", TS: now, Rcv: "orders#createOrder",
 		Bind: "b"}, gwKey)}
 	hash := wire.ResultHash(200, []byte("ok"))
-	bind, err := stamp.ResponseBinding(hash, "rid-op", nil)
+	bind, err := stamp.ResponseBinding(hash, "rid-op")
 	if err != nil {
 		t.Fatal(err)
 	}
 	resp := sign(stamp.Stamp{Svc: "orders", Inst: "ord-1", RID: "rid-op", TS: now, Rcv: "gateway", Bind: bind,
 		Prev: sent[0].Sig}, ordKey)
-	header, err := wire.EncodeResponse(resp, nil)
+	header, err := wire.EncodeResponse(resp, stamp.EmptyBlock)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -728,19 +947,22 @@ func TestCheckResponseNonceKeyKeepsTheOperation(t *testing.T) {
 	cache := verify.NewMemoryNonceCache(verify.NonceTTLMs)
 	rc.cfg.Nonces = cache
 	v := rc.verifier()
+	sentBlocks := stamp.Blocks{stamp.EmptyBlock}
 
-	got, err := wire.CheckResponse(t.Context(), v, sent, &proof, header, 200, []byte("ok"), "gateway", "")
+	got, err := wire.CheckResponse(t.Context(), v, sent, sentBlocks, &proof, header, 200, []byte("ok"), "gateway", "")
 	if err != nil || got.Result.Reason != reason.OK {
 		t.Fatalf("CheckResponse = %+v, %v, want OK", got.Result, err)
 	}
-	got, err = wire.CheckResponse(t.Context(), v, sent, &proof, header, 200, []byte("ok"), "gateway", "")
+	got, err = wire.CheckResponse(t.Context(), v, sent, sentBlocks, &proof, header, 200, []byte("ok"), "gateway", "")
 	if err != nil || got.Result.Reason != reason.Replay {
 		t.Fatalf("a second CheckResponse = %+v, %v, want REPLAY", got.Result, err)
 	}
-	if seen, err := cache.SeenBefore(t.Context(), "rid-op|orders#createOrder|resp", now); err != nil || !seen {
-		t.Fatalf("SeenBefore(rid-op|orders#createOrder|resp) = %v, %v, want true", seen, err)
-	}
-	if seen, err := cache.SeenBefore(t.Context(), "rid-op|orders|resp", now); err != nil || seen {
-		t.Fatalf("SeenBefore(rid-op|orders|resp) = %v, %v, want false", seen, err)
+	for key, want := range map[string]bool{
+		`["rid-op","orders#createOrder","resp"]`: true,
+		`["rid-op","orders","resp"]`:             false,
+	} {
+		if seen, err := cache.SeenBefore(t.Context(), key, now); err != nil || seen != want {
+			t.Errorf("SeenBefore(%s) = %v, %v, want %v", key, seen, err, want)
+		}
 	}
 }

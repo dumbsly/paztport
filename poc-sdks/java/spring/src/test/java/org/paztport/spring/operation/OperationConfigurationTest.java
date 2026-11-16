@@ -4,6 +4,7 @@
 package org.paztport.spring.operation;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.springframework.test.web.client.ExpectedCount.times;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.anything;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
@@ -29,10 +30,11 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.paztport.core.policy.PolicyBuilder;
+import org.paztport.core.stamp.Block;
 import org.paztport.core.stamp.Chains;
 import org.paztport.core.stamp.Stamp;
 import org.paztport.core.stamp.Stamper;
-import org.paztport.http.ContextAccess;
+import org.paztport.http.RequestContext;
 import org.paztport.http.wire.HttpWire;
 import org.paztport.http.wire.PaztportHeaders;
 import org.paztport.http.wire.RequestBinding;
@@ -85,7 +87,8 @@ class OperationConfigurationTest {
     void cleanup() {
         log.detachAppender(logged);
         log.setLevel(null);
-        ContextAccess.reset();
+        // Every scope a test opens is closed by it or by the filter; one left open would follow this thread.
+        assertFalse(RequestContext.isOpen(), "a test left a request scope open on this thread");
     }
 
     @Test
@@ -227,10 +230,11 @@ class OperationConfigurationTest {
     private static String[] firstHop(OperationWorld world, PolicyBuilder.Result built, String rcv, String method,
             String uri, byte[] body, String rid) {
         Stamper.Stamped sent = new Stamper("gateway", "gw-1", world.gateway.getPrivate(), true, () -> rid,
-                System::currentTimeMillis).next(null, rcv, RequestBinding.compute(method, uri, body), List.of(),
+                System::currentTimeMillis).next(null, rcv, RequestBinding.compute(method, uri, body), Block.EMPTY,
                 built.bundles().get("gateway"));
         return new String[] {HttpWire.encodeChain(sent.chain()),
-            sent.proof() == null ? null : HttpWire.encodeProof(sent.proof()), HttpWire.encodeInfluence(List.of())};
+            sent.proof() == null ? null : HttpWire.encodeProof(sent.proof()),
+            HttpWire.encodeBlocks(List.of(Block.EMPTY))};
     }
 
     private static ResultActions send(MockMvc mvc, String uri, String[] hop) throws Exception {
@@ -255,7 +259,7 @@ class OperationConfigurationTest {
             request.header(PaztportHeaders.PROOF, hop[1]);
         }
         if (hop[2] != null) {
-            request.header(PaztportHeaders.INFLUENCE, hop[2]);
+            request.header(PaztportHeaders.EXTENSIONS, hop[2]);
         }
         return mvc.perform(request);
     }
@@ -492,7 +496,7 @@ class OperationConfigurationTest {
                     request.header(PaztportHeaders.PROOF, hop[1]);
                 }
                 if (hop[2] != null) {
-                    request.header(PaztportHeaders.INFLUENCE, hop[2]);
+                    request.header(PaztportHeaders.EXTENSIONS, hop[2]);
                 }
                 return http.send(request.build(), HttpResponse.BodyHandlers.ofString());
             });

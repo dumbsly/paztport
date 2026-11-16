@@ -16,7 +16,6 @@ import java.util.Set;
 import java.util.TreeSet;
 import java.util.function.UnaryOperator;
 import org.junit.jupiter.api.Test;
-import org.paztport.core.influence.Influence;
 import org.paztport.core.internal.JsonReader;
 import org.paztport.core.policy.KeyringFile;
 import org.paztport.core.policy.MerkleProof;
@@ -24,14 +23,15 @@ import org.paztport.core.policy.SignedRoot;
 import org.paztport.core.session.ReplyCert;
 import org.paztport.core.session.SessionReply;
 import org.paztport.core.session.SessionRequest;
+import org.paztport.core.stamp.Block;
 import org.paztport.core.stamp.Chains;
 import org.paztport.core.stamp.ParsedChain;
 
 /**
- * Every wire object in {@code v3.json} that has an SDK value type is read by that type and written back; what comes
- * back is canonical text, and the value read from it is the value that went in, or the one the type normalises it
- * to. This pins the JSON forms while the public API changes from Jackson trees to JSON text: the cases and their
- * outcomes stay fixed, and only the adapters at the bottom follow the API.
+ * Every wire object in {@code v4.json} that has an SDK value type is read by that type and
+ * written back; what comes back is canonical text, and the value read from it is the value that went in, or the one
+ * the type normalises it to. This pins the JSON forms while the public API changes from Jackson trees to JSON
+ * text: the cases and their outcomes stay fixed, and only the adapters at the bottom follow the API.
  *
  * <p>An object is one of three things. Most round-trip exactly. A few are refused, being the vectors' deliberately
  * malformed inputs. Any other would be normalised, which none is: writing it back again would change nothing. A
@@ -57,6 +57,12 @@ class JsonTextRoundTripTest {
             // The whole replies refused are exactly the vectors' MALFORMED_REPLY cases.
             "sessionReply/a keyring name that is not a route node/reply",
             "sessionReply/a member the reply does not have/reply",
+            "sessionReply/extensions missing/reply",
+            "sessionReply/extensions naming Example/reply",
+            "sessionReply/extensions naming one twice/reply",
+            "sessionReply/extensions not an array/reply",
+            "sessionReply/extensions null/reply",
+            "sessionReply/extensions unsorted/reply",
             "sessionReply/notAfter not an integer/reply",
             "sessionReply/server root notAfter dropped/reply",
             "sessionReply/server root notAfter not an integer/reply",
@@ -69,8 +75,11 @@ class JsonTextRoundTripTest {
             "sessionReply/server root notAfter dropped/reply/serverRoot",
             "sessionReply/server root notAfter not an integer/reply/serverRoot",
             "sessionReply/serverReplyCert null/reply/serverReplyCert",
+            // A block with a member blocks do not have: the verify case's expected is EXTENSION_MISMATCH.
+            "verify/a block with a member blocks do not have/blocks",
+            // Stamps that do not read: each verify case's expected is CHAIN_MISSING.
+            "verify/a stamp with infl in place of ext/1",
             "verify/non-string rcv/1",
-            "verify/rcv holding the delimiter/1",
             "verify/stamp ts of -2^63/1",
             "verify/stamp with no rcv/1");
 
@@ -79,13 +88,13 @@ class JsonTextRoundTripTest {
 
     /** How many distinct objects of each kind are checked, so a case can't silently fall out of the walk. */
     private static final Map<Kind, Integer> CASES = Map.of(Kind.KEYRING, 13, Kind.ROOT, 22, Kind.PROOF, 9,
-            Kind.STAMP, 37, Kind.INFLUENCE, 9, Kind.REQUEST, 7, Kind.CERT, 10, Kind.REPLY, 37);
+            Kind.STAMP, 68, Kind.BLOCKS, 24, Kind.REQUEST, 7, Kind.CERT, 10, Kind.REPLY, 47);
 
     private enum Outcome { SAME, NORMALISED, REFUSED }
 
     @Test
     void everyWireObjectRoundTrips() throws IOException {
-        Map<String, Case> cases = cases(Vectors.load("v3.json"));
+        Map<String, Case> cases = cases(Vectors.load("v4.json"));
         Set<String> refused = new TreeSet<>();
         Set<String> normalised = new TreeSet<>();
         for (Case c : cases.values()) {
@@ -123,7 +132,8 @@ class JsonTextRoundTripTest {
 
     /**
      * Each object once, named by where it first appears; the same object reached from another case is the same
-     * check.
+     * check. A case's blocks are their readable value, which is null where no token was received and where the token
+     * does not read as an array (v4.json's {@code about}); a null value is no object, and is skipped.
      */
     private static Map<String, Case> cases(JsonNode v) {
         Map<String, Case> out = new LinkedHashMap<>();
@@ -140,45 +150,42 @@ class JsonTextRoundTripTest {
             for (JsonNode c : v.get(section)) {
                 JsonNode chain = c.get("chain");
                 for (int i = 0; chain.isArray() && i < chain.size(); i++) {
-                    // A stamp whose v is not 3 is only ever read; nothing writes one.
-                    if (chain.get(i).path("v").asInt() == 3) {
+                    // A stamp whose v is not 4 is only ever read; nothing writes one.
+                    if (chain.get(i).path("v").asInt() == 4) {
                         add(out, seen, Kind.STAMP, section + "/" + c.get("name").textValue() + "/" + i,
                                 chain.get(i));
                     }
                 }
             }
         }
-        for (JsonNode c : v.get("influence")) {
-            add(out, seen, Kind.INFLUENCE, "influence/" + c.get("name").textValue() + "/entries", c.get("entries"));
-            add(out, seen, Kind.INFLUENCE, "influence/" + c.get("name").textValue() + "/normalized",
-                    c.get("normalized"));
+        for (JsonNode c : v.get("blocks").get("read")) {
+            addBlocks(out, seen, "blocks/read/" + c.get("name").textValue(), c.get("blocks"));
+        }
+        for (JsonNode c : v.get("blocks").get("commit")) {
+            add(out, seen, Kind.BLOCKS, "blocks/commit/" + c.get("name").textValue(),
+                    "[" + text(c.get("block")) + "]");
         }
         for (String section : List.of("verify", "offline")) {
             for (JsonNode c : v.get(section)) {
-                add(out, seen, Kind.INFLUENCE, section + "/" + c.get("name").textValue() + "/influence",
-                        c.get("influence"));
+                addBlocks(out, seen, section + "/" + c.get("name").textValue() + "/blocks", c.get("blocks"));
             }
         }
-        for (JsonNode c : v.get("replyCert")) {
-            add(out, seen, Kind.CERT, "replyCert/" + c.get("name").textValue(), c.get("cert"));
+        for (JsonNode c : v.get("recordedCall")) {
+            for (int i = 0; i < c.get("calls").size(); i++) {
+                addBlocks(out, seen, "recordedCall/" + c.get("name").textValue() + "/" + i + "/blocks",
+                        c.get("calls").get(i).get("blocks"));
+            }
         }
         for (String section : List.of("sessionReply", "sessionStatus")) {
             for (JsonNode c : v.get(section)) {
                 String name = section + "/" + c.get("name").textValue();
                 JsonNode req = c.get("request");
-                add(out, seen, Kind.REQUEST, name + "/request", Vectors.tokenText(c.get("requestToken")));
                 if (req.path("clientRoot").isObject()) {
                     add(out, seen, Kind.ROOT, name + "/request/clientRoot", req.get("clientRoot"));
                 }
                 JsonNode reply = c.path("reply");
-                if (!reply.isMissingNode()) {
-                    add(out, seen, Kind.REPLY, name + "/reply", Vectors.tokenText(c.get("replyToken")));
-                }
                 if (reply.path("serverRoot").isObject()) {
                     add(out, seen, Kind.ROOT, name + "/reply/serverRoot", reply.get("serverRoot"));
-                }
-                if (reply.has("serverReplyCert")) {
-                    add(out, seen, Kind.CERT, name + "/reply/serverReplyCert", reply.get("serverReplyCert"));
                 }
                 if (c.path("serverRoot").isObject()) {
                     add(out, seen, Kind.ROOT, name + "/serverRoot", c.get("serverRoot"));
@@ -188,7 +195,30 @@ class JsonTextRoundTripTest {
                 }
             }
         }
+        for (JsonNode c : v.get("replyCert")) {
+            add(out, seen, Kind.CERT, "replyCert/" + c.get("name").textValue(), c.get("cert"));
+        }
+        for (String section : List.of("sessionReply", "sessionStatus")) {
+            for (JsonNode c : v.get(section)) {
+                String name = section + "/" + c.get("name").textValue();
+                add(out, seen, Kind.REQUEST, name + "/request", Vectors.tokenText(c.get("requestToken")));
+                JsonNode reply = c.path("reply");
+                if (!reply.isMissingNode()) {
+                    add(out, seen, Kind.REPLY, name + "/reply", Vectors.tokenText(c.get("replyToken")));
+                }
+                if (reply.has("serverReplyCert")) {
+                    add(out, seen, Kind.CERT, name + "/reply/serverReplyCert", reply.get("serverReplyCert"));
+                }
+            }
+        }
         return out;
+    }
+
+    /** A case's blocks, when they have a readable value. */
+    private static void addBlocks(Map<String, Case> out, Set<String> seen, String name, JsonNode blocks) {
+        if (blocks != null && !blocks.isNull()) {
+            add(out, seen, Kind.BLOCKS, name, blocks);
+        }
     }
 
     private static void add(Map<String, Case> out, Set<String> seen, Kind kind, String name, JsonNode node) {
@@ -229,7 +259,7 @@ class JsonTextRoundTripTest {
             }
             return parsed.stamps().get(0).toJson();
         }),
-        INFLUENCE(json -> Influence.toJson(Influence.parse(json))),
+        BLOCKS(json -> Block.toJson(Block.parseAll(json))),
         REQUEST(json -> SessionRequest.parse(json).toJson()),
         CERT(json -> ReplyCert.parse(json).toJson()),
         REPLY(json -> SessionReply.parse(json).toJson());

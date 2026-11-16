@@ -16,10 +16,12 @@ import org.paztport.core.internal.JsonWriter;
 import org.paztport.core.internal.KeyringNames;
 import org.paztport.core.internal.RootJson;
 import org.paztport.core.policy.SignedRoot;
+import org.paztport.core.stamp.Block;
 
 /**
  * The server's half of the handshake. {@code status} is {@code "attested"} or {@code "unsafe"}; {@code disabled}
- * lists the tools refused in an unsafe session. {@code sig} is the signature over every other field, and is null
+ * lists the tools refused in an unsafe session, and {@code extensions} the extensions the server acts on, in either
+ * status (spec sessions.md, The reply). {@code sig} is the signature over every other field, and is null
  * until {@link Sessions#signReply} has set it.
  *
  * <p>The reply comes in two forms, told apart only by which fields are present. In the entry-key form,
@@ -33,16 +35,17 @@ import org.paztport.core.policy.SignedRoot;
  */
 public record SessionReply(SignedRoot serverRoot, String serverPolicyKey, Map<String, String> serverKeyring,
         String serverKeyringSig, Long serverKeyringNotAfter, ReplyCert serverReplyCert, String nonce, String sess,
-        String status, List<String> disabled, String sig) {
+        String status, List<String> disabled, List<String> extensions, String sig) {
 
-    private static final Set<String> MEMBERS = Set.of("disabled", "nonce", "serverKeyring", "serverPolicyKey",
-            "serverRoot", "sess", "sig", "status");
+    private static final Set<String> MEMBERS = Set.of("disabled", "extensions", "nonce", "serverKeyring",
+            "serverPolicyKey", "serverRoot", "sess", "sig", "status");
     private static final Set<String> ENTRY_KEY_FORM = Set.of("serverKeyringNotAfter", "serverKeyringSig",
             "serverReplyCert");
 
     public SessionReply {
         serverKeyring = Map.copyOf(serverKeyring);
         disabled = List.copyOf(disabled);
+        extensions = List.copyOf(extensions);
     }
 
     /**
@@ -51,7 +54,8 @@ public record SessionReply(SignedRoot serverRoot, String serverPolicyKey, Map<St
      * otherwise a refusal naming the member. A reply has exactly its members: {@code serverRoot} {@code null} or a
      * root with exactly its own members, string {@code serverPolicyKey}, {@code nonce}, {@code sess} and
      * {@code sig}, a {@code serverKeyring} of strings under route-node names, {@code status} {@code "attested"} or
-     * {@code "unsafe"}, a {@code disabled} array of strings, and, each only when present, a string
+     * {@code "unsafe"}, a {@code disabled} array of strings, an {@code extensions} array of extension names
+     * ({@link Block#isExtensionName}), strictly increasing by UTF-16 code units, and, each only when present, a string
      * {@code serverKeyringSig}, which needs {@code serverKeyringNotAfter} beside it, an integer
      * {@code serverKeyringNotAfter}, and a {@code serverReplyCert} with exactly a certificate's members. A member
      * whose value is {@code null} is present.
@@ -88,6 +92,17 @@ public record SessionReply(SignedRoot serverRoot, String serverPolicyKey, Map<St
             }
             disabled.add(s.value());
         }
+        List<String> extensions = new ArrayList<>();
+        for (JsonValue item : JsonFields.array(o, "extensions")) {
+            if (!(item instanceof JsonValue.Str s) || !Block.isExtensionName(s.value())) {
+                throw new IllegalArgumentException("member extensions holds a value that is not an extension name");
+            }
+            // Strictly increasing is sorted with no name twice; String's order is by UTF-16 code units.
+            if (!extensions.isEmpty() && extensions.get(extensions.size() - 1).compareTo(s.value()) >= 0) {
+                throw new IllegalArgumentException("member extensions is not sorted, or names one twice");
+            }
+            extensions.add(s.value());
+        }
         String ringSig = null;
         if (o.get("serverKeyringSig") != null) {
             ringSig = JsonFields.string(o, "serverKeyringSig");
@@ -101,7 +116,7 @@ public record SessionReply(SignedRoot serverRoot, String serverPolicyKey, Map<St
                 JsonFields.string(o, "serverPolicyKey"), keyring, ringSig,
                 o.get("serverKeyringNotAfter") == null ? null : JsonFields.integer(o, "serverKeyringNotAfter"),
                 o.get("serverReplyCert") == null ? null : ReplyCert.fromTree(o.get("serverReplyCert")),
-                JsonFields.string(o, "nonce"), JsonFields.string(o, "sess"), status, disabled,
+                JsonFields.string(o, "nonce"), JsonFields.string(o, "sess"), status, disabled, extensions,
                 JsonFields.string(o, "sig"));
     }
 
@@ -131,6 +146,7 @@ public record SessionReply(SignedRoot serverRoot, String serverPolicyKey, Map<St
         o.put("sess", new JsonValue.Str(sess));
         o.put("status", new JsonValue.Str(status));
         o.put("disabled", new JsonValue.Arr(disabled.stream().map(d -> (JsonValue) new JsonValue.Str(d)).toList()));
+        o.put("extensions", new JsonValue.Arr(extensions.stream().map(e -> (JsonValue) new JsonValue.Str(e)).toList()));
         if (sig != null) {
             o.put("sig", new JsonValue.Str(sig));
         }

@@ -1,14 +1,15 @@
 # Wire format
 
-This file defines the bytes: encodings, how JSON is read and written, keys, stamps, chains, bindings, the Merkle
-tree, operations, the signed root, the signed keyring, the reply certificate, events and the proof bundles.
-[verification.md](verification.md) says how a receiver checks them, and
-[sessions-and-influence.md](sessions-and-influence.md) covers the handshake and influence.
+This file defines the bytes: encodings, how JSON is read and written, keys, stamps, chains, the blocks that carry
+extensions' claims, bindings, the Merkle tree, operations, the signed root, the signed keyring, the reply
+certificate, events and the proof bundles. [verification.md](verification.md) says how a receiver checks them,
+[sessions.md](sessions.md) covers the session handshake, and [influence.md](influence.md) defines an extension
+that travels in blocks.
 
 The key words MUST, MUST NOT, SHOULD, SHOULD NOT and MAY are to be read as described in RFC 2119.
 
 Contents: [Encodings](#encodings) · [JSON](#json) · [Keys and files](#keys-and-files) · [Stamps](#stamps) ·
-[Chains](#chains) · [Bindings](#bindings) · [Carrying a chain](#carrying-a-chain) ·
+[Chains](#chains) · [Blocks](#blocks) · [Bindings](#bindings) · [Carrying a chain](#carrying-a-chain) ·
 [The Merkle tree](#the-merkle-tree) · [Routes](#routes) · [Operations](#operations) ·
 [The signed root](#the-signed-root) · [The signed keyring](#the-signed-keyring) ·
 [The reply certificate](#the-reply-certificate) · [Events](#events) ·
@@ -20,10 +21,10 @@ Contents: [Encodings](#encodings) · [JSON](#json) · [Keys and files](#keys-and
 |---|---|
 | Text | Every string that is hashed or signed is encoded as UTF-8. A string that holds a lone surrogate has no UTF-8 form, so it MUST be rejected wherever this spec says so, and MUST NOT be signed. |
 | Binary values | **base64url without padding** (RFC 4648 §5). Encoders MUST NOT emit `=`. Decoders MUST accept only the canonical encoding of RFC 4648 §3.5, and so MUST reject `=`, any character outside `A–Z a–z 0–9 - _` (whitespace included), a length that is 1 more than a multiple of 4, and non-zero unused bits in the last character. `json.json`'s `base64url` section pins each case. |
-| Canonical encoding | Where this spec compares encoded values, it compares the text, so a value with two encodings matches only one of them. This covers every base64url value that is decoded (a token, a `sig`, a `nonce`, a key, a salt, a root, a Merkle sibling, an event payload), not only `sig`; a value that is only compared as text, such as an influence entry's `h` and `cid` or a stamp's `bind` and `infl`, is not decoded and not checked. A stamp whose `sig` is not canonical does not parse (see [Stamp field rules](#stamp-field-rules)). |
+| Canonical encoding | Where this spec compares encoded values, it compares the text, so a value with two encodings matches only one of them. This covers every base64url value that is decoded (a token, a `sig`, a `nonce`, a key, a salt, a root, a Merkle sibling, an event payload), not only `sig`; a value that is only compared as text, such as a stamp's `bind` and `ext`, is not decoded and not checked. A stamp whose `sig` is not canonical does not parse (see [Stamp field rules](#stamp-field-rules)). |
 | Canonical JSON | **JCS**, RFC 8785: object keys sorted by their UTF-16 code units, no whitespace, numbers in the ECMAScript shortest form, strings escaped as RFC 8785 §3.2.2.2 says ([Canonical bytes](#canonical-bytes)). JCS MUST fail on a lone surrogate, a non-finite number, or anything that is not plain JSON. Arrays keep their order. |
 | Hash | SHA-256. `H(x)` below is SHA-256 of the bytes `x`. |
-| Signatures | Ed25519 (RFC 8032), pure, with no pre-hash and no context. A signature is 64 bytes. Verifiers SHOULD apply RFC 8032 §5.1.7 in full, including the check that S is below the group order. |
+| Signatures | Ed25519 (RFC 8032), pure, with no pre-hash and no context. A signature is 64 bytes. A verifier MUST refuse a signature unless it passes the five rules of [Signatures](#signatures). |
 | Integers | `ts` is a number of milliseconds since the Unix epoch, a [protocol integer](#the-grammar): an integer in [0, 2^53 − 1], decided from its text. In signed bytes it is written in decimal, with no leading zeros, no `+` and no exponent. |
 
 `b64url(x)` is the base64url text of `x`, and `utf8(s)` the UTF-8 bytes of `s`. `‖` is byte concatenation,
@@ -32,13 +33,48 @@ and `\n` is the single byte `0x0A`.
 **Domain prefixes.** Each kind of signed message opens with its own prefix, so that no signature can be read as
 another kind: roots `"paztport-root\n"`, keyrings `"paztport-keyring\n"`, reply certificates
 `"paztport-reply-cert\n"`, session replies `"paztport-session-reply\n"`, responder events `"paztport-event\n"`,
-and stamps `3|`.
+and stamps `"paztport-stamp\n"`.
+
+### Signatures
+
+A verifier MUST refuse a signature unless all five of these rules hold. Each 32-byte value is read as a
+little-endian integer; `p = 2^255 − 19` is the field prime and `B` the base point.
+
+1. **Lengths.** The signature is 64 bytes, and the public key is exactly 44 bytes: the Ed25519 SubjectPublicKeyInfo
+   prefix `302a300506032b6570032100` ([Keys and files](#keys-and-files)), then the 32-byte key `A`. Other bytes
+   that hold the same `A`, such as a DER length in long form or a trailing byte, are refused.
+2. **S below L.** `S`, the signature's last 32 bytes, is below
+   `L = 2^252 + 27742317777372353535851937790883648493`, the order of `B`.
+3. **Canonical points.** `R`, the signature's first 32 bytes, and `A` are canonical: for each, `y`, its 32 bytes
+   with the top bit cleared, is below `p`.
+4. **No point of small order.** Neither `R`'s `y` nor `A`'s is one of the five y-coordinates of the points of
+   small order: `0` (order 4), `1` (the identity), `p − 1` (order 2), and `y8` and `p − y8`, the y-coordinates of
+   the points of order 8, where
+   `y8 = 55188659117513257062467267217118295137698188065244968500265048394206261417927`. Testing `y` alone, with
+   the sign bit ignored, also refuses the two encodings of `x = 0` that set the sign bit.
+5. **The equation.** `R` and `A` decode to points of the curve (RFC 8032 §5.1.3), and `[S]B = R + [k]A`, with no
+   multiplication by the cofactor. `k` is the 64-byte SHA-512 digest of `R ‖ A ‖ M`, over `R` and `A` as written
+   and the message `M`, read as a little-endian integer and reduced mod `L`.
+
+This is stricter than RFC 8032 requires. Rules 2 and 3 are the RFC's own (§5.1.7 decodes `S` as an integer below
+`L`, and §5.1.3 refuses a `y` at or above `p`), but the RFC lets a verifier check `[8][S]B = [8]R + [8][k]A` or the
+equation without the 8, and does not require it to refuse a point of small order. Two verifiers that choose
+differently disagree about the same bytes: one service could accept a stamp that another, or an offline audit,
+refuses. The RFC also multiplies `A` by the digest as it is, where rule 5 reduces it mod `L` first. Under rule 5's
+equation that changes the answer only for a key with a small-order part, and the case
+`A with a small-order part, k a multiple of 8` pins it.
+
+Rules 1 to 4 read only bytes. Paztport's three SDKs check them themselves, in front of their standard library's
+Ed25519 verify, even where that library would refuse the same bytes, so the SDKs' answers to rules 1 to 4 do not
+depend on the library. Rule 5 is the library's: no check in front can correct a library that checks another
+equation, and each SDK's replay of `ed25519.json` ([its cases](README.md#ed25519json)), which pins the whole rule,
+fails on one that does.
 
 ## JSON
 
-Paztport's own objects are JSON: stamps and chains, proofs, influence entries, content labels, the attestation,
-keyrings, roots, reply certificates, session requests and replies, verdicts and refusals, events and their
-envelopes, proof bundles, local rules, a local tool's decision and a boundary opening. This section says how they
+Paztport's own objects are JSON: stamps and chains, proofs, blocks, the attestation, keyrings, roots, reply
+certificates, session requests and replies, verdicts and refusals, events and their envelopes, proof bundles,
+local rules and a local tool's decision. This section says how they
 are read and written, so that every implementation accepts and refuses the same bytes. An object's **wire bytes**
 are the bytes it travels as, and a **file** is one of the files under [Keys and files](#keys-and-files) or a
 client's local `rules.json`. Content Paztport only hashes, such as a tool's arguments, is not one of its objects
@@ -58,18 +94,18 @@ the [bindings](#bindings) that refuse a lone surrogate. Its `about` says how to 
 
 An object travels as its wire bytes, or as its **token**, the base64url of its wire bytes:
 
-- **HTTP headers.** A chain, a proof, influence entries and a response's attestation each travel as a token, one
-  header each ([HTTP (v3)](#http-v3)).
+- **HTTP headers.** A request's chain, its proof and its blocks, and a response's attestation, each travel as a
+  token, one header each ([HTTP](#http)).
 - **HTTP bodies.** A session request, its reply and a handshake error `{"error"}`
-  ([sessions-and-influence.md](sessions-and-influence.md#over-http)), a refusal `{"reason"}`, an event's envelope
-  ([Events](#events)) and, in the PSP demo, a boundary opening travel as their wire bytes, the whole body.
+  ([sessions.md](sessions.md#over-http)), a refusal `{"reason"}` and an event's envelope
+  ([Events](#events)) travel as their wire bytes, the whole body.
 - **MCP** ([the MCP profile](README.md#the-mcp-profile)). Each value under `_meta` but `paztport/callId` is a
-  token ([MCP (v3)](#mcp-v3)), and so are the `request` of `paztport/session`'s params and the `reply` of its
-  result ([sessions-and-influence.md](sessions-and-influence.md#the-handshake)). The JSON-RPC message around them is
+  token ([MCP](#mcp)), and so are the `request` of `paztport/session`'s params and the `reply` of its
+  result ([sessions.md](sessions.md#the-handshake)). The JSON-RPC message around them is
   MCP's own, read by its JSON parser.
 
 A record keeps each object as its token, as it was sent or received
-([Recorded handshakes](sessions-and-influence.md#recorded-handshakes)).
+([Recorded handshakes](sessions.md#recorded-handshakes)).
 
 ### Reading
 
@@ -97,19 +133,18 @@ the parent's answer.
 | An event's envelope | The responder ([Receiving an event](verification.md#receiving-an-event)) | `MALFORMED_ENVELOPE` |
 | An event | The responder, from the envelope's `payload` ([Receiving an event](verification.md#receiving-an-event)) | `MALFORMED_EVENT`; an event whose only fault is an absent or `null` `eventId` is `NO_EVENT_ID` |
 | A chain | A verifier, live or offline ([check 1](verification.md#the-live-order)), from an HTTP header or MCP `_meta` | `CHAIN_MISSING` |
-| A proof | A verifier, live or offline ([check 11](verification.md#the-live-order)) | None: no proof, so the route is not proven (`PATH_NOT_ALLOWED`) |
-| An influence list | A verifier, live or offline ([check 9](verification.md#the-live-order)) | `INFLUENCE_MISMATCH` |
+| A proof | A verifier, live or offline ([check 12](verification.md#the-live-order)) | None: no proof, so the route is not proven (`PATH_NOT_ALLOWED`) |
+| The blocks | A verifier, live or offline ([check 9a](verification.md#the-live-order)), from an HTTP header or MCP `_meta`; and over HTTP every service about to serve a request it did not verify, which applies check 9a itself ([A service never serves a request whose blocks fail check 9a](verification.md#http-requests-and-responses)) | `EXTENSION_MISMATCH` |
 | A response attestation | A client, from an HTTP header or MCP `_meta` ([HTTP](verification.md#http-requests-and-responses), [MCP](verification.md#the-mcp-server-and-client)) | `CHAIN_MISSING` |
 | A verdict (MCP profile) | A client, from MCP `_meta` ([the verdict rule](verification.md#the-mcp-server-and-client)) | `UNKNOWN`, a refusal |
 | A recorded verdict (MCP profile) | A verifier of a recorded response | No refusal: the result is judged as a response |
 | A local-tool decision (MCP profile) | A verifier of a recorded local step ([step 1](verification.md#offline-verification)) | `BINDING_MISMATCH` |
-| A session request | A server, over MCP or HTTP ([sessions-and-influence.md](sessions-and-influence.md#the-request)) | Invalid params: JSON-RPC `-32602`; over HTTP `400 {"error":"INVALID_PARAMS"}` |
-| `paztport/session` params (MCP profile) | A server ([the handshake](sessions-and-influence.md#the-handshake)) | Invalid params: JSON-RPC `-32602` |
-| A session reply | A client, live ([its check](sessions-and-influence.md#the-clients-check-of-the-reply)); a verifier of a [recorded handshake](sessions-and-influence.md#recorded-handshakes) | `MALFORMED_REPLY`; not attested |
-| A `paztport/session` result (MCP profile) | A client ([the handshake](sessions-and-influence.md#the-handshake)) | `MALFORMED_REPLY` |
-| A refusal `{"reason"}` | An egress reading its partner's `403` to a call ([sessions-and-influence.md](sessions-and-influence.md#over-http)) | None: the refusal gives no reason |
-| A handshake error `{"error"}` | No one: a client takes any answer but a `200` as a failed handshake ([sessions-and-influence.md](sessions-and-influence.md#over-http)) | None |
-| A boundary opening | A checker ([Opening an entry](sessions-and-influence.md#blinded-influence)) | Does not open; the PSP demo's check answers `400 {"reason":"MALFORMED_OPENING"}` for bytes that do not read or are not one JSON object |
+| A session request | A server, over MCP or HTTP ([sessions.md](sessions.md#the-request)) | Invalid params: JSON-RPC `-32602`; over HTTP `400 {"error":"INVALID_PARAMS"}` |
+| `paztport/session` params (MCP profile) | A server ([the handshake](sessions.md#the-handshake)) | Invalid params: JSON-RPC `-32602` |
+| A session reply | A client, live ([its check](sessions.md#the-clients-check-of-the-reply)); a verifier of a [recorded handshake](sessions.md#recorded-handshakes) | `MALFORMED_REPLY`; not attested |
+| A `paztport/session` result (MCP profile) | A client ([the handshake](sessions.md#the-handshake)) | `MALFORMED_REPLY` |
+| A refusal `{"reason"}` | An egress reading its partner's `403` to a call ([sessions.md](sessions.md#over-http)) | None: the refusal gives no reason |
+| A handshake error `{"error"}` | No one: a client takes any answer but a `200` as a failed handshake ([sessions.md](sessions.md#over-http)) | None |
 | A keyring, root, reply certificate, proof bundle or local rules, as a [file](#files) | A service or client at startup, a policy tool | Malformed, and each reader names the file: a service or client does not start, and a policy tool writes nothing and exits as for any malformed input |
 
 ### The grammar
@@ -158,6 +193,11 @@ a second form.
 | Files | At most 1 048 576 bytes (1 MiB), with the same depth limit. |
 
 A value at a limit is read, and one past it is refused.
+
+[Blocks](#blocks) have no limit of their own: they travel in one wire object, held to the limits above. In a
+request's blocks the array is one level, as is the object of `X-Path-Response`, so a block is two, its `items`
+three and an extension's list four, and an item may itself be up to 28 levels deep; inside an MCP attestation
+everything is one level deeper, so an item may be up to 27.
 
 ### Files
 
@@ -227,7 +267,7 @@ other character, a no-break space or a byte order mark included, is not that key
 | `proofs-<svc>.json` | [A proof bundle](#proof-bundles-and-who-holds-what) | no, but it reveals its own routes |
 | `ops-<svc>.json` | [An operation table](#operations), copied by the policy tool from beside `paths.yaml` | no |
 | `policy.pub` | The policy public key that a mesh's own services pin, written by the Java keygen | no |
-| `boundary.key` | An egress's [boundary key](sessions-and-influence.md#blinded-influence): 32 bytes as base64url. The Java keygen writes it only when it does not exist, since a new key makes the entries sent under the old one unopenable, and refuses an existing one that is not 32 bytes. It belongs to one egress service and its replicas, and MUST NOT be shared with another service | yes |
+| `boundary.key` | An egress's boundary key, as base64url: an extension's file, whose rules are in [influence.md](influence.md#blinded-influence) | yes |
 | `<side>-policy.pub` | A pinned policy public key (`server-policy.pub`, `client-policy.pub`) | no |
 
 **Expiry.** The policy key stays offline, so a root or keyring it once signed can't be withdrawn, only left to
@@ -246,34 +286,41 @@ order, whatever order they are shown in here.
 ### Fields and signed bytes
 
 ```json
-{ "v": 3, "svc": "...", "inst": "...", "rid": "...", "ts": 0, "sess": "...", "rcv": "...",
-  "bind": "...", "infl": "...", "prev": "...", "sig": "<b64url>" }
+{ "v": 4, "svc": "...", "inst": "...", "rid": "...", "ts": 0, "sess": "...", "rcv": "...",
+  "bind": "...", "ext": "...", "prev": "...", "sig": "<b64url>" }
 ```
 
 | Field | Type | Meaning |
 |---|---|---|
-| `v` | the number `3` | Version. |
+| `v` | the number `4` | Version. |
 | `svc` | string | The signing service. The verifier looks its key up by this name, and rebuilds the route from it. |
 | `inst` | string | The signer's instance, as the signer reports it. Signed, but only the signer vouches for it. |
 | `rid` | string | The request id, minted at the origin and carried unchanged by every stamp. An origin MUST NOT reuse a `rid`: the [HTTP nonce key](verification.md#freshness-and-replay) names a request tree by it, so two trees with one `rid` would spend each other's keys. It SHOULD carry at least 122 random bits from a cryptographic random source, as a random UUID (RFC 9562, version 4) does, so that an origin's replicas need no coordination. |
 | `ts` | integer | When this stamp was signed, in ms since the Unix epoch: a protocol integer. |
-| `sess` | string | The session id ([sessions-and-influence.md](sessions-and-influence.md#the-session-id)), or `""` for a chain with no session: one that never leaves one process, such as a local step, or one inside a single HTTP mesh. |
+| `sess` | string | The session id ([sessions.md](sessions.md#the-session-id)), or `""` for a chain with no session: one that never leaves one process, such as a local step, or one inside a single HTTP mesh. |
 | `rcv` | string | The receiver this stamp was signed for: the next stamp's `svc`, or for the last stamp, the receiver of the chain. Over HTTP it may also name the [operation](#operations) the stamp invokes there. See [Receivers](#receivers). |
 | `bind` | string | The binding of what this hop sent. See [Bindings](#bindings). |
-| `infl` | string | The influence commitment: `""` for no influence, otherwise `b64url(H(utf8(JCS(normalise(entries)))))`, with `normalise` as defined in [sessions-and-influence.md](sessions-and-influence.md#normalisation-and-commitment). |
+| `ext` | string | The commitment to this stamp's [block](#blocks), the claims its signer attaches: `""` for the empty block `{"items":{},"requires":[]}`, otherwise `b64url(H(utf8(JCS(block))))`. |
 | `prev` | string | The previous stamp's `sig`, exactly as written, or `""` at the origin. |
 | `sig` | string | `b64url` of the Ed25519 signature, by `svc`'s key, over the signed bytes. |
 
 The signed bytes are:
 
 ```
-utf8( "3|" svc "|" inst "|" rid "|" ts "|" sess "|" rcv "|" bind "|" infl "|" prev )
+utf8( "paztport-stamp\n" ) ‖ utf8( JCS( the stamp without sig ) )
 ```
 
-That is the ten values `3, svc, inst, rid, ts, sess, rcv, bind, infl, prev`, joined with `|` (`0x7C`), with `ts`
-in decimal. `v3.json` pins two layouts in `signingBytes`. For example, the stamp
-`{ v: 3, svc: "pi", inst: "pi-é", rid: "rid-1", ts: 1767225600000, sess: "", rcv: "local:read", bind: "bind-2", infl: "", prev: "prev-2" }`
-signs the bytes of `3|pi|pi-é|rid-1|1767225600000||local:read|bind-2||prev-2`, with `é` as `c3 a9`.
+That is the stamp's [domain prefix](#encodings), then the [canonical bytes](#canonical-bytes) of an object holding
+the stamp's ten members other than `sig`, `v` included. JCS writes each value in one form and escapes every
+string, so two different stamps never share signed bytes, whatever their fields hold. For example, the stamp
+`{ v: 4, svc: "pi", inst: "pi-é", rid: "rid-1", ts: 1767225600000, sess: "", rcv: "local:read", bind: "bind-2", ext: "", prev: "prev-2" }`
+signs the bytes of
+`paztport-stamp\n{"bind":"bind-2","ext":"","inst":"pi-é","prev":"prev-2","rcv":"local:read","rid":"rid-1","sess":"","svc":"pi","ts":1767225600000,"v":4}`,
+with `\n` the byte `0x0A` and `é` as `c3 a9`.
+
+`v4.json` pins the signed bytes of three stamps in `signingBytes`, among them this example and a stamp whose strings
+hold a quote, a newline and a `|`, and the signatures of an origin stamp, a call's stamp and a response stamp in
+`signatures`.
 
 ### Stamp field rules
 
@@ -281,15 +328,13 @@ These hold for every stamp. A signer MUST NOT sign a stamp that breaks them, and
 that does, with the code in brackets.
 
 - The chain is a non-empty JSON array of objects (`CHAIN_MISSING`).
-- `v` is exactly `3` (`CHAIN_MISSING`).
+- `v` is exactly `4` (`CHAIN_MISSING`).
 - `ts` is a [protocol integer](#the-grammar) in [0, 2^53 − 1], by text (`CHAIN_MISSING`), so every
   implementation reads and prints it the same way: `1.0`, `1e3` and `-1` are not protocol integers.
-- Every string field (`svc`, `inst`, `rid`, `sess`, `rcv`, `bind`, `infl`, `prev`, `sig`) is a JSON
+- Every string field (`svc`, `inst`, `rid`, `sess`, `rcv`, `bind`, `ext`, `prev`, `sig`) is a JSON
   string (`CHAIN_MISSING`). None holds a lone surrogate or a noncharacter, since [the grammar](#the-grammar)
   refuses both (`CHAIN_MISSING`).
 - `sig` is canonical base64url, as [Encodings](#encodings) requires of every decoded value (`CHAIN_MISSING`).
-- No signed field holds `|` (`BAD_SIGNATURE`). The fields are joined with `|`, so a field holding it would let
-  two different stamps share signed bytes.
 - A stamp without `rcv` does not read (`CHAIN_MISSING`).
 
 A stamp with any other member does not read (`CHAIN_MISSING`).
@@ -305,11 +350,13 @@ A chain is an array of stamps, **origin first**. It travels as its JCS bytes and
 - **Links.** Stamp *i* (for *i* ≥ 1) has `prev` equal to stamp *i − 1*'s `sig`. Because each signature covers
   `prev`, removing, reordering or inserting a stamp breaks a signature or a link.
 - **Shared values.** Every stamp carries the origin's `rid`. Every stamp carries the session's `sess`.
-- **Receivers.** Stamp *i*'s `rcv` MUST be stamp *i + 1*'s `svc`, or that `svc`, then `#`, then a non-empty
-  [operation](#operations) name, and the last stamp's `rcv` MUST equal the chain's receiver exactly. So each stamp
-  names the hop it was handed to, and a chain forwarded unchanged to anyone else fails.
-- **The last stamp** is the one whose `bind` and `infl` the receiver checks: it describes what was actually
-  sent.
+- **Receivers.** Stamp *i*'s `rcv` MUST be stamp *i + 1*'s `svc`, or that `svc`, then `#`, then an
+  [operation](#operations) name, which is a route node that holds no `#`, as an operation table's `name` is. The
+  last stamp's `rcv` MUST equal the chain's receiver exactly. So each stamp names the hop it was handed to, and a
+  chain forwarded unchanged to anyone else fails.
+- **The last stamp** is the one whose `bind` the receiver checks: it describes what was actually sent.
+- **Blocks.** Each stamp's `ext` commits to its own signer's block, and the blocks travel beside the chain
+  ([Blocks](#blocks)).
 
 ### Receivers
 
@@ -322,16 +369,101 @@ A chain is an array of stamps, **origin first**. It travels as its JCS bytes and
 | MCP tool call ([MCP profile](README.md#the-mcp-profile)) | `session`, `pi` | `pi`, then `mcp:<server>.<tool>`, where `<server>` is the server id and `<tool>` the tool name. |
 | MCP response ([MCP profile](README.md#the-mcp-profile)) | `mcp-entry`, `github-tools` | `github-tools`, then the calling client's `svc` (`pi`): the response chain ends at whoever made the call. |
 | Local step ([MCP profile](README.md#the-mcp-profile)) | `session`, `pi` (with `sess = ""`) | `pi`, then `local:<tool>`. |
-| Boundary stamp | the egress service | The partner's entry service ([sessions-and-influence.md](sessions-and-influence.md#between-organisations)). |
+| Boundary stamp | the egress service | The partner's entry service ([sessions.md](sessions.md#between-organisations)). |
 
 The names in the second column are the agents demo's and the vectors'; the shape of each row is the rule.
 
 An MCP server id MUST NOT contain `/`, `|` or `.`, and a tool name MUST NOT contain `/` or `|`. `/` would add a
-route segment, `|` is the stamp delimiter, and a `.` in the server id would make `mcp:a.b.c` ambiguous. A
-verifier MUST reject a call that breaks this (`CHAIN_MISSING`).
+route segment; `|` is refused because both are part of the route node `mcp:<server>.<tool>`, and a
+[route node](#routes) may not hold `|`; and a `.` in the server id would make `mcp:a.b.c` ambiguous. A verifier
+MUST reject a call that breaks this (`CHAIN_MISSING`).
 
 A service name MUST NOT contain `#`, so that an `rcv` that names an operation reads one way: the service before its
 first `#`, the operation after it. A policy owner MUST NOT sign a keyring that names such a service.
+
+## Blocks
+
+An **extension** is a named kind of claim that a hop attaches at its own point on the path, and an **item** is one
+such claim. Each stamp's signer attaches its items in a **block**, to which its stamp's `ext` commits. The core
+guarantees who made a claim and that it arrived intact, and never reads an item: what an item means is its
+extension's to say. [influence.md](influence.md) defines one extension.
+
+**Names.** An extension name is 1 to 32 characters, each one of `a` to `z`, `0` to `9` and `-`. A lookup of an
+extension name in a block's `items`, or in a verifier's `actsOn` or `allowedExtensions`
+([verification.md](verification.md#inputs)), MUST find only the object's or the set's own members, so that a name
+such as `constructor` finds nothing where it is not listed.
+
+**A block** is a JSON object with exactly the members `items` and `requires`:
+
+```json
+{ "items": { "<extension>": [ <item>, ... ], ... }, "requires": [ "<extension>", ... ] }
+```
+
+- `items` is an object whose member names are extension names and whose values are arrays of items, each in the
+  order its signer wrote it. An item is any JSON value [the reader](#reading) takes; the core never interprets it.
+- `requires` is an array of extension names, sorted by their UTF-16 code units, with no name twice: the
+  extensions its signer requires the next hop to act on, as **Requiring** below says.
+- A name need not be in both: one may be in `items` alone, in `requires` alone, or in both.
+
+Anything else does not read: another member, a name in either that is not an extension name, a value in `items`
+that is not an array, or a `requires` that is unsorted or holds a name twice.
+
+**What a name says.** A block **names** an extension when the name is a member of its `items`; a name only in
+`requires` does not name it. A name in `items` is its signer's statement that it acts on that extension. `[]` says
+it acts on it and has nothing to add, which is not the same as leaving the name out, so a hop that adds nothing is
+told apart from a hop that does not act on the extension at all.
+
+**The commitment.** A stamp's `ext` is `""` when its block is the empty block `{"items":{},"requires":[]}`, and
+otherwise `b64url(H(utf8(JCS(block))))`. A block that names an extension with `[]` is not the empty block:
+the `ext` of `{"items":{"example":[]},"requires":[]}` is its commitment, not `""`, so its signer's statement that
+it acts on `example` is signed like any item.
+
+**Carrying.** A chain's blocks travel as one wire object: a JSON array holding one block per stamp, in chain
+order, carried as a token beside the chain ([MCP](#mcp), [HTTP](#http)). An absent token means every block is
+empty, over MCP and HTTP alike, and a present array of empty blocks reads too. A token stripped from a chain whose
+blocks were not all empty is still refused, by [check 9a](verification.md#the-live-order), since some stamp's
+`ext` is then not `""`. A response carries its blocks in its attestation instead: over HTTP only the response
+stamp's own block, since the caller already holds the blocks of the chain it sent ([HTTP](#http)), and over MCP
+one block per stamp of the response chain, which is the server's own hops ([MCP](#mcp)).
+
+For example, on a chain of two stamps whose origin attaches nothing, and whose second signer acts on a made-up
+extension `example`, adds one item and requires its receiver to act on `example` too, the blocks are:
+
+```json
+[ { "items": {}, "requires": [] },
+  { "items": { "example": [ { "note": "..." } ] }, "requires": [ "example" ] } ]
+```
+
+The origin's `ext` is `""`, and the second stamp's is its block's commitment, `b64url(H(utf8(JCS(block))))`.
+
+**Forwarding.** A hop that extends a chain, whether or not it verifies, MUST send the blocks it received
+unchanged, then its own. Each stamp's signature covers its `ext`, the commitment to its own signer's block, so
+a claim, once made, cannot be dropped or altered by a later hop without failing check 9a at every honest hop
+after it. A hop's own block holds all of its own items for this request so far, not only those since its last
+call. A signer MUST NOT name in `items` an extension it does not act on, since a name there is that statement.
+When a signer that acts on an extension must name it is that extension's to say
+([influence.md](influence.md#the-every-stamp-rule), for one). An origin starts a new request tree and carries
+nothing from the request it was sent.
+
+**Requiring.** `requires` is the one way a block demands an extension. Only the direct caller's binds: a
+receiver refuses, before its handler runs, a request whose last block requires an extension it does not act on
+([check 9c](verification.md#the-live-order)), unless it runs in audit mode, where 9c follows the mode as any
+other check does ([Modes and refusals](verification.md#modes-and-refusals)). A receiver that verifies no requests
+under a mode does not enforce a caller's `requires` either, and the caller learns of it only from an unattested
+response. The `requires` of an earlier block binds no hop after the one it was sent to. On a response the last
+block is the responder's, so a responder requires an extension of its caller the same way, and a caller that does
+not act on it refuses the response, though the handler has run ([verification.md](verification.md#the-live-order)).
+`requires` may hold an extension its signer does not act on, since it is the caller's setting for a destination: a
+hop that acts on nothing can still require an extension of the hop it calls. `requires` has no default: a caller
+sets it for each destination.
+
+`v4.json` pins blocks in `blocks`. `read` reads tokens as a request's blocks: no blocks, one empty block, the example
+above, a name only in `items` and one only in `requires`, an extension named `constructor`, a name of 32 characters,
+items of every JSON type and an item at the depth limit, which read; and each kind of block this section says does not
+read, an object and `null` in place of the array, an item one level past the depth limit, and bytes that are not
+canonical, which do not. `commit` gives the JCS text and the `ext` of the empty block, `""`, of a block that names an
+extension with `[]`, of one that only requires it, of the example's second block, and of one that names two extensions,
+each list in the order written.
 
 ## Bindings
 
@@ -345,20 +477,18 @@ is `b64url(H(bytes))`, over these bytes:
 | Prompt | A run's origin stamp | `utf8("prompt\n" ‖ text)` |
 | `tools/call` ([MCP profile](README.md#the-mcp-profile)) | An MCP call's stamp | `utf8("tools/call\n" ‖ tool ‖ "\n" ‖ callId ‖ "\n" ‖ JCS(arguments))`. Absent or `null` arguments hash as `{}`. |
 | Result ([MCP profile](README.md#the-mcp-profile)) | An MCP result's `resultHash` | `utf8("result\n" ‖ JCS(result))`, with the result's top-level `_meta` key removed first. |
-| Response | The last stamp of a response chain | `utf8(resultHash ‖ "\n" ‖ toolCallId ‖ "\n" ‖ JCS(labels))`. There is no prefix: it starts with the result hash. |
+| Response | The last stamp of a response chain | `utf8(resultHash ‖ "\n" ‖ callId)`. There is no prefix: it starts with the result hash. |
 | Local tool ([MCP profile](README.md#the-mcp-profile)) | A local step's stamp | `utf8("tool\n" ‖ toolName ‖ "\n" ‖ JCS({ "input": input, "resolved": decision }))`. An absent or `null` input, or decision, hashes as `{}`. |
 
 Rules:
 
-- `tool`, `callId`, `toolCallId` and `toolName` MUST NOT contain `\n`, so the parts can't run into each other.
+- `tool`, `callId` and `toolName` MUST NOT contain `\n`, so the parts can't run into each other.
   A verifier that cannot compute the binding for a call MUST reject it (`BINDING_MISMATCH`).
 - A string with a lone surrogate has no UTF-8 form. A part hashed as JCS fails on one ([Encodings](#encodings)).
   Every binding MUST refuse one in every string it hashes, such as the prompt text, `resultHash`, the HTTP method
   and path, the `tools/call` tool and call id, and the local tool's name, and never compute a binding over it. A
   verifier that cannot compute a binding answers as the rule above says. A binding over hashed content binds the
   value read, not its text ([Hashed content](#hashed-content)).
-- `labels` in the response binding is the attestation's label array in its own order, each label written as
-  `{ cid, cls }` or `{ cid, cls, owner }`, the members a label has ([Carrying a chain](#carrying-a-chain)).
 - In an MCP response chain (the MCP profile) the first stamp, by the server's entry service, binds the call it
   took (the `tools/call` binding), and the last binds the response.
 - The local tool `decision` (the MCP profile) is the gate's signed decision on the call:
@@ -368,14 +498,15 @@ Rules:
   with exactly these members, and `callId` the step's own; `verdict` is one of the local verdicts, `need` one of
   `read`, `write` and `exec`, and `via` one of `list`, `folder`, `never`, `missing` and `uncheckable`.
 
-`v3.json` pins the prompt, `tools/call`, result and response bindings in `bindPrompt`, `bindMcpCall`, `bindResult`
-and `bindResponse`, and a local-tool binding through the `local step ok` case. `http-v3.json` pins the HTTP
-binding with and without a query in `requestBinding`, and the HTTP result hash in `resultHash`. `json.json` pins the
-refusals in `bindings`: each binding, given a lone surrogate in one string it hashes.
+`v4.json` pins the prompt, `tools/call`, result and response bindings in `bindPrompt`, `bindMcpCall`, `bindResult`
+and `bindResponse`, and the local-tool binding through `recordedLocalStep`, whose check computes it from each step's
+tool, input and decision. `http-v4.json` pins the HTTP binding with and without a query in `requestBinding`, and the
+HTTP result hash in `resultHash`. `json.json` pins the refusals in `bindings`: a lone surrogate in one string a
+binding hashes, for each binding but the HTTP result, which hashes no string it is given.
 
 ## Carrying a chain
 
-### MCP (v3)
+### MCP
 
 This section belongs to [the MCP profile](README.md#the-mcp-profile).
 
@@ -386,7 +517,7 @@ token, the base64url of the object's JCS bytes, read as [wire bytes](#reading), 
 |---|---|
 | `paztport/chain` | The chain's token: a JSON array of stamps, the run's origin, then the calling hop's stamp. |
 | `paztport/proof` | The token of the proof for the call's route, a [proof object](#proof-object). |
-| `paztport/influence` | The token of the influence entries the call was made under, a JSON array ([sessions-and-influence.md](sessions-and-influence.md#entries)). The last stamp's `infl` commits to them. |
+| `paztport/extensions` | The token of the call's [blocks](#blocks): a JSON array of blocks, one per stamp of the chain, in chain order. Absent means every block is empty. |
 | `paztport/callId` | The call id, a string, which the `tools/call` binding covers. |
 
 A member that is not a string is read as a token that does not read, and gets its reader's refusal
@@ -394,47 +525,50 @@ A member that is not a string is read as a token that does not read, and gets it
 `result._meta["paztport/attestation"]`:
 
 ```json
-{ "chain": [ /* the response chain, v3 */ ], "labels": [{ "cid": "<b64url>", "cls": "private", "owner": "..." }],
+{ "blocks": [ /* one block per stamp of chain */ ], "chain": [ /* the response chain */ ],
   "proof": { /* proof for the server's route */ }, "resultHash": "<b64url>" }
 ```
 
 `resultHash` is the result binding of the result it rides on. The attestation is a wire object with exactly the
-members `chain`, `proof`, `labels` and `resultHash`: its `chain` is read as a [chain](#chains), its `proof` as a
-[proof object](#proof-object), and each label has exactly `cls` and `cid` and, when it names an owner, `owner`, a
-non-empty string. An attestation or a label with another member, or an attestation whose bytes are not its
-canonical bytes, does not read (`CHAIN_MISSING`). A refusal carries the token of its verdict in
+members `blocks`, `chain`, `proof` and `resultHash`: its `chain` is read as a [chain](#chains), its `blocks` as an
+array of [blocks](#blocks), and its `proof` as a [proof object](#proof-object). An attestation with another
+member, one whose `blocks` does not read as an array of blocks, or one whose bytes are not its canonical bytes,
+does not read (`CHAIN_MISSING`). `blocks` holds one block per stamp of `chain`, in chain order: a `blocks` with
+another count than the chain's stamps, or a block that does not match its stamp's `ext`, reads, and is refused
+by [check 9a](verification.md#the-live-order) (`EXTENSION_MISMATCH`). A refusal carries the token of its verdict in
 `result._meta["paztport/verdict"]` instead: `{ "reason": "<code>" }`, or `{ "reason": "<code>", "audit": true }`
 when an audit-mode server ran the call anyway. A verdict is a wire object with exactly a string `reason` and,
 optionally, an `audit` that is `true`; one with another member, or an `audit` of any other value, does not read. A
 verdict is not signed ([verification.md](verification.md#the-mcp-server-and-client)). The handshake is the
 JSON-RPC method `paztport/session`, whose params and result each carry one token
-([sessions-and-influence.md](sessions-and-influence.md#the-handshake)).
+([sessions.md](sessions.md#the-handshake)).
 
-### HTTP (v3)
+### HTTP
 
 A request carries Paztport in three headers, each a token, the base64url of the object's JCS bytes, read as
 [wire bytes](#reading), and names its session in a fourth, which is plain text:
 
 | Header | Value |
 |---|---|
-| `X-Path-Chain` | The chain, as a JSON array of v3 stamps, origin first. The last stamp's `rcv` is the receiving service, or the operation it is sent to as `<service>#<operation>`, and its `bind` the [HTTP binding](#bindings) of the request sent. |
+| `X-Path-Chain` | The chain, as a JSON array of stamps, origin first. The last stamp's `rcv` is the receiving service, or the operation it is sent to as `<service>#<operation>`, and its `bind` the [HTTP binding](#bindings) of the request sent. |
 | `X-Path-Proof` | The [proof object](#proof-object) for the full route, receiving service included. |
-| `X-Path-Influence` | The influence entries the request was made under, as a JSON array ([sessions-and-influence.md](sessions-and-influence.md#entries)). An absent header means `[]`. The last stamp's `infl` commits to them. |
-| `X-Path-Session` | The [session id](sessions-and-influence.md#the-session-id), as plain text, on a call made in a session opened by [the handshake over HTTP](sessions-and-influence.md#over-http). Inside a mesh, which has no handshake, it is absent. An absent header means no session; one that names no live session opened by the peer is refused `SESSION_UNKNOWN`. |
+| `X-Path-Extensions` | The token of the request's [blocks](#blocks): a JSON array of blocks, one per stamp of the chain, in chain order. An absent header means every block is empty. |
+| `X-Path-Session` | The [session id](sessions.md#the-session-id), as plain text, on a call made in a session opened by [the handshake over HTTP](sessions.md#over-http). Inside a mesh, which has no handshake, it is absent. An absent header means no session; one that names no live session opened by the peer is refused `SESSION_UNKNOWN`. |
 
 **Paztport's headers.** Every header whose name begins with `X-Path-` is Paztport's: the four above,
 `X-Path-Response`, and any added later. Names are compared case-insensitively over ASCII, as HTTP compares field
-names (RFC 9110 §5.1). A caller MUST send only the Paztport headers it stamped: before it sets them, it removes
-every Paztport header the call already carries, with all its values. An origin that forwards a request it
-received, such as a gateway's external processor, sends that request as its call, so it removes every Paztport
-header the client sent; and since its client is outside the request tree, it also removes every Paztport header
-from the response it passes back.
+names (RFC 9110 §5.1). A Paztport header's value is read without its leading and trailing spaces and tabs, as HTTP
+reads every field value (RFC 9110 §5.5; its optional whitespace is §5.6.3); a value left empty is read as absent. A
+caller MUST send only the Paztport headers it stamped: before it sets them, it removes every Paztport header the call
+already carries, with all its values. An origin that forwards a request it received, such as a gateway's external
+processor, sends that request as its call, so it removes every Paztport header the client sent; and since its client
+is outside the request tree, it also removes every Paztport header from the response it passes back.
 
 Why: setting only the headers it stamped would leave the rest as the client sent them, beside a chain the origin
-signed: the client's own `X-Path-Proof` on a route this origin holds no proof for, its `X-Path-Influence` on a
-call made under none, and its `X-Path-Session` on every call. A response's `X-Path-Response` names the services
-that answered and the classes of what they read, which the client has no need to know. The rule names a prefix,
-not a list, so a header added later is covered. `http-v3.json` pins it in `headerNames`.
+signed: the client's own `X-Path-Proof` on a route this origin holds no proof for, its `X-Path-Extensions`
+holding claims no stamp of the chain made, and its `X-Path-Session` on every call. A response's `X-Path-Response`
+names the services that answered and carries what they attached, which the client has no need to know. The rule
+names a prefix, not a list, so a header added later is covered. `http-v4.json` pins it in `headerNames`.
 
 A refusal carries no Paztport header. Its body is `{"reason":"<code>"}` and nothing else, so it never names the
 suspect to the caller ([verification.md](verification.md#modes-and-refusals)).
@@ -443,28 +577,29 @@ A response carries the answering service's attestation in one header, also a tok
 
 | Header | Value |
 |---|---|
-| `X-Path-Response` | The JSON object `{ "labels": [ ... ], "stamp": <v3 stamp> }`, with exactly those two members, the labels written as in an MCP attestation, each with exactly its members. A header that does not read as that is `CHAIN_MISSING`. |
+| `X-Path-Response` | The JSON object `{ "block": <block>, "stamp": <stamp> }`, with exactly those two members: the response stamp and its own [block](#blocks). A header that does not read as that, a `block` that does not read as a block included, is `CHAIN_MISSING`. |
 
 The response stamp is one more stamp on the request chain the answering service received, so it needs no proof
-of its own: the caller already holds the proof for the request's route. Because it is shaped like a request stamp,
+of its own: the caller already holds the proof for the request's route. For the same reason it carries only its
+own block: the caller already holds the blocks of the chain it sent. Because it is shaped like a request stamp,
 a service attests only a chain that verified there, and an origin never attests
 ([verification.md](verification.md#http-requests-and-responses) has the rule).
 
 | Field | Value |
 |---|---|
-| `v` | `3`. |
+| `v` | `4`. |
 | `svc` | The answering service. |
 | `inst` | The answering service's instance, as it reports it. |
 | `rcv` | The caller: the request's last `svc`. |
 | `rid`, `sess` | The request's. |
 | `ts` | When the answering service signed it. |
-| `bind` | The response binding of `resultHash` (the [HTTP result](#bindings) binding of the status and body sent), with the request's `rid` as the call id, over `labels`. |
-| `infl` | `""`: a response's labels are in its binding instead. |
+| `bind` | The [response binding](#bindings) of `resultHash` (the [HTTP result](#bindings) binding of the status and body sent), with the request's `rid` as the call id. |
+| `ext` | The commitment to the response's block, as for any stamp ([Blocks](#blocks)). |
 | `prev` | The request's last `sig`. |
-| `sig` | The answering service's signature over the v3 signed bytes, as for any stamp. |
+| `sig` | The answering service's signature over the stamp's [signed bytes](#fields-and-signed-bytes), as for any stamp. |
 
-[verification.md](verification.md#http-requests-and-responses) says how each side checks these. The Java and
-Go SDKs speak v3 over HTTP, and `http-v3.json` pins it.
+[verification.md](verification.md#http-requests-and-responses) says how each side checks these. The Java and Go SDKs
+speak version 4 over HTTP, and `http-v4.json` pins it ([conformance](README.md#conformance)).
 
 ## The Merkle tree
 
@@ -513,7 +648,7 @@ shorter or longer path from reaching it.
 build. It is a label, compared for equality and never derived from the routes: a label derived from the routes
 would let anyone who guessed a policy confirm the guess. It labels the tree, not the signature, so a
 [renewed root](#the-signed-root) keeps it. The `rootId`s pinned in
-`v3.json` come from the vectors' own fixed construction (described in its `about`), for example `v128498df6662`
+`v4.json` come from the vectors' own fixed construction (described in its `about`), for example `v128498df6662`
 for the client policy in `policies.client`; a real build does not produce them.
 
 ## Routes
@@ -629,8 +764,9 @@ the raw query holds no `;`: a server decodes parameter names, and some split a q
 the handler another parameter of the key's name than the one read here. The call has a key value only when that text
 is one or more of the characters `A` to `Z`, `a` to `z`, `0` to `9`, `-`, `.`, `_` and `~`, is neither `.` nor `..`,
 and is at most `maxLength` characters long. Those characters read the same percent-decoded or not, so the value is
-the one the handler reads, and none of them is the `|` that separates a nonce key's parts. Values are compared
-exactly.
+the one the handler reads. A nonce key holds the value as one string of its array
+([verification.md](verification.md#freshness-and-replay)), so no character of it needs a rule for the key's sake.
+Values are compared exactly.
 
 A service declares a key only for an operation whose handler takes two different values to be two different items:
 one that reads `ABC` and `abc`, or `7` and `007`, as one item would act on it twice under two keys. It declares none
@@ -690,7 +826,7 @@ proof bundles stay valid and holders can pick up the renewed root one at a time.
 `rootId`, and two validly signed roots for one tree differ only in `notAfter`. Narrowing a policy is not
 renewing: it needs a new tree, a new `rootId` and new proof bundles.
 
-`v3.json` pins the signed bytes and signatures in `root`, all for the client policy under the `client-policy`
+`v4.json` pins the signed bytes and signatures in `root`, all for the client policy under the `client-policy`
 pin: a signed root, at its `notAfter` and 1 ms after, the largest `notAfter` and a renewed root, which verify; a
 tampered `notAfter`, a `notAfter` added to a signature made over `utf8(rootId ‖ "|" ‖ root)`, a root signed by
 another policy key and a keyring signature offered as a root signature, which fail; and a root with no `notAfter`,
@@ -724,7 +860,7 @@ signature, a session's keyring would be the client's own claim, and anyone who c
 their own keys. The policy owner MUST sign a keyring only after checking that each listed key is that service's
 current key; `notAfter` is when it stops vouching for them. A retired key needs a new keyring, not a renewed one.
 
-`v3.json` pins the signed bytes and signatures in `keyring`: a signed keyring, at its `notAfter` and 1 ms after,
+`v4.json` pins the signed bytes and signatures in `keyring`: a signed keyring, at its `notAfter` and 1 ms after,
 and the largest `notAfter`, which verify; a tampered service key, a tampered `notAfter`, a `notAfter` added to a
 signature made over `utf8("paztport-keyring\n" ‖ JCS({ "policy": policy, "services": services }))` and a root
 signature offered as a keyring signature, which fail; and a keyring with no `notAfter`, one whose `notAfter` is not
@@ -739,7 +875,7 @@ rebuild and renew.
 
 `reply-cert.json` is the policy key's statement that `key` is service `svc`'s key until `notAfter`. It lets that
 key sign what the policy key would otherwise have to sign online, a
-[session reply](sessions-and-influence.md#the-reply), while the policy key stays offline:
+[session reply](sessions.md#the-reply), while the policy key stays offline:
 
 ```json
 { "key": "<that service's public key>", "notAfter": <integer>, "policy": "<policy public key>", "sig": "<b64url>", "svc": "<service>" }
@@ -780,7 +916,7 @@ The Java policy tool issues a certificate when `PAZTPORT_REPLY_CERT_SVC` names t
 `--reply-cert-svc <name> [--reply-cert-days 7]`, beside the `--keyring <keyring.json>` it always takes. Both
 print only the file, the service and `notAfter`.
 
-`v3.json` pins the signed bytes and signatures in `replyCert`: a certificate for `mcp-entry` under the
+`v4.json` pins the signed bytes and signatures in `replyCert`: a certificate for `mcp-entry` under the
 `server-policy` pin, and, against the same pin, one with a tampered `notAfter`, one signed by `client-policy`,
 and one that names `client-policy`, all of which fail, one with an extra field, whose file a reader refuses, and
 one with the largest `notAfter`.
@@ -852,12 +988,15 @@ event is attributable when all of these hold:
   point at anyone.
 - `reason` is one of the codes that report what the sender did: `CHAIN_MISSING`, `BAD_ORIGIN`, `BAD_SIGNATURE`,
   `BROKEN_LINK`, `EXPIRED`, `RID_MISMATCH`, `BINDING_MISMATCH`, `REPLAY`, `PATH_NOT_ALLOWED`, `SESSION_UNKNOWN`,
-  `CLIENT_PATH_NOT_ALLOWED`, `INFLUENCE_MISMATCH` and `PEER_MISMATCH`.
+  `CLIENT_PATH_NOT_ALLOWED`, `EXTENSION_MISMATCH` and `PEER_MISMATCH`.
 
 No other reason is attributable. `POLICY_EXPIRED` is the verifier's own policy running out, which every honest
 caller meets. `INFLUENCE_DENIED` and `UNSAFE_SESSION` refuse a sound chain because of what shaped it: an honest
-component misled by poisoned input gets them. The client-local and offline-only codes are never a live verdict
-on a request, and `OK` refuses nothing.
+component misled by poisoned input gets them. `EXTENSION_NOT_ALLOWED` and `EXTENSION_REQUIRED` report
+configuration: two honest services can hold different settings. An extension's own refusal, such as
+`INFLUENCE_MISMATCH`, names no one, because its sender may be a hop that passed a block along and could not have
+read the item. The client-local and offline-only codes are never a live verdict on a request, and `OK` refuses
+nothing.
 
 ### Carrying an event
 
@@ -890,7 +1029,7 @@ callers can check the table it names operations from.
 | Party | Holds | Never holds |
 |---|---|---|
 | Policy owner | The policy private key, offline. It signs the root, the keyring and reply certificates. | |
-| Each service | Its own private key, and its own proof bundle. An entry service that answers session handshakes in the [entry-key form](sessions-and-influence.md#the-reply) also holds a current reply certificate for its key, and signs the replies with that key. | Other services' keys, other routes' salts. |
+| Each service | Its own private key, and its own proof bundle. An entry service that answers session handshakes in the [entry-key form](sessions.md#the-reply) also holds a current reply certificate for its key, and signs the replies with that key. | Other services' keys, other routes' salts. |
 | Each verifier | The pinned policy public key, and the signed roots and keyrings it pins: one of each, or more while a rollover is under way. | The tree, the route list or any salt but those in the proofs it is shown. |
 | The other side of a session | The peer side's policy key, pinned in advance, and the root and keyring it sends in the handshake. A client also knows the server's entry service by name, from its own configuration, to check an entry-key reply. | Its map. |
 

@@ -23,6 +23,7 @@ import java.time.Duration;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.stream.Stream;
@@ -33,8 +34,11 @@ import org.paztport.core.crypto.Crypto;
 import org.paztport.core.encoding.Base64Url;
 import org.paztport.core.influence.BoundaryInfluence;
 import org.paztport.core.influence.Influence;
+import org.paztport.core.influence.InfluenceClass;
+import org.paztport.core.influence.InfluenceEntry;
 import org.paztport.core.policy.KeyringFile;
 import org.paztport.core.policy.PolicyBuilder;
+import org.paztport.core.stamp.Block;
 import org.paztport.core.stamp.Stamper;
 import org.paztport.http.ModeHolder;
 import org.paztport.http.StubPartner;
@@ -95,6 +99,12 @@ class BoundaryGuardTest {
     private static StubPartner partner;
     /** Every list the egress reported sending, through the listener bean. */
     private static final List<List<String>> SENT = new CopyOnWriteArrayList<>();
+    /**
+     * The gateway's own block: it acts on influence, so its stamp names it, here with one entry its handler added.
+     * Payment acts on influence too, so the boundary block may name it (spec influence.md, Blinded influence).
+     */
+    private static final Block GATEWAY_BLOCK = Influence.block(List.of(
+            new InfluenceEntry(InfluenceClass.THIRD_PARTY, "web:search", "h-search", null, null)), List.of());
 
     @DynamicPropertySource
     static void trustFiles(DynamicPropertyRegistry registry) throws IOException {
@@ -106,6 +116,7 @@ class BoundaryGuardTest {
         registry.add("paztport.instance", () -> "payment-1");
         registry.add("paztport.verify", () -> "true");
         registry.add("paztport.mode", () -> "audit");
+        registry.add("paztport.extensions.acts-on", () -> "influence");
         for (String p : allProperties(trust, partner)) {
             String[] kv = p.split("=", 2);
             registry.add(kv[0], () -> kv[1]);
@@ -193,15 +204,16 @@ class BoundaryGuardTest {
         mode.set(VerificationMode.AUDIT);
     }
 
-    /** POSTs {@code /pay} as the gateway would, with a one-stamp chain signed by {@code key}. */
+    /** POSTs {@code /pay} as the gateway would, with a one-stamp chain signed by {@code key}, and its block. */
     private HttpResponse<byte[]> pay(KeyPair key) throws Exception {
         String rid = UUID.randomUUID().toString();
         Stamper.Stamped stamped = new Stamper("gateway", "gw-1", key.getPrivate(), true, () -> rid,
                 System::currentTimeMillis).next(null, "payment", RequestBinding.compute("POST", "/pay", BODY),
-                        List.of(), BUILT.bundles().get("gateway"));
+                        GATEWAY_BLOCK, BUILT.bundles().get("gateway"));
         HttpRequest.Builder request = TestHttp.request(URI.create("http://localhost:" + port + "/pay"))
                 .header("Content-Type", "application/json")
                 .header(PaztportHeaders.CHAIN, HttpWire.encodeChain(stamped.chain()))
+                .header(PaztportHeaders.EXTENSIONS, HttpWire.encodeBlocks(List.of(GATEWAY_BLOCK)))
                 .POST(HttpRequest.BodyPublishers.ofByteArray(BODY));
         if (stamped.proof() != null) {
             request.header(PaztportHeaders.PROOF, HttpWire.encodeProof(stamped.proof()));
@@ -233,6 +245,9 @@ class BoundaryGuardTest {
         assertEquals(before, partner.received().size(), "nothing reaches the partner, not even a handshake");
     }
 
+    // The gateway's stamp names influence and payment acts on it, so every stamp of the chain verified here names it:
+    // the boundary block names influence too, holding the gateway's entry blinded, and the listener is told what
+    // went (spec influence.md, Blinded influence).
     @Test
     void enforceValidChainCrosses() throws Exception {
         mode.set(VerificationMode.ENFORCE);
@@ -250,10 +265,16 @@ class BoundaryGuardTest {
         assertEquals("psp", chain.get(0).get("rcv").textValue());
         assertEquals(call.header(PaztportHeaders.SESSION), chain.get(0).get("sess").textValue());
         assertThat(call.header(PaztportHeaders.PROOF)).isNotNull();
+        List<Block> blocks = Block.parseAll(HttpWire.decodeBlocks(call.header(PaztportHeaders.EXTENSIONS)));
+        assertEquals(1, blocks.size(), "the boundary chain's one block");
+        assertEquals(Set.of(Influence.NAME), blocks.get(0).names());
+        assertEquals(blocks.get(0).commit(), chain.get(0).get("ext").textValue());
+        List<String> sources = blocks.get(0).itemsUnder(Influence.NAME).stream()
+                .map(item -> InfluenceEntry.parse(item).src()).toList();
+        assertEquals(List.of("boundary:payment"), sources, "the gateway's entry, blinded");
         // The auto-configured client reports to the listener bean what it sent.
         assertThat(SENT).isNotEmpty();
-        assertEquals(Influence.parse(HttpWire.decodeInfluence(call.header(PaztportHeaders.INFLUENCE))).stream()
-                .map(e -> e.src()).toList(), SENT.get(SENT.size() - 1));
+        assertEquals(sources, SENT.get(SENT.size() - 1));
     }
 
     // --- Startup ---

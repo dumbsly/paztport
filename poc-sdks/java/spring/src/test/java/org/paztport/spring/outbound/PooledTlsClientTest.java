@@ -48,6 +48,7 @@ import org.paztport.core.influence.InfluenceEntry;
 import org.paztport.core.stamp.Chains;
 import org.paztport.core.stamp.Stamp;
 import org.paztport.core.stamp.Stamper;
+import org.paztport.core.verify.ExtensionSettings;
 import org.paztport.http.HttpCaller;
 import org.paztport.http.RequestContext;
 import org.paztport.http.SilentPeer;
@@ -228,7 +229,8 @@ class PooledTlsClientTest {
         Stamper gateway = new Stamper("gateway", "gw-1", Crypto.generateEd25519KeyPair().getPrivate(), true,
                 () -> "rid-1", System::currentTimeMillis);
         RestClient client = pooled(SslBundle.of(stores("gateway"))).builder()
-                .requestInterceptor(new OutboundInterceptor(gateway, null, null, "gateway", ObservationRegistry.NOOP))
+                .requestInterceptor(new OutboundInterceptor(gateway, null, null, "gateway", ExtensionSettings.NONE,
+                        ObservationRegistry.NOOP))
                 .build();
         List<String> paths = List.of("/refuse", "/ok", "/fail", "/none", "/empty", "/ok");
 
@@ -236,7 +238,7 @@ class PooledTlsClientTest {
             for (String path : paths) {
                 assertThat(call(client, url + path)).as(path).isEqualTo(ANSWERS.get(path));
             }
-            assertThat(RequestContext.influence()).hasSize(paths.size())
+            assertThat(RequestContext.added()).hasSize(paths.size())
                     .extracting(InfluenceEntry::cls).containsOnly(InfluenceClass.LOCAL_UNTRUSTED);
         }
         assertThat(ports).hasSize(paths.size());

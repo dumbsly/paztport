@@ -114,9 +114,9 @@ async function leakSequence(s: Session, attested: boolean) {
     if (reply && result._meta?.[META_ATTESTATION] !== undefined) {
       const meta = (params as { _meta: Record<string, string> })._meta;
       const rid = readChain(meta[META_CHAIN]!)[0]!.rid;
-      const v = client.verify(result, { rid, toolCallId: meta[META_CALL_ID] as string }, reply.serverKeyring, reply.serverRoot!);
+      const v = client.verify(result, { rid, callId: meta[META_CALL_ID] as string }, reply.serverKeyring, reply.serverRoot!);
       expect(v.reason).toBe("OK");
-      for (const l of v.labels) influence.push({ cls: l.cls, src: `github.${name}`, h: l.cid, cid: l.cid });
+      influence.push(...v.entries);
     }
     return result;
   };

@@ -1,21 +1,25 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-// One test per sentence of sessions-and-influence.md §Recorded handshakes, and of verification.md §Offline
+// One test per sentence of sessions.md §Recorded handshakes, and of verification.md §Offline
 // verification's recorded call, response and handshake.
 
 import { describe, expect, it } from "vitest";
-import { generateKeyPair, randomBytes, utf8 } from "../../src/crypto/crypto.ts";
+import { generateKeyPair, randomBytes, sign, utf8 } from "../../src/crypto/crypto.ts";
 import { signKeyring } from "../../src/policy/keyring.ts";
 import { buildTree } from "../../src/policy/merkle.ts";
-import { signRoot } from "../../src/policy/root.ts";
-import { bindResponse, newContentId, verifyResponse } from "../../src/session/attestation.ts";
+import { rootSigningBytes, signRoot, type SignedRoot } from "../../src/policy/root.ts";
+import { bindResponse, verifyResponse } from "../../src/session/attestation.ts";
 import { signReplyCert } from "../../src/session/reply-cert.ts";
 import { deriveSessionId, newNonce, signSessionReply, type SessionReply, type SessionRequest } from "../../src/session/session.ts";
 import { bindPrompt, bindResult } from "../../src/stamp/binding.ts";
+import { commitBlock, EMPTY_BLOCK } from "../../src/stamp/block.ts";
 import { signStamp, type Stamp } from "../../src/stamp/stamp.ts";
+import { nonceKey } from "../../src/verify/nonce.ts";
+import { NO_EXTENSIONS, recordExtensionSettings } from "../../src/verify/extensions.ts";
 import { canonicalize, writeToken } from "../../src/encoding/jcs.ts";
 import { encode } from "../../src/encoding/b64url.ts";
+import type { JsonValue } from "../../src/encoding/json.ts";
 import { verifyChainOffline } from "../../src/offline/verify-offline.ts";
 import { callInSession, newRecordSet, recordedSession, type RecordedHandshake } from "../../src/offline/records.ts";
 
@@ -31,7 +35,13 @@ type Windows = { cert: number; clientRoot: number; clientKeyring: number; server
  * A recorded handshake: an attested reply in the entry-key form (signed by the entry's certified key, carrying the
  * server keyring's signature and the certificate) or the policy-key form, every window FAR unless given.
  */
-function handshake(o: { form?: "entry-key" | "policy-key"; windows?: Partial<Windows>; status?: "attested" | "unsafe" } = {}) {
+function handshake(o: {
+  form?: "entry-key" | "policy-key"; windows?: Partial<Windows>; status?: "attested" | "unsafe";
+  /** Services the client keyring signs beside session and pi. */
+  services?: Record<string, string>;
+  /** The client root's text in place of the tree's, signed as it stands. */
+  clientRootText?: string;
+} = {}) {
   const w: Windows = { cert: FAR, clientRoot: FAR, clientKeyring: FAR, serverRoot: FAR, serverKeyring: FAR, ...o.windows };
   const form = o.form ?? "entry-key";
   const clientPolicy = generateKeyPair();
@@ -41,8 +51,13 @@ function handshake(o: { form?: "entry-key" | "policy-key"; windows?: Partial<Win
   const pi = generateKeyPair();
   const clientTree = buildTree([{ salt: randomBytes(16), path: "session/pi/orders" }], 4, "c1");
   const serverTree = buildTree([{ salt: randomBytes(16), path: "mcp-entry/tools" }], 4, "s1");
-  const clientRoot = signRoot(clientTree.root, "c1", clientPolicy.privateKey, w.clientRoot);
-  const clientServices = { session: session.publicKey, pi: pi.publicKey };
+  const clientRoot: SignedRoot = o.clientRootText === undefined
+    ? signRoot(clientTree.root, "c1", clientPolicy.privateKey, w.clientRoot)
+    : {
+        rootId: "c1", root: o.clientRootText, notAfter: w.clientRoot,
+        sig: encode(sign(clientPolicy.privateKey, rootSigningBytes("c1", o.clientRootText, w.clientRoot))),
+      };
+  const clientServices = { session: session.publicKey, pi: pi.publicKey, ...o.services };
   const clientRing = signKeyring(clientServices, clientPolicy.publicKey, clientPolicy.privateKey, w.clientKeyring);
   const request: SessionRequest = {
     clientRoot,
@@ -74,6 +89,7 @@ function handshake(o: { form?: "entry-key" | "policy-key"; windows?: Partial<Win
       sess: deriveSessionId(clientRoot.sig, serverRoot.sig, request.nonce, serverNonce, request),
       status: o.status ?? "attested",
       disabled: [],
+      extensions: [],
     },
     form === "entry-key" ? entry.privateKey : serverPolicy.privateKey,
   );
@@ -95,6 +111,13 @@ function resigned(h: ReturnType<typeof handshake>, over: Partial<SessionReply>):
 }
 
 describe("recordedSession: what a recorded handshake opened", () => {
+  it("aRecordedReplyWithoutExtensionsOpenedNoAttestedSession", () => {
+    const h = handshake();
+    expect(recordedSession(h.recorded).attested).toBe(true);
+    const { extensions: _e, sig: _s, ...noExtensions } = h.reply;
+    const reply = token(signSessionReply(noExtensions as Omit<SessionReply, "sig">, h.entry.privateKey));
+    expect(recordedSession({ ...h.recorded, reply }).attested).toBe(false);
+  });
   // "Offline, a recorded handshake opened an attested session only when the reply's status is "attested", the reply
   // passes the client's check against the recorded pin and the server's entry service from the verifier's own
   // configuration, both roots verify against their sides' policy keys, and the keyring signature verifies."
@@ -183,6 +206,9 @@ describe("recordedSession: what a recorded handshake opened", () => {
     const { disabled: _disabled, ...shapeless } = h.reply;
     const { sig: _sig, ...body } = shapeless;
     expect(limit({ ...h.recorded, reply: token(signSessionReply(body as Omit<SessionReply, "sig">, h.entry.privateKey)) })).toBeUndefined();
+    // a reply without extensions is no reply either, though the server signed it
+    const { extensions: _extensions, sig: _sig2, ...noExtensions } = h.reply;
+    expect(limit({ ...h.recorded, reply: token(signSessionReply(noExtensions as Omit<SessionReply, "sig">, h.entry.privateKey)) })).toBeUndefined();
     // judged at no time: an expired certificate and the expired windows themselves still give the limit
     expect(limit(handshake({ windows: { cert: 0, serverRoot: 1, serverKeyring: 2 } }).recorded)).toBe(1);
   });
@@ -247,25 +273,28 @@ describe("recordedSession: what a recorded handshake opened", () => {
   });
 });
 
-/** A two-stamp call chain in `sess`, its last stamp at `ts`, signed by the handshake's client keys. */
-function call(h: ReturnType<typeof handshake>, ts: number, sess = h.reply.sess) {
-  const origin = signStamp({ svc: "session", inst: "pi-1", rid: "rid-1", ts: ts - 1, sess, rcv: "pi", bind: bindPrompt("p"), infl: "", prev: "" }, h.session.privateKey);
-  const hop = signStamp({ svc: "pi", inst: "pi-1", rid: "rid-1", ts, sess, rcv: "orders", bind: "call-bind", infl: "", prev: origin.sig }, h.pi.privateKey);
+/**
+ * A two-stamp call chain in `sess`, its last stamp at `ts`, signed by the handshake's client keys: the origin by
+ * session, the hop by `by`, signed with pi's key whoever it names.
+ */
+function call(h: ReturnType<typeof handshake>, ts: number, sess = h.reply.sess, by = "pi") {
+  const origin = signStamp({ svc: "session", inst: "pi-1", rid: "rid-1", ts: ts - 1, sess, rcv: by, bind: bindPrompt("p"), ext: "", prev: "" }, h.session.privateKey);
+  const hop = signStamp({ svc: by, inst: "pi-1", rid: "rid-1", ts, sess, rcv: "orders", bind: "call-bind", ext: "", prev: origin.sig }, h.pi.privateKey);
   return [origin, hop];
 }
 
-/** The offline check of a call recorded in `h`'s session: the client's keyring and root from the request, and the session id. */
+/** The offline check of a call recorded in `h`'s session, with the config the session gives its calls. */
 function checkCall(h: ReturnType<typeof handshake>, chain: Stamp[], ts: number, spent: Set<string>) {
+  const given = { allowedOrigins: ["session"], seen: spent, extensions: NO_EXTENSIONS };
+  const cfg = recordedSession(h.recorded).callConfig(given);
+  if (cfg === undefined) throw new Error("the session is not attested");
   return verifyChainOffline(
     {
-      chain: writeToken(chain), expectedBind: "call-bind", influence: writeToken([]),
+      chain: writeToken(chain), expectedBind: "call-bind", blocks: null,
       proof: writeToken(h.clientTree.proofFor("session/pi/orders")), receiver: "orders", receiverInRoute: true,
       rid: "rid-1", recordedTs: { last: ts }, prompt: "p",
     },
-    {
-      keyrings: [{ keys: h.request.clientKeyring, notAfter: Infinity }], roots: [{ root: h.clientTree.root, rootId: "c1", notAfter: Infinity }],
-      allowedOrigins: ["session"], sess: h.reply.sess, seen: spent, nonceKey: "rid-1|call-1|req",
-    },
+    { ...cfg, nonceKey: nonceKey(["rid-1", "call-1", "req"]) },
   );
 }
 
@@ -295,13 +324,58 @@ describe("callInSession: a recorded call counts in its session only up to the se
   });
 });
 
+describe("callConfig: the config a recorded session gives its calls", () => {
+  const given = {
+    allowedOrigins: ["session"], seen: new Set<string>(), extensions: NO_EXTENSIONS, runMaxAgeMs: 5, callMaxAgeMs: 6,
+  };
+
+  // "the client keyring and root of that handshake's request and the session id of its reply", with no window of
+  // their own: the session's limits judge them
+  it("holdsTheRequestsMaterialAndTheRepliesSessionId", () => {
+    const h = handshake();
+    const cfg = recordedSession(h.recorded).callConfig(given)!;
+    expect(cfg.keyrings).toEqual([{ keys: h.request.clientKeyring, notAfter: Infinity }]);
+    expect(cfg.roots).toEqual([{ root: h.clientTree.root, rootId: "c1", notAfter: Infinity }]);
+    expect(cfg.sess).toBe(h.reply.sess);
+    expect(cfg).toMatchObject({
+      allowedOrigins: ["session"], extensions: NO_EXTENSIONS, runMaxAgeMs: 5, callMaxAgeMs: 6,
+    });
+    // the record set's spent keys are held, so a call's own key is added to them
+    expect(cfg.seen).toBe(given.seen);
+  });
+
+  it("callConfigLeavesOutAKeyThatDoesNotParse", () => {
+    const h = handshake({ services: { orders: "not-a-key" } });
+    const s = recordedSession(h.recorded);
+    // the policy key signed the keyring's text, so the session is attested
+    expect(s.attested).toBe(true);
+    expect(Object.keys(s.callConfig(given)!.keyrings[0]!.keys).sort()).toEqual(["pi", "session"]);
+    // a call by pi verifies, and one under orders's key is BAD_SIGNATURE
+    expect(checkCall(h, call(h, NOW), NOW, new Set()).reason).toBe("OK");
+    expect(checkCall(h, call(h, NOW, h.reply.sess, "orders"), NOW, new Set()).reason).toBe("BAD_SIGNATURE");
+  });
+
+  it("aRootThatDoesNotDecodeProvesNoRoute", () => {
+    const h = handshake({ clientRootText: "not base64url!" });
+    expect(recordedSession(h.recorded).attested).toBe(true);
+    expect(recordedSession(h.recorded).callConfig(given)!.roots[0]!.root).toEqual(new Uint8Array(0));
+    expect(checkCall(h, call(h, NOW), NOW, new Set()).reason).toBe("PATH_NOT_ALLOWED");
+  });
+
+  it("isUndefinedForASessionNotAttested", () => {
+    expect(recordedSession(handshake({ status: "unsafe" }).recorded).callConfig(given)).toBeUndefined();
+    const h = handshake();
+    expect(recordedSession({ ...h.recorded, pin: generateKeyPair().publicKey }).callConfig(given)).toBeUndefined();
+  });
+});
+
 describe("newRecordSet: replay across a record set", () => {
   // "The nonce key has not been spent anywhere in the record set (REPLAY)."
   it("callsAndLocalStepsShareOneSetOfSpentKeys", () => {
     const h = handshake();
     const records = newRecordSet();
     expect(checkCall(h, call(h, NOW), NOW, records.spent).reason).toBe("OK");
-    expect(records.spent.has("rid-1|call-1|req")).toBe(true);
+    expect(records.spent.has(nonceKey(["rid-1", "call-1", "req"]))).toBe(true);
     // a copy recorded much later is still a replay: the set never forgets
     expect(checkCall(h, call(h, FAR), FAR, records.spent).reason).toBe("REPLAY");
   });
@@ -313,12 +387,12 @@ describe("newRecordSet: replay across a record set", () => {
     expect(callInSession(first, checkCall(h, call(h, NOW), NOW, records.spent).reason, NOW)).toBe("OK");
     const respond = response(h);
     const cfg = responseConfig(h, records, first.responseNotAfter);
-    expect(verifyResponse(respond.att, respond.body, RESPONSE_CALL, cfg).result.reason).toBe("OK");
+    expect(verifyResponse(respond.att, respond.body, RESPONSE_CALL, cfg).reason).toBe("OK");
     // the same handshake recorded again
     const again = recordedSession(h.recorded);
     expect(again.attested).toBe(true);
     expect(callInSession(again, checkCall(h, call(h, NOW), NOW, records.spent).reason, NOW)).toBe("REPLAY");
-    expect(verifyResponse(respond.att, respond.body, RESPONSE_CALL, responseConfig(h, records, again.responseNotAfter)).result.reason).toBe("REPLAY");
+    expect(verifyResponse(respond.att, respond.body, RESPONSE_CALL, responseConfig(h, records, again.responseNotAfter)).reason).toBe("REPLAY");
   });
 
   // "A recorded response: … one nonce cache that never forgets across the record set."
@@ -327,10 +401,10 @@ describe("newRecordSet: replay across a record set", () => {
     const records = newRecordSet();
     const respond = response(h);
     const cfg = responseConfig(h, records, recordedSession(h.recorded).responseNotAfter);
-    expect(verifyResponse(respond.att, respond.body, RESPONSE_CALL, cfg).result.reason).toBe("OK");
-    expect(verifyResponse(respond.att, respond.body, RESPONSE_CALL, cfg).result.reason).toBe("REPLAY");
+    expect(verifyResponse(respond.att, respond.body, RESPONSE_CALL, cfg).reason).toBe("OK");
+    expect(verifyResponse(respond.att, respond.body, RESPONSE_CALL, cfg).reason).toBe("REPLAY");
     // a live cache forgets a key after its TTL; this one still holds it at the end of time
-    expect(records.responseNonces.seenBefore("rid-1|call-1|resp", Number.MAX_SAFE_INTEGER)).toBe(true);
+    expect(records.responseNonces.seenBefore(nonceKey(["rid-1", "call-1", "resp"]), Number.MAX_SAFE_INTEGER)).toBe(true);
   });
 
   // "Check 0 runs at that time, with the policyNotAfter the client used … So a response recorded after the server's
@@ -340,8 +414,8 @@ describe("newRecordSet: replay across a record set", () => {
     const s = recordedSession(h.recorded);
     const respond = response(h);
     const cfg = responseConfig(h, newRecordSet(), s.responseNotAfter);
-    expect(verifyResponse(respond.att, respond.body, RESPONSE_CALL, { ...cfg, now: NOW + 11 }).result.reason).toBe("POLICY_EXPIRED");
-    expect(verifyResponse(respond.att, respond.body, RESPONSE_CALL, cfg).result.reason).toBe("OK");
+    expect(verifyResponse(respond.att, respond.body, RESPONSE_CALL, { ...cfg, now: NOW + 11 }).reason).toBe("POLICY_EXPIRED");
+    expect(verifyResponse(respond.att, respond.body, RESPONSE_CALL, cfg).reason).toBe("OK");
   });
 
   // "A reply without them gives no policyNotAfter, and a response relying on it fails check 0 (POLICY_EXPIRED)."
@@ -351,21 +425,20 @@ describe("newRecordSet: replay across a record set", () => {
     expect(s.responseNotAfter).toBeUndefined();
     const respond = response(h);
     const cfg = responseConfig(h, newRecordSet(), s.responseNotAfter);
-    expect(verifyResponse(respond.att, respond.body, RESPONSE_CALL, cfg).result.reason).toBe("POLICY_EXPIRED");
+    expect(verifyResponse(respond.att, respond.body, RESPONSE_CALL, cfg).reason).toBe("POLICY_EXPIRED");
   });
 });
 
-const RESPONSE_CALL = { rid: "rid-1", toolCallId: "call-1", receiver: "pi" };
+const RESPONSE_CALL = { rid: "rid-1", callId: "call-1", receiver: "pi" };
 
 /** The server's signed response to call-1 in `h`'s session, stamped at NOW. */
 function response(h: ReturnType<typeof handshake>) {
   const body: Record<string, unknown> = { content: [{ type: "text", text: "done" }] };
   const resultHash = bindResult(body);
-  const labels = [{ cls: "third-party" as const, cid: newContentId() }];
-  const s0 = signStamp({ svc: ENTRY, inst: "e-1", rid: "rid-1", ts: NOW, sess: h.reply.sess, rcv: "tools", bind: "b0", infl: "", prev: "" }, h.entry.privateKey);
-  const s1 = signStamp({ svc: "tools", inst: "t-1", rid: "rid-1", ts: NOW, sess: h.reply.sess, rcv: "pi", bind: bindResponse(resultHash, "call-1", labels), infl: "", prev: s0.sig }, h.entry.privateKey);
+  const s0 = signStamp({ svc: ENTRY, inst: "e-1", rid: "rid-1", ts: NOW, sess: h.reply.sess, rcv: "tools", bind: "b0", ext: commitBlock(EMPTY_BLOCK), prev: "" }, h.entry.privateKey);
+  const s1 = signStamp({ svc: "tools", inst: "t-1", rid: "rid-1", ts: NOW, sess: h.reply.sess, rcv: "pi", bind: bindResponse(resultHash, "call-1"), ext: commitBlock(EMPTY_BLOCK), prev: s0.sig }, h.entry.privateKey);
   const proof = h.serverTree.proofFor("mcp-entry/tools");
-  return { body, att: writeToken({ chain: [s0, s1], proof, labels, resultHash }) };
+  return { body, att: writeToken({ blocks: [EMPTY_BLOCK, EMPTY_BLOCK], chain: [s0, s1], proof, resultHash } as unknown as JsonValue) };
 }
 
 /** The live check's config for a response recorded in `h`'s session, against the record set's response cache. */
@@ -373,6 +446,6 @@ function responseConfig(h: ReturnType<typeof handshake>, records: ReturnType<typ
   const notAfter = policyNotAfter ?? Number.NaN;
   return {
     keyrings: [{ keys: h.reply.serverKeyring, notAfter }], roots: [{ root: h.serverTree.root, rootId: "s1", notAfter }],
-    allowedOrigins: [ENTRY], sess: h.reply.sess, nonces: records.responseNonces, now: NOW, policyNotAfter,
+    allowedOrigins: [ENTRY], sess: h.reply.sess, nonces: records.responseNonces, now: NOW, policyNotAfter, extensions: recordExtensionSettings([]),
   };
 }

@@ -44,7 +44,7 @@ import org.paztport.core.policy.Keyring;
 
 /**
  * Builds {@code spec/vectors/events.json} and replays it. It is deterministic: the times and ids are fixed, the
- * keys are derived by {@code v3.json}'s rule, and Ed25519 signs deterministically, so {@link #build} reproduces the
+ * keys are derived by {@code v4.json}'s rule, and Ed25519 signs deterministically, so {@link #build} reproduces the
  * committed bytes and {@code EventVectorsTest} pins them. The writer is opt-in, and this class is not matched by
  * Surefire's default includes, so name it: {@code (cd poc-sdks/java && mvn -q -pl core test
  * -Dtest=EventVectorsExport -Dpaztport.exportEventVectors=true
@@ -57,7 +57,7 @@ class EventVectorsExport {
     private static final String ABOUT = "Paztport event conformance vectors: the signed events a verifying service"
             + " sends its responder. Each key's private key is the PKCS#8 DER 302e020100300506032b657004220420 || seed,"
             + " where seed = SHA-256(utf8(\"paztport-v3-vector-key:\" + name)), and its public key is the SPKI DER"
-            + " export, both base64url: v3.json's rule, so `payment` is the key http-v3.json names `payment`. An"
+            + " export, both base64url: v4.json's rule, so `payment` is the key http-v4.json names `payment`. An"
             + " envelope case signs `eventJson`, the JCS text of `event`, as `signer` with that signer's key: `payload`"
             + " is the base64url of its UTF-8 bytes, `signingBytes` (base64url) the bytes signed and `sig` the"
             + " signature. Each verify case runs against a fresh `responder`, with its `keyring` (service to public"
@@ -81,7 +81,7 @@ class EventVectorsExport {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
-    /** The key v3.json's rule gives {@code name}: the seed is a hash of the name, the public key follows from it. */
+    /** The key v4.json's rule gives {@code name}: the seed is a hash of the name, the public key follows from it. */
     static KeyPair derive(String name) {
         byte[] seed = Crypto.sha256(("paztport-v3-vector-key:" + name).getBytes(StandardCharsets.UTF_8));
         SecureRandom fixed = new SecureRandom() {
@@ -350,10 +350,11 @@ class EventVectorsExport {
         ArrayNode attributable = out.putArray("attributable");
         for (String reason : List.of("CHAIN_MISSING", "BAD_ORIGIN", "BAD_SIGNATURE", "BROKEN_LINK", "EXPIRED",
                 "RID_MISMATCH", "BINDING_MISMATCH", "REPLAY", "PATH_NOT_ALLOWED", "SESSION_UNKNOWN",
-                "CLIENT_PATH_NOT_ALLOWED", "INFLUENCE_MISMATCH", "PEER_MISMATCH")) {
+                "CLIENT_PATH_NOT_ALLOWED", "EXTENSION_MISMATCH", "PEER_MISMATCH")) {
             attributable.add(attributableCase(reason, reason, "search", "search-1", false, true));
         }
-        for (String reason : List.of("OK", "INFLUENCE_DENIED", "UNSAFE_SESSION", "POLICY_EXPIRED", "SCOPE_DENIED",
+        for (String reason : List.of("OK", "INFLUENCE_DENIED", "UNSAFE_SESSION",
+                "INFLUENCE_MISMATCH", "EXTENSION_NOT_ALLOWED", "EXTENSION_REQUIRED", "POLICY_EXPIRED", "SCOPE_DENIED",
                 "UNCHECKABLE", "TIME_MISMATCH", "OUTSIDE_SESSION", "NOT_A_CODE", "")) {
             attributable.add(attributableCase("excluded: " + (reason.isEmpty() ? "empty reason" : reason), reason,
                     "search", "search-1", false, false));

@@ -31,7 +31,7 @@ func FuzzAnswer(f *testing.F) {
 		if err != nil {
 			t.Fatalf("New: %v", err)
 		}
-		x, _, err := e.Begin(g.a, g.a.Influence, "/charge", charge)
+		x, _, err := e.Begin(g.a, nil, "/charge", charge)
 		if err != nil {
 			t.Fatalf("Begin: %v", err)
 		}

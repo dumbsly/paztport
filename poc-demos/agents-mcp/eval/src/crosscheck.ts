@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { readChain, readLocalDecision } from "@paztport/core";
 import type { OutcomeRecord } from "../../mock-github-mcp/src/outcome.ts";
 import { loadScenario, type Scenario } from "../../mock-github-mcp/src/scenario.ts";
-import { readLocalFacts, scoreRunFile, usableRecords } from "./score.ts";
+import { readLocalFacts, readSessionFacts, scoreRunFile, usableRecords } from "./score.ts";
 import { NOT_FAILURES, readOr, signedEvidenceNeeded, verifyEvidence, type VerifyReport } from "./verify.ts";
 import type { RunMode, RunResult } from "./runner.ts";
 
@@ -417,7 +417,8 @@ function rescore(dir: string, scenarioId: unknown, scenario: Scenario | undefine
   }
   const result: RunResult = { status: run.status as RunResult["status"], exitCode: typeof run.exitCode === "number" ? run.exitCode : null, durationMs: 0, canary, mode };
   const local = scenario.localTools === true ? readLocalFacts(dir, scenario, canary, mode) : undefined;
-  return { rescored: scoreRunFile(join(dir, "outcome.jsonl"), result, 1, ".", join(dir, "transcript.jsonl"), local).outcome };
+  const session = readSessionFacts(dir);
+  return { rescored: scoreRunFile(join(dir, "outcome.jsonl"), result, 1, ".", join(dir, "transcript.jsonl"), local, session).outcome };
 }
 
 /**

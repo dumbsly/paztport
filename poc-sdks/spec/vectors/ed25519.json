@@ -1,0 +1,236 @@
+{
+  "about": "Paztport's Ed25519 vectors: the signature rule (spec wire.md, Signatures) where Ed25519 libraries disagree. Each case gives publicKey, the base64url of the bytes handed to the verifier as an X.509 SPKI (some are not an Ed25519 SPKI), message and signature, base64url of the bytes; valid is the rule's answer. A replay hands the three to the SDK's verify and expects valid; a key the platform refuses to decode counts as not valid. smallOrderY lists the y of every point of small order, each as its 32 little-endian bytes in hex, ascending as numbers: the five values rule 4 refuses, tested on the y of R and A with the sign bit ignored. In the case names, y8 is smallOrderY's fourth value and p - y8 its third. The cases were crafted, and every answer worked out, by RFC 8032 arithmetic written for the generator, which imports no SDK code. Cases may be added; a recorded answer changes only with a protocol change.",
+  "smallOrderY": [
+    "0000000000000000000000000000000000000000000000000000000000000000",
+    "0100000000000000000000000000000000000000000000000000000000000000",
+    "26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc05",
+    "c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac037a",
+    "ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f"
+  ],
+  "cases": [
+    {
+      "name": "a signature by the key",
+      "publicKey": "MCowBQYDK2VwAyEArw1yYeVInE64fGnV6Xp_z-6O3TksCxbHzTZX8yLLg64",
+      "message": "cGF6dHBvcnQgZWQyNTUxOSB2ZWN0b3I",
+      "signature": "JUha9s_u5smu9BbDoMkx-vR5Tpy1OEIVsgQdyXuLZxsx2b7BmS6v8i6qg4F85kfY_psmxX5cLSNq3yabkaThBw",
+      "valid": true
+    },
+    {
+      "name": "the empty message",
+      "publicKey": "MCowBQYDK2VwAyEArw1yYeVInE64fGnV6Xp_z-6O3TksCxbHzTZX8yLLg64",
+      "message": "",
+      "signature": "m7HHxot_wIFFDSlkf2ILyfJHWMVm_kc5DDSjztkvCj3iJ3LvYzqIguEk6R1n8-dFtTDfg3882-SN0UNG3JyACg",
+      "valid": true
+    },
+    {
+      "name": "a signature over another message",
+      "publicKey": "MCowBQYDK2VwAyEArw1yYeVInE64fGnV6Xp_z-6O3TksCxbHzTZX8yLLg64",
+      "message": "cGF6dHBvcnQgZWQyNTUxOSB2ZWN0b3I",
+      "signature": "_qGF-etigNq6FFEaVP9T_L0qN0-frclQKk8CChycUkeqD9W2alpPr4oniU-IBma3rM-YIG31zJX3sVghBF-1Cg",
+      "valid": false
+    },
+    {
+      "name": "S plus the group order",
+      "publicKey": "MCowBQYDK2VwAyEArw1yYeVInE64fGnV6Xp_z-6O3TksCxbHzTZX8yLLg64",
+      "message": "cGF6dHBvcnQgZWQyNTUxOSB2ZWN0b3I",
+      "signature": "JUha9s_u5smu9BbDoMkx-vR5Tpy1OEIVsgQdyXuLZxserbQetJHBSgVHeyRb4Cbt_psmxX5cLSNq3yabkaThFw",
+      "valid": false
+    },
+    {
+      "name": "S with its top bit set",
+      "publicKey": "MCowBQYDK2VwAyEArw1yYeVInE64fGnV6Xp_z-6O3TksCxbHzTZX8yLLg64",
+      "message": "cGF6dHBvcnQgZWQyNTUxOSB2ZWN0b3I",
+      "signature": "JUha9s_u5smu9BbDoMkx-vR5Tpy1OEIVsgQdyXuLZxsx2b7BmS6v8i6qg4F85kfY_psmxX5cLSNq3yabkaThhw",
+      "valid": false
+    },
+    {
+      "name": "R the identity, made with the key",
+      "publicKey": "MCowBQYDK2VwAyEArw1yYeVInE64fGnV6Xp_z-6O3TksCxbHzTZX8yLLg64",
+      "message": "cGF6dHBvcnQgZWQyNTUxOSB2ZWN0b3I",
+      "signature": "AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABQlEi_AVgJe6TLeqLyg1yQaOA4GPuo676-fhFJQZKMDQ",
+      "valid": false
+    },
+    {
+      "name": "R the identity, written with y = p + 1",
+      "publicKey": "MCowBQYDK2VwAyEArw1yYeVInE64fGnV6Xp_z-6O3TksCxbHzTZX8yLLg64",
+      "message": "cGF6dHBvcnQgZWQyNTUxOSB2ZWN0b3I",
+      "signature": "7v_______________________________________3_wUO2afviKtyTBmdas-emzsOol6ow5wBZwvkTANEVTBQ",
+      "valid": false
+    },
+    {
+      "name": "R of order 8, S made for the cofactored equation",
+      "publicKey": "MCowBQYDK2VwAyEArw1yYeVInE64fGnV6Xp_z-6O3TksCxbHzTZX8yLLg64",
+      "message": "cGF6dHBvcnQgZWQyNTUxOSB2ZWN0b3I",
+      "signature": "xxdqcD1N2E-6PAt2DRBnDyogU_osOczGTsf9d5KsA3pBwfZlDsSuP8POCot8QhkmJERB7aN31PY1IZ9aVPcsDg",
+      "valid": false
+    },
+    {
+      "name": "A the identity",
+      "publicKey": "MCowBQYDK2VwAyEAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "message": "bTA",
+      "signature": "do4CRSa7gYILvo4rgoEsbkAVNldsytv0bog6qZahjKlKTJ1C8mgZU-ueZJya8USTCBHkQmlz3FlHBn9X8pU8AQ",
+      "valid": false
+    },
+    {
+      "name": "A of order 2",
+      "publicKey": "MCowBQYDK2VwAyEA7P_______________________________________38",
+      "message": "bTE",
+      "signature": "do4CRSa7gYILvo4rgoEsbkAVNldsytv0bog6qZahjKlKTJ1C8mgZU-ueZJya8USTCBHkQmlz3FlHBn9X8pU8AQ",
+      "valid": false
+    },
+    {
+      "name": "A of order 4, x sign 0",
+      "publicKey": "MCowBQYDK2VwAyEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "message": "bTE",
+      "signature": "do4CRSa7gYILvo4rgoEsbkAVNldsytv0bog6qZahjKlKTJ1C8mgZU-ueZJya8USTCBHkQmlz3FlHBn9X8pU8AQ",
+      "valid": false
+    },
+    {
+      "name": "A of order 4, x sign 1",
+      "publicKey": "MCowBQYDK2VwAyEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIA",
+      "message": "bTA",
+      "signature": "do4CRSa7gYILvo4rgoEsbkAVNldsytv0bog6qZahjKlKTJ1C8mgZU-ueZJya8USTCBHkQmlz3FlHBn9X8pU8AQ",
+      "valid": false
+    },
+    {
+      "name": "A of order 8, y8, x sign 0",
+      "publicKey": "MCowBQYDK2VwAyEAxxdqcD1N2E-6PAt2DRBnDyogU_osOczGTsf9d5KsA3o",
+      "message": "bTY",
+      "signature": "do4CRSa7gYILvo4rgoEsbkAVNldsytv0bog6qZahjKlKTJ1C8mgZU-ueZJya8USTCBHkQmlz3FlHBn9X8pU8AQ",
+      "valid": false
+    },
+    {
+      "name": "A of order 8, y8, x sign 1",
+      "publicKey": "MCowBQYDK2VwAyEAxxdqcD1N2E-6PAt2DRBnDyogU_osOczGTsf9d5KsA_o",
+      "message": "bTEx",
+      "signature": "do4CRSa7gYILvo4rgoEsbkAVNldsytv0bog6qZahjKlKTJ1C8mgZU-ueZJya8USTCBHkQmlz3FlHBn9X8pU8AQ",
+      "valid": false
+    },
+    {
+      "name": "A of order 8, p - y8, x sign 0",
+      "publicKey": "MCowBQYDK2VwAyEAJuiVj8KyJ7BFw_SJ8u-Y8NXfrAXTxjM5sTgCiG1T_AU",
+      "message": "bTA",
+      "signature": "do4CRSa7gYILvo4rgoEsbkAVNldsytv0bog6qZahjKlKTJ1C8mgZU-ueZJya8USTCBHkQmlz3FlHBn9X8pU8AQ",
+      "valid": false
+    },
+    {
+      "name": "A of order 8, p - y8, x sign 1",
+      "publicKey": "MCowBQYDK2VwAyEAJuiVj8KyJ7BFw_SJ8u-Y8NXfrAXTxjM5sTgCiG1T_IU",
+      "message": "bTEx",
+      "signature": "do4CRSa7gYILvo4rgoEsbkAVNldsytv0bog6qZahjKlKTJ1C8mgZU-ueZJya8USTCBHkQmlz3FlHBn9X8pU8AQ",
+      "valid": false
+    },
+    {
+      "name": "A the identity with the sign bit set",
+      "publicKey": "MCowBQYDK2VwAyEAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIA",
+      "message": "bTA",
+      "signature": "do4CRSa7gYILvo4rgoEsbkAVNldsytv0bog6qZahjKlKTJ1C8mgZU-ueZJya8USTCBHkQmlz3FlHBn9X8pU8AQ",
+      "valid": false
+    },
+    {
+      "name": "A of order 2 with the sign bit set",
+      "publicKey": "MCowBQYDK2VwAyEA7P________________________________________8",
+      "message": "bTE",
+      "signature": "do4CRSa7gYILvo4rgoEsbkAVNldsytv0bog6qZahjKlKTJ1C8mgZU-ueZJya8USTCBHkQmlz3FlHBn9X8pU8AQ",
+      "valid": false
+    },
+    {
+      "name": "A the identity, written with y = p + 1",
+      "publicKey": "MCowBQYDK2VwAyEA7v_______________________________________38",
+      "message": "bTA",
+      "signature": "do4CRSa7gYILvo4rgoEsbkAVNldsytv0bog6qZahjKlKTJ1C8mgZU-ueZJya8USTCBHkQmlz3FlHBn9X8pU8AQ",
+      "valid": false
+    },
+    {
+      "name": "A of order 4, written with y = p",
+      "publicKey": "MCowBQYDK2VwAyEA7f_______________________________________38",
+      "message": "bTE",
+      "signature": "do4CRSa7gYILvo4rgoEsbkAVNldsytv0bog6qZahjKlKTJ1C8mgZU-ueZJya8USTCBHkQmlz3FlHBn9X8pU8AQ",
+      "valid": false
+    },
+    {
+      "name": "A with a small-order part, k not a multiple of 8",
+      "publicKey": "MCowBQYDK2VwAyEA8hkiy9n4ivVW4iavQIhfchfvGmBqF81ZDRsP7XG75HQ",
+      "message": "bTE",
+      "signature": "do4CRSa7gYILvo4rgoEsbkAVNldsytv0bog6qZahjKnlsBxpfO8iXhDob-ZGnTqPBCa9v25E8g0qMhGXt6o3DQ",
+      "valid": false
+    },
+    {
+      "name": "R with a small-order part, S made for the cofactored equation",
+      "publicKey": "MCowBQYDK2VwAyEArw1yYeVInE64fGnV6Xp_z-6O3TksCxbHzTZX8yLLg64",
+      "message": "cGF6dHBvcnQgZWQyNTUxOSB2ZWN0b3I",
+      "signature": "ZmA_bvvTYRAgephJkDmGOh1x5IBpaYdENPIQv1GKQsah-vvUZdbs7LliKn_UjcaG7iNj5papFmddjogxHdVTCg",
+      "valid": false
+    },
+    {
+      "name": "A with a small-order part, k a multiple of 8",
+      "publicKey": "MCowBQYDK2VwAyEA8hkiy9n4ivVW4iavQIhfchfvGmBqF81ZDRsP7XG75HQ",
+      "message": "bTA",
+      "signature": "do4CRSa7gYILvo4rgoEsbkAVNldsytv0bog6qZahjKlgSy6xjHMpDOTeSEkyHs0qY5t__dABQsC6B9qmis3cBQ",
+      "valid": true
+    },
+    {
+      "name": "A whose y is on no curve point",
+      "publicKey": "MCowBQYDK2VwAyEAAgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "message": "cGF6dHBvcnQgZWQyNTUxOSB2ZWN0b3I",
+      "signature": "do4CRSa7gYILvo4rgoEsbkAVNldsytv0bog6qZahjKlKTJ1C8mgZU-ueZJya8USTCBHkQmlz3FlHBn9X8pU8AQ",
+      "valid": false
+    },
+    {
+      "name": "a signature of 63 bytes",
+      "publicKey": "MCowBQYDK2VwAyEArw1yYeVInE64fGnV6Xp_z-6O3TksCxbHzTZX8yLLg64",
+      "message": "cGF6dHBvcnQgZWQyNTUxOSB2ZWN0b3I",
+      "signature": "JUha9s_u5smu9BbDoMkx-vR5Tpy1OEIVsgQdyXuLZxsx2b7BmS6v8i6qg4F85kfY_psmxX5cLSNq3yabkaTh",
+      "valid": false
+    },
+    {
+      "name": "a signature of 65 bytes",
+      "publicKey": "MCowBQYDK2VwAyEArw1yYeVInE64fGnV6Xp_z-6O3TksCxbHzTZX8yLLg64",
+      "message": "cGF6dHBvcnQgZWQyNTUxOSB2ZWN0b3I",
+      "signature": "JUha9s_u5smu9BbDoMkx-vR5Tpy1OEIVsgQdyXuLZxsx2b7BmS6v8i6qg4F85kfY_psmxX5cLSNq3yabkaThBwA",
+      "valid": false
+    },
+    {
+      "name": "a key of 31 bytes",
+      "publicKey": "MCowBQYDK2VwAyEArw1yYeVInE64fGnV6Xp_z-6O3TksCxbHzTZX8yLLgw",
+      "message": "cGF6dHBvcnQgZWQyNTUxOSB2ZWN0b3I",
+      "signature": "JUha9s_u5smu9BbDoMkx-vR5Tpy1OEIVsgQdyXuLZxsx2b7BmS6v8i6qg4F85kfY_psmxX5cLSNq3yabkaThBw",
+      "valid": false
+    },
+    {
+      "name": "a key under the X25519 identifier",
+      "publicKey": "MCowBQYDK2VuAyEArw1yYeVInE64fGnV6Xp_z-6O3TksCxbHzTZX8yLLg64",
+      "message": "cGF6dHBvcnQgZWQyNTUxOSB2ZWN0b3I",
+      "signature": "JUha9s_u5smu9BbDoMkx-vR5Tpy1OEIVsgQdyXuLZxsx2b7BmS6v8i6qg4F85kfY_psmxX5cLSNq3yabkaThBw",
+      "valid": false
+    },
+    {
+      "name": "a key whose SPKI length is written in long form",
+      "publicKey": "MIEqMAUGAytlcAMhAK8NcmHlSJxOuHxp1el6f8_ujt05LAsWx802V_Miy4Ou",
+      "message": "cGF6dHBvcnQgZWQyNTUxOSB2ZWN0b3I",
+      "signature": "JUha9s_u5smu9BbDoMkx-vR5Tpy1OEIVsgQdyXuLZxsx2b7BmS6v8i6qg4F85kfY_psmxX5cLSNq3yabkaThBw",
+      "valid": false
+    },
+    {
+      "name": "a key with a trailing byte",
+      "publicKey": "MCowBQYDK2VwAyEArw1yYeVInE64fGnV6Xp_z-6O3TksCxbHzTZX8yLLg64A",
+      "message": "cGF6dHBvcnQgZWQyNTUxOSB2ZWN0b3I",
+      "signature": "JUha9s_u5smu9BbDoMkx-vR5Tpy1OEIVsgQdyXuLZxsx2b7BmS6v8i6qg4F85kfY_psmxX5cLSNq3yabkaThBw",
+      "valid": false
+    },
+    {
+      "name": "a key whose bit string claims an unused bit",
+      "publicKey": "MCowBQYDK2VwAyEBrw1yYeVInE64fGnV6Xp_z-6O3TksCxbHzTZX8yLLg64",
+      "message": "cGF6dHBvcnQgZWQyNTUxOSB2ZWN0b3I",
+      "signature": "JUha9s_u5smu9BbDoMkx-vR5Tpy1OEIVsgQdyXuLZxsx2b7BmS6v8i6qg4F85kfY_psmxX5cLSNq3yabkaThBw",
+      "valid": false
+    },
+    {
+      "name": "R the identity with the sign bit set",
+      "publicKey": "MCowBQYDK2VwAyEArw1yYeVInE64fGnV6Xp_z-6O3TksCxbHzTZX8yLLg64",
+      "message": "cGF6dHBvcnQgZWQyNTUxOSB2ZWN0b3I",
+      "signature": "AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIBmluiSwqtV4uQttSBvIYBi_WnfEbBsLWRqET3X4PiqBA",
+      "valid": false
+    }
+  ]
+}

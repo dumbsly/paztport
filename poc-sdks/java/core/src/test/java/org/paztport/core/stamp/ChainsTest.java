@@ -60,16 +60,32 @@ class ChainsTest {
     }
 
     @Test
-    void versionMustBeExactlyThree() {
+    void versionMustBeExactlyFour() {
         Map<String, JsonValue> none = signedStamp();
         none.remove("v");
         rejects(ReasonCode.CHAIN_MISSING, chain(none));
         Map<String, JsonValue> text = signedStamp();
-        text.put("v", new JsonValue.Str("3"));
+        text.put("v", new JsonValue.Str("4"));
         rejects(ReasonCode.CHAIN_MISSING, chain(text));
-        Map<String, JsonValue> four = signedStamp();
-        four.put("v", new JsonValue.Int(4));
-        rejects(ReasonCode.CHAIN_MISSING, chain(four));
+        Map<String, JsonValue> three = signedStamp();
+        three.put("v", new JsonValue.Int(3));
+        rejects(ReasonCode.CHAIN_MISSING, chain(three));
+        assertTrue(Chains.parse(chain(signedStamp())).ok());
+    }
+
+    /** Version 3's member: a stamp carrying infl in place of ext, or beside it, does not read. */
+    @Test
+    void aStampWithInflDoesNotRead() {
+        Map<String, JsonValue> renamed = signedStamp();
+        renamed.put("infl", renamed.remove("ext"));
+        rejects(ReasonCode.CHAIN_MISSING, chain(renamed));
+        Map<String, JsonValue> both = signedStamp();
+        both.put("infl", new JsonValue.Str(""));
+        rejects(ReasonCode.CHAIN_MISSING, chain(both));
+        Map<String, JsonValue> renamedAsThree = signedStamp();
+        renamedAsThree.put("infl", renamedAsThree.remove("ext"));
+        renamedAsThree.put("v", new JsonValue.Int(3));
+        rejects(ReasonCode.CHAIN_MISSING, chain(renamedAsThree));
     }
 
     @Test
@@ -149,23 +165,31 @@ class ChainsTest {
         rejects(ReasonCode.CHAIN_MISSING, chain(absent));
     }
 
+    /** JCS escapes every string, so no field needs a rule against a delimiter: a field holding '|' reads. */
     @Test
-    void delimiterIsABadSignatureNotAParseError() {
-        Map<String, JsonValue> inst = signedStamp();
-        inst.put("inst", new JsonValue.Str("a|b"));
-        rejects(ReasonCode.BAD_SIGNATURE, chain(inst));
-        Map<String, JsonValue> rcv = signedStamp();
-        rcv.put("rcv", new JsonValue.Str("x|y"));
-        rejects(ReasonCode.BAD_SIGNATURE, chain(rcv));
+    void aFieldHoldingThePipeReads() {
+        Map<String, JsonValue> s = signedStamp();
+        for (String field : new String[] {"svc", "inst", "rid", "sess", "rcv", "bind", "ext", "prev"}) {
+            s.put(field, new JsonValue.Str("a|b"));
+        }
+        ParsedChain p = Chains.parse(chain(s));
+        assertTrue(p.ok());
+        assertEquals("a|b", p.stamps().get(0).rcv());
     }
 
+    /**
+     * The reader is check 1 alone: what it refuses is CHAIN_MISSING, and a stamp whose signature cannot hold, such as
+     * one whose fields were changed after signing, reads, for check 3 to refuse.
+     */
     @Test
-    void structuralFailureOutranksDelimiter() {
-        Map<String, JsonValue> bar = signedStamp();
-        bar.put("inst", new JsonValue.Str("a|b"));
+    void theReaderNeverGivesBadSignature() {
+        Map<String, JsonValue> altered = signedStamp();
+        altered.put("inst", new JsonValue.Str("a|b"));
+        altered.put("rcv", new JsonValue.Str("x|y"));
+        assertTrue(Chains.parse(chain(altered)).ok());
         Map<String, JsonValue> broken = signedStamp();
         broken.put("ts", new JsonValue.Str("1"));
-        rejects(ReasonCode.CHAIN_MISSING, chain(bar, broken));
+        rejects(ReasonCode.CHAIN_MISSING, chain(altered, broken));
     }
 
     @Test
@@ -176,8 +200,8 @@ class ChainsTest {
     }
 
     @Test
-    void aStampWhoseVersionIsNotThreeDoesNotParse() {
-        for (int version : new int[] {1, 2, 4}) {
+    void aStampWhoseVersionIsNotFourDoesNotParse() {
+        for (int version : new int[] {1, 2, 3, 5}) {
             Map<String, JsonValue> odd = signedStamp();
             odd.put("v", new JsonValue.Int(version));
             rejects(ReasonCode.CHAIN_MISSING, chain(odd));
@@ -197,9 +221,9 @@ class ChainsTest {
     @Test
     void aChainInWireMemberOrderIsChainMissing() {
         Stamp s = SIGNED;
-        String wireOrder = "[{\"v\":3,\"svc\":\"" + s.svc() + "\",\"inst\":\"" + s.inst() + "\",\"rid\":\"" + s.rid()
+        String wireOrder = "[{\"v\":4,\"svc\":\"" + s.svc() + "\",\"inst\":\"" + s.inst() + "\",\"rid\":\"" + s.rid()
                 + "\",\"ts\":" + s.ts() + ",\"sess\":\"" + s.sess() + "\",\"rcv\":\"" + s.rcv() + "\",\"bind\":\""
-                + s.bind() + "\",\"infl\":\"" + s.infl() + "\",\"prev\":\"" + s.prev() + "\",\"sig\":\"" + s.sig()
+                + s.bind() + "\",\"ext\":\"" + s.ext() + "\",\"prev\":\"" + s.prev() + "\",\"sig\":\"" + s.sig()
                 + "\"}]";
         rejects(ReasonCode.CHAIN_MISSING, wireOrder);
         rejects(ReasonCode.CHAIN_MISSING, "[ " + SIGNED.toJson() + " ]");

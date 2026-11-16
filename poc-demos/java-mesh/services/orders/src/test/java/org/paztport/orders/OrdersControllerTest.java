@@ -17,6 +17,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.paztport.core.influence.ContentLabel;
 import org.paztport.core.influence.InfluenceClass;
+import org.paztport.core.stamp.Block;
 import org.paztport.core.stamp.Stamp;
 import org.paztport.http.RequestContext;
 import org.springframework.beans.factory.support.StaticListableBeanFactory;
@@ -76,7 +77,8 @@ class OrdersControllerTest {
         assertEquals("alice", labels.get(0).owner());
     }
 
-    // With the attack demo enabled, the chain a getOrder was served on is kept for the attack endpoints to steer.
+    // With the attack demo enabled, the chain a getOrder was served on is kept, with its blocks, for the attack
+    // endpoints to steer.
     @Test
     void anOrderReadIsRecordedWhenTheAttackDemoIsEnabled() throws Exception {
         StolenChainStore store = new StolenChainStore();
@@ -86,12 +88,15 @@ class OrdersControllerTest {
         List<Stamp> chain = List.of(Stamp.sign("gateway", "gw-1", "rid-1", 1, "", "orders#getOrder", "bind", "", "",
                 KeyPairGenerator.getInstance("Ed25519").generateKeyPair().getPrivate()));
 
+        List<Block> blocks = List.of(Block.EMPTY);
+
         try (RequestContext.Scope scope = RequestContext.open()) {
-            RequestContext.setInboundChain(chain);
+            RequestContext.setInboundChain(chain, blocks);
             recording.byId("123");
         }
 
-        assertSame(chain, store.getOrder());
+        assertSame(chain, store.getOrder().chain());
+        assertEquals(blocks, store.getOrder().blocks());
         assertNull(store.createOrder());
     }
 }

@@ -331,8 +331,13 @@ func refused(t *testing.T, out []*extprocv3.ProcessingResponse, waited bool, cod
 var refusalCodes = []reason.Code{
 	reason.ChainMissing, reason.BadOrigin, reason.BadSignature, reason.BrokenLink, reason.Expired,
 	reason.RIDMismatch, reason.BindingMismatch, reason.Replay, reason.PathNotAllowed, reason.SessionUnknown,
-	reason.InfluenceMismatch, reason.PeerMismatch, reason.PolicyExpired,
+	reason.InfluenceMismatch, reason.PeerMismatch, reason.PolicyExpired, reason.ExtensionMismatch,
+	reason.ExtensionNotAllowed, reason.ExtensionRequired, reason.InfluenceDenied, reason.UnsafeSession,
 }
+
+// stampHeaders are the Paztport headers the edge sets on every request it lets in, in lower case and in order:
+// the chain, the proof, and the blocks, the edge's one empty block.
+var stampHeaders = []string{"x-path-chain", "x-path-proof", "x-path-extensions"}
 
 // verifier returns the verifier orders would hold, pinned to m's keyring and root, at the clock now.
 func verifier(t *testing.T, m *materialtest.Material) *verify.Verifier {
@@ -398,8 +403,8 @@ func TestStampsAHeadersOnlyRequestAtItsHeaders(t *testing.T) {
 		t.Fatalf("got %d responses, want 1", len(out))
 	}
 	sent := apply(t, get, headersMutation(t, out[0]))
-	if got := paztportNames(sent); !slices.Equal(got, []string{"x-path-chain", "x-path-proof"}) {
-		t.Fatalf("the request carries the Paztport headers %q, want the chain then the proof", got)
+	if got := paztportNames(sent); !slices.Equal(got, stampHeaders) {
+		t.Fatalf("the request carries the Paztport headers %q, want the chain, the proof, then the blocks", got)
 	}
 	c := sentChain(t, sent)
 	s := c[0]
@@ -603,12 +608,15 @@ func TestStripsTheClientsPaztportHeaders(t *testing.T) {
 		if got := m.GetRemoveHeaders(); !slices.Equal(got, want) {
 			t.Fatalf("remove_headers = %q, want each other Paztport name once, in lower case", got)
 		}
-		if got := m.GetSetHeaders(); len(got) != 2 || got[0].GetHeader().GetKey() != "x-path-chain" ||
-			got[1].GetHeader().GetKey() != "x-path-proof" {
-			t.Fatalf("set_headers = %v, want the chain then the proof", got)
+		var set []string
+		for _, h := range m.GetSetHeaders() {
+			set = append(set, h.GetHeader().GetKey())
+		}
+		if !slices.Equal(set, stampHeaders) {
+			t.Fatalf("set_headers = %v, want the chain, the proof, then the blocks", m.GetSetHeaders())
 		}
 		sent := apply(t, before, m)
-		if got := paztportNames(sent); !slices.Equal(got, []string{"x-path-chain", "x-path-proof"}) {
+		if got := paztportNames(sent); !slices.Equal(got, stampHeaders) {
 			t.Fatalf("the request carries the Paztport headers %q", got)
 		}
 		if vs := values(sent, "x-pathology"); !slices.Equal(vs, []string{"kept"}) {
@@ -661,7 +669,7 @@ func TestStripsTheClientsPaztportHeaders(t *testing.T) {
 		if got := m.GetRemoveHeaders(); !slices.Equal(got, []string{"x-path-response"}) {
 			t.Fatalf("remove_headers = %q", got)
 		}
-		if got := paztportNames(apply(t, hs, m)); !slices.Equal(got, []string{"x-path-chain", "x-path-proof"}) {
+		if got := paztportNames(apply(t, hs, m)); !slices.Equal(got, stampHeaders) {
 			t.Fatalf("the request carries the Paztport headers %q", got)
 		}
 	})

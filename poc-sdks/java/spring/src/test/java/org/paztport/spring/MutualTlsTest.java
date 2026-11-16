@@ -33,7 +33,9 @@ import org.paztport.core.crypto.Crypto;
 import org.paztport.core.encoding.Base64Url;
 import org.paztport.core.policy.KeyringFile;
 import org.paztport.core.policy.PolicyBuilder;
+import org.paztport.core.stamp.Block;
 import org.paztport.core.stamp.Stamper;
+import org.paztport.core.verify.ExtensionSettings;
 import org.paztport.core.verify.Peer;
 import org.paztport.http.wire.HttpWire;
 import org.paztport.http.wire.PaztportHeaders;
@@ -233,11 +235,11 @@ class MutualTlsTest {
         String rid = UUID.randomUUID().toString();
         Stamper.Stamped gw = new Stamper("gateway", "gw-1", GATEWAY.getPrivate(), true, () -> rid,
                 System::currentTimeMillis)
-                .next(null, "orders", RequestBinding.compute("POST", "/orders", "{}".getBytes()), List.of(),
+                .next(null, "orders", RequestBinding.compute("POST", "/orders", "{}".getBytes()), Block.EMPTY,
                         BUILT.bundles().get("gateway"));
         Stamper.Stamped ord = new Stamper("orders", "ord-1", ORDERS.getPrivate(), false, () -> "x",
                 System::currentTimeMillis)
-                .next(gw.chain(), "payment", RequestBinding.compute("POST", "/pay", TO_PAYMENT), List.of(),
+                .next(gw.chain(), "payment", RequestBinding.compute("POST", "/pay", TO_PAYMENT), Block.EMPTY,
                         BUILT.bundles().get("orders"));
         return client.post()
                 .uri("https://127.0.0.1:" + port + "/pay")
@@ -303,7 +305,7 @@ class MutualTlsTest {
             RestClient stamping = client.mutate()
                     .requestInterceptor(new OutboundInterceptor(new Stamper("gateway", "gw-1",
                             GATEWAY.getPrivate(), true, () -> UUID.randomUUID().toString(), System::currentTimeMillis),
-                            BUILT.bundles().get("gateway"), null, "gateway",
+                            BUILT.bundles().get("gateway"), null, "gateway", ExtensionSettings.NONE,
                             ObservationRegistry.NOOP))
                     .build();
 

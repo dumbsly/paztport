@@ -3,27 +3,37 @@
 
 import {
   bindResult,
+  callsAfter,
   checkSessionReply,
-  commitInfluence,
+  commitBlock,
   decode,
+  INFLUENCE,
+  NO_REQUIREMENT,
   readSessionReply,
   replacementRequest,
   requireStampableNames,
+  responseEntries,
   routeOf,
   sanitiseVerdictReason,
   serverPolicyNotAfter,
   signStamp,
+  writeBlocks,
   writeToken,
-  type ContentLabel,
+  type Block,
+  type ExtensionSettings,
   type InfluenceEntry,
   type MerkleProof,
   type NonceCache,
+  type ReasonCode,
+  type ReplyCheck,
+  type Requirement,
   type SessionReply,
   type SessionRequest,
   type Stamp,
+  type StampItems,
 } from "@paztport/core";
 import { bindMcpCall } from "./binding.ts";
-import { META_CALL_ID, META_CHAIN, META_INFLUENCE, META_PROOF, META_VERDICT } from "./meta.ts";
+import { META_CALL_ID, META_CHAIN, META_EXTENSIONS, META_PROOF, META_VERDICT } from "./meta.ts";
 import { verifyMcpResponse } from "./response.ts";
 import { readVerdict, type Verdict } from "./verdict.ts";
 import { mcpReceiver } from "./verify-call.ts";
@@ -36,16 +46,43 @@ function isObject(v: unknown): v is Record<string, unknown> {
 }
 
 /**
- * What a handshake left the client with. `replaceSession` is set when the server may now hold an
- * attested session that this client cannot use, so every unstamped call would be refused. That holds
- * after a timeout or a transport error too, since the server may have opened the session before the
- * reply was lost. The client then replaces it, best effort, with `replacementRequest`.
+ * What a handshake left the client with. An attested session carries `requires`, what each call's block requires of
+ * this server. `no-calls` is a session in which the client's requirement lets it make no call (spec sessions.md, A
+ * client that requires extensions); `unsafe` is one it calls in unattested. `replaceSession` is set when the server
+ * may now hold an attested session that this client cannot use, so every unstamped call would be refused. That holds
+ * after a timeout or a transport error too, since the server may have opened the session before the reply was lost.
+ * The client then replaces it, best effort, with `replacementRequest`, whether or not it makes calls afterwards.
  */
 export type SessionOutcome =
-  | { status: "attested"; reply: SessionReply }
-  | { status: "unsafe"; reason: string; replaceSession: boolean };
+  | { status: "attested"; reply: SessionReply; requires: string[] }
+  | { status: "unsafe"; reason: string; replaceSession: boolean }
+  | { status: "no-calls"; reason: string; replaceSession: boolean };
 
-const unusable = (reason: string): SessionOutcome => ({ status: "unsafe", reason, replaceSession: true });
+/**
+ * The outcome of a handshake whose first reply's check was `check`, null for a JSON-RPC error or a timeout, given as
+ * `reason`, under `requirement`; `reply` is that reply when it read. What the client may do is callsAfter's. The
+ * replacement follows the outcome as it would with no requirement, except after EXTENSION_REQUIRED: the reply was
+ * sound, and the replacement would only open an unsafe session with a server known not to act on the extension.
+ */
+function outcomeOf(
+  check: ReplyCheck | null,
+  reason: string,
+  reply: SessionReply | undefined,
+  requirement: Requirement,
+): SessionOutcome {
+  const after = callsAfter(check, reply?.extensions ?? [], requirement);
+  // An attested reply is never replaced, nor a sound one (UNSAFE, EXTENSION_REQUIRED), nor a server with no Paztport.
+  const replaceSession = check === null
+    ? reason !== "METHOD_NOT_FOUND"
+    : check !== "ATTESTED" && check !== "UNSAFE" && check !== "EXTENSION_REQUIRED";
+  if (!after.calls) {
+    return { status: "no-calls", reason, replaceSession };
+  }
+  if (reply !== undefined && (check === "ATTESTED" || check === "EXTENSION_REQUIRED")) {
+    return { status: "attested", reply, requires: after.requires };
+  }
+  return { status: "unsafe", reason, replaceSession };
+}
 
 /**
  * The reply token a paztport/session result carries: the result holds exactly `reply`, a string, plus an optional
@@ -60,27 +97,37 @@ export function sessionReplyToken(result: unknown): string | undefined {
 
 /**
  * Classifies a paztport/session result against the request it answers, the pinned server policy key, the server's
- * entry service from the client's own configuration, and the time `now` (ms): a result other than a reply token
- * (sessionReplyToken) is MALFORMED_REPLY, and the token is checked by checkSessionReply.
+ * entry service from the client's own configuration, the time `now` (ms), and what the client requires of the server
+ * (none by default): a result other than a reply token (sessionReplyToken) is MALFORMED_REPLY, and the token is
+ * checked by checkSessionReply with the requirement's names.
  */
-export function classifySessionReply(result: unknown, req: SessionRequest, pin: string, serverEntry: string, now: number): SessionOutcome {
+export function classifySessionReply(
+  result: unknown,
+  req: SessionRequest,
+  pin: string,
+  serverEntry: string,
+  now: number,
+  requirement: Requirement = NO_REQUIREMENT,
+): SessionOutcome {
   const token = sessionReplyToken(result);
-  if (token === undefined) {
-    return unusable("MALFORMED_REPLY");
-  }
-  const check = checkSessionReply(token, req, pin, serverEntry, now);
-  if (check === "ATTESTED") {
-    return { status: "attested", reply: readSessionReply(token) };
-  }
-  return check === "UNSAFE" ? { status: "unsafe", reason: "UNSAFE", replaceSession: false } : unusable(check);
+  const check = token === undefined
+    ? "MALFORMED_REPLY"
+    : checkSessionReply(token, req, pin, serverEntry, now, requirement.extensions);
+  // Every outcome but MALFORMED_REPLY has read the reply, so this read does not throw.
+  const reply = token === undefined || check === "MALFORMED_REPLY" ? undefined : readSessionReply(token);
+  return outcomeOf(check, check, reply, requirement);
 }
 
 /**
- * Classifies a paztport/session request that failed: a JSON-RPC error with `rpcCode`, or none for a
- * timeout or transport error. Method not found means the server has no Paztport, so no session to replace.
+ * Classifies a paztport/session request that failed: a JSON-RPC error with `rpcCode`, or none for a timeout or
+ * transport error, under what the client requires of the server (none by default). Method not found means the server
+ * has no Paztport, so no session to replace.
  */
-export function classifySessionError(rpcCode: number | undefined): SessionOutcome {
-  return rpcCode === METHOD_NOT_FOUND ? { status: "unsafe", reason: "METHOD_NOT_FOUND", replaceSession: false } : unusable("HANDSHAKE_ERROR");
+export function classifySessionError(
+  rpcCode: number | undefined,
+  requirement: Requirement = NO_REQUIREMENT,
+): SessionOutcome {
+  return outcomeOf(null, rpcCode === METHOD_NOT_FOUND ? "METHOD_NOT_FOUND" : "HANDSHAKE_ERROR", undefined, requirement);
 }
 
 /**
@@ -100,10 +147,11 @@ function replyOf(result: unknown): string | null {
 /**
  * Opens a session: sends the params `{request}`, the request's token, through `send`, which rejects on a JSON-RPC
  * error, a timeout or a transport error (`rpcCode` gives the JSON-RPC code of what it rejected with, if any), and
- * classifies the result. When the outcome warrants a replacement, sends `replacementRequest` (a null root, so the
- * server cannot attest it) best effort; the session is unsafe whatever comes back, and the outcome is the first one's.
- * `onExchange` reports each exchange as it happens, so a caller keeping evidence loses nothing if the replacement
- * hangs. Throws if the request cannot be written.
+ * classifies the result under `requirement` (none by default). When the outcome warrants a replacement, sends
+ * `replacementRequest` (a null root, so the server cannot attest it) best effort, whether or not the requirement lets
+ * the client make calls; the session is unsafe whatever comes back, and the outcome is the first one's. `onExchange`
+ * reports each exchange as it happens, so a caller keeping evidence loses nothing if the replacement hangs. Throws if
+ * the request cannot be written.
  */
 export async function openSession(opts: {
   request: SessionRequest;
@@ -112,22 +160,25 @@ export async function openSession(opts: {
   now: () => number;
   send: (params: { request: string }) => Promise<unknown>;
   rpcCode: (error: unknown) => number | undefined;
+  /** What the client requires of this server; none when omitted. */
+  requirement?: Requirement;
   /** Called with each exchange as it happens, with the outcome the first reply gave, before any replacement is sent. */
   onExchange?: (exchange: SessionExchange, outcome: SessionOutcome) => void;
 }): Promise<OpenedSession> {
   const { request, send } = opts;
+  const requirement = opts.requirement ?? NO_REQUIREMENT;
   const token = writeToken(request);
   let result: unknown = null;
   let outcome: SessionOutcome | undefined;
   try {
     result = await send({ request: token });
   } catch (e) {
-    outcome = classifySessionError(opts.rpcCode(e));
+    outcome = classifySessionError(opts.rpcCode(e), requirement);
   }
-  outcome ??= classifySessionReply(result, request, opts.pin, opts.serverEntry, opts.now());
+  outcome ??= classifySessionReply(result, request, opts.pin, opts.serverEntry, opts.now(), requirement);
   const exchanges: SessionExchange[] = [{ request: token, reply: replyOf(result) }];
   opts.onExchange?.(exchanges[0]!, outcome);
-  if (outcome.status === "unsafe" && outcome.replaceSession) {
+  if (outcome.status !== "attested" && outcome.replaceSession) {
     const replacement = writeToken(replacementRequest(request));
     let second: unknown = null;
     try {
@@ -159,25 +210,39 @@ export function toolCallProof(
 export type ToolCallStamp = {
   /** The run's origin stamp for this session, naming `svc` as its receiver; the call's stamp continues its rid, session and chain. */
   origin: Stamp;
+  /** The block the origin stamp commits to, sent as it is. */
+  originBlock: Block;
   svc: string;
   inst: string;
   privateKey: string;
   ts: number;
-  /** The influence the call is made under. */
-  influence: InfluenceEntry[];
+  /** The calling hop's own block: its items for this request so far, and what it requires of this server. */
+  block: Block;
+  /** What the session requires of this server, `SessionOutcome.requires`: `block.requires` must hold each name. */
+  requires: readonly string[];
   proof: MerkleProof;
   /** The server the call goes to: the call's stamp names `mcp:<serverId>.<tool>` as its receiver. */
   serverId: string;
 };
 
 /**
- * The `_meta` for an attested tools/call: the tokens of the chain (the origin and a v3 stamp by the calling hop over
- * the call's receiver, binding and influence), of the route proof and of the influence, and the call id. Throws if a
- * stamp cannot be signed or a token written, or if `svc` or the receiver (`mcp:<server>.<tool>`) is not a route node.
+ * The `_meta` for an attested tools/call: the tokens of the chain (the origin and a stamp by the calling hop over the
+ * call's receiver, binding and block), of the route proof and of the blocks, `[originBlock, block]`, and the call id.
+ * The blocks travel also when both are empty, so this SDK sends one form. Throws if a stamp cannot be signed or a
+ * token written, if `svc` or the receiver (`mcp:<server>.<tool>`) is not a route node, if `originBlock` is not the
+ * block the origin's `ext` commits to, or if `block.requires` lacks a name the session `requires`.
  */
 export function stampToolCall(call: { name: string; args: unknown; callId: string }, s: ToolCallStamp): Record<string, string> {
   const rcv = mcpReceiver(s.serverId, call.name);
   requireStampableNames(s.svc, rcv);
+  // Fails here rather than as EXTENSION_MISMATCH at the server, with nothing said locally.
+  if (commitBlock(s.originBlock) !== s.origin.ext) {
+    throw new Error("originBlock is not the block the origin stamp commits to");
+  }
+  // Fails here rather than sending, silently, a call that drops what the client's requirement asks of this server.
+  if (s.requires.some((name) => !s.block.requires.includes(name))) {
+    throw new Error("block does not require every extension the session requires");
+  }
   const hop = signStamp(
     {
       svc: s.svc,
@@ -187,7 +252,7 @@ export function stampToolCall(call: { name: string; args: unknown; callId: strin
       sess: s.origin.sess,
       rcv,
       bind: bindMcpCall(call.name, call.callId, call.args),
-      infl: commitInfluence(s.influence),
+      ext: commitBlock(s.block),
       prev: s.origin.sig,
     },
     s.privateKey,
@@ -195,7 +260,7 @@ export function stampToolCall(call: { name: string; args: unknown; callId: strin
   return {
     [META_CHAIN]: writeToken([s.origin, hop]),
     [META_PROOF]: writeToken(s.proof),
-    [META_INFLUENCE]: writeToken(s.influence),
+    [META_EXTENSIONS]: writeBlocks([s.originBlock, s.block]),
     [META_CALL_ID]: call.callId,
   };
 }
@@ -221,22 +286,33 @@ function verdictOf(raw: Record<string, unknown>): { reason: string; audit: boole
   return verdict === undefined ? { reason: "UNKNOWN", audit: false } : { reason: sanitiseVerdictReason(verdict.reason), audit: verdict.audit === true };
 }
 
-/** What a result adds to the client's influence: its verified labels, untrusted content, or nothing. */
-export type ResultInfluence =
-  | { kind: "labels"; labels: ContentLabel[]; hash: string }
-  | { kind: "untrusted"; hash: string }
-  | { kind: "none" };
+/**
+ * What a result adds to the influence of a client that acts on `influence`: `entries`, built by core's
+ * responseEntries (spec influence.md, Content labels), each with `src` `server:<serverId>` and `h` the result hash, and
+ * that `hash`, for the client's record. `none` for a refusal, when Paztport is off, and in every session for a client
+ * that does not act on `influence`.
+ */
+export type ResultInfluence = { kind: "none" } | { kind: "entries"; entries: InfluenceEntry[]; hash: string };
 
 /**
- * The session a result arrived in. Off records nothing, so it hashes nothing. An attested call's
- * response is verified against the server's root and keyring, and must end at `svc`, the client's own
- * service that made the call; `now` is read only when it is.
+ * The session a result arrived in, with the client's own extension settings and `serverId`, the server's id from the
+ * client's own configuration, which names it in the `src` of what the result adds. Off records nothing, so it hashes
+ * nothing. In an unsafe session a client that acts on `influence` counts every result untrusted (spec sessions.md,
+ * Unsafe sessions), and one that does not reads no influence. An attested call's response is verified against the
+ * server's root and keyring, with the client's settings, and must end at `svc`, the client's own service that made
+ * the call; `now` is read only when it is.
  */
 export type ResultContext =
   | { session: "off" }
-  | { session: "unsafe" }
+  | {
+      session: "unsafe";
+      serverId: string;
+      /** The extensions the client acts on: whether it counts the result untrusted. */
+      extensions: ExtensionSettings;
+    }
   | {
       session: "attested";
+      serverId: string;
       reply: SessionReply;
       svc: string;
       rid: string;
@@ -244,19 +320,33 @@ export type ResultContext =
       allowedOrigins: string[];
       nonces: NonceCache;
       now: () => number;
+      /** The extensions the client acts on and carries: check 9b and 9c's sets, and the names it reads. */
+      extensions: ExtensionSettings;
     };
 
 /**
- * How a tools/call result reads. A refusal (a non-audit verdict) means the tool did not run, and
- * nothing of it is recorded. A malformed result is one JCS cannot hash (a lone surrogate, a number
- * that parsed to Infinity); nothing of it is recorded either. `verifiedAt` is the time verification used.
+ * How a tools/call result reads. A refusal (a non-audit verdict) means the tool did not run, and nothing of it is
+ * recorded. A malformed result is one JCS cannot hash (a lone surrogate, a number that parsed to Infinity); nothing
+ * of it is recorded either. A withheld result is a response whose last block requires an extension the client does
+ * not act on (check 9c): the application MUST NOT hand it on, and fails the call without retrying it, since the
+ * tool ran (spec verification.md, The live order); when the call came from a model, or anything else that may make
+ * it again itself, the application tells it that the tool ran. The reading holds nothing of the result but, for a
+ * client that acts on `influence`, its one `local-untrusted` entry and the hash. `verifiedAt` is the time
+ * verification used.
  */
 export type ToolResultReading =
   | { kind: "refused"; verdict: string; influence: { kind: "none" } }
   | { kind: "malformed"; verifiedAt?: number }
+  | { kind: "withheld"; reason: "EXTENSION_REQUIRED"; verifiedAt: number; influence: ResultInfluence }
   | { kind: "read"; verdict?: string; verification?: string; verifiedAt?: number; influence: ResultInfluence };
 
-/** Reads a tools/call result: its verdict, its verification and what it adds to influence. Never throws. */
+/**
+ * Reads a tools/call result: its verdict, its verification and what it adds to influence. For a client that acts on
+ * `influence`, what a result adds is responseEntries' (spec influence.md, Content labels): in an attested session an
+ * entry for each label of a response that verified, every block of which names `influence` with only labels under it,
+ * and one `local-untrusted` entry for any other result, a withheld one included; in an unsafe session that one entry
+ * for every result that is not a refusal. A client that does not act on it reads no influence. Never throws.
+ */
 export function readToolResult(raw: Record<string, unknown>, ctx: ResultContext): ToolResultReading {
   const verdict = verdictOf(raw);
   if (verdict !== undefined && !verdict.audit) {
@@ -269,23 +359,35 @@ export function readToolResult(raw: Record<string, unknown>, ctx: ResultContext)
   let verifiedAt: number | undefined;
   try {
     const hash = bindResult(raw);
-    if (ctx.session === "attested" && ctx.reply.serverRoot !== null) {
-      verifiedAt = ctx.now();
-      // the session's one server keyring and root, each held to the reply's response limit
-      const policyNotAfter = serverPolicyNotAfter(ctx.reply);
-      const v = verifyMcpResponse(raw, { rid: ctx.rid, toolCallId: ctx.callId, receiver: ctx.svc }, {
-        keyrings: [{ keys: ctx.reply.serverKeyring, notAfter: policyNotAfter }],
-        roots: [{ root: decode(ctx.reply.serverRoot.root), rootId: ctx.reply.serverRoot.rootId, notAfter: policyNotAfter }],
-        allowedOrigins: ctx.allowedOrigins,
-        sess: ctx.reply.sess,
-        nonces: ctx.nonces,
-        now: verifiedAt,
-        policyNotAfter,
-      });
-      const influence: ResultInfluence = v.result.ok ? { kind: "labels", labels: v.labels, hash } : { kind: "untrusted", hash };
-      return { kind: "read", ...withVerdict, verification: v.result.reason, verifiedAt, influence };
+    const src = `server:${ctx.serverId}`;
+    // A hand-over without `influence` takes no label, so a client never believes more than it was handed.
+    const adds = (reason: ReasonCode | null, stamps?: readonly StampItems[]): ResultInfluence =>
+      ctx.extensions.actsOn.has(INFLUENCE)
+        ? { kind: "entries", entries: responseEntries(reason, stamps, src, hash), hash }
+        : { kind: "none" };
+    if (ctx.session === "unsafe" || ctx.reply.serverRoot === null) {
+      return { kind: "read", ...withVerdict, influence: adds(null) };
     }
-    return { kind: "read", ...withVerdict, influence: { kind: "untrusted", hash } };
+    verifiedAt = ctx.now();
+    // the session's one server keyring and root, each held to the reply's response limit
+    const policyNotAfter = serverPolicyNotAfter(ctx.reply);
+    const v = verifyMcpResponse(raw, { rid: ctx.rid, callId: ctx.callId, receiver: ctx.svc }, {
+      keyrings: [{ keys: ctx.reply.serverKeyring, notAfter: policyNotAfter }],
+      roots: [
+        { root: decode(ctx.reply.serverRoot.root), rootId: ctx.reply.serverRoot.rootId, notAfter: policyNotAfter },
+      ],
+      allowedOrigins: ctx.allowedOrigins,
+      sess: ctx.reply.sess,
+      nonces: ctx.nonces,
+      now: verifiedAt,
+      policyNotAfter,
+      extensions: ctx.extensions,
+    });
+    if (v.reason === "EXTENSION_REQUIRED") {
+      return { kind: "withheld", reason: "EXTENSION_REQUIRED", verifiedAt, influence: adds(v.reason) };
+    }
+    const influence = adds(v.reason, v.handOver?.get(INFLUENCE));
+    return { kind: "read", ...withVerdict, verification: v.reason, verifiedAt, influence };
   } catch {
     return { kind: "malformed", ...(verifiedAt !== undefined ? { verifiedAt } : {}) };
   }

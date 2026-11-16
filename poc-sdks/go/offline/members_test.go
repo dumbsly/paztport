@@ -26,7 +26,7 @@ func keyringOf(t *testing.T, notAfter int64, svcs ...string) verify.PinnedKeyrin
 
 // TestOfflineMemberWindows checks that a keyring or a root counts for a record when the record's recorded
 // time, its last stamp's, is at most its notAfter, and always for math.MaxInt64, which is no window: a
-// record that none of the keyrings, or none of the roots, counts for is POLICY_EXPIRED, and checks 4 and 11
+// record that none of the keyrings, or none of the roots, counts for is POLICY_EXPIRED, and checks 3 and 12
 // use only those that count.
 func TestOfflineMemberWindows(t *testing.T) {
 	tests := []struct {

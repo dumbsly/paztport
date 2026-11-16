@@ -8,7 +8,7 @@ import type { Stamp } from "../../src/stamp/stamp.ts";
 
 const stamp = (svc: string, rcv: string): Stamp =>
   ({
-    v: 3, svc, inst: `${svc}-1`, rid: "rid-1", ts: 1000, sess: "", rcv, bind: "b", infl: "", prev: "", sig: "x",
+    v: 4, svc, inst: `${svc}-1`, rid: "rid-1", ts: 1000, sess: "", rcv, bind: "b", ext: "", prev: "", sig: "x",
   }) as Stamp;
 
 describe("operations in rcv", () => {

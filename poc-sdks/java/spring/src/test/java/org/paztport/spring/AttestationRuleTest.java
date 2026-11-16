@@ -23,6 +23,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Function;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -35,8 +36,11 @@ import org.paztport.core.influence.InfluenceEntry;
 import org.paztport.core.policy.Keyring;
 import org.paztport.core.policy.KeyringFile;
 import org.paztport.core.policy.PolicyBuilder;
+import org.paztport.core.stamp.Block;
 import org.paztport.core.stamp.Stamp;
 import org.paztport.core.stamp.Stamper;
+import org.paztport.core.verify.ExtensionSettings;
+import org.paztport.core.verify.HandOver;
 import org.paztport.core.verify.InMemoryNonceCache;
 import org.paztport.core.verify.PinnedKeyring;
 import org.paztport.core.verify.PinnedRoot;
@@ -69,6 +73,9 @@ import org.springframework.web.client.RestClient;
  *   <li>{@code enforcingOrigin} is an origin that verifies requests;</li>
  *   <li>{@code bare} holds a stamp key and nothing to verify with.</li>
  * </ul>
+ *
+ * <p>Every app and the test's own caller act on influence, so a hop's labels ride in its response's block and the
+ * caller takes them, and what a caller added rides in its own block (spec influence.md, Content labels).
  */
 class AttestationRuleTest {
 
@@ -78,6 +85,7 @@ class AttestationRuleTest {
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final KeyPair APP = Crypto.generateEd25519KeyPair();
     private static final InfluenceEntry WEB = new InfluenceEntry(InfluenceClass.THIRD_PARTY, "web:a", "h1", null, null);
+    private static final ExtensionSettings INFLUENCE = ExtensionSettings.of(Set.of(Influence.NAME), null);
     /** One JDK client for every call the test makes, closed with the apps; {@link TestHttp} bounds its waits. */
     private static HttpClient http;
     private static Path trust;
@@ -109,12 +117,18 @@ class AttestationRuleTest {
             return "alice's order history";
         }
 
-        /** What the handler was given: the inbound chain's length (-1 for none) and the influence classes. */
+        /**
+         * What the handler was given: the inbound chain's length (-1 for none) and the classes of the entries it was
+         * handed under influence.
+         */
         @GetMapping("/seen")
         Map<String, Object> seen() {
             List<Stamp> chain = RequestContext.inboundChain();
+            HandOver handedOn = RequestContext.handedOn();
+            List<InfluenceEntry> handed = handedOn == null ? List.of()
+                    : Influence.readRequest(handedOn.under(Influence.NAME)).entries();
             return Map.of("chain", chain == null ? -1 : chain.size(),
-                    "influence", RequestContext.influence().stream().map(e -> e.cls().wire()).toList());
+                    "influence", handed.stream().map(e -> e.cls().wire()).toList());
         }
 
         /** Calls {@code path} on the app at {@code port} and reports what the call recorded as influence. */
@@ -124,7 +138,7 @@ class AttestationRuleTest {
                 Map<String, Object> out = new HashMap<>();
                 out.put("status", response.getStatusCode().value());
                 out.put("attested", response.getHeaders().getFirst(PaztportHeaders.RESPONSE) != null);
-                out.put("recorded", RequestContext.influence().stream().map(e -> e.cls().wire()).toList());
+                out.put("recorded", RequestContext.added().stream().map(e -> e.cls().wire()).toList());
                 return out;
             }, false);
         }
@@ -164,7 +178,8 @@ class AttestationRuleTest {
                 "paztport.origin=" + isOrigin,
                 "paztport.verify=" + verify,
                 "paztport.key-path=" + trust.resolve("localhost.key"),
-                "paztport.proofs-path=" + trust.resolve("proofs-localhost.json")));
+                "paztport.proofs-path=" + trust.resolve("proofs-localhost.json"),
+                "paztport.extensions.acts-on=influence"));
         if (withTrust) {
             props.add("paztport.keyring-path=" + trust.resolve("keyring.json"));
             props.add("paztport.root-path=" + trust.resolve("root.json"));
@@ -194,11 +209,11 @@ class AttestationRuleTest {
                 List.of(new PinnedKeyring(Keyring.of(Map.of("localhost", APP.getPublic())), notAfter)),
                 List.of(new PinnedRoot(built.signedRoot().rootBytes(), built.signedRoot().rootId(), notAfter)),
                 notAfter, Set.of("localhost"), "",
-                new InMemoryNonceCache(15_000), System::currentTimeMillis, 5000, 5000));
+                new InMemoryNonceCache(15_000), System::currentTimeMillis, 5000, 5000, INFLUENCE));
         RestClient.Builder b = TestHttp.restClient(http).requestInterceptor(new OutboundInterceptor(
                 new Stamper("localhost", "caller-1", APP.getPrivate(), true, () -> UUID.randomUUID().toString(),
                         System::currentTimeMillis), built.bundles().get("localhost"), verifier, "localhost",
-                ObservationRegistry.NOOP));
+                INFLUENCE, ObservationRegistry.NOOP));
         for (ClientHttpRequestInterceptor i : extra) {
             b.requestInterceptor(i);
         }
@@ -215,7 +230,7 @@ class AttestationRuleTest {
                     new Answer(response.getStatusCode().value(),
                             new String(response.getBody().readAllBytes(), StandardCharsets.UTF_8),
                             response.getHeaders().getFirst(PaztportHeaders.RESPONSE),
-                            RequestContext.influence()), false);
+                            RequestContext.added()), false);
         }
     }
 
@@ -244,17 +259,39 @@ class AttestationRuleTest {
         assertEquals(List.of("private"), reported.get("recorded"));
     }
 
+    /**
+     * Runs after the stamping interceptor and swaps the chain for one anyone could write: an origin stamp with
+     * signature {@code sig} and the {@code ext} {@code commit} gives for the blocks the caller sent.
+     */
+    private static ClientHttpRequestInterceptor forging(String sig, Function<List<Block>, String> commit) {
+        return (request, body, execution) -> {
+            List<Block> sent = Block.parseAll(HttpWire.decodeBlocks(
+                    request.getHeaders().getFirst(PaztportHeaders.EXTENSIONS)));
+            Stamp forged = new Stamp("localhost", "x", UUID.randomUUID().toString(),
+                    System.currentTimeMillis(), "", "localhost", "b", commit.apply(sent), "", sig);
+            request.getHeaders().set(PaztportHeaders.CHAIN, HttpWire.encodeChain(List.of(forged)));
+            return execution.execute(request, body);
+        };
+    }
+
+    // A hop that does not verify still applies check 9a to what it serves (spec verification.md, "A service never
+    // serves a request whose blocks fail check 9a"): the caller acts on influence, so the block it sent names it,
+    // and a forged stamp committing to no block does not match it.
+    @Test
+    void aForgedStampCommittingToNoBlockIsRefusedByAHopThatDoesNotVerify() {
+        Answer answer = get(caller(forging("", sent -> "")), hop, "/labelled");
+
+        assertEquals(400, answer.status());
+        assertEquals("{\"reason\":\"EXTENSION_MISMATCH\"}", answer.body());
+        assertNull(answer.attestation());
+        assertEquals(List.of(InfluenceClass.LOCAL_UNTRUSTED), classes(answer));
+    }
+
     @Test
     void aForgedChainSentToAHopThatDoesNotVerifyIsServedButNeverAttested() {
         for (String sig : List.of("", Base64Url.encode(new byte[64]))) {
-            // Runs after the stamping interceptor and swaps the chain for one anyone could write: an origin stamp
-            // with no real signature.
-            Answer answer = get(caller((request, body, execution) -> {
-                Stamp forged = new Stamp("localhost", "x", UUID.randomUUID().toString(),
-                        System.currentTimeMillis(), "", "localhost", "b", Influence.commit(List.of()), "", sig);
-                request.getHeaders().set(PaztportHeaders.CHAIN, HttpWire.encodeChain(List.of(forged)));
-                return execution.execute(request, body);
-            }), hop, "/labelled");
+            // The forgery commits to the block that travels, so check 9a holds and only the signature is false.
+            Answer answer = get(caller(forging(sig, sent -> sent.get(0).commit())), hop, "/labelled");
 
             assertEquals(200, answer.status(), "sig=\"" + sig + "\": not refused, since the hop does not enforce");
             assertEquals("alice's order history", answer.body());

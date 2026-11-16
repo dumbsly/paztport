@@ -4,29 +4,41 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import {
-  callInSession,
   decode,
   encode,
+  extensionSettings,
   newRecordSet,
+  readKeyring,
   readSessionReply,
   readSessionRequest,
+  recordedCallReason,
   recordedSession,
+  recordExtensionSettings,
   sha256,
   utf8,
   type ReasonCode,
   type RecordedSession,
 } from "@paztport/core";
 import { hasRefusalShape, verifyMcpResponse, verifyRecordedCall } from "@paztport/mcp";
+import { EVIDENCE_VERSION } from "../../pi-extension/src/evidence.ts";
 import { ORIGIN_SVC, verifyClient, verifyLocal, type Client, type LocalResult, type NamedClient, type RunInfo } from "./verify-local.ts";
 
 /**
  * Offline re-check of a run's evidence file (the `evidenceLog` of the pi extension). It needs no keys
  * of ours: the pinned server key is in the file, and everything else is checked against it.
  *
+ * It reads evidence format 2 (version 4 tokens: a call's `_meta` holds the blocks token as sent, a local record's
+ * `blocks` the token of its chain's blocks). A file whose every readable record is format 1, written for protocol
+ * version 3, is refused whole with one stated reason (`problem`), not line by line.
+ *
  * Every signature, link, binding, proof, influence, replay, session and local-step check is the library's: calls
  * are recorded chains (verifyRecordedCall), responses are checked as the client checked them (verifyMcpResponse
- * at the recorded time, ending at the call's caller), sessions are recorded handshakes (recordedSession), judged
- * again at each call's recorded time (callInSession), and local steps are the library's recorded local steps
+ * at the recorded time, ending at the call's caller), sessions are recorded handshakes (recordedSession), and
+ * this verifier acts on `influence`: a call is judged by recordedCallReason, which reads the items in its blocks
+ * once the chain verifies and before the session's limits, at each call's recorded time (so a call past them that
+ * holds an item that does not read is INFLUENCE_MISMATCH, not OUTSIDE_SESSION); a response is checked with
+ * recordExtensionSettings, which does not run check 9c, since a record does not hold the caller's `actsOn`. Neither
+ * is given an allowed list. Local steps are the library's recorded local steps
  * (verifyRecordedLocalStep, through verify-local.ts). What is here is reading the evidence format, matching
  * records to each other, the client record, and the report. Every Paztport object a record holds is its token, read
  * by the library's reader, so one that does not read gets that reader's refusal.
@@ -35,15 +47,17 @@ import { ORIGIN_SVC, verifyClient, verifyLocal, type Client, type LocalResult, t
  *   time is not its run's.
  * - PROMPT_MISMATCH: a call or local step whose origin does not bind its run's recorded prompt (or its run has no
  *   record, or two that disagree); also a second run record for a rid with another prompt.
- * - OUTSIDE_SESSION: a call that verifies, in a verified session, but recorded after its session's reply
- *   certificate, or a root or keyring of its handshake (either side's), expired.
+ * - OUTSIDE_SESSION: a call that verifies, with its items read, in a verified session, but recorded after its
+ *   session's reply certificate, or a root or keyring of its handshake (either side's), expired.
  * - PROOF_MISMATCH: a local record whose route proof does not prove `session/pi/local:<tool>` against the client
  *   root, or whose signed `routeAllowed` does not match whether it has a proof.
  * - RULES_MISMATCH: a local record whose signed rules hash is not the client record's.
  * - VERDICT_MISMATCH: a local record whose verdict does not follow from the signed rules applied to what it records.
  *
  * Results that are this verifier's own, about the evidence file rather than the protocol:
- * - BAD_SESSION: the session record does not verify against its pin, or was not attested.
+ * - BAD_SESSION: the session record does not verify against its pin, or the server did not attest it, or the client
+ *   recorded it as other than attested (`unsafe`, or `no-calls`: a session it made no call in), or its request names a
+ *   client policy key other than a client record's in the file.
  * - NO_SESSION: a call whose server has no verified session before it (a response to it is NO_CALL).
  * - UNREADABLE: a line, record or file that cannot be read.
  * - NO_CALL: a response with no verified call before it (same server, rid and call id).
@@ -136,12 +150,17 @@ export function readOr<T>(read: () => T): T | undefined {
 /** The mock server's entry service, from this verifier's own configuration: its responses start there, and its reply certificate names it. */
 const SERVER_ENTRY = "mcp-entry";
 
-/** What a verified session gives the checks that follow it: the recorded handshake as the library reads it, and the material its records are checked against. */
+/** The extension this verifier acts on: a recorded call's items are read as `influence` says, before its session's limits. */
+const CALL_EXTENSIONS = extensionSettings(["influence"]);
+/** A recorded response is read as `influence` says, with no check 9c: it was held to the caller's `actsOn` live, which a record does not hold. */
+const RESPONSE_EXTENSIONS = recordExtensionSettings(["influence"]);
+
+/**
+ * What a verified session gives the checks that follow it: the recorded handshake as the library reads it, which gives
+ * its calls their config, and the server material its responses are checked against.
+ */
 type Session = {
   recorded: RecordedSession;
-  clientKeyring: Record<string, string>;
-  clientRoot: Uint8Array;
-  clientRootId: string;
   serverKeyring: Record<string, string>;
   serverRoot: Uint8Array;
   serverRootId: string;
@@ -153,7 +172,11 @@ export function pinFingerprint(pin: string): string {
   return encode(sha256(utf8(pin))).slice(0, 16);
 }
 
-function verifySession(r: Rec): Session | undefined {
+/**
+ * The verified session of a session record, or undefined when it is a bad session. `clientKeys` are the policy keys of
+ * the file's client records.
+ */
+function verifySession(r: Rec, clientKeys: readonly string[]): Session | undefined {
   try {
     if (r.status !== "attested" || !isString(r.pin) || !isString(r.request) || !isString(r.reply)) {
       return undefined;
@@ -166,13 +189,15 @@ function verifySession(r: Rec): Session | undefined {
     if (!recorded.attested) {
       return undefined;
     }
-    const request = readSessionRequest(r.request);
+    // An evidence file is one client's: a session request under another client policy key, even one the server pinned
+    // and attested, would let the file pair another client's attested session with this client's records.
+    const { clientPolicyKey } = readSessionRequest(r.request);
+    if (clientKeys.some((key) => key !== clientPolicyKey)) {
+      return undefined;
+    }
     const reply = readSessionReply(r.reply);
     return {
       recorded,
-      clientKeyring: request.clientKeyring,
-      clientRoot: decode(request.clientRoot!.root),
-      clientRootId: request.clientRoot!.rootId,
       serverKeyring: reply.serverKeyring,
       serverRoot: decode(reply.serverRoot!.root),
       serverRootId: reply.serverRoot!.rootId,
@@ -181,6 +206,16 @@ function verifySession(r: Rec): Session | undefined {
   } catch {
     return undefined;
   }
+}
+
+const RECORD_TYPES = ["run", "session", "call", "response", "client", "local"];
+
+/** Why a file of format 1 records is refused whole. */
+const FORMAT_1 = "evidence format 1, written for protocol version 3 by an earlier version of this demo; this verify reads format 2";
+
+/** A file failed as a whole, with the reason: one UNREADABLE item for the file. */
+function failedFile(file: string, problem: string): VerifyReport {
+  return { file, ok: false, items: [{ line: 0, type: "file", result: "UNREADABLE" }], pins: [], problem };
 }
 
 function unreadable(file: string, line: number, type: string): VerifyReport {
@@ -196,21 +231,32 @@ function verifyFile(path: string, label: string): VerifyReport {
   }
   const items: VerifyItem[] = [];
   const lines: { line: number; rec: Rec }[] = [];
+  let format1 = 0;
   text.split("\n").forEach((raw, i) => {
     if (raw.trim() === "") {
       return;
     }
     try {
       const rec: unknown = JSON.parse(raw);
-      if (isObject(rec) && rec.v === 1 && isString(rec.type) && ["run", "session", "call", "response", "client", "local"].includes(rec.type)) {
-        lines.push({ line: i + 1, rec });
-        return;
+      if (isObject(rec) && isString(rec.type) && RECORD_TYPES.includes(rec.type)) {
+        if (rec.v === EVIDENCE_VERSION) {
+          lines.push({ line: i + 1, rec });
+          return;
+        }
+        if (rec.v === 1) {
+          format1++;
+        }
       }
     } catch {
       // reported below
     }
     items.push({ line: i + 1, type: "line", result: "UNREADABLE" });
   });
+  // A file whose every readable record is format 1 was written for protocol version 3: one reason for the whole file,
+  // not a list of lines it cannot read.
+  if (lines.length === 0 && format1 > 0) {
+    return failedFile(label, FORMAT_1);
+  }
   if (lines.length === 0 && items.length === 0) {
     return unreadable(label, 0, "file"); // an empty file verifies nothing
   }
@@ -221,6 +267,8 @@ function verifyFile(path: string, label: string): VerifyReport {
   const disputed = new Set<string>();
   // Every client root, policy key, keyring and keyring window a session record names, for the client records to agree with.
   const named: NamedClient[] = [];
+  // The policy key of every client record whose keyring reads, for the session records to agree with.
+  const clientKeys: string[] = [];
   const runTimes = new Map<string, Set<number>>();
   for (const { rec } of lines) {
     if (rec.type === "run" && isString(rec.rid) && isString(rec.prompt)) {
@@ -231,6 +279,10 @@ function verifyFile(path: string, label: string): VerifyReport {
       } else if (seen !== rec.prompt) {
         disputed.add(rec.rid);
       }
+    }
+    const clientKey = rec.type === "client" && isString(rec.keyring) ? readOr(() => readKeyring(rec.keyring as string).policy) : undefined;
+    if (clientKey !== undefined) {
+      clientKeys.push(clientKey);
     }
     // a request that does not read names nothing
     const request = rec.type === "session" && isString(rec.request) ? readOr(() => readSessionRequest(rec.request as string)) : undefined;
@@ -282,7 +334,7 @@ function verifyFile(path: string, label: string): VerifyReport {
         runItems.push({ item: add("OK"), rid: rec.rid });
       }
     } else if (type === "session") {
-      const s = verifySession(rec);
+      const s = verifySession(rec, clientKeys);
       sessions.set(server, s);
       if (s !== undefined) {
         pins.add(pinFingerprint(rec.pin as string));
@@ -309,16 +361,13 @@ function verifyFile(path: string, label: string): VerifyReport {
         const v = verifyRecordedCall(
           params,
           { serverId: server, rid: rec.rid, callId: rec.callId, stampedAt: rec.now, ...(run !== undefined ? { prompt: run.prompt } : {}) },
-          // the session's windows are judged by callInSession below, so the members have none here
-          {
-            keyrings: [{ keys: session.clientKeyring, notAfter: Infinity }],
-            roots: [{ root: session.clientRoot, rootId: session.clientRootId, notAfter: Infinity }],
-            allowedOrigins: [ORIGIN_SVC], sess: session.sess, seen: records.spent,
-          },
+          // the request's client material and the reply's session id, with no windows: recordedCallReason below judges
+          // the session's limits. The session is attested, so it gives a config.
+          session.recorded.callConfig({ allowedOrigins: [ORIGIN_SVC], seen: records.spent, extensions: CALL_EXTENSIONS })!,
         );
         // `now` is the time of the call's last stamp, which the client signed (a call whose stamp time differs is
         // TIME_MISMATCH): a call recorded past one of its session's limits is OUTSIDE_SESSION. The session is attested.
-        const result = callInSession(session.recorded, v.result.reason, rec.now)!;
+        const result = recordedCallReason(v.result, session.recorded, rec.now)!;
         add(result);
         // the first record of a call is the one its response answers
         const k = key(server, rec.rid, rec.callId);
@@ -359,7 +408,7 @@ function verifyFile(path: string, label: string): VerifyReport {
         // the session's one server keyring and root, each held to its response limit; with none, never current
         const policyNotAfter = call.session.recorded.responseNotAfter;
         const notAfter = policyNotAfter ?? Number.NaN;
-        const v = verifyMcpResponse(rec.result, { rid: rec.rid, toolCallId: rec.callId, receiver: call.caller }, {
+        const v = verifyMcpResponse(rec.result, { rid: rec.rid, callId: rec.callId, receiver: call.caller }, {
           keyrings: [{ keys: call.session.serverKeyring, notAfter }],
           roots: [{ root: call.session.serverRoot, rootId: call.session.serverRootId, notAfter }],
           allowedOrigins: [SERVER_ENTRY],
@@ -367,8 +416,9 @@ function verifyFile(path: string, label: string): VerifyReport {
           nonces: records.responseNonces,
           now: rec.now,
           policyNotAfter,
+          extensions: RESPONSE_EXTENSIONS,
         });
-        add(v.result.reason);
+        add(v.reason);
       }
     }
   }
@@ -515,7 +565,6 @@ export function signedEvidenceNeeded(runDir: string): string | undefined {
 }
 
 const nothingToCheck = (file: string): VerifyReport => ({ file, ok: true, items: [], pins: [], nothingToCheck: true });
-const needsSigned = (file: string, problem: string): VerifyReport => ({ file, ok: false, items: [{ line: 0, type: "file", result: "UNREADABLE" }], pins: [], problem });
 
 /**
  * Every `runs/<name>/evidence.jsonl` under a results folder, in name order, each reported on its own.
@@ -572,10 +621,10 @@ export function verifyResultsDir(dir: string): VerifyReport[] {
     // be edited or deleted)
     const need = signedEvidenceNeeded(join(dir, "runs", name));
     if (need !== undefined) {
-      reports.push(needsSigned(rel, need));
+      reports.push(failedFile(rel, need));
     } else if (expect === "signed") {
       const what = report !== undefined ? "has no signed records" : size === 0 ? "is empty" : "is missing";
-      reports.push(needsSigned(rel, `evidence.jsonl ${what}, but this run had Paztport on and results.json records its evidence as checked`));
+      reports.push(failedFile(rel, `evidence.jsonl ${what}, but this run had Paztport on and results.json records its evidence as checked`));
     } else if (expect !== undefined || report !== undefined) {
       reports.push(report ?? nothingToCheck(rel));
     } else if (size === 0) {

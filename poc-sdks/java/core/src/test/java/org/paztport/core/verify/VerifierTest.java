@@ -5,11 +5,14 @@ package org.paztport.core.verify;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
 import java.security.PublicKey;
 import java.util.Arrays;
@@ -22,7 +25,6 @@ import org.junit.jupiter.api.Test;
 import org.paztport.core.Vectors;
 import org.paztport.core.crypto.Crypto;
 import org.paztport.core.encoding.Base64Url;
-import org.paztport.core.influence.Influence;
 import org.paztport.core.internal.JsonIntegers;
 import org.paztport.core.policy.Keyring;
 import org.paztport.core.policy.KeyringFile;
@@ -31,10 +33,14 @@ import org.paztport.core.policy.MerkleProof;
 import org.paztport.core.policy.MerkleTree;
 import org.paztport.core.policy.PolicyBuilder;
 import org.paztport.core.policy.SignedRoot;
+import org.paztport.core.stamp.Block;
 import org.paztport.core.stamp.Chains;
 import org.paztport.core.stamp.Stamp;
 
-/** The edges of the live verifier that the shared vectors do not reach: hostile input, a null peer, the pin. */
+/**
+ * The edges of the live verifier that the shared vectors do not reach: hostile input, a null peer, the pin, the
+ * blocks' edges, and the order among checks 1 to 8 and around the peer.
+ */
 class VerifierTest {
 
     /** The validity window of the fixture roots and keyrings: 2100-01-01, beyond any clock here. */
@@ -45,7 +51,7 @@ class VerifierTest {
 
     @BeforeAll
     static void load() throws IOException {
-        vectors = Vectors.load("v3.json");
+        vectors = Vectors.load("v4.json");
         for (JsonNode c : vectors.get("verify")) {
             if (c.get("name").asText().equals("peer ok")) {
                 peerOk = c;
@@ -64,13 +70,13 @@ class VerifierTest {
                 List.of(new PinnedRoot(Base64Url.decode(policy.get("root").asText()), policy.get("rootId").asText(),
                         NOT_AFTER)), NOT_AFTER, Set.of("session"), c.get("sess").asText(),
                 new InMemoryNonceCache(c.get("nonceTtlMs").asLong()), () -> now, c.get("callMaxAgeMs").asLong(),
-                c.get("runMaxAgeMs").asLong()));
+                c.get("runMaxAgeMs").asLong(), ExtensionSettings.of(Set.of("example"), null)));
     }
 
-    private static VerifyInput input(String stamps, String bind, String influence, String proof, Peer peer) {
+    private static VerifyInput input(String stamps, String bind, String blocks, String proof, Peer peer) {
         JsonNode policy = vectors.get("policies").get(peerOk.get("policy").asText());
         String good = Vectors.tokenText(policy.get("proofTokens").get(peerOk.get("proofRoute").asText()));
-        return new VerifyInput(stamps, bind, influence, proof == null ? good : proof, peerOk.get("receiver").asText(),
+        return new VerifyInput(stamps, bind, blocks, proof == null ? good : proof, peerOk.get("receiver").asText(),
                 peerOk.get("receiverInRoute").asBoolean(), peerOk.get("nonceKey").asText(), peer);
     }
 
@@ -81,18 +87,18 @@ class VerifierTest {
     @Test
     void neverThrows() {
         String chain = Vectors.tokenText(peerOk.get("chainToken"));
-        String infl = Vectors.tokenText(peerOk.get("influenceToken"));
+        String infl = Vectors.tokenText(peerOk.get("blocksToken"));
         assertEquals(ReasonCode.CHAIN_MISSING,
                 verifier().verify(input("\"x\"", bind(), infl, null, null)).reason());
         assertEquals(ReasonCode.CHAIN_MISSING, verifier().verify(input(null, bind(), infl, null, null)).reason());
-        assertEquals(ReasonCode.INFLUENCE_MISMATCH,
+        assertEquals(ReasonCode.EXTENSION_MISMATCH,
                 verifier().verify(input(chain, bind(), "{}", null, null)).reason());
         assertEquals(ReasonCode.PATH_NOT_ALLOWED,
                 verifier().verify(input(chain, bind(), infl, "\"x\"", null)).reason());
         // Text that is not JSON at all fails at the check that reads it, as a wrong type does.
         assertEquals(ReasonCode.CHAIN_MISSING, verifier().verify(input(chain + "]", bind(), infl, null, null))
                 .reason());
-        assertEquals(ReasonCode.INFLUENCE_MISMATCH,
+        assertEquals(ReasonCode.EXTENSION_MISMATCH,
                 verifier().verify(input(chain, bind(), "[", null, null)).reason());
         assertEquals(ReasonCode.PATH_NOT_ALLOWED,
                 verifier().verify(input(chain, bind(), infl, "{", null)).reason());
@@ -102,8 +108,10 @@ class VerifierTest {
     @Test
     void nullPeerIsNoPeer() {
         VerifyResult r = verifier().verify(input(Vectors.tokenText(peerOk.get("chainToken")), bind(),
-                Vectors.tokenText(peerOk.get("influenceToken")), null, null));
-        assertEquals(new VerifyResult(ReasonCode.OK, "pi", "pi-1"), r);
+                Vectors.tokenText(peerOk.get("blocksToken")), null, null));
+        assertEquals(ReasonCode.OK, r.reason());
+        assertEquals("pi", r.suspectSvc());
+        assertEquals("pi-1", r.suspectInst());
     }
 
     @Test
@@ -114,21 +122,23 @@ class VerifierTest {
         SignedRoot signed = SignedRoot.sign(root, "v1", NOT_AFTER, policy.getPrivate());
         KeyringFile unsigned = new KeyringFile(Map.of(), pin, null, NOT_AFTER);
         assertThrows(IllegalArgumentException.class, () -> VerifierConfig.pinned(List.of(unsigned),
-                List.of(signed), pin, 0L, Set.of("session"), "s", new InMemoryNonceCache(), () -> 0L, 5000, 5000));
+                List.of(signed), pin, 0L, Set.of("session"), "s", new InMemoryNonceCache(), () -> 0L, 5000, 5000,
+                ExtensionSettings.NONE));
         KeyringFile good = KeyringFile.sign(Map.of(), pin, NOT_AFTER, policy.getPrivate());
         VerifierConfig cfg = VerifierConfig.pinned(List.of(good), List.of(signed), pin, 0L, Set.of("session"), "s",
-                new InMemoryNonceCache(), () -> 0L, 5000, 5000);
+                new InMemoryNonceCache(), () -> 0L, 5000, 5000, ExtensionSettings.NONE);
         assertEquals("v1", cfg.roots().get(0).rootId());
         KeyPair other = Crypto.generateEd25519KeyPair();
         SignedRoot forged = SignedRoot.sign(root, "v1", NOT_AFTER, other.getPrivate());
         assertThrows(IllegalArgumentException.class, () -> VerifierConfig.pinned(List.of(good), List.of(forged),
-                pin, 0L, Set.of("session"), "s", new InMemoryNonceCache(), () -> 0L, 5000, 5000));
+                pin, 0L, Set.of("session"), "s", new InMemoryNonceCache(), () -> 0L, 5000, 5000,
+                ExtensionSettings.NONE));
     }
 
     @Test
     void nullInputsAreRejectionsNotExceptions() {
         String chain = Vectors.tokenText(peerOk.get("chainToken"));
-        String infl = Vectors.tokenText(peerOk.get("influenceToken"));
+        String infl = Vectors.tokenText(peerOk.get("blocksToken"));
         VerifyInput good = input(chain, bind(), infl, null, null);
         assertEquals(ReasonCode.CHAIN_MISSING, verifier().verify(null).reason());
         assertEquals(ReasonCode.BINDING_MISMATCH, verifier().verify(new VerifyInput(chain, bind(), infl,
@@ -156,48 +166,72 @@ class VerifierTest {
             List.of(new MerkleLeaf(new byte[16], "session/pi/target")), 1, "vtest");
     private static final String PROOF = TREE.proofFor("session/pi/target").toJson();
 
-    private record Case(String origin, String rid, String sess, String prev, long originTs, long lastTs) {
+    /**
+     * A two-stamp chain, session then pi, its fields and its blocks; {@code ext} null signs the last stamp's
+     * commitment to {@code last}, and anything else signs that text as its ext.
+     */
+    private record Case(String origin, String rid, String sess, String prev, long originTs, long lastTs, Block first,
+            Block last, String ext) {
         Case() {
-            this("session", "r", "s", null, NOW - 100, NOW - 50);
+            this("session", "r", "s", null, NOW - 100, NOW - 50, Block.EMPTY, Block.EMPTY, null);
         }
 
         Case origin(String o) {
-            return new Case(o, rid, sess, prev, originTs, lastTs);
+            return new Case(o, rid, sess, prev, originTs, lastTs, first, last, ext);
         }
 
         Case rid(String r) {
-            return new Case(origin, r, sess, prev, originTs, lastTs);
+            return new Case(origin, r, sess, prev, originTs, lastTs, first, last, ext);
         }
 
         Case sess(String s) {
-            return new Case(origin, rid, s, prev, originTs, lastTs);
+            return new Case(origin, rid, s, prev, originTs, lastTs, first, last, ext);
         }
 
         Case prev(String p) {
-            return new Case(origin, rid, sess, p, originTs, lastTs);
+            return new Case(origin, rid, sess, p, originTs, lastTs, first, last, ext);
         }
 
         Case originTs(long t) {
-            return new Case(origin, rid, sess, prev, t, lastTs);
+            return new Case(origin, rid, sess, prev, t, lastTs, first, last, ext);
         }
 
         Case lastTs(long t) {
-            return new Case(origin, rid, sess, prev, originTs, t);
+            return new Case(origin, rid, sess, prev, originTs, t, first, last, ext);
+        }
+
+        Case blocks(Block f, Block l) {
+            return new Case(origin, rid, sess, prev, originTs, lastTs, f, l, ext);
+        }
+
+        Case ext(String e) {
+            return new Case(origin, rid, sess, prev, originTs, lastTs, first, last, e);
+        }
+
+        /** The blocks as their sender writes them. */
+        String blocksText() {
+            return Block.toJson(List.of(first, last));
         }
     }
 
     private static String chain(Case c) {
-        Stamp a = Stamp.sign(c.origin(), "i", "r", c.originTs(), "s", "pi", "b", "", "", SESSION.getPrivate());
-        Stamp b = Stamp.sign("pi", "i", c.rid(), c.lastTs(), c.sess(), "target", "b", "",
-                c.prev() == null ? a.sig() : c.prev(), PI.getPrivate());
+        Stamp a = Stamp.sign(c.origin(), "i", "r", c.originTs(), "s", "pi", "b", c.first().commit(), "",
+                SESSION.getPrivate());
+        Stamp b = Stamp.sign("pi", "i", c.rid(), c.lastTs(), c.sess(), "target", "b",
+                c.ext() == null ? c.last().commit() : c.ext(), c.prev() == null ? a.sig() : c.prev(), PI.getPrivate());
         return Chains.toJson(List.of(a, b));
     }
 
     private static Verifier boundary(NonceCache cache, long callMax, long runMax) {
+        return boundary(cache, callMax, runMax, ExtensionSettings.NONE);
+    }
+
+    private static Verifier boundary(NonceCache cache, long callMax, long runMax, ExtensionSettings settings) {
         Keyring ring = Keyring.of(Map.of("session", SESSION.getPublic(), "pi", PI.getPublic(),
                 "other", Crypto.generateEd25519KeyPair().getPublic()));
         return new Verifier(new VerifierConfig(List.of(new PinnedKeyring(ring, NOT_AFTER)),
-                List.of(root(TREE, NOT_AFTER)), NOT_AFTER, Set.of("session"), "s", cache, () -> NOW, callMax, runMax));
+                List.of(root(TREE, NOT_AFTER)), NOT_AFTER, Set.of("session"), "s", cache, () -> NOW, callMax, runMax,
+                settings));
     }
 
     private static ReasonCode run(Case c) {
@@ -253,6 +287,273 @@ class VerifierTest {
         assertEquals(ReasonCode.SESSION_UNKNOWN, run(new Case().sess("s2")));
     }
 
+    // Checks 9a to 9c, the hand-over, and the order the spec gives, on chains the test signs.
+
+    private static final String ITEM = "{\"note\":\"n1\"}";
+    private static final Block NOTED = Block.of(Map.of("example", List.of(ITEM, "7")), List.of());
+    private static final Block ALTERED = Block.of(Map.of("example", List.of(ITEM, "8")), List.of());
+    private static final Block NOTED_TOO = Block.of(Map.of("example", List.of("\"n2\"")), List.of());
+    private static final Block OTHER = Block.of(Map.of("other", List.of("1")), List.of());
+    private static final ExtensionSettings EXAMPLE = ExtensionSettings.of(Set.of("example"), null);
+    private static final ExtensionSettings LISTED = ExtensionSettings.of(Set.of("example"), Set.of("example"));
+    private static final Peer SIGNER = new Peer("pi", "10.0.0.7");
+    private static final Peer SOMEONE = new Peer("search", "10.0.0.9");
+
+    private static VerifyInput signed(Case c, String blocks, String proof, String receiver, String bind, Peer peer) {
+        return new VerifyInput(chain(c), bind, blocks, proof, receiver, true, "r|target|req", peer);
+    }
+
+    private static VerifyInput signed(Case c, String blocks) {
+        return signed(c, blocks, PROOF, "target", "b", null);
+    }
+
+    private static Verifier with(ExtensionSettings settings) {
+        return boundary(new InMemoryNonceCache(2 * CALL), CALL, RUN, settings);
+    }
+
+    private static ReasonCode verify(Case c, String blocks, ExtensionSettings settings) {
+        return with(settings).verify(signed(c, blocks)).reason();
+    }
+
+    @Test
+    void theExtensionsAreTheConfigsOwn() {
+        assertSame(LISTED, with(LISTED).extensions());
+        assertSame(ExtensionSettings.NONE, with(ExtensionSettings.NONE).extensions());
+    }
+
+    /** No blocks received is one empty block per stamp. */
+    @Test
+    void blocksAbsentAndEveryExtEmptyIsOk() {
+        assertEquals(ReasonCode.OK, verify(new Case(), null, EXAMPLE));
+        assertEquals(ReasonCode.OK, verify(new Case(), new Case().blocksText(), EXAMPLE));
+    }
+
+    /** Text that reads as JSON null is not an array of blocks, unlike no text at all. */
+    @Test
+    void blocksThatAreJsonNullAreExtensionMismatch() {
+        assertEquals(ReasonCode.EXTENSION_MISMATCH, verify(new Case(), "null", EXAMPLE));
+    }
+
+    @Test
+    void blocksAbsentWhereAStampCommitsToABlockIsExtensionMismatch() {
+        Case c = new Case().blocks(Block.EMPTY, NOTED);
+        assertEquals(ReasonCode.EXTENSION_MISMATCH, verify(c, null, EXAMPLE));
+        assertEquals(ReasonCode.OK, verify(c, c.blocksText(), EXAMPLE));
+    }
+
+    /** A missing block is not read as an empty one, even where the stamp without one commits to the empty block. */
+    @Test
+    void oneBlockTooFewIsExtensionMismatch() {
+        assertEquals(ReasonCode.EXTENSION_MISMATCH, verify(new Case(), Block.toJson(List.of(Block.EMPTY)), EXAMPLE));
+        Case c = new Case().blocks(NOTED, Block.EMPTY);
+        assertEquals(ReasonCode.EXTENSION_MISMATCH, verify(c, Block.toJson(List.of(NOTED)), EXAMPLE));
+    }
+
+    @Test
+    void oneBlockTooManyIsExtensionMismatch() {
+        assertEquals(ReasonCode.EXTENSION_MISMATCH,
+                verify(new Case(), Block.toJson(List.of(Block.EMPTY, Block.EMPTY, Block.EMPTY)), EXAMPLE));
+        Case c = new Case().blocks(Block.EMPTY, NOTED);
+        assertEquals(ReasonCode.EXTENSION_MISMATCH,
+                verify(c, Block.toJson(List.of(Block.EMPTY, NOTED, Block.EMPTY)), EXAMPLE));
+    }
+
+    @Test
+    void twoBlocksSwappedIsExtensionMismatch() {
+        Case c = new Case().blocks(NOTED_TOO, NOTED);
+        assertEquals(ReasonCode.OK, verify(c, c.blocksText(), EXAMPLE));
+        assertEquals(ReasonCode.EXTENSION_MISMATCH, verify(c, Block.toJson(List.of(NOTED, NOTED_TOO)), EXAMPLE));
+    }
+
+    @Test
+    void anItemAlteredIsExtensionMismatch() {
+        Case c = new Case().blocks(Block.EMPTY, NOTED);
+        assertEquals(ReasonCode.EXTENSION_MISMATCH, verify(c, Block.toJson(List.of(Block.EMPTY, ALTERED)), EXAMPLE));
+    }
+
+    /**
+     * A stamp's ext is compared as text and never decoded, so one whose ext is not base64url reads (check
+     * 1) and is refused at check 9a. A reader that decoded ext, as it decodes sig, would give CHAIN_MISSING.
+     */
+    @Test
+    void anExtThatIsNotBase64UrlIsExtensionMismatchNotChainMissing() {
+        Case c = new Case().ext("not base64url!");
+        assertTrue(Chains.parse(chain(c)).ok(), "the chain reads");
+        assertEquals(ReasonCode.EXTENSION_MISMATCH, verify(c, null, EXAMPLE));
+        assertEquals(ReasonCode.EXTENSION_MISMATCH, verify(c, c.blocksText(), EXAMPLE));
+    }
+
+    /** The empty block's ext is "", not its hash: a stamp committing to the hash does not match the empty block. */
+    @Test
+    void anExtThatIsTheHashOfTheEmptyBlockIsExtensionMismatch() {
+        String hash = Base64Url.encode(Crypto.sha256(Block.EMPTY.toJson().getBytes(StandardCharsets.UTF_8)));
+        Case c = new Case().ext(hash);
+        assertEquals(ReasonCode.EXTENSION_MISMATCH, verify(c, null, EXAMPLE));
+        assertEquals(ReasonCode.EXTENSION_MISMATCH, verify(c, c.blocksText(), EXAMPLE));
+    }
+
+    @Test
+    void aNameOutsideTheAllowedListIsExtensionNotAllowed() {
+        Case inItems = new Case().blocks(Block.EMPTY, OTHER);
+        assertEquals(ReasonCode.EXTENSION_NOT_ALLOWED, verify(inItems, inItems.blocksText(), LISTED));
+        Case inRequires = new Case().blocks(Block.of(Map.of(), List.of("other")), Block.EMPTY);
+        assertEquals(ReasonCode.EXTENSION_NOT_ALLOWED, verify(inRequires, inRequires.blocksText(), LISTED));
+    }
+
+    @Test
+    void theSameNameWithNoListIsOk() {
+        Case inItems = new Case().blocks(Block.EMPTY, OTHER);
+        assertEquals(ReasonCode.OK, verify(inItems, inItems.blocksText(), EXAMPLE));
+        Case inRequires = new Case().blocks(Block.of(Map.of(), List.of("other")), Block.EMPTY);
+        assertEquals(ReasonCode.OK, verify(inRequires, inRequires.blocksText(), EXAMPLE));
+    }
+
+    @Test
+    void theCallersRequiresOfAnExtensionNotActedOnIsExtensionRequired() {
+        Case c = new Case().blocks(Block.EMPTY, Block.of(Map.of(), List.of("other")));
+        assertEquals(ReasonCode.EXTENSION_REQUIRED, verify(c, c.blocksText(), EXAMPLE));
+        assertEquals(ReasonCode.OK, verify(c, c.blocksText(), ExtensionSettings.of(Set.of("other"), null)));
+    }
+
+    /** Only the direct caller's requires binds: check 9c reads the last block alone. */
+    @Test
+    void anEarlierBlocksRequiresBindsNoOne() {
+        Case c = new Case().blocks(Block.of(Map.of(), List.of("other")), Block.EMPTY);
+        assertEquals(ReasonCode.OK, verify(c, c.blocksText(), EXAMPLE));
+    }
+
+    /**
+     * Every name the last block requires must be acted on. An implementation that asked whether any
+     * required name is acted on would pass this call.
+     */
+    @Test
+    void twoRequiredNamesOneActedOnIsExtensionRequired() {
+        Case c = new Case().blocks(Block.EMPTY, Block.of(Map.of(), List.of("example", "other")));
+        assertEquals(ReasonCode.EXTENSION_REQUIRED, verify(c, c.blocksText(), EXAMPLE));
+        assertEquals(ReasonCode.EXTENSION_REQUIRED, verify(c, c.blocksText(),
+                ExtensionSettings.of(Set.of("other"), null)));
+        assertEquals(ReasonCode.OK, verify(c, c.blocksText(), ExtensionSettings.of(Set.of("example", "other"), null)));
+    }
+
+    @Test
+    void verifyRecordedDoesNotRunCheck9c() {
+        Case c = new Case().blocks(Block.EMPTY, Block.of(Map.of(), List.of("other")));
+        assertEquals(ReasonCode.EXTENSION_REQUIRED, with(EXAMPLE).verify(signed(c, c.blocksText())).reason());
+        VerifyResult recorded = with(EXAMPLE).verifyRecorded(signed(c, c.blocksText()));
+        assertEquals(ReasonCode.OK, recorded.reason());
+        assertTrue(recorded.handOver().verified());
+    }
+
+    @Test
+    void verifyRecordedStillRunsChecks9aAnd9b() {
+        Case noted = new Case().blocks(Block.EMPTY, NOTED);
+        assertEquals(ReasonCode.EXTENSION_MISMATCH,
+                with(EXAMPLE).verifyRecorded(signed(noted, Block.toJson(List.of(Block.EMPTY, ALTERED)))).reason());
+        assertEquals(ReasonCode.EXTENSION_MISMATCH, with(EXAMPLE).verifyRecorded(signed(noted, null)).reason());
+        Case other = new Case().blocks(Block.EMPTY, OTHER);
+        assertEquals(ReasonCode.EXTENSION_NOT_ALLOWED,
+                with(LISTED).verifyRecorded(signed(other, other.blocksText())).reason());
+    }
+
+    @Test
+    void onOkTheHandOverHoldsOneEntryPerStampForEachNameActedOn() {
+        Case c = new Case().blocks(Block.of(Map.of("influence", List.of()), List.of()), NOTED);
+        VerifyResult r = with(ExtensionSettings.of(Set.of("example", "influence"), null))
+                .verify(signed(c, c.blocksText()));
+        assertEquals(ReasonCode.OK, r.reason());
+        HandOver h = r.handOver();
+        assertTrue(h.verified());
+        assertEquals(Set.of("example", "influence"), h.names());
+        assertEquals(List.of(new HandOver.StampItems("session", null),
+                new HandOver.StampItems("pi", List.of(ITEM, "7"))), h.under("example"));
+        assertEquals(List.of(new HandOver.StampItems("session", List.of()), new HandOver.StampItems("pi", null)),
+                h.under("influence"));
+        assertNull(h.under("other"), "a name the service does not act on is not handed over");
+        // With a peer the hand-over is the same, and the result names the peer.
+        VerifyResult byPeer = with(ExtensionSettings.of(Set.of("example", "influence"), null))
+                .verify(signed(c, c.blocksText(), PROOF, "target", "b", SIGNER));
+        assertEquals(new VerifyResult(ReasonCode.OK, "pi", "10.0.0.7", h), byPeer);
+    }
+
+    /**
+     * Check 10 before check 11: a request from another peer spends no nonce key, so its signer's own sending is
+     * still new. Were the nonce spent first, the second sending would be REPLAY.
+     */
+    @Test
+    void aWrongPeerIsFoundBeforeTheNonceIsSpent() {
+        Verifier v = with(EXAMPLE);
+        assertEquals(ReasonCode.PEER_MISMATCH, v.verify(signed(new Case(), null, PROOF, "target", "b", SOMEONE))
+                .reason());
+        assertEquals(ReasonCode.OK, v.verify(signed(new Case(), null, PROOF, "target", "b", SIGNER)).reason());
+    }
+
+    @Test
+    void aWrongPeerIsFoundBeforeAnUnprovenRoute() {
+        assertEquals(ReasonCode.PEER_MISMATCH,
+                with(EXAMPLE).verify(signed(new Case(), null, null, "target", "b", SOMEONE)).reason());
+    }
+
+    /** Check 11 before check 12: an unproven route spends its key, so sending it again is REPLAY. */
+    @Test
+    void aReplayIsFoundBeforeAnUnprovenRoute() {
+        Verifier v = with(EXAMPLE);
+        assertEquals(ReasonCode.PATH_NOT_ALLOWED, v.verify(signed(new Case(), null, null, "target", "b", null))
+                .reason());
+        assertEquals(ReasonCode.REPLAY, v.verify(signed(new Case(), null, null, "target", "b", null)).reason());
+    }
+
+    @Test
+    void aBadBlockIsFoundBeforeAWrongPeer() {
+        Case c = new Case().blocks(Block.EMPTY, NOTED);
+        assertEquals(new VerifyResult(ReasonCode.EXTENSION_MISMATCH, "search", "10.0.0.9", null),
+                with(EXAMPLE).verify(signed(c, null, PROOF, "target", "b", SOMEONE)));
+    }
+
+    // The order among checks 1 to 8, which v4.json does not pin: each input fails both checks, and the earlier
+    // check's code is the result; each check alone gives its own code, so the test fails if the two are swapped.
+
+    @Test
+    void aDisallowedOriginIsFoundBeforeABadSignature() {
+        // "other" has a key, but not SESSION's, which signed its stamp.
+        Case c = new Case().origin("other");
+        assertEquals(ReasonCode.BAD_ORIGIN, run(c));
+        Keyring ring = Keyring.of(Map.of("session", SESSION.getPublic(), "pi", PI.getPublic(),
+                "other", Crypto.generateEd25519KeyPair().getPublic()));
+        Verifier allowingOther = new Verifier(new VerifierConfig(List.of(new PinnedKeyring(ring, NOT_AFTER)),
+                List.of(root(TREE, NOT_AFTER)), NOT_AFTER, Set.of("session", "other"), "s",
+                new InMemoryNonceCache(2 * CALL), () -> NOW, CALL, RUN, ExtensionSettings.NONE));
+        assertEquals(ReasonCode.BAD_SIGNATURE, allowingOther.verify(signed(c, null)).reason());
+    }
+
+    @Test
+    void aWrongReceiverIsFoundBeforeAnotherRid() {
+        assertEquals(ReasonCode.BINDING_MISMATCH,
+                with(EXAMPLE).verify(signed(new Case(), null, PROOF, "elsewhere", "b", null)).reason());
+        assertEquals(ReasonCode.RID_MISMATCH, run(new Case().rid("r2")));
+        assertEquals(ReasonCode.BINDING_MISMATCH,
+                with(EXAMPLE).verify(signed(new Case().rid("r2"), null, PROOF, "elsewhere", "b", null)).reason());
+    }
+
+    @Test
+    void anotherRidIsFoundBeforeAnotherSession() {
+        assertEquals(ReasonCode.SESSION_UNKNOWN, run(new Case().sess("s2")));
+        assertEquals(ReasonCode.RID_MISMATCH, run(new Case().rid("r2").sess("s2")));
+    }
+
+    @Test
+    void anotherSessionIsFoundBeforeAStaleStamp() {
+        assertEquals(ReasonCode.EXPIRED, run(new Case().lastTs(NOW - CALL - 1)));
+        assertEquals(ReasonCode.SESSION_UNKNOWN, run(new Case().sess("s2").lastTs(NOW - CALL - 1)));
+    }
+
+    @Test
+    void aStaleStampIsFoundBeforeAWrongBinding() {
+        assertEquals(ReasonCode.BINDING_MISMATCH,
+                with(EXAMPLE).verify(signed(new Case(), null, PROOF, "target", "other", null)).reason());
+        assertEquals(ReasonCode.EXPIRED, with(EXAMPLE)
+                .verify(signed(new Case().lastTs(NOW - CALL - 1), null, PROOF, "target", "other", null)).reason());
+    }
+
     @Test
     void cacheThrowingAnyRuntimeExceptionIsUnavailable() {
         IllegalStateException down = new IllegalStateException("cache down");
@@ -306,7 +607,7 @@ class VerifierTest {
                 List.of(root(TREE, NOT_AFTER)), NOT_AFTER, Set.of("session"), "s", new InMemoryNonceCache(2 * CALL),
                 () -> {
                     throw broken;
-                }, CALL, RUN));
+                }, CALL, RUN, ExtensionSettings.NONE));
         IllegalStateException thrown = assertThrows(IllegalStateException.class,
                 () -> v.verify(boundaryInput("k", null)));
         assertSame(broken, thrown);
@@ -328,7 +629,7 @@ class VerifierTest {
         KeyringFile ring = KeyringFile.sign(services, pin, ringNotAfter, policy.getPrivate());
         SignedRoot root = SignedRoot.sign(TREE.root(), "vtest", rootNotAfter, policy.getPrivate());
         return new Verifier(VerifierConfig.pinned(List.of(ring), List.of(root), pin, clock[0], Set.of("session"), "s",
-                new InMemoryNonceCache(2 * CALL), () -> clock[0], CALL, RUN));
+                new InMemoryNonceCache(2 * CALL), () -> clock[0], CALL, RUN, ExtensionSettings.NONE));
     }
 
     @Test
@@ -338,7 +639,7 @@ class VerifierTest {
         assertEquals(ReasonCode.OK, v.verify(boundaryInput("k1", null)).reason());
         clock[0] = NOW + 1001;
         // The stamps are still fresh (within the call window), so only the keyring's window can refuse.
-        assertEquals(new VerifyResult(ReasonCode.POLICY_EXPIRED, "", ""), v.verify(boundaryInput("k2", null)));
+        assertEquals(new VerifyResult(ReasonCode.POLICY_EXPIRED, "", "", null), v.verify(boundaryInput("k2", null)));
     }
 
     @Test
@@ -354,7 +655,7 @@ class VerifierTest {
     void atNotAfterStillVerifies() {
         long[] clock = {NOW};
         Verifier v = pinnedAt(clock, NOW, NOW);
-        assertEquals(new VerifyResult(ReasonCode.OK, "pi", "i"), v.verify(boundaryInput("k1", null)));
+        assertEquals(OK_PI, v.verify(boundaryInput("k1", null)));
         clock[0] = NOW + 1;
         assertEquals(ReasonCode.POLICY_EXPIRED, v.verify(boundaryInput("k2", null)).reason());
     }
@@ -364,7 +665,7 @@ class VerifierTest {
         long[] clock = {NOW};
         Verifier v = pinnedAt(clock, NOW, NOW);
         clock[0] = NOW + 1;
-        VerifyResult none = new VerifyResult(ReasonCode.POLICY_EXPIRED, "", "");
+        VerifyResult none = new VerifyResult(ReasonCode.POLICY_EXPIRED, "", "", null);
         // Expiry is not the sender's fault, so even an authenticated peer is not named.
         assertEquals(none, v.verify(boundaryInput("k1", new Peer("pi", "10.0.0.7"))));
         assertEquals(none, v.verify(null));
@@ -392,14 +693,14 @@ class VerifierTest {
             Keyring ring = Keyring.of(Map.of("session", SESSION.getPublic(), "pi", PI.getPublic()));
             Verifier v = new Verifier(new VerifierConfig(List.of(new PinnedKeyring(ring, NOT_AFTER)),
                     List.of(root(TREE, NOT_AFTER)), window, Set.of("session"), "s", new InMemoryNonceCache(2 * CALL),
-                    () -> NOW, CALL, RUN));
-            assertEquals(new VerifyResult(ReasonCode.POLICY_EXPIRED, "", ""), v.verify(boundaryInput("k1", null)),
+                    () -> NOW, CALL, RUN, ExtensionSettings.NONE));
+            assertEquals(new VerifyResult(ReasonCode.POLICY_EXPIRED, "", "", null), v.verify(boundaryInput("k1", null)),
                     String.valueOf(window));
         }
         Keyring ring = Keyring.of(Map.of("session", SESSION.getPublic(), "pi", PI.getPublic()));
         Verifier largest = new Verifier(new VerifierConfig(List.of(new PinnedKeyring(ring, NOT_AFTER)),
                 List.of(root(TREE, NOT_AFTER)), JsonIntegers.MAX_SAFE, Set.of("session"), "s",
-                new InMemoryNonceCache(2 * CALL), () -> NOW, CALL, RUN));
+                new InMemoryNonceCache(2 * CALL), () -> NOW, CALL, RUN, ExtensionSettings.NONE));
         assertEquals(ReasonCode.OK, largest.verify(boundaryInput("k1", null)).reason());
     }
 
@@ -410,9 +711,11 @@ class VerifierTest {
     private static final MerkleTree SECOND = tree("v2", 1);
     private static final MerkleTree RENEWED = tree("vtest", 2);
     private static final MerkleTree UNPINNED = tree("v3", 3);
-    private static final VerifyResult OK_PI = new VerifyResult(ReasonCode.OK, "pi", "i");
-    private static final VerifyResult DENIED = new VerifyResult(ReasonCode.PATH_NOT_ALLOWED, "pi", "i");
-    private static final VerifyResult UNSIGNED = new VerifyResult(ReasonCode.BAD_SIGNATURE, "", "");
+    /** What a service that acts on no extension is handed: nothing under any name, verified. */
+    private static final HandOver NOTHING = new HandOver(true, List.of(), List.of(), ExtensionSettings.NONE);
+    private static final VerifyResult OK_PI = new VerifyResult(ReasonCode.OK, "pi", "i", NOTHING);
+    private static final VerifyResult DENIED = new VerifyResult(ReasonCode.PATH_NOT_ALLOWED, "pi", "i", null);
+    private static final VerifyResult UNSIGNED = new VerifyResult(ReasonCode.BAD_SIGNATURE, "", "", null);
 
     /** A one-leaf tree for the boundary route, its salt filled with {@code salt} so each tree has its own root. */
     private static MerkleTree tree(String rootId, int salt) {
@@ -450,7 +753,7 @@ class VerifierTest {
     /** The boundary chain at {@code NOW}, checked against these keyrings and roots with {@code proof}. */
     private static VerifyResult under(List<PinnedKeyring> keyrings, List<PinnedRoot> roots, String proof) {
         Verifier v = new Verifier(new VerifierConfig(keyrings, roots, NOT_AFTER, Set.of("session"), "s",
-                new InMemoryNonceCache(2 * CALL), () -> NOW, CALL, RUN));
+                new InMemoryNonceCache(2 * CALL), () -> NOW, CALL, RUN, ExtensionSettings.NONE));
         return v.verify(new VerifyInput(chain(new Case()), "b", null, proof, "target", true, "k", null));
     }
 
@@ -575,7 +878,8 @@ class VerifierTest {
                         NOT_AFTER)),
                 List.of(new PinnedRoot(OP_POLICY.signedRoot().rootBytes(), OP_POLICY.signedRoot().rootId(),
                         NOT_AFTER)),
-                NOT_AFTER, Set.of("gateway"), "", new InMemoryNonceCache(60_000), () -> OP_NOW, 30_000, 300_000));
+                NOT_AFTER, Set.of("gateway"), "", new InMemoryNonceCache(60_000), () -> OP_NOW, 30_000, 300_000,
+                ExtensionSettings.NONE));
     }
 
     /** The proof of {@code route}, from whichever bundle of the policy holds it. */
@@ -586,15 +890,14 @@ class VerifierTest {
 
     /** A gateway to orders chain: the gateway's rcv is {@code gatewayRcv}, orders' is {@code payment#charge}. */
     private static String opChain(String gatewayRcv) {
-        String none = Influence.commit(List.of());
-        Stamp g = Stamp.sign("gateway", "g-1", "rid-1", OP_NOW, "", gatewayRcv, "b", none, "", GW.getPrivate());
-        Stamp o = Stamp.sign("orders", "o-1", "rid-1", OP_NOW, "", "payment#charge", "b2", none, g.sig(),
+        Stamp g = Stamp.sign("gateway", "g-1", "rid-1", OP_NOW, "", gatewayRcv, "b", "", "", GW.getPrivate());
+        Stamp o = Stamp.sign("orders", "o-1", "rid-1", OP_NOW, "", "payment#charge", "b2", "", g.sig(),
                 ORD.getPrivate());
         return Chains.toJson(List.of(g, o));
     }
 
     private static VerifyInput opInput(String chain, String proof, String receiver) {
-        return new VerifyInput(chain, "b2", "[]", proof, receiver, true, "rid-1|payment|req", null);
+        return new VerifyInput(chain, "b2", null, proof, receiver, true, "rid-1|payment|req", null);
     }
 
     @Test

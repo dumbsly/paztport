@@ -6,16 +6,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { readChain, readInfluence, readKeyring, readProof, readRoot, readSessionReply, readSessionRequest, writeToken } from "@paztport/core";
+import { readBlocks, readChain, readKeyring, readProof, readRoot, readSessionReply, readSessionRequest, writeToken } from "@paztport/core";
 import { readVerdict } from "@paztport/mcp";
 import type { ExtensionMode, ServerSpec } from "../src/config.ts";
 import { ServerConnection } from "../src/connection.ts";
 import { EventLog } from "../src/events.ts";
-import { EvidenceLog, type EvidenceRecord } from "../src/evidence.ts";
+import { EVIDENCE_VERSION, EvidenceLog, type EvidenceRecord } from "../src/evidence.ts";
 import paztport from "../src/index.ts";
 import { InfluenceStore } from "../src/influence.ts";
 import { loadClientMaterial, type ClientMaterial } from "../src/keys.ts";
-import { RunState } from "../src/runs.ts";
+import { ORIGIN_BLOCK, RunState } from "../src/runs.ts";
 import { CANARY, DOCS, githubArgs, records, setupDemo, STUB } from "./helpers/demo.ts";
 
 let tmp: string;
@@ -93,7 +93,8 @@ describe("evidence file", { timeout: 30_000 }, () => {
     const rid = c.runs.current()!.rid;
     await scenarioA(conn);
     const rs = evidence(c);
-    expect(rs.every((r) => r.v === 1)).toBe(true);
+    expect(EVIDENCE_VERSION).toBe(2);
+    expect(rs.every((r) => r.v === 2)).toBe(true);
 
     const sessions = ofType(rs, "session");
     expect(sessions).toHaveLength(1);
@@ -128,14 +129,17 @@ describe("evidence file", { timeout: 30_000 }, () => {
       expect(x.server).toBe("github");
       expect(x.params.name).toBe(x.tool);
       // `_meta` as sent: a token for each object, and the call id
-      expect(Object.keys(x.params._meta)).toEqual(["paztport/chain", "paztport/proof", "paztport/influence", "paztport/callId"]);
+      expect(Object.keys(x.params._meta)).toEqual(["paztport/chain", "paztport/proof", "paztport/extensions", "paztport/callId"]);
       expect(readProof(x.params._meta["paztport/proof"]!)).toEqual(material.proofs[`session/pi/mcp:github.${x.tool}`]);
-      expect(readInfluence(x.params._meta["paztport/influence"]!)).toEqual(expect.any(Array));
+      // the origin's block, then pi's, which holds the session's entries
+      const blocks = readBlocks(x.params._meta["paztport/extensions"]!);
+      expect(blocks).toHaveLength(2);
+      expect(blocks[0]).toEqual(ORIGIN_BLOCK);
       expect(x.params._meta["paztport/callId"]).toBe(x.callId);
       const chain = readChain(x.params._meta["paztport/chain"]!);
       expect(chain[chain.length - 1]!.svc).toBe("pi");
-      // v3: the origin names pi, and pi's stamp names the tool on this server
-      expect(chain.map((c) => [c.v, c.rcv])).toEqual([[3, "pi"], [3, `mcp:github.${x.tool}`]]);
+      // the origin names pi, and pi's stamp names the tool on this server
+      expect(chain.map((c) => [c.v, c.rcv])).toEqual([[4, "pi"], [4, `mcp:github.${x.tool}`]]);
       expect(x.now).toBe(chain[chain.length - 1]!.ts); // the timestamp used for the stamp
     }
     expect(calls[2]!.params.arguments).toEqual({ owner: "acme", repo: "payroll-notes", path: "README.md" });
@@ -181,7 +185,7 @@ describe("evidence file", { timeout: 30_000 }, () => {
     c.runs.start("fix the typo", Date.now());
     await scenarioA(conn);
     expect(existsSync(c.evidencePath)).toBe(false);
-    expect(() => new EvidenceLog(undefined).write({ v: 1, type: "run", rid: "r", ts: 1, prompt: "p" })).not.toThrow();
+    expect(() => new EvidenceLog(undefined).write({ v: 2, type: "run", rid: "r", ts: 1, prompt: "p" })).not.toThrow();
   });
 
   it("noPathIsNoopAndBadPathThrowsAtConstruction", () => {
@@ -224,6 +228,27 @@ describe("evidence file", { timeout: 30_000 }, () => {
     // an unsafe connection sends plain calls: nothing to re-verify
     expect(ofType(rs, "call")).toEqual([]);
     expect(ofType(rs, "response")).toEqual([]);
+  });
+
+  it("aNoCallsHandshakeIsRecordedWithItsReason", async () => {
+    // a sound reply that does not list what the client requires: one exchange, no replacement
+    const c = ctx();
+    await github(c, "enforce", { requires: ["example", "influence"] });
+    const sessions = ofType(evidence(c), "session");
+    expect(sessions.map((x) => [x.v, x.status, x.reason])).toEqual([[2, "no-calls", "EXTENSION_REQUIRED"]]);
+    expect(readSessionReply(sessions[0]!.reply!)).toMatchObject({ status: "attested", extensions: ["influence"] });
+
+    // a failed one: both exchanges, each with the outcome the first reply gave
+    const wrong = join(tmp, `wrong-pin-${n++}.pub`);
+    writeFileSync(wrong, "AAAA\n");
+    const failed = ctx();
+    const conn = await github(failed, "enforce", { pin: wrong, requires: ["influence"] });
+    failed.runs.start("fix the typo", Date.now());
+    await call(conn, "list_issues", { owner: "acme", repo: "website" });
+    const rs = evidence(failed);
+    expect(ofType(rs, "session").map((x) => [x.status, x.reason])).toEqual([["no-calls", "PIN_MISMATCH"], ["no-calls", "PIN_MISMATCH"]]);
+    // nothing was sent, so nothing else is recorded
+    expect(rs.map((r) => r.type)).toEqual(["session", "session"]);
   });
 
   it("unattestedAndOffRecordNoSession", async () => {
@@ -279,7 +304,7 @@ describe("evidence file", { timeout: 30_000 }, () => {
     expect(text).not.toContain("paztport/");
     expect(text.toLowerCase()).not.toContain(CANARY);
     for (const e of records(c.eventsPath)) {
-      expect(Object.keys(e).filter((k) => !["ts", "type", "server", "tool", "callId", "rid", "session", "status", "reason", "verdict", "verify", "labels", "isError", "classes", "code", "rpcCode"].includes(k))).toEqual([]);
+      expect(Object.keys(e).filter((k) => !["ts", "type", "server", "tool", "callId", "rid", "session", "status", "reason", "verdict", "verify", "added", "isError", "classes", "code", "rpcCode"].includes(k))).toEqual([]);
     }
   });
 });
@@ -330,7 +355,7 @@ describe("extension wiring", { timeout: 30_000 }, () => {
       expect(rs.map((r) => r.type)).toEqual(["client", "session", "run"]);
       const client = ofType(rs, "client")[0]!;
       expect(client).toEqual({
-        v: 1,
+        v: 2,
         type: "client",
         keyring: writeToken({ notAfter: material.keyringNotAfter, policy: material.policyPublicKey, services: material.keyring, sig: material.keyringSig }),
         root: writeToken(material.signedRoot),

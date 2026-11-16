@@ -5,9 +5,16 @@ package org.paztport.http;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.paztport.http.VectorsHttpV4Export.entries;
+import static org.paztport.http.VectorsHttpV4Export.entriesJson;
+import static org.paztport.http.VectorsHttpV4Export.hex;
+import static org.paztport.http.VectorsHttpV4Export.nonceKey;
+import static org.paztport.http.VectorsHttpV4Export.putSettings;
+import static org.paztport.http.VectorsHttpV4Export.settings;
+import static org.paztport.http.VectorsHttpV4Export.tree;
+import static org.paztport.http.VectorsHttpV4Export.unhex;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -24,7 +31,6 @@ import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -47,32 +53,35 @@ import org.paztport.core.policy.ProofBundle;
 import org.paztport.core.policy.SignedRoot;
 import org.paztport.core.session.ReplyCert;
 import org.paztport.core.session.SessionRequest;
+import org.paztport.core.stamp.Block;
 import org.paztport.core.stamp.Stamp;
 import org.paztport.core.stamp.Stamper;
+import org.paztport.core.verify.ExtensionSettings;
 import org.paztport.core.verify.InMemoryNonceCache;
 import org.paztport.core.verify.Peer;
 import org.paztport.core.verify.ReasonCode;
-import org.paztport.core.verify.VerifierConfig;
 import org.paztport.core.verify.Verifier;
-import org.paztport.http.boundary.BoundaryClient;
+import org.paztport.core.verify.VerifierConfig;
 import org.paztport.http.wire.HttpWire;
 import org.paztport.http.wire.PaztportHeaders;
 import org.paztport.http.wire.RequestBinding;
 
 /**
- * Builds and replays the {@code rules} section of {@code spec/vectors/http-v3.json}: the HTTP rules the spec requires
+ * Builds and replays the {@code rules} section of {@code spec/vectors/http-v4.json}: the HTTP rules the spec requires
  * of a receiver, a caller, a partner and an egress, each case an input and the answer the spec gives for it. A case
  * is replayed through the framework-neutral functions a binding adapts ({@link HttpReceiver} and
- * {@link PartnerReceiver} entered through {@link RequestContext#accept}, {@link HttpCaller#stamp} and
- * {@link HttpCaller#check}, {@link HttpSessions#serve}, {@link PeerCert#of}, {@link UnsafeEndpoints} and
- * {@link BoundaryClient}), so the file holds nothing a framework decides. The partner and egress kinds are
- * {@link VectorsHttpPartner}'s.
+ * {@link PartnerReceiver} entered through {@link RequestContext#accept}, with {@link PublicWrites} asked as a handler
+ * asks it, {@link HttpCaller#stamp} and {@link HttpCaller#check}, {@link HttpSessions#serve}, {@link PeerCert#of},
+ * {@link UnsafeEndpoints} and {@link org.paztport.http.boundary.BoundaryClient}), so the file holds nothing a
+ * framework decides. The partner and egress kinds are {@link VectorsHttpPartner}'s. The section's fixtures also hold
+ * a partner's material, handshake requests and client certificates.
  *
  * <p>Every expected answer here is written by hand from the spec, not taken from a run: {@link #assertAll} replays
- * each case and compares, so an export fails rather than record what the code happens to do. The one exception is
- * what an egress sends, whose blinded entries and stamp commitment are computed with {@code BoundaryInfluence.reduce}
- * and {@code Influence.commit}: those primitives are pinned on their own, by {@code boundaryInfluence} here and by
- * {@code influence} in {@code v3.json}.
+ * each case and compares, so an export fails rather than record what the code happens to do. The exceptions are
+ * primitives pinned on their own: what an egress sends holds blinded entries and a block commitment computed with
+ * {@code BoundaryInfluence.reduce} and {@code Block.commit}, pinned by {@code boundaryInfluence} here and by
+ * {@code blocks} and {@code influence} in {@code v4.json}, and the result hashes and request bindings it records are
+ * computed as {@code resultHash} and {@code requestBinding} pin them.
  */
 final class VectorsHttpRules {
 
@@ -91,6 +100,10 @@ final class VectorsHttpRules {
     static final String BOUNDARY_ROUTE = "payment/psp";
     static final byte[] PAY = "{\"amount\":100}".getBytes(StandardCharsets.UTF_8);
     static final byte[] PAID = "{\"paid\":true}".getBytes(StandardCharsets.UTF_8);
+    /** The owner of the destination every handler asks about a guarded public write to, from its own records. */
+    static final String DESTINATION_OWNER = "bob";
+    /** An extension no service here acts on, the name wire.md's own example uses. */
+    static final String EXAMPLE = "example";
 
     /** Private data of alice's and a public page: shaped only by trusted content. */
     static final List<InfluenceEntry> OWNED = Influence.normalise(List.of(
@@ -101,25 +114,82 @@ final class VectorsHttpRules {
             new InfluenceEntry(InfluenceClass.THIRD_PARTY, "ticket:t-1", "h-ticket-1", "cid-ticket-1", null),
             new InfluenceEntry(InfluenceClass.PRIVATE, "http:orders", "h-order-1", "cid-order-1", "alice")));
 
+    /** The block of a hop that acts on influence and has added nothing: it names influence with {@code []}. */
+    static final Block NAMED = Influence.block(List.of(), List.of());
+    /** A pass-along block: it requires influence of the next hop but does not name it (influence.md). */
+    static final Block PASS_ALONG = Block.of(Map.of(), List.of(Influence.NAME));
+
     private static final String ABOUT = "The HTTP rules the spec requires of a receiver, a caller, a partner and an"
             + " egress, each case an input and the answer the spec gives. A key is looked up by name here, then in"
-            + " this file's top-level `keys`, then in v3.json; each new one is derived by v3.json's rule. A `material`"
+            + " this file's top-level `keys`, then in v4.json; each new one is derived by v4.json's rule. A `material`"
             + " is one organisation's policy key (by name), its signed root and signed keyring, each with its"
-            + " notAfter, the"
-            + " proofs of its routes and, for a partner, its entry service and reply certificate. Each root's tree has"
-            + " depth 1, its two routes filling both leaves with salts by v3.json's rule, so it has no padding; its"
-            + " rootId is \"v\" and the first 12 hex digits of SHA-256(utf8(\"paztport-http-v3-vector-root:\" + tree)),"
-            + " for the vectors only. A handshake request's nonce is the first 16 bytes (15 for `short-nonce`) of"
-            + " SHA-256(utf8(\"paztport-http-v3-vector-nonce:\" + name)), base64url, and `handshakeBodies` holds each"
-            + " request's JCS bytes, the body a step posts. Bodies and certificates are hex, and headers are their"
-            + " values as sent. A receiver case enters `request` at `service` `uses` times"
-            + " against one nonce cache that already holds `spent`, the handler then reads `read`, and `expected` is"
-            + " the last entry's answer. A partner case runs `steps` in order against one partner whose clock reads"
-            + " each step's `at`; a handshake's `as` names the session it opens, since the partner picks the id, and a"
-            + " call's boundary stamp is signed as the step runs, in the session it names; a call may carry `read`,"
-            + " what the handler reads once it is accepted. The spec's README says what each kind covers.";
-
-    private static final ObjectMapper MAPPER = new ObjectMapper();
+            + " notAfter, the proofs of its routes and, for a partner, its entry service and reply certificate. Each"
+            + " root's tree has depth 1, its two routes filling both leaves with salts by v4.json's rule, so it has no"
+            + " padding; its rootId is \"v\" and the first 12 hex digits of"
+            + " SHA-256(utf8(\"paztport-http-v3-vector-root:\" + tree)), for the vectors only. `handshakes` holds"
+            + " handshake requests on the shop's material, each nonce the first 16 bytes (15 for `short-nonce`) of"
+            + " SHA-256(utf8(\"paztport-http-v3-vector-nonce:\" + name)), base64url, and `handshakeBodies` each"
+            + " request's JCS bytes; `peers` holds client certificates, each with the address it connects from. Bodies"
+            + " and certificates are hex, and headers are their values as sent. A receiver case enters `request` at"
+            + " `service` `uses` times against one nonce cache that already holds `spent`, each key the JCS text of"
+            + " its array of strings, the service's verifier, when it has one, pinned to `material`, and `expected` is"
+            + " the last entry's answer. The service acts on the extensions in `actsOn` and carries the names in"
+            + " `allowedExtensions` (null for unset, which carries any name), with a verifier or without one. Its"
+            + " `mode` is `enforce` or `audit`; `off`, a hop that verifies requests but whose deployment has switched"
+            + " it off; or null, a service that verifies no requests under a mode. Unless its name says otherwise, a"
+            + " case's chain is gateway's stamp to orders, then orders' to payment, and each hop's block names"
+            + " `influence`, with `[]` when the hop added nothing. The answer is the `refusal` (null when the request"
+            + " is served); `verified`, whether the request is served as having passed the live order at this service"
+            + " (false for every refusal); `handedOn`, what the service is handed, null for nothing, else one member"
+            + " per name in `actsOn` ({} where `actsOn` is empty), each an array of {svc, items}, one per stamp, items"
+            + " null where the stamp's block does not name the extension; and `attests`. Then the handler, having"
+            + " read the entries in `read`, asks two questions, at a service that acts on `influence`, as every"
+            + " receiver here does unless its `actsOn` says otherwise: `publicWrite`, the reason a guarded public"
+            + " write to a destination whose owner is `destinationOwner` gets; and `trustedRecord`, whether a trusted"
+            + " record may be written. A refused request runs no handler, and a service that does not act on"
+            + " `influence` asks neither question, so both are null then; work outside any request (a null `request`)"
+            + " asks only for the trusted record. A caller case is `caller` calling payment after `inbound`, the"
+            + " gateway's stamp, which came with the blocks `inboundBlocks`, its own block holding the entries in"
+            + " `added`, on `material`, holding the tables of the top-level `operations` that `caller.operations`"
+            + " names, as a caller that acts on `actsOn` and carries `allowedExtensions`, with a verifier exactly when"
+            + " `caller.verifier` is true; payment answers with `response`, and `expected` is the `rcv` of the stamp"
+            + " the caller signed, the check's `reason` (null where the caller has no verifier), whether the caller"
+            + " `refused` the response, and the `influence` entries the response adds. A partner case runs `steps` in"
+            + " order against one partner on `material`, which pins the policy keys `pinned`, takes the egress"
+            + " services `clientOrigins` as allowed origins, switches off `unsafeDisabled` for unsafe sessions, keeps"
+            + " at most `maxSessionsPerPeer` sessions per peer, each until no call has used it for `sessionIdleMs`,"
+            + " and acts on `actsOn` and carries `allowedExtensions` as a receiver does; its clock reads each step's"
+            + " `at`. A handshake step posts, from the client certificate `peer`, the `handshakeBodies` entry its"
+            + " `request` names, or `body` where `request` is null, and `as` names the session it opens, since the"
+            + " partner picks the id; it expects the HTTP `status`, the `error`, and for a session opened its"
+            + " `sessionStatus`, its `disabled` endpoints and the `extensions` the reply lists. A call step sends"
+            + " `method` `target` with `body` from the client certificate `peer`, naming its `session` by a"
+            + " handshake's `as` (`of`), as a literal (`id`), as an `X-Path-Session` value sent as written"
+            + " (`header`), or not at all (null), with `proofHeader` and"
+            + " `extensionsHeader` as given; its `stamp`, when there is one, is a boundary stamp with the fields"
+            + " given, signed as the step runs with the key `key`, in the session its `sess` names, over the binding"
+            + " of the call's method and target with the stamp's own `body`, and committing to `block`. A call may"
+            + " carry `read`, what the handler reads once it is accepted, and `destinationOwner`, which has the"
+            + " handler ask about a guarded public write to a destination with that owner. It expects the `refusal`"
+            + " (an unsafe session's switched-off endpoint, by `routePattern`, included), whether it is served"
+            + " `attested`, `handedOn` as a receiver case records it, and the handler's answers whatever the partner"
+            + " acts on: `publicWrite` where the call carries `destinationOwner`, and `trustedRecord` for every"
+            + " served call, both null for a refusal. An egress case"
+            + " enters `inbound`, a receiver case's inputs (null for work outside any request), at the egress"
+            + " `egress`, which acts on `actsOn` and carries `allowedExtensions` as a receiver does, requires"
+            + " `requires` of the partner and goes on without them when `continueWithout` is true, and posts each of"
+            + " `posts` to `partnerScript`: a partner that answers each full handshake with the next of `handshakes`"
+            + " (`attested` or `unsafe`, a genuine reply on the `psp` material; `notFound`, a 404; `wrongKey`, a reply"
+            + " signed by and naming `stranger-policy`), the replacement as `replacement` says, every reply listing"
+            + " `extensions`, and each call with the next of `calls`. It expects each post's `outcome` (`answered`,"
+            + " with the `status` and whether the session was `attested`; `refused` by the egress's guard, nothing"
+            + " sent; `withheld`, no call made in a session that does not meet the requirement; `failed`, no session),"
+            + " all the partner `received` in order (a handshake, whether it had a client root; a call, its session"
+            + " and the session its stamp was made in, each the position of the handshake whose reply issued it, its"
+            + " stamps without `sess` and `sig`, its proof and its `blocks`), and the entries the request `added` at"
+            + " the egress. A boundary block's entries are blinded under the boundary key as `boundaryInfluence` pins"
+            + " it, for the partner `psp`, the egress `payment` and the rid of the boundary stamp it travels with:"
+            + " in an egress case, and in a partner case's calls, which carry what a partner receives.";
 
     private VectorsHttpRules() {
     }
@@ -134,76 +204,8 @@ final class VectorsHttpRules {
         return JsonNodeFactory.instance.arrayNode();
     }
 
-    static String hex(byte[] b) {
-        return HexFormat.of().formatHex(b);
-    }
-
-    static byte[] unhex(JsonNode n) {
-        return HexFormat.of().parseHex(n.asText());
-    }
-
     static byte[] utf8(String s) {
         return s.getBytes(StandardCharsets.UTF_8);
-    }
-
-    /**
-     * A value the SDK wrote as JSON text, as a tree to place in a vector, each object's members in the order the
-     * vectors list them.
-     */
-    static JsonNode tree(String json) {
-        try {
-            return layout(MAPPER.readTree(json));
-        } catch (IOException e) {
-            throw new UncheckedIOException(e);
-        }
-    }
-
-    /** A kind of object, told by the members it always has, and the order a vector lists its members in. */
-    private record Layout(Set<String> marker, List<String> order) {
-    }
-
-    private static final List<Layout> LAYOUTS = List.of(
-            new Layout(Set.of("v", "svc", "rcv"),
-                    List.of("v", "svc", "inst", "rid", "ts", "sess", "rcv", "bind", "infl", "prev", "sig")),
-            new Layout(Set.of("leafSalt"), List.of("leafSalt", "siblings", "dirs", "rootId")),
-            new Layout(Set.of("root", "rootId"), List.of("rootId", "root", "sig", "notAfter")),
-            new Layout(Set.of("services", "policy"), List.of("services", "policy", "sig", "notAfter")),
-            new Layout(Set.of("policy", "svc", "key"), List.of("policy", "svc", "key", "notAfter", "sig")),
-            new Layout(Set.of("cls", "src", "h"), List.of("cls", "src", "h", "cid", "owner")),
-            new Layout(Set.of("cls", "cid"), List.of("cls", "cid", "owner")),
-            new Layout(Set.of("cls", "salt", "originals"), List.of("cls", "owner", "salt", "originals")),
-            new Layout(Set.of("clientPolicyKey"), List.of("clientRoot", "clientPolicyKey", "clientKeyring",
-                    "clientKeyringSig", "clientKeyringNotAfter", "nonce")));
-
-    /** {@code n} with the members of every object in the order its kind's layout gives; other objects keep theirs. */
-    private static JsonNode layout(JsonNode n) {
-        if (n.isArray()) {
-            ArrayNode a = arr();
-            n.forEach(item -> a.add(layout(item)));
-            return a;
-        } else if (!n.isObject()) {
-            return n;
-        }
-        List<String> names = new ArrayList<>();
-        n.fieldNames().forEachRemaining(names::add);
-        List<String> order = LAYOUTS.stream()
-                .filter(l -> names.containsAll(l.marker()) && l.order().containsAll(names))
-                .map(Layout::order).findFirst().orElse(names);
-        ObjectNode o = obj();
-        for (String name : order) {
-            if (n.has(name)) {
-                o.set(name, layout(n.get(name)));
-            }
-        }
-        return o;
-    }
-
-    static JsonNode entries(List<InfluenceEntry> entries) {
-        return tree(Influence.toJson(entries));
-    }
-
-    static List<InfluenceEntry> entries(JsonNode n) {
-        return Influence.parse(Vectors.text(n));
     }
 
     static ArrayNode texts(String... values) {
@@ -334,7 +336,7 @@ final class VectorsHttpRules {
     }
 
     /** Two routes at depth 1 fill both leaves, so the tree needs no random padding. */
-    private static MerkleTree tree(String name, List<String> routes) {
+    private static MerkleTree merkleTree(String name, List<String> routes) {
         List<MerkleLeaf> leaves = routes.stream()
                 .map(r -> new MerkleLeaf(Arrays.copyOf(Crypto.sha256(utf8("paztport-v3-vector-salt:" + r)),
                         MerkleProof.SALT_BYTES), r))
@@ -344,7 +346,7 @@ final class VectorsHttpRules {
 
     private static ObjectNode material(String treeName, List<String> routes, String policyName, KeyPair policy,
             Map<String, String> services, long notAfter) {
-        MerkleTree t = tree(treeName, routes);
+        MerkleTree t = merkleTree(treeName, routes);
         ObjectNode m = obj();
         m.put("policyKey", policyName);
         m.set("root", tree(SignedRoot.sign(t.root(), t.rootId(), notAfter, policy.getPrivate()).toJson()));
@@ -376,7 +378,7 @@ final class VectorsHttpRules {
         ObjectNode keys = rules.putObject("keys");
         Map<String, KeyPair> made = new LinkedHashMap<>();
         for (String name : List.of("shop-policy", "psp-policy", "psp", "stranger-policy", "shop-ca")) {
-            KeyPair k = VectorsHttpV3Export.derive(name);
+            KeyPair k = VectorsHttpV4Export.derive(name);
             made.put(name, k);
             ObjectNode o = keys.putObject(name);
             o.put("pub", pub(k));
@@ -394,10 +396,10 @@ final class VectorsHttpRules {
         material.set("shop-expiring", material("shop", shopRoutes, "shop-policy", made.get("shop-policy"),
                 shopServices, EXPIRES));
         material.set("shop-operations", material("shop-operations", List.of(OPERATION_ROUTE,
-                String.join("/", VectorsHttpV3Export.paymentTable().route())), "shop-policy",
+                String.join("/", VectorsHttpV4Export.paymentTable().route())), "shop-policy",
                 made.get("shop-policy"), shopServices, NOT_AFTER));
-        material.set("shop-keys", material("shop-keys", List.of(VectorsHttpV3Export.KEYED_ROUTE,
-                String.join("/", VectorsHttpV3Export.keyedTable().route())), "shop-policy",
+        material.set("shop-keys", material("shop-keys", List.of(VectorsHttpV4Export.KEYED_ROUTE,
+                String.join("/", VectorsHttpV4Export.keyedTable().route())), "shop-policy",
                 made.get("shop-policy"), shopServices, NOT_AFTER));
         material.set("psp", partnerMaterial(made.get("psp-policy"), made.get("psp"), NOT_AFTER));
         material.set("psp-expiring", partnerMaterial(made.get("psp-policy"), made.get("psp"), EXPIRES));
@@ -409,7 +411,8 @@ final class VectorsHttpRules {
 
         Chains chains = new Chains(fx);
         rules.set("requests", requests(chains));
-        rules.set("unreadableInfluence", unreadableInfluence(chains));
+        rules.set("influenceItems", influenceItems(chains));
+        rules.set("servedUnverified", servedUnverified(chains));
         rules.set("attestation", attestation(chains));
         rules.set("peerCertificates", peerCertificates(made.get("shop-ca")));
         rules.set("sessionHeader", VectorsHttpPartner.sessionHeader(fx));
@@ -450,60 +453,118 @@ final class VectorsHttpRules {
         return bodies;
     }
 
+
     // --- Chains a receiver is sent ---
+
+    /** A chain and the blocks sent beside it, one per stamp, which need not be the ones its stamps commit to. */
+    record Sent(List<Stamp> chain, List<Block> blocks) {
+
+        /** The same chain sent with orders' block, the last, replaced by {@code block}, which it did not sign. */
+        Sent altered(Block block) {
+            List<Block> others = new ArrayList<>(blocks);
+            others.set(others.size() - 1, block);
+            return new Sent(chain, List.copyOf(others));
+        }
+    }
 
     /** The request chains the receiver cases send to {@code payment}, stamped once with fixed clocks. */
     static final class Chains {
 
         final Fixtures fx;
         final Material shop;
+        /** gateway's stamp to orders, its block naming influence with nothing added: what orders receives. */
         final List<Stamp> toOrders;
-        /** gateway, orders, payment, committing to no influence. */
-        final List<Stamp> clean;
-        /** The same, committing to {@link #OWNED}. */
-        final List<Stamp> owned;
-        /** The same, committing to {@link #STEERED}. */
-        final List<Stamp> steered;
-        /** orders' stamp signed with the gateway's key. */
-        final List<Stamp> forged;
+        /** gateway, orders, payment, every block naming influence and holding nothing. */
+        final Sent clean;
+        /** The same, orders' block holding {@link #OWNED}. */
+        final Sent owned;
+        /** The same, orders' block holding {@link #STEERED}. */
+        final Sent steered;
+        /** {@link #owned}, but gateway's block is the empty block, which does not name influence. */
+        final Sent unnamedOrigin;
+        /** {@link #owned}, but gateway's block is {@link #PASS_ALONG}, which does not name influence either. */
+        final Sent passAlong;
+        /** orders' block holding one item that is not an entry, a string. */
+        final Sent unread;
+        /** orders' block holding one item that is an array of entries, not an entry. */
+        final Sent unreadList;
+        /** orders' block holding one entry whose owner is empty. */
+        final Sent unreadOwner;
+        /** orders' block naming influence with nothing added, and requiring {@link #EXAMPLE} of payment. */
+        final Sent requiring;
+        /** orders' block naming influence with nothing added, and requiring influence of payment. */
+        final Sent requiringInfluence;
+        /** {@link #clean} with orders' stamp signed with the gateway's key. */
+        final Sent forged;
+        /** {@link #owned}, forged as {@link #forged} is. */
+        final Sent forgedOwned;
+        /** {@link #steered}, forged as {@link #forged} is. */
+        final Sent forgedSteered;
+        /** {@link #unread}, forged as {@link #forged} is. */
+        final Sent forgedUnread;
+        /** A forged chain whose every block is the empty block, so every stamp's ext is "". */
+        final Sent forgedBare;
+        /** {@link #forgedBare}, but orders' block names influence, so its ext is not "". */
+        final Sent forgedOneExt;
         /** One origin stamp from the gateway straight to payment, a route the policy does not hold. */
-        final List<Stamp> direct;
-        /** orders' stamp signed with the gateway's key, committing to {@link #STEERED}. */
-        final List<Stamp> forgedSteered;
-        /** One gateway stamp to payment with an empty signature. */
-        final List<Stamp> unsigned;
+        final Sent direct;
+        /** One gateway stamp to payment with an empty signature and the empty block. */
+        final Sent unsigned;
 
         Chains(Fixtures fx) {
             this.fx = fx;
             this.shop = fx.material("shop");
-            Stamper gateway = new Stamper("gateway", "gw-1", fx.privateKey("gateway"), true, () -> RID,
-                    () -> GATEWAY_TS);
-            this.toOrders = gateway.next(List.of(), "orders", "bind-gateway-to-orders", List.of(), null).chain();
-            Stamper orders = new Stamper("orders", "ord-1", fx.privateKey("orders"), false, () -> RID,
-                    () -> ORDERS_TS);
+            this.toOrders = gateway(NAMED);
+            List<Stamp> bareToOrders = gateway(Block.EMPTY);
+            PrivateKey ordersKey = fx.privateKey("orders");
+            PrivateKey gatewayKey = fx.privateKey("gateway");
+            this.clean = orders(toOrders, NAMED, Influence.block(List.of(), List.of()), ordersKey);
+            this.owned = orders(toOrders, NAMED, Influence.block(OWNED, List.of()), ordersKey);
+            this.steered = orders(toOrders, NAMED, Influence.block(STEERED, List.of()), ordersKey);
+            this.unnamedOrigin = orders(bareToOrders, Block.EMPTY, Influence.block(OWNED, List.of()), ordersKey);
+            this.passAlong = orders(gateway(PASS_ALONG), PASS_ALONG, Influence.block(OWNED, List.of()), ordersKey);
+            this.unread = orders(toOrders, NAMED, items("\"not an entry\""), ordersKey);
+            this.unreadList = orders(toOrders, NAMED, items("[" + OWNED.get(0).toJson() + "]"), ordersKey);
+            this.unreadOwner = orders(toOrders, NAMED,
+                    items("{\"cls\":\"private\",\"h\":\"h-order-1\",\"owner\":\"\",\"src\":\"http:orders\"}"),
+                    ordersKey);
+            this.requiring = orders(toOrders, NAMED, Influence.block(List.of(), List.of(EXAMPLE)), ordersKey);
+            this.requiringInfluence = orders(toOrders, NAMED, Influence.block(List.of(), List.of(Influence.NAME)),
+                    ordersKey);
+            this.forged = orders(toOrders, NAMED, Influence.block(List.of(), List.of()), gatewayKey);
+            this.forgedOwned = orders(toOrders, NAMED, Influence.block(OWNED, List.of()), gatewayKey);
+            this.forgedSteered = orders(toOrders, NAMED, Influence.block(STEERED, List.of()), gatewayKey);
+            this.forgedUnread = orders(toOrders, NAMED, items("\"not an entry\""), gatewayKey);
+            this.forgedBare = orders(bareToOrders, Block.EMPTY, Block.EMPTY, gatewayKey);
+            this.forgedOneExt = orders(bareToOrders, Block.EMPTY, Influence.block(List.of(), List.of()), gatewayKey);
             String bind = RequestBinding.compute("POST", "/pay", PAY);
-            this.clean = orders.next(toOrders, "payment", bind, List.of(), null).chain();
-            this.owned = orders.next(toOrders, "payment", bind, OWNED, null).chain();
-            this.steered = orders.next(toOrders, "payment", bind, STEERED, null).chain();
-            this.forged = new Stamper("orders", "ord-1", fx.privateKey("gateway"), false, () -> RID,
-                    () -> ORDERS_TS).next(toOrders, "payment", bind, List.of(), null).chain();
-            this.forgedSteered = new Stamper("orders", "ord-1", fx.privateKey("gateway"), false, () -> RID,
-                    () -> ORDERS_TS).next(toOrders, "payment", bind, STEERED, null).chain();
-            this.direct = new Stamper("gateway", "gw-1", fx.privateKey("gateway"), true, () -> RID,
-                    () -> ORDERS_TS).next(List.of(), "payment", bind, List.of(), null).chain();
-            this.unsigned = List.of(new Stamp("gateway", "gw-1", RID, ORDERS_TS, "", "payment", bind, "", "", ""));
+            this.direct = new Sent(new Stamper("gateway", "gw-1", gatewayKey, true, () -> RID, () -> ORDERS_TS)
+                    .next(List.of(), "payment", bind, NAMED, null).chain(), List.of(NAMED));
+            this.unsigned = new Sent(List.of(new Stamp("gateway", "gw-1", RID, ORDERS_TS, "", "payment", bind, "", "",
+                    "")), List.of(Block.EMPTY));
         }
 
-        /** {@code POST /pay} with the chain, the mesh route's proof and the influence it commits to, when any. */
-        ObjectNode request(List<Stamp> chain, List<InfluenceEntry> influence) {
-            ObjectNode headers = obj();
-            headers.put(PaztportHeaders.CHAIN, HttpWire.encodeChain(chain));
-            headers.put(PaztportHeaders.PROOF, shop.proofHeader(MESH_ROUTE));
-            String influenceHeader = HttpWire.encodeInfluence(influence);
-            if (influenceHeader != null) {
-                headers.put(PaztportHeaders.INFLUENCE, influenceHeader);
-            }
-            return request(headers, PAY);
+        private List<Stamp> gateway(Block block) {
+            return new Stamper("gateway", "gw-1", fx.privateKey("gateway"), true, () -> RID, () -> GATEWAY_TS)
+                    .next(List.of(), "orders", "bind-gateway-to-orders", block, null).chain();
+        }
+
+        /** orders' stamp to payment after {@code toOrders}, signed with {@code key}, committing to {@code block}. */
+        private static Sent orders(List<Stamp> toOrders, Block gatewayBlock, Block block, PrivateKey key) {
+            List<Stamp> chain = new Stamper("orders", "ord-1", key, false, () -> RID, () -> ORDERS_TS)
+                    .next(toOrders, "payment", RequestBinding.compute("POST", "/pay", PAY), block, null).chain();
+            return new Sent(chain, List.of(gatewayBlock, block));
+        }
+
+        /** A block naming influence with the one item {@code item}, a value's JCS text, whatever it holds. */
+        private static Block items(String item) {
+            return Block.of(Map.of(Influence.NAME, List.of(item)), List.of());
+        }
+
+        /** {@code POST /pay} with the chain, the mesh route's proof and the blocks sent beside it. */
+        ObjectNode request(Sent sent) {
+            return request(headers(HttpWire.encodeChain(sent.chain()), shop.proofHeader(MESH_ROUTE),
+                    HttpWire.encodeBlocks(sent.blocks())), PAY);
         }
 
         static ObjectNode request(ObjectNode headers, byte[] body) {
@@ -538,12 +599,19 @@ final class VectorsHttpRules {
         }
     }
 
-    /** A receiver case's inputs, with the mesh defaults: no peer, no spent keys, one use and nothing read. */
+    /** The settings of a receiver that acts on influence and carries any name, as every receiver here but one does. */
+    static final ExtensionSettings ACTS_ON_INFLUENCE = ExtensionSettings.of(Set.of(Influence.NAME), null);
+
+    /**
+     * A receiver case's inputs, with the mesh defaults: a service that acts on influence, no peer, no spent keys,
+     * one use, nothing read, and a guarded write asked about for {@link #DESTINATION_OWNER}.
+     */
     static ObjectNode receiverCase(String name, Service service, String mode, JsonNode request) {
         ObjectNode c = obj();
         c.put("name", name);
         c.put("material", "shop");
         c.set("service", service.json());
+        putSettings(c, ACTS_ON_INFLUENCE);
         c.set("allowedOrigins", texts("gateway"));
         if (mode == null) {
             c.putNull("mode");
@@ -559,35 +627,90 @@ final class VectorsHttpRules {
         c.set("spent", arr());
         c.put("uses", 1);
         c.set("read", arr());
+        c.put("destinationOwner", DESTINATION_OWNER);
         return c;
     }
 
-    static ObjectNode served(boolean verified, List<InfluenceEntry> influence, boolean attests, boolean trusted) {
+    /**
+     * A receiver case's inputs at a service that acts on no extension and carries any name: the core's rules alone,
+     * every block's names opaque to it, so it is handed nothing under any of them and its handler asks no influence
+     * question.
+     */
+    private static ObjectNode actingOnNothing(String name, Service service, String mode, JsonNode request) {
+        ObjectNode c = receiverCase(name + ", at a service that acts on no extension", service, mode, request);
+        putSettings(c, ExtensionSettings.NONE);
+        return c;
+    }
+
+    /**
+     * A served request's answer: whether its chain verified here, what the service is handed, whether it attests,
+     * and the handler's two answers, null where it asks neither.
+     */
+    static ObjectNode served(boolean verified, JsonNode handedOn, boolean attests, ReasonCode publicWrite,
+            Boolean trusted) {
         ObjectNode e = obj();
         e.putNull("refusal");
         e.put("verified", verified);
-        e.set("influence", entries(influence));
+        e.set("handedOn", handedOn);
         e.put("attests", attests);
-        e.put("trustedRecord", trusted);
+        putAnswers(e, publicWrite == null ? null : publicWrite.name(), trusted);
         return e;
     }
 
-    /** A refusal: the status and exactly {@code {"reason":"<code>"}}, with no whitespace and no other member. */
-    static ObjectNode refusal(int status, ReasonCode reason) {
-        ObjectNode r = obj();
-        r.put("status", status);
-        r.put("body", hex(utf8("{\"reason\":\"" + reason.name() + "\"}")));
-        return r;
+    private static void putAnswers(ObjectNode e, String publicWrite, Boolean trusted) {
+        if (publicWrite == null) {
+            e.putNull("publicWrite");
+        } else {
+            e.put("publicWrite", publicWrite);
+        }
+        if (trusted == null) {
+            e.putNull("trustedRecord");
+        } else {
+            e.put("trustedRecord", trusted);
+        }
     }
 
+    /** A refusal: the status and its body, with nothing handed on, nothing attested, and no handler to ask. */
     static ObjectNode refused(int status, ReasonCode reason) {
         ObjectNode e = obj();
-        e.set("refusal", refusal(status, reason));
+        e.set("refusal", VectorsHttpV4Export.refusal(status, reason));
         e.put("verified", false);
-        e.set("influence", arr());
+        e.putNull("handedOn");
         e.put("attests", false);
-        e.put("trustedRecord", false);
+        putAnswers(e, null, null);
         return e;
+    }
+
+    /** Nothing handed on: an origin's request, and one whose chain did not read. */
+    static JsonNode nothing() {
+        return JsonNodeFactory.instance.nullNode();
+    }
+
+    /** One stamp's entry of a hand-over: its signer, and its block's entries under influence, null for none. */
+    static ObjectNode stamp(String svc, List<InfluenceEntry> items) {
+        ObjectNode s = obj();
+        s.put("svc", svc);
+        if (items == null) {
+            s.putNull("items");
+        } else {
+            s.set("items", entriesJson(items));
+        }
+        return s;
+    }
+
+    /** A hand-over under influence alone, one entry per stamp in chain order. */
+    static ObjectNode handed(ObjectNode... stamps) {
+        ObjectNode h = obj();
+        ArrayNode a = h.putArray(Influence.NAME);
+        for (ObjectNode s : stamps) {
+            a.add(s);
+        }
+        return h;
+    }
+
+    /** What gateway, then orders, hand on when both blocks name influence, orders' holding {@code orders}. */
+    static ObjectNode handed(List<InfluenceEntry> orders) {
+        return handed(stamp("gateway", List.of()), stamp("orders", orders));
     }
 
     private static ObjectNode expect(ObjectNode c, ObjectNode expected) {
@@ -595,7 +718,7 @@ final class VectorsHttpRules {
         return c;
     }
 
-    private static ObjectNode headers(String chain, String proof, String influence) {
+    private static ObjectNode headers(String chain, String proof, String blocks) {
         ObjectNode h = obj();
         if (chain != null) {
             h.put(PaztportHeaders.CHAIN, chain);
@@ -603,8 +726,8 @@ final class VectorsHttpRules {
         if (proof != null) {
             h.put(PaztportHeaders.PROOF, proof);
         }
-        if (influence != null) {
-            h.put(PaztportHeaders.INFLUENCE, influence);
+        if (blocks != null) {
+            h.put(PaztportHeaders.EXTENSIONS, blocks);
         }
         return h;
     }
@@ -615,101 +738,204 @@ final class VectorsHttpRules {
 
     /** verification.md, a request at the receiver: the nonce key and how each unreadable header is read. */
     private static ArrayNode requests(Chains ch) {
-        String chain = HttpWire.encodeChain(ch.clean);
+        String chain = HttpWire.encodeChain(ch.clean.chain());
+        String blocks = HttpWire.encodeBlocks(ch.clean.blocks());
         String proof = ch.shop.proofHeader(MESH_ROUTE);
         ArrayNode a = arr();
-        a.add(expect(receiverCase("verified", Service.PAYMENT, "enforce", ch.request(ch.clean, List.of())),
-                served(true, List.of(), true, true)));
-        a.add(expect(receiverCase("verified, with the influence the stamp commits to", Service.PAYMENT, "enforce",
-                ch.request(ch.owned, OWNED)), served(true, OWNED, true, true)));
-        ObjectNode twice = receiverCase("the same request twice", Service.PAYMENT, "enforce",
-                ch.request(ch.clean, List.of()));
+        a.add(expect(receiverCase("verified", Service.PAYMENT, "enforce", ch.request(ch.clean)),
+                served(true, handed(List.of()), true, ReasonCode.OK, true)));
+        ObjectNode twice = receiverCase("the same request twice", Service.PAYMENT, "enforce", ch.request(ch.clean));
         twice.put("uses", 2);
         a.add(expect(twice, refused(403, ReasonCode.REPLAY)));
-        ObjectNode spent = receiverCase("its nonce key <rid>|<last svc>|<last rcv>|req already spent",
-                Service.PAYMENT, "enforce", ch.request(ch.clean, List.of()));
-        spent.set("spent", texts(RID + "|orders|payment|req"));
+        ObjectNode spent = receiverCase("its nonce key [rid, last svc, last rcv, \"req\"] already spent",
+                Service.PAYMENT, "enforce", ch.request(ch.clean));
+        spent.set("spent", texts(nonceKey(RID, "orders", "payment", "req")));
         a.add(expect(spent, refused(403, ReasonCode.REPLAY)));
         ObjectNode others = receiverCase("other directions', hops' and operations' keys are not its own",
-                Service.PAYMENT, "enforce", ch.request(ch.clean, List.of()));
-        others.set("spent", texts(RID + "|orders|resp", RID + "|payment|req", RID + "|gateway|req", RID + "|orders",
-                RID + "|orders|local", RID + "|orders|payment#pay|req", RID + "|orders|req"));
-        a.add(expect(others, served(true, List.of(), true, true)));
+                Service.PAYMENT, "enforce", ch.request(ch.clean));
+        others.set("spent", texts(nonceKey(RID, "orders", "resp"), nonceKey(RID, "payment", "req"),
+                nonceKey(RID, "gateway", "req"), nonceKey(RID, "orders"), nonceKey(RID, "orders", "local"),
+                nonceKey(RID, "orders", "payment#pay", "req"), nonceKey(RID, "orders", "req")));
+        a.add(expect(others, served(true, handed(List.of()), true, ReasonCode.OK, true)));
         a.add(expect(receiverCase("no chain header", Service.PAYMENT, "enforce",
                 Chains.request(headers(null, proof, null), PAY)), refused(403, ReasonCode.CHAIN_MISSING)));
         a.add(expect(receiverCase("a chain header that is not base64url", Service.PAYMENT, "enforce",
-                Chains.request(headers("not*base64url", proof, null), PAY)), refused(403, ReasonCode.CHAIN_MISSING)));
+                Chains.request(headers("not*base64url", proof, blocks), PAY)),
+                refused(403, ReasonCode.CHAIN_MISSING)));
         a.add(expect(receiverCase("a chain header that is not JSON", Service.PAYMENT, "enforce",
-                Chains.request(headers(b64("not json"), proof, null), PAY)), refused(403, ReasonCode.CHAIN_MISSING)));
+                Chains.request(headers(b64("not json"), proof, blocks), PAY)),
+                refused(403, ReasonCode.CHAIN_MISSING)));
         a.add(expect(receiverCase("no proof header", Service.PAYMENT, "enforce",
-                Chains.request(headers(chain, null, null), PAY)), refused(403, ReasonCode.PATH_NOT_ALLOWED)));
+                Chains.request(headers(chain, null, blocks), PAY)), refused(403, ReasonCode.PATH_NOT_ALLOWED)));
         a.add(expect(receiverCase("a proof header that is not base64url is no proof", Service.PAYMENT, "enforce",
-                Chains.request(headers(chain, "not*base64url", null), PAY)),
+                Chains.request(headers(chain, "not*base64url", blocks), PAY)),
                 refused(403, ReasonCode.PATH_NOT_ALLOWED)));
         a.add(expect(receiverCase("a proof header that is not JSON is no proof", Service.PAYMENT, "enforce",
-                Chains.request(headers(chain, b64("{"), null), PAY)), refused(403, ReasonCode.PATH_NOT_ALLOWED)));
-        a.add(expect(receiverCase("an influence header that is not base64url", Service.PAYMENT, "enforce",
+                Chains.request(headers(chain, b64("{"), blocks), PAY)), refused(403, ReasonCode.PATH_NOT_ALLOWED)));
+        // A header that is present but does not decode is not an absent one.
+        a.add(expect(receiverCase("an extensions header that is not base64url", Service.PAYMENT, "enforce",
                 Chains.request(headers(chain, proof, "not*base64url"), PAY)),
-                refused(403, ReasonCode.INFLUENCE_MISMATCH)));
-        a.add(expect(receiverCase("no influence header where the stamp commits to some", Service.PAYMENT,
-                "enforce", Chains.request(headers(HttpWire.encodeChain(ch.owned), proof, null), PAY)),
-                refused(403, ReasonCode.INFLUENCE_MISMATCH)));
+                refused(403, ReasonCode.EXTENSION_MISMATCH)));
+        a.add(expect(receiverCase("no extensions header where the stamps commit to blocks", Service.PAYMENT,
+                "enforce", Chains.request(headers(HttpWire.encodeChain(ch.owned.chain()), proof, null), PAY)),
+                refused(403, ReasonCode.EXTENSION_MISMATCH)));
+        // The same rules at a service that acts on no extension: blocks naming influence verify, the name opaque
+        // to it, and the blocks header is read and matched whatever the service acts on.
+        a.add(expect(actingOnNothing("verified", Service.PAYMENT, "enforce", ch.request(ch.clean)),
+                served(true, obj(), true, null, null)));
+        a.add(expect(actingOnNothing("an extensions header that is not base64url", Service.PAYMENT, "enforce",
+                Chains.request(headers(chain, proof, "not*base64url"), PAY)),
+                refused(403, ReasonCode.EXTENSION_MISMATCH)));
+        a.add(expect(actingOnNothing("no extensions header where the stamps commit to blocks", Service.PAYMENT,
+                "enforce", Chains.request(headers(HttpWire.encodeChain(ch.owned.chain()), proof, null), PAY)),
+                refused(403, ReasonCode.EXTENSION_MISMATCH)));
+        // servedUnverified's last case at a service that acts on influence: check 9c reads the service's own actsOn,
+        // so the last block's requirement is met and the request is served.
+        a.add(expect(receiverCase("enforce, a last block requiring influence, at a service that acts on influence",
+                Service.PAYMENT, "enforce", ch.request(ch.requiringInfluence)),
+                served(true, handed(List.of()), true, ReasonCode.OK, true)));
         return a;
     }
 
-    /** verification.md: unreadable influence is never dropped, so it is answered 400 wherever nothing refused first. */
-    private static ArrayNode unreadableInfluence(Chains ch) {
-        String chain = HttpWire.encodeChain(ch.clean);
-        String forged = HttpWire.encodeChain(ch.forged);
-        String proof = ch.shop.proofHeader(MESH_ROUTE);
-        String garbled = "not*base64url";
+    /**
+     * influence.md, Entries: a service that acts on influence reads every item it is handed, verified or not, and
+     * refuses one that does not read 400 in every mode, wherever nothing refused first; one that does not act on
+     * influence reads none.
+     */
+    private static ArrayNode influenceItems(Chains ch) {
         ArrayNode a = arr();
-        a.add(expect(receiverCase("enforce: check 9 refuses it", Service.PAYMENT, "enforce",
-                Chains.request(headers(chain, proof, garbled), PAY)), refused(403, ReasonCode.INFLUENCE_MISMATCH)));
+        a.add(expect(receiverCase("enforce: an item that is not an entry, on a chain that verifies", Service.PAYMENT,
+                "enforce", ch.request(ch.unread)), refused(400, ReasonCode.INFLUENCE_MISMATCH)));
         a.add(expect(receiverCase("enforce: an earlier check refuses first", Service.PAYMENT, "enforce",
-                Chains.request(headers(forged, proof, garbled), PAY)), refused(403, ReasonCode.BAD_SIGNATURE)));
+                ch.request(ch.forgedUnread)), refused(403, ReasonCode.BAD_SIGNATURE)));
         a.add(expect(receiverCase("audit, on a chain that verifies otherwise", Service.PAYMENT, "audit",
-                Chains.request(headers(chain, proof, garbled), PAY)), refused(400, ReasonCode.INFLUENCE_MISMATCH)));
-        a.add(expect(receiverCase("audit, on a chain that fails", Service.PAYMENT, "audit",
-                Chains.request(headers(forged, proof, garbled), PAY)), refused(400, ReasonCode.INFLUENCE_MISMATCH)));
-        a.add(expect(receiverCase("audit: a JSON object, not a list", Service.PAYMENT, "audit",
-                Chains.request(headers(chain, proof, b64("{\"cls\":\"private\",\"src\":\"s\",\"h\":\"h\"}")), PAY)),
-                refused(400, ReasonCode.INFLUENCE_MISMATCH)));
+                ch.request(ch.unread)), refused(400, ReasonCode.INFLUENCE_MISMATCH)));
+        a.add(expect(receiverCase("audit, on a chain that fails, its blocks matching", Service.PAYMENT, "audit",
+                ch.request(ch.forgedUnread)), refused(400, ReasonCode.INFLUENCE_MISMATCH)));
+        a.add(expect(receiverCase("audit: an item that is an array of entries, not an entry", Service.PAYMENT,
+                "audit", ch.request(ch.unreadList)), refused(400, ReasonCode.INFLUENCE_MISMATCH)));
         a.add(expect(receiverCase("audit: an entry with an empty owner", Service.PAYMENT, "audit",
-                Chains.request(headers(chain, proof, b64("[{\"cls\":\"private\",\"src\":\"s\",\"h\":\"h\","
-                        + "\"owner\":\"\"}]")), PAY)), refused(400, ReasonCode.INFLUENCE_MISMATCH)));
+                ch.request(ch.unreadOwner)), refused(400, ReasonCode.INFLUENCE_MISMATCH)));
         a.add(expect(receiverCase("a service that verifies only to attest", Service.PAYMENT, null,
-                Chains.request(headers(chain, proof, garbled), PAY)), refused(400, ReasonCode.INFLUENCE_MISMATCH)));
-        a.add(expect(receiverCase("a service with no verifier", Service.NO_VERIFIER, null,
-                Chains.request(headers(chain, proof, garbled), PAY)), refused(400, ReasonCode.INFLUENCE_MISMATCH)));
-        a.add(expect(receiverCase("an origin carries none, so has none to drop", Service.ORIGIN, null,
-                Chains.request(headers(chain, proof, garbled), PAY)), served(false, List.of(), false, false)));
+                ch.request(ch.unread)), refused(400, ReasonCode.INFLUENCE_MISMATCH)));
+        a.add(expect(receiverCase("a service with no verifier", Service.NO_VERIFIER, null, ch.request(ch.unread)),
+                refused(400, ReasonCode.INFLUENCE_MISMATCH)));
+        a.add(expect(receiverCase("off", Service.PAYMENT, "off", ch.request(ch.unread)),
+                refused(400, ReasonCode.INFLUENCE_MISMATCH)));
+        a.add(expect(receiverCase("an origin carries none, so has none to read", Service.ORIGIN, null,
+                ch.request(ch.unread)), served(false, nothing(), false, ReasonCode.OK, false)));
+        // The first case's input at a service whose settings do not name influence: it reads no item, is handed
+        // nothing under the name, and its handler asks no influence question.
+        ObjectNode notActing = receiverCase("enforce, at a service that does not act on influence", Service.PAYMENT,
+                "enforce", ch.request(ch.unread));
+        putSettings(notActing, ExtensionSettings.NONE);
+        a.add(expect(notActing, served(true, obj(), true, null, null)));
+        return a;
+    }
+
+    /**
+     * verification.md, "A service never serves a request whose blocks fail check 9a" and "What a request served
+     * without verifying is handed": every service about to serve a request it did not verify applies check 9a
+     * itself, or requires an array of blocks where the chain did not read, and answers 400; what it then serves is
+     * handed on as not verified.
+     */
+    private static ArrayNode servedUnverified(Chains ch) {
+        String proof = ch.shop.proofHeader(MESH_ROUTE);
+        String bare = HttpWire.encodeChain(ch.forgedBare.chain());
+        String unreadable = b64("not json");
+        ArrayNode a = arr();
+        a.add(expect(receiverCase("audit after a bad signature, its blocks matching", Service.PAYMENT, "audit",
+                ch.request(ch.forgedOwned)), served(false, handed(OWNED), false, ReasonCode.OK, false)));
+        a.add(expect(receiverCase("audit after a bad signature, orders' block altered", Service.PAYMENT, "audit",
+                ch.request(ch.forgedOwned.altered(NAMED))), refused(400, ReasonCode.EXTENSION_MISMATCH)));
+        a.add(expect(receiverCase("audit after a bad signature, no extensions header, every ext empty",
+                Service.PAYMENT, "audit", Chains.request(headers(bare, proof, null), PAY)),
+                served(false, handed(stamp("gateway", null), stamp("orders", null)), false,
+                        ReasonCode.INFLUENCE_DENIED, false)));
+        a.add(expect(receiverCase("audit after a bad signature, no extensions header, one ext not empty",
+                Service.PAYMENT, "audit", Chains.request(headers(HttpWire.encodeChain(ch.forgedOneExt.chain()),
+                        proof, null), PAY)), refused(400, ReasonCode.EXTENSION_MISMATCH)));
+        // Present but not decoding, beside the absent header two cases up.
+        a.add(expect(receiverCase("audit after a bad signature, an extensions header that is not base64url",
+                Service.PAYMENT, "audit", Chains.request(headers(bare, proof, "not*base64url"), PAY)),
+                refused(400, ReasonCode.EXTENSION_MISMATCH)));
+        a.add(expect(receiverCase("audit after a bad signature, blocks that are JSON null", Service.PAYMENT, "audit",
+                Chains.request(headers(bare, proof, b64("null")), PAY)), refused(400, ReasonCode.EXTENSION_MISMATCH)));
+        a.add(expect(receiverCase("audit, a chain that does not read, blocks that are an array", Service.PAYMENT,
+                "audit", Chains.request(headers(unreadable, proof, HttpWire.encodeBlocks(List.of(Block.EMPTY))), PAY)),
+                served(false, nothing(), false, ReasonCode.OK, false)));
+        a.add(expect(receiverCase("audit, a chain that does not read, blocks that are an object", Service.PAYMENT,
+                "audit", Chains.request(headers(unreadable, proof, b64(Block.EMPTY.toJson())), PAY)),
+                refused(400, ReasonCode.EXTENSION_MISMATCH)));
+        a.add(expect(receiverCase("audit, no chain and no blocks", Service.PAYMENT, "audit",
+                Chains.request(headers(null, proof, null), PAY)), served(false, nothing(), false, ReasonCode.OK,
+                        false)));
+        // orders' block with its third-party entry dropped: the claim a hop that alters a block would hide.
+        Sent hidden = ch.steered.altered(Influence.block(OWNED, List.of()));
+        a.add(expect(receiverCase("a service that verifies only to attest, orders' block altered", Service.PAYMENT,
+                null, ch.request(hidden)), refused(400, ReasonCode.EXTENSION_MISMATCH)));
+        a.add(expect(receiverCase("a service that verifies only to attest, verified", Service.PAYMENT, null,
+                ch.request(ch.steered)), served(true, handed(STEERED), true, ReasonCode.INFLUENCE_DENIED, false)));
+        a.add(expect(receiverCase("a service with no verifier, its blocks matching", Service.NO_VERIFIER, null,
+                ch.request(ch.steered)), served(false, handed(STEERED), false, ReasonCode.INFLUENCE_DENIED, false)));
+        a.add(expect(receiverCase("a service with no verifier, orders' block altered", Service.NO_VERIFIER, null,
+                ch.request(hidden)), refused(400, ReasonCode.EXTENSION_MISMATCH)));
+        a.add(expect(receiverCase("off, orders' block altered", Service.PAYMENT, "off",
+                ch.request(ch.clean.altered(Influence.block(STEERED, List.of())))),
+                refused(400, ReasonCode.EXTENSION_MISMATCH)));
+        // Check 9c is not check 9a: it follows the mode, refusing in enforce and serving in audit.
+        a.add(expect(receiverCase("enforce, a last block requiring an extension not acted on", Service.PAYMENT,
+                "enforce", ch.request(ch.requiring)), refused(403, ReasonCode.EXTENSION_REQUIRED)));
+        a.add(expect(receiverCase("audit, a last block requiring an extension not acted on", Service.PAYMENT,
+                "audit", ch.request(ch.requiring)), served(false, handed(List.of()), false, ReasonCode.OK, false)));
+        a.add(expect(receiverCase("an origin sent blocks that are an object", Service.ORIGIN, null,
+                Chains.request(headers(HttpWire.encodeChain(ch.clean.chain()), proof, b64("{}")), PAY)),
+                served(false, nothing(), false, ReasonCode.OK, false)));
+        // Check 9a at a service that acts on no extension: it serves matching blocks, handing on nothing under a
+        // name it does not act on, and refuses altered ones as any service does. Check 9c reads its own actsOn, so
+        // a last block requiring influence, which every case above acts on, is refused here in enforce mode.
+        a.add(expect(actingOnNothing("audit after a bad signature, its blocks matching", Service.PAYMENT, "audit",
+                ch.request(ch.forgedOwned)), served(false, obj(), false, null, null)));
+        a.add(expect(actingOnNothing("audit after a bad signature, orders' block altered", Service.PAYMENT, "audit",
+                ch.request(ch.forgedOwned.altered(NAMED))), refused(400, ReasonCode.EXTENSION_MISMATCH)));
+        a.add(expect(actingOnNothing("a service with no verifier, orders' block altered", Service.NO_VERIFIER, null,
+                ch.request(hidden)), refused(400, ReasonCode.EXTENSION_MISMATCH)));
+        a.add(expect(actingOnNothing("enforce, a last block requiring influence", Service.PAYMENT, "enforce",
+                ch.request(ch.requiringInfluence)), refused(403, ReasonCode.EXTENSION_REQUIRED)));
+        // The third case's request, with the extensions header present but holding only spaces and tabs: a value is
+        // read without HTTP's optional whitespace, and one left empty is an absent header (wire.md, Paztport's
+        // headers).
+        a.add(expect(receiverCase("audit after a bad signature, an extensions header of spaces and tabs, every ext"
+                + " empty", Service.PAYMENT, "audit", Chains.request(headers(bare, proof, " \t "), PAY)),
+                served(false, handed(stamp("gateway", null), stamp("orders", null)), false,
+                        ReasonCode.INFLUENCE_DENIED, false)));
         return a;
     }
 
     /** verification.md, who attests: only a chain that passed the live order at this service. */
     private static ArrayNode attestation(Chains ch) {
         ArrayNode a = arr();
-        a.add(expect(receiverCase("enforce, verified", Service.PAYMENT, "enforce", ch.request(ch.owned, OWNED)),
-                served(true, OWNED, true, true)));
-        a.add(expect(receiverCase("enforce, refused", Service.PAYMENT, "enforce", ch.request(ch.forged, List.of())),
+        a.add(expect(receiverCase("enforce, refused", Service.PAYMENT, "enforce", ch.request(ch.forged)),
                 refused(403, ReasonCode.BAD_SIGNATURE)));
-        a.add(expect(receiverCase("audit, verified", Service.PAYMENT, "audit", ch.request(ch.owned, OWNED)),
-                served(true, OWNED, true, true)));
+        a.add(expect(receiverCase("audit, verified", Service.PAYMENT, "audit", ch.request(ch.owned)),
+                served(true, handed(OWNED), true, ReasonCode.OK, true)));
         a.add(expect(receiverCase("audit, failed: served with what came, unattested", Service.PAYMENT, "audit",
-                ch.request(ch.forgedSteered, STEERED)), served(false, STEERED, false, false)));
+                ch.request(ch.forgedSteered)), served(false, handed(STEERED), false, ReasonCode.INFLUENCE_DENIED,
+                        false)));
         a.add(expect(receiverCase("no mode, verified for attestation alone", Service.PAYMENT, null,
-                ch.request(ch.owned, OWNED)), served(true, OWNED, true, true)));
+                ch.request(ch.owned)), served(true, handed(OWNED), true, ReasonCode.OK, true)));
         a.add(expect(receiverCase("no mode, a forged chain: served, unattested", Service.PAYMENT, null,
-                ch.request(ch.forged, List.of())), served(false, List.of(), false, false)));
+                ch.request(ch.forged)), served(false, handed(List.of()), false, ReasonCode.OK, false)));
         a.add(expect(receiverCase("no mode, a one-stamp chain with an empty signature", Service.PAYMENT, null,
-                ch.request(ch.unsigned, List.of())), served(false, List.of(), false, false)));
+                ch.request(ch.unsigned)), served(false, handed(stamp("gateway", null)), false,
+                        ReasonCode.INFLUENCE_DENIED, false)));
         a.add(expect(receiverCase("no verifier: nothing to verify with, so never attests", Service.NO_VERIFIER, null,
-                ch.request(ch.owned, OWNED)), served(false, OWNED, false, false)));
-        a.add(expect(receiverCase("off: verifies and attests nothing", Service.PAYMENT, "off",
-                ch.request(ch.clean, List.of())), served(false, List.of(), false, false)));
-        a.add(expect(receiverCase("an origin never attests", Service.ORIGIN, null, ch.request(ch.owned, OWNED)),
-                served(false, List.of(), false, false)));
+                ch.request(ch.owned)), served(false, handed(OWNED), false, ReasonCode.OK, false)));
+        a.add(expect(receiverCase("an origin never attests", Service.ORIGIN, null, ch.request(ch.owned)),
+                served(false, nothing(), false, ReasonCode.OK, false)));
+        // Who attests is the core's rule, whatever the service acts on.
+        a.add(expect(actingOnNothing("no mode, verified for attestation alone", Service.PAYMENT, null,
+                ch.request(ch.owned)), served(true, obj(), true, null, null)));
         return a;
     }
 
@@ -717,62 +943,70 @@ final class VectorsHttpRules {
     private static ArrayNode refusals(Chains ch) {
         ArrayNode a = arr();
         a.add(expect(receiverCase("a route not allowed names its last signer, but not to the caller",
-                Service.PAYMENT, "enforce", Chains.request(headers(HttpWire.encodeChain(ch.direct), null, null), PAY)),
-                refused(403, ReasonCode.PATH_NOT_ALLOWED)));
+                Service.PAYMENT, "enforce", Chains.request(headers(HttpWire.encodeChain(ch.direct.chain()), null,
+                        HttpWire.encodeBlocks(ch.direct.blocks())), PAY)), refused(403, ReasonCode.PATH_NOT_ALLOWED)));
         ObjectNode peer = receiverCase("a peer that is not the last signer is named, but not to the caller",
-                Service.PAYMENT, "enforce", ch.request(ch.clean, List.of()));
+                Service.PAYMENT, "enforce", ch.request(ch.clean));
         ObjectNode p = peer.putObject("peer");
         p.put("svc", "gateway");
         p.put("inst", "10.1.0.9");
         a.add(expect(peer, refused(403, ReasonCode.PEER_MISMATCH)));
-        ObjectNode late = receiverCase("an expired chain", Service.PAYMENT, "enforce",
-                ch.request(ch.clean, List.of()));
+        ObjectNode late = receiverCase("an expired chain", Service.PAYMENT, "enforce", ch.request(ch.clean));
         late.put("now", NOW + 10_000);
         a.add(expect(late, refused(403, ReasonCode.EXPIRED)));
-        ObjectNode altered = Chains.request(headers(HttpWire.encodeChain(ch.clean), ch.shop.proofHeader(MESH_ROUTE),
-                null), utf8("{\"amount\":999}"));
+        ObjectNode altered = Chains.request(headers(HttpWire.encodeChain(ch.clean.chain()),
+                ch.shop.proofHeader(MESH_ROUTE), HttpWire.encodeBlocks(ch.clean.blocks())), utf8("{\"amount\":999}"));
         a.add(expect(receiverCase("a body altered in transit", Service.PAYMENT, "enforce", altered),
                 refused(403, ReasonCode.BINDING_MISMATCH)));
-        a.add(expect(receiverCase("unreadable influence in audit mode", Service.PAYMENT, "audit",
-                Chains.request(headers(HttpWire.encodeChain(ch.clean), ch.shop.proofHeader(MESH_ROUTE),
-                        "not*base64url"), PAY)), refused(400, ReasonCode.INFLUENCE_MISMATCH)));
+        a.add(expect(actingOnNothing("a route not allowed names its last signer, but not to the caller",
+                Service.PAYMENT, "enforce", Chains.request(headers(HttpWire.encodeChain(ch.direct.chain()), null,
+                        HttpWire.encodeBlocks(ch.direct.blocks())), PAY)), refused(403, ReasonCode.PATH_NOT_ALLOWED)));
         return a;
     }
 
-    /** sessions-and-influence.md, trusted records: a verified chain, and no untrusted content in what it holds. */
+    /**
+     * influence.md, Trusted records and The every-stamp rule: a verified chain whose every stamp names influence, and
+     * no untrusted content in what it holds, the handler's reads included; a guarded public write is refused too
+     * unless every stamp names influence.
+     */
     private static ArrayNode trustedRecord(Chains ch) {
         ArrayNode a = arr();
-        a.add(expect(receiverCase("verified, no influence", Service.PAYMENT, "enforce",
-                ch.request(ch.clean, List.of())), served(true, List.of(), true, true)));
         a.add(expect(receiverCase("verified, private and public with owners", Service.PAYMENT, "enforce",
-                ch.request(ch.owned, OWNED)), served(true, OWNED, true, true)));
+                ch.request(ch.owned)), served(true, handed(OWNED), true, ReasonCode.OK, true)));
+        // The case above with only gateway's block changed, to one that does not name influence.
+        a.add(expect(receiverCase("verified, only trusted entries, the origin's block not naming influence",
+                Service.PAYMENT, "enforce", ch.request(ch.unnamedOrigin)),
+                served(true, handed(stamp("gateway", null), stamp("orders", OWNED)), true,
+                        ReasonCode.INFLUENCE_DENIED, false)));
+        a.add(expect(receiverCase("verified, only trusted entries, the origin's block a pass-along block",
+                Service.PAYMENT, "enforce", ch.request(ch.passAlong)),
+                served(true, handed(stamp("gateway", null), stamp("orders", OWNED)), true,
+                        ReasonCode.INFLUENCE_DENIED, false)));
         a.add(expect(receiverCase("verified, third-party content", Service.PAYMENT, "enforce",
-                ch.request(ch.steered, STEERED)), served(true, STEERED, true, false)));
+                ch.request(ch.steered)), served(true, handed(STEERED), true, ReasonCode.INFLUENCE_DENIED, false)));
         List<InfluenceEntry> untrusted = List.of(
                 new InfluenceEntry(InfluenceClass.LOCAL_UNTRUSTED, "http:search", "h-search-1", null, null));
         ObjectNode readUntrusted = receiverCase("verified, then a local-untrusted read", Service.PAYMENT,
-                "enforce", ch.request(ch.owned, OWNED));
-        readUntrusted.set("read", entries(untrusted));
-        a.add(expect(readUntrusted, served(true, OWNED, true, false)));
+                "enforce", ch.request(ch.owned));
+        readUntrusted.set("read", entriesJson(untrusted));
+        a.add(expect(readUntrusted, served(true, handed(OWNED), true, ReasonCode.INFLUENCE_DENIED, false)));
         List<InfluenceEntry> card = List.of(
                 new InfluenceEntry(InfluenceClass.PRIVATE, "http:cards", "h-card-1", null, "bob"));
         ObjectNode readPrivate = receiverCase("verified, then a private read of someone else's", Service.PAYMENT,
-                "enforce", ch.request(ch.owned, OWNED));
-        readPrivate.set("read", entries(card));
-        a.add(expect(readPrivate, served(true, OWNED, true, true)));
+                "enforce", ch.request(ch.owned));
+        readPrivate.set("read", entriesJson(card));
+        a.add(expect(readPrivate, served(true, handed(OWNED), true, ReasonCode.OK, true)));
         a.add(expect(receiverCase("a chain that failed in audit mode", Service.PAYMENT, "audit",
-                ch.request(ch.forged, List.of())), served(false, List.of(), false, false)));
-        a.add(expect(receiverCase("refused", Service.PAYMENT, "enforce", ch.request(ch.forged, List.of())),
-                refused(403, ReasonCode.BAD_SIGNATURE)));
-        a.add(expect(receiverCase("a hop that is off", Service.PAYMENT, "off", ch.request(ch.clean, List.of())),
-                served(false, List.of(), false, false)));
-        a.add(expect(receiverCase("a service with no verifier", Service.NO_VERIFIER, null,
-                ch.request(ch.clean, List.of())), served(false, List.of(), false, false)));
-        a.add(expect(receiverCase("an origin", Service.ORIGIN, null, ch.request(ch.clean, List.of())),
-                served(false, List.of(), false, false)));
+                ch.request(ch.forged)), served(false, handed(List.of()), false, ReasonCode.OK, false)));
+        a.add(expect(receiverCase("a hop that is off", Service.PAYMENT, "off", ch.request(ch.clean)),
+                served(false, handed(List.of()), false, ReasonCode.OK, false)));
+        a.add(expect(receiverCase("a service with no verifier", Service.NO_VERIFIER, null, ch.request(ch.clean)),
+                served(false, handed(List.of()), false, ReasonCode.OK, false)));
+        a.add(expect(receiverCase("an origin", Service.ORIGIN, null, ch.request(ch.clean)),
+                served(false, nothing(), false, ReasonCode.OK, false)));
         ObjectNode outside = receiverCase("work outside any request", Service.PAYMENT, "enforce", null);
         outside.putNull("request");
-        a.add(expect(outside, served(false, List.of(), false, false)));
+        a.add(expect(outside, served(false, nothing(), false, null, false)));
         return a;
     }
 
@@ -780,26 +1014,34 @@ final class VectorsHttpRules {
     static ObjectNode runReceiver(JsonNode c, Fixtures fx) {
         HttpReceiver receiver = receiver(c, fx);
         String svc = c.get("service").get("svc").asText();
+        boolean acts = settings(c).actsOn().contains(Influence.NAME);
         JsonNode request = c.get("request");
         if (request.isNull()) {
-            return answer(null, false, new PublicWrites(svc).shapedOnlyByTrusted());
+            return answer(null, null, acts ? new PublicWrites(svc).shapedOnlyByTrusted() : null);
         }
         Accepted last = null;
-        boolean trusted = false;
+        String write = null;
+        Boolean trusted = null;
         for (int i = 0; i < c.get("uses").asInt(); i++) {
             try (RequestContext.Entered<Accepted> entered = RequestContext.accept(receiver, inbound(request),
                     peer(c.get("peer")), mode(c.get("mode")))) {
                 last = entered.result();
+                write = null;
+                trusted = null;
                 if (last.refusal() == null) {
                     RequestContext.addInfluence(entries(c.get("read")).toArray(InfluenceEntry[]::new));
+                    if (acts) {
+                        PublicWrites writes = new PublicWrites(svc);
+                        write = writes.decide(c.get("destinationOwner").asText()).name();
+                        trusted = writes.shapedOnlyByTrusted();
+                    }
                 }
-                trusted = new PublicWrites(svc).shapedOnlyByTrusted();
             }
         }
-        return answer(last, last.attests(), trusted);
+        return answer(last, write, trusted);
     }
 
-    private static ObjectNode answer(Accepted a, boolean attests, boolean trusted) {
+    private static ObjectNode answer(Accepted a, String publicWrite, Boolean trusted) {
         ObjectNode e = obj();
         if (a == null || a.refusal() == null) {
             e.putNull("refusal");
@@ -809,13 +1051,16 @@ final class VectorsHttpRules {
             r.put("body", hex(a.refusal().json()));
         }
         e.put("verified", a != null && a.verifiedChain() != null);
-        e.set("influence", entries(a == null ? List.of() : a.influence()));
-        e.put("attests", attests);
-        e.put("trustedRecord", trusted);
+        e.set("handedOn", VectorsHttpV4Export.handOverJson(a == null ? null : a.handOver()));
+        e.put("attests", a != null && a.attests());
+        putAnswers(e, publicWrite, trusted);
         return e;
     }
 
-    /** The receiver a case names, its verifier pinned to the case's material over a cache holding {@code spent}. */
+    /**
+     * The receiver a case names, with the case's extension settings: in its verifier, pinned to the case's material
+     * over a cache holding {@code spent}, or given to the builder where it has none.
+     */
     static HttpReceiver receiver(JsonNode c, Fixtures fx) {
         JsonNode s = c.get("service");
         String svc = s.get("svc").asText();
@@ -829,7 +1074,9 @@ final class VectorsHttpRules {
             c.get("spent").forEach(k -> nonces.seenBefore(k.asText(), now));
             b.verifier(new Verifier(VerifierConfig.pinned(List.of(m.keyring()), List.of(m.root()), m.policyKey(),
                     now, textSet(c.get("allowedOrigins")), "", nonces, () -> now, c.get("callMaxAgeMs").asLong(),
-                    c.get("runMaxAgeMs").asLong())));
+                    c.get("runMaxAgeMs").asLong(), settings(c))));
+        } else {
+            b.extensions(settings(c));
         }
         return b.stamper(new Stamper(svc, s.get("inst").asText(), fx.privateKey(svc), origin, () -> "unused",
                 () -> now)).build();
@@ -1031,7 +1278,7 @@ final class VectorsHttpRules {
         return c;
     }
 
-    /** sessions-and-influence.md, over HTTP: an endpoint is the method and the dispatched handler's pattern. */
+    /** sessions.md, over HTTP: an endpoint is the method and the dispatched handler's pattern. */
     private static ArrayNode unsafeEndpoints() {
         List<String> disabled = List.of("POST /refund", "GET /statements/{id}");
         ArrayNode a = arr();
@@ -1046,11 +1293,12 @@ final class VectorsHttpRules {
         return a;
     }
 
+
     // --- The caller's influence ---
 
     /**
-     * A caller case's inputs: orders calls payment after the gateway's stamp, with what it has read so far, on the
-     * shop's material and holding no operation table.
+     * A caller case's inputs: orders, acting on influence, calls payment after the gateway's stamp with what it has
+     * added so far, on the shop's material and holding no operation table.
      */
     private static ObjectNode callerCase(String name, boolean verifier, Map<String, String> receivers, String uri,
             int status, String header, byte[] body, Chains ch) {
@@ -1070,10 +1318,12 @@ final class VectorsHttpRules {
         ObjectNode map = caller.putObject("receivers");
         receivers.forEach(map::put);
         caller.set("operations", texts(operations.toArray(String[]::new)));
+        putSettings(c, ACTS_ON_INFLUENCE);
         c.set("allowedOrigins", texts("gateway"));
         c.put("ts", ORDERS_TS);
         c.set("inbound", stamps(ch.toOrders));
-        c.set("influence", entries(OWNED));
+        c.set("inboundBlocks", tree(Block.toJson(List.of(NAMED))));
+        c.set("added", entriesJson(OWNED));
         ObjectNode call = c.putObject("call");
         call.put("method", "POST");
         call.put("uri", uri);
@@ -1103,16 +1353,20 @@ final class VectorsHttpRules {
         List<Stamp> out = new ArrayList<>();
         a.forEach(s -> out.add(new Stamp(s.get("svc").asText(), s.get("inst").asText(), s.get("rid").asText(),
                 s.get("ts").asLong(), s.get("sess").asText(), s.get("rcv").asText(), s.get("bind").asText(),
-                s.get("infl").asText(), s.get("prev").asText(), s.get("sig").asText())));
+                s.get("ext").asText(), s.get("prev").asText(), s.get("sig").asText())));
         return out;
     }
 
-    private static ObjectNode callerExpected(String reason, List<InfluenceEntry> influence) {
-        return callerExpected("payment", reason, influence);
+    private static ObjectNode callerExpected(String reason, boolean refused, List<InfluenceEntry> influence) {
+        return callerExpected("payment", reason, refused, influence);
     }
 
-    /** What a caller case expects: the last stamp's {@code rcv}, the check's reason and the entries added. */
-    private static ObjectNode callerExpected(String rcv, String reason, List<InfluenceEntry> influence) {
+    /**
+     * What a caller case expects: the {@code rcv} of the stamp the caller signed, the check's reason, whether the
+     * caller refused the response, and the entries it adds.
+     */
+    private static ObjectNode callerExpected(String rcv, String reason, boolean refused,
+            List<InfluenceEntry> influence) {
         ObjectNode e = obj();
         e.put("rcv", rcv);
         if (reason == null) {
@@ -1120,60 +1374,82 @@ final class VectorsHttpRules {
         } else {
             e.put("reason", reason);
         }
-        e.set("influence", entries(influence));
+        e.put("refused", refused);
+        e.set("influence", entriesJson(influence));
         return e;
     }
 
-    /** payment's attestation of {@code status} and {@code body} with {@code labels}, over what orders sent. */
-    private static String attestation(Chains ch, int status, byte[] body, List<ContentLabel> labels) {
-        return attestation(ch, "payment", status, body, labels);
+    /** payment's attestation of {@code status} and {@code body} with {@code block}, over what orders sent. */
+    private static String attestation(Chains ch, int status, byte[] body, Block block) {
+        return attestation(ch, "payment", status, body, block);
     }
 
-    /** The same, over what orders sent addressed to {@code rcv}: payment, or one of its operations. */
-    private static String attestation(Chains ch, String rcv, int status, byte[] body, List<ContentLabel> labels) {
+    /**
+     * The same, over what orders sent addressed to {@code rcv}: payment, or one of its operations. orders acts on
+     * influence, so its own block names it with what it added.
+     */
+    private static String attestation(Chains ch, String rcv, int status, byte[] body, Block block) {
         List<Stamp> sent = new Stamper("orders", "ord-1", ch.fx.privateKey("orders"), false, () -> RID,
-                () -> ORDERS_TS).next(ch.toOrders, rcv, RequestBinding.compute("POST", "/pay", PAY), OWNED,
-                null).chain();
+                () -> ORDERS_TS).next(ch.toOrders, rcv, RequestBinding.compute("POST", "/pay", PAY),
+                Influence.block(OWNED, List.of()), null).chain();
         Stamp stamp = new Stamper("payment", "pay-1", ch.fx.privateKey("payment"), false, () -> RID,
-                () -> RESPONSE_TS).respond(sent, HttpWire.resultHash(status, body), RID, labels);
-        return HttpWire.encodeResponse(stamp, labels);
+                () -> RESPONSE_TS).respond(sent, HttpWire.resultHash(status, body), RID, block);
+        return HttpWire.encodeResponse(stamp, block);
     }
 
-    /** verification.md, a response at the caller: what a response adds to the request's influence. */
+    /** verification.md, a response at the caller, and influence.md, Content labels: what a response adds. */
     private static ArrayNode callerInfluence(Chains ch) {
         List<ContentLabel> labels = List.of(new ContentLabel(InfluenceClass.PRIVATE, "cid-receipt-1", "alice"),
                 new ContentLabel(InfluenceClass.PUBLIC, "cid-terms-1", null));
-        String ok = attestation(ch, 200, PAID, labels);
+        Block labelled = ContentLabel.block(labels, List.of());
+        String ok = attestation(ch, 200, PAID, labelled);
         String okHash = HttpWire.resultHash(200, PAID);
         String uri = "https://payment/pay";
-        List<InfluenceEntry> labelled = List.of(
+        List<InfluenceEntry> fromLabels = List.of(
                 new InfluenceEntry(InfluenceClass.PRIVATE, "http:payment", okHash, "cid-receipt-1", "alice"),
                 new InfluenceEntry(InfluenceClass.PUBLIC, "http:payment", okHash, "cid-terms-1", null));
+        List<InfluenceEntry> untrusted = List.of(untrusted(okHash));
         ArrayNode a = arr();
         a.add(callerCase("each label becomes an entry", true, Map.of(), uri, 200, ok, PAID, ch)
-                .set("expected", callerExpected("OK", labelled)));
+                .set("expected", callerExpected("OK", false, fromLabels)));
         a.add(callerCase("the receiver's policy name, by configuration", true, Map.of("pay.internal", "payment"),
-                "https://pay.internal:8443/pay", 200, ok, PAID, ch).set("expected", callerExpected("OK", labelled)));
-        a.add(callerCase("verified with no labels adds nothing", true, Map.of(), uri, 200,
-                attestation(ch, 200, PAID, List.of()), PAID, ch).set("expected", callerExpected("OK", List.of())));
+                "https://pay.internal:8443/pay", 200, ok, PAID, ch)
+                .set("expected", callerExpected("OK", false, fromLabels)));
+        a.add(callerCase("verified, naming influence with no labels, adds nothing", true, Map.of(), uri, 200,
+                attestation(ch, 200, PAID, ContentLabel.block(List.of(), List.of())), PAID, ch)
+                .set("expected", callerExpected("OK", false, List.of())));
+        // A response that verifies but whose block does not name influence says nothing of what it holds.
+        a.add(callerCase("silent: verified, its block not naming influence", true, Map.of(), uri, 200,
+                attestation(ch, 200, PAID, Block.EMPTY), PAID, ch)
+                .set("expected", callerExpected("OK", false, untrusted)));
+        // An item that is not a label beside one that is; none of them is believed.
+        Block mixed = Block.of(Map.of(Influence.NAME, List.of(labels.get(0).toJson(), fromLabels.get(1).toJson())),
+                List.of(Influence.NAME));
+        a.add(callerCase("verified, a label beside an entry", true, Map.of(), uri, 200,
+                attestation(ch, 200, PAID, mixed), PAID, ch)
+                .set("expected", callerExpected("OK", false, untrusted)));
+        // The first case's response, its block also requiring an extension the caller does not act on.
+        a.add(callerCase("refused at check 9c", true, Map.of(), uri, 200,
+                attestation(ch, 200, PAID, ContentLabel.block(labels, List.of(EXAMPLE))), PAID, ch)
+                .set("expected", callerExpected("EXTENSION_REQUIRED", true, untrusted)));
         a.add(callerCase("unattested", true, Map.of(), uri, 200, null, PAID, ch).set("expected",
-                callerExpected("CHAIN_MISSING", List.of(untrusted(okHash)))));
+                callerExpected("CHAIN_MISSING", false, untrusted)));
         String hash500 = HttpWire.resultHash(500, PAID);
         a.add(callerCase("failing: the attestation is for another status", true, Map.of(), uri, 500, ok, PAID, ch)
-                .set("expected", callerExpected("BINDING_MISMATCH", List.of(untrusted(hash500)))));
+                .set("expected", callerExpected("BINDING_MISMATCH", false, List.of(untrusted(hash500)))));
         byte[] refusalBody = utf8("{\"reason\":\"BAD_SIGNATURE\"}");
         a.add(callerCase("a refusal", true, Map.of(), uri, 403, null, refusalBody, ch).set("expected",
-                callerExpected("CHAIN_MISSING", List.of(untrusted(HttpWire.resultHash(403, refusalBody))))));
+                callerExpected("CHAIN_MISSING", false, List.of(untrusted(HttpWire.resultHash(403, refusalBody))))));
         a.add(callerCase("a caller with no verifier checks nothing", false, Map.of(), uri, 200, ok, PAID, ch)
-                .set("expected", callerExpected(null, List.of(untrusted(okHash)))));
+                .set("expected", callerExpected(null, false, untrusted)));
         // A caller that holds payment's table names the operation in its stamp; the source stays the service.
         String pay = "payment#pay";
         a.add(callerCase("an operation named: the source is the service", "shop-operations", List.of("shared"), true,
-                Map.of(), uri, 200, attestation(ch, pay, 200, PAID, labels), PAID, ch)
-                .set("expected", callerExpected(pay, "OK", labelled)));
+                Map.of(), uri, 200, attestation(ch, pay, 200, PAID, labelled), PAID, ch)
+                .set("expected", callerExpected(pay, "OK", false, fromLabels)));
         a.add(callerCase("an operation named, unattested: the source is the service", "shop-operations",
                 List.of("shared"), true, Map.of(), uri, 200, null, PAID, ch)
-                .set("expected", callerExpected(pay, "CHAIN_MISSING", List.of(untrusted(okHash)))));
+                .set("expected", callerExpected(pay, "CHAIN_MISSING", false, untrusted)));
         return a;
     }
 
@@ -1181,6 +1457,7 @@ final class VectorsHttpRules {
         return new InfluenceEntry(InfluenceClass.LOCAL_UNTRUSTED, "http:payment", hash, null, null);
     }
 
+    /** Runs one caller case: the caller's settings are in its verifier where it has one, and given otherwise. */
     static ObjectNode runCaller(JsonNode c, Fixtures fx) {
         JsonNode s = c.get("caller");
         String svc = s.get("svc").asText();
@@ -1199,12 +1476,15 @@ final class VectorsHttpRules {
         if (s.get("verifier").asBoolean()) {
             b.verifier(new Verifier(VerifierConfig.pinned(List.of(m.keyring()), List.of(m.root()), m.policyKey(),
                     now, textSet(c.get("allowedOrigins")), "", new InMemoryNonceCache(c.get("nonceTtlMs").asLong()),
-                    () -> now, c.get("callMaxAgeMs").asLong(), c.get("runMaxAgeMs").asLong())));
+                    () -> now, c.get("callMaxAgeMs").asLong(), c.get("runMaxAgeMs").asLong(), settings(c))));
+        } else {
+            b.extensions(settings(c));
         }
         HttpCaller caller = b.build();
         JsonNode call = c.get("call");
         HttpCaller.Outbound sent = caller.stamp(call.get("method").asText(), URI.create(call.get("uri").asText()),
-                unhex(call.get("body")), stamps(c.get("inbound")), entries(c.get("influence")));
+                unhex(call.get("body")), stamps(c.get("inbound")), Block.parseAll(Vectors.text(c.get("inboundBlocks"))),
+                entries(c.get("added")));
         JsonNode r = c.get("response");
         HttpCaller.Received received = caller.check(sent, r.get("status").asInt(),
                 r.get("header").isNull() ? null : r.get("header").asText(), unhex(r.get("body")));
@@ -1216,7 +1496,8 @@ final class VectorsHttpRules {
         } else {
             e.put("reason", received.check().result().reason().name());
         }
-        e.set("influence", entries(received.influence()));
+        e.put("refused", received.refused());
+        e.set("influence", entriesJson(received.influence()));
         return e;
     }
 
@@ -1225,7 +1506,8 @@ final class VectorsHttpRules {
     /** Replays every kind in {@code rules}. */
     static void assertAll(JsonNode rules, JsonNode http, JsonNode core) {
         Fixtures fx = new Fixtures(rules, http, core);
-        for (String kind : List.of("requests", "unreadableInfluence", "attestation", "refusals", "trustedRecord")) {
+        for (String kind : List.of("requests", "influenceItems", "servedUnverified", "attestation", "refusals",
+                "trustedRecord")) {
             for (JsonNode c : rules.get(kind)) {
                 assertEquals(c.get("expected"), runReceiver(c, fx), kind + ": " + c.get("name").asText());
             }
