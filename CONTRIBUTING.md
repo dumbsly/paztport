@@ -11,9 +11,9 @@ Pull requests are by arrangement: open an issue first.
 Every change that touches behaviour takes these steps, in order.
 
 1. A sentence in the spec, in [poc-sdks/spec/](poc-sdks/spec/README.md).
-2. The shared vectors in `poc-sdks/spec/vectors/`, re-exported by the SDK that
-   writes them, never hand-edited. The spec's section on each file names its
-   writer and how to regenerate it:
+2. The shared vectors in `poc-sdks/spec/vectors/`, each written by one exporter
+   and regenerated from it, never hand-edited. The spec's section on each file
+   names its exporter and how to run it:
    [v4.json](poc-sdks/spec/README.md#v4json),
    [http-v4.json](poc-sdks/spec/README.md#http-v4json),
    [events.json](poc-sdks/spec/README.md#eventsjson),

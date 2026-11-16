@@ -15,10 +15,10 @@ Mutual TLS and an allowlist of who may call whom check the last hop: they let
 `orders` call `payment`. Paztport also checks the route a request took and, through
 the owner-aware rule, whose data shaped it. In the Java mesh it refuses a call from
 `orders` to `payment`'s `pay` inside a request that came in through `getOrder`, a
-read, and a support ticket asking for Alice's data to go to Mallory, at the mailer
-and at the payment provider, though every hop on its way was allowed; an allowlist
-lets both through. Some of what the mesh refuses an allowlist refuses too: `search`
-calling `payment`, which no route allows
+read. It refuses a support ticket asking for Alice's data to go to Mallory, at the
+mailer and at the payment provider, though every hop on its way was allowed. An
+allowlist lets both through. Some of what the mesh refuses an allowlist refuses
+too: `search` calling `payment`, which no route allows
 ([what the demos show](../README.md#what-the-demos-show)).
 
 What it costs, beyond the mutual TLS and the allowlist:
@@ -44,9 +44,14 @@ What it costs, beyond the mutual TLS and the allowlist:
   kept, and each service loads the renewed files; a service in `enforce` whose
   keyring or root has expired refuses every request `POLICY_EXPIRED`
   ([lifetimes and renewal](../poc-demos/java-mesh/README.md#lifetimes-and-renewal)).
+- **Clocks must agree.** A verifier refuses a request whose last stamp is more than
+  5 s from its own clock, either way (`CALL_MAX_AGE_MS`), so a caller's clock and
+  its receiver's must agree to within that, less the time the call takes
+  ([freshness](../poc-sdks/spec/verification.md#freshness-and-replay)).
 - **Revocation waits for expiry.** A keyring or root shown in a session handshake
-  can be replayed until it expires, 7 days by default, so a leaked key or a removed
-  route stays usable that long (see "Revocation takes up to a lifetime" below).
+  can be replayed until it expires, 7 days by default, so a leaked stamping key or
+  a removed route stays usable that long (see "Revocation takes up to a lifetime"
+  below).
 - **The policy names every route a request may take**, not only who may call whom,
   and `enforce` refuses a route it leaves out. The on-ramp is `audit` on real
   traffic, to find the retries, health checks and batch jobs it trips; this proof of
