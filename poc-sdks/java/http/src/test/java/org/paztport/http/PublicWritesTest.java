@@ -276,6 +276,28 @@ class PublicWritesTest {
         assertEquals(ReasonCode.INFLUENCE_DENIED, writeHandedOn(ACTS, List.of(unreadable), true, "alice"));
     }
 
+    // A hand-over holding nothing under influence, at a service that acts on it, was built under other settings: it
+    // is refused rather than read as nothing handed on (spec influence.md, Entries).
+    @Test
+    void aHandOverBuiltUnderSettingsNotActingOnInfluenceIsRefused() {
+        List<Stamp> chain = chain("rid-1");
+        ExtensionSettings example = ExtensionSettings.of(Set.of("example"), null);
+        Block block = Block.of(Map.of("example", List.of("7")), List.of());
+        try (RequestContext.Scope scope = RequestContext.open()) {
+            RequestContext.actOn(ACTS);
+            RequestContext.markVerified(chain);
+            RequestContext.handOn(new HandOver(true, chain, List.of(block), example));
+            assertEquals(ReasonCode.INFLUENCE_DENIED, writes.decide("alice"));
+            assertFalse(writes.shapedOnlyByTrusted());
+        }
+        // The controls: nothing handed on, and a hand-over built under the scope's own settings.
+        assertEquals(ReasonCode.OK, writeHandedOn(ACTS, null, false, "alice"));
+        assertTrue(trustedWith());
+        Block named = Influence.block(List.of(), List.of());
+        assertEquals(ReasonCode.OK, writeHandedOn(ACTS, List.of(named), true, "alice"));
+        assertTrue(trustedHandedOn(chain, List.of(named)));
+    }
+
     @Test
     void aTrustedRecordIsNeverWrittenFromAHandOverThatIsNotVerified() {
         List<Stamp> chain = chain("rid-1");

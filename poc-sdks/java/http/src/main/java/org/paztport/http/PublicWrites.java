@@ -71,7 +71,7 @@ public final class PublicWrites {
         List<HandOver.StampItems> stamps = handedOn == null ? null : handedOn.under(Influence.NAME);
         // Influence.decide gives INFLUENCE_MISMATCH where an item handed on does not read. The receiver refused such a
         // request at a service acting on influence, so only a hand-over set by hand reaches it here, and it is denied.
-        boolean allowed = actsOnInfluence() && Influence.decide(stamps,
+        boolean allowed = rulesDecide(handedOn) && Influence.decide(stamps,
                 added.stream().map(InfluenceEntry::fact).toList(), true, destinationOwner).reason() == ReasonCode.OK;
         ReasonCode reason = allowed ? ReasonCode.OK : ReasonCode.INFLUENCE_DENIED;
         if (TRACE.isInfoEnabled()) {
@@ -80,10 +80,16 @@ public final class PublicWrites {
         return reason;
     }
 
-    /** Whether a scope is open and the service serving it acts on {@code influence}. */
-    private static boolean actsOnInfluence() {
+    /**
+     * Whether the rules may decide over {@code handedOn}: a scope is open, the service serving it acts on
+     * {@code influence}, and what it was handed was built under such settings. A hand-over holding nothing under
+     * influence beside settings that act on it was not, such as one set by hand, and is refused rather than read as
+     * nothing handed on (spec influence.md, Entries). A null one hands nothing on.
+     */
+    private static boolean rulesDecide(HandOver handedOn) {
         ExtensionSettings settings = RequestContext.extensions();
-        return RequestContext.isOpen() && settings != null && settings.actsOn().contains(Influence.NAME);
+        return RequestContext.isOpen() && settings != null && settings.actsOn().contains(Influence.NAME)
+                && (handedOn == null || handedOn.under(Influence.NAME) != null);
     }
 
     /** What the request was handed under influence, read, beside what the service added. */
@@ -113,7 +119,7 @@ public final class PublicWrites {
         HandOver handedOn = RequestContext.handedOn();
         RequestInfluence shown = shown(handedOn == null ? null : handedOn.under(Influence.NAME),
                 RequestContext.added());
-        boolean trusted = actsOnInfluence() && RequestContext.verifiedChain() != null && shown.reads()
+        boolean trusted = rulesDecide(handedOn) && RequestContext.verifiedChain() != null && shown.reads()
                 && shown.everyStampNames()
                 && InfluenceRule.shapedOnlyByTrusted(shown.entries().stream().map(InfluenceEntry::fact).toList());
         if (TRACE.isInfoEnabled()) {
