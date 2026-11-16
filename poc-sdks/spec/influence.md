@@ -283,12 +283,15 @@ steered it. A request that fails the rule MAY still be served, but the record MU
 `http-v4.json`'s `rules` pins this rule in `trustedRecord`. On a verified chain, a record may be written where every
 stamp names `influence` and the entries are `private` and `public` ones with owners, also after a `private` read of
 someone else's; and it may not be written where the entries are all trusted but the origin's block does not name
-`influence` or is a pass-along block, where the chain holds `third-party` content, or after a `local-untrusted` read.
-A chain that failed in audit mode, a hop that is off, a service with no verifier, an origin and work outside any
-request never qualify. It pins the rule at the boundary in `partnerTrustedRecord`: an attested call qualifies with
-`private` and `public` content with owners, and with a boundary block that names `influence` with nothing, and not
-with `third-party` or `local-untrusted` content, in the stamp or read afterwards, nor with a boundary block that does
-not name `influence`.
+`influence` or is a pass-along block, where the chain holds `third-party` content, or after a `local-untrusted` read. A
+chain that failed in audit mode, a hop that is off, a service with no verifier, an origin and work outside any request
+never qualify. It pins the rule at the boundary in `partnerTrustedRecord`: an attested call qualifies with `private` and
+`public` content with owners, and with a boundary block that names `influence` with nothing, and not with `third-party`
+or `local-untrusted` content, in the stamp or read afterwards, nor with a boundary block that does not name `influence`.
+A call in an unsafe session never qualifies, and its guarded write is decided over what the handler read, whatever the
+call carries: `third-party` content beside alice's private data is denied a write to bob's destination, and a public
+page allowed it. Nor does a call qualify at a partner that does not act on `influence`, which also denies the guarded
+write.
 
 ### What the rules read
 

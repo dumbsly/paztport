@@ -334,16 +334,16 @@ or an MCP server: the server reads neither the call's chain nor its blocks and b
 
 `http-v4.json` pins the rule. In enforce mode, `rules.requests` pins blocks that do not decode, and none where the
 stamps commit to blocks, each `403` `EXTENSION_MISMATCH`. `rules.servedUnverified` pins every other service about to
-serve. Each of these is `400 {"reason":"EXTENSION_MISMATCH"}`: in audit mode after a failure, a block altered, no
-blocks where an `ext` is not `""`, blocks that do not decode and blocks that are JSON `null`; where the chain did not
-read, blocks that are an object; and a block altered at a service that verifies only to attest, at one with no
-verifier and at a hop that is off. Each of these is served: in audit mode after a failure, blocks that match their
-stamps and none where every `ext` is `""`, their items handed on as not verified, as at a service with no verifier
-whose blocks match; where the chain did not read, blocks that are an array, and no chain and no blocks, with nothing
-handed on; and a chain that verifies at a service that verifies only to attest, handed on as verified. A last block
-requiring an extension the service does not act on is `403` `EXTENSION_REQUIRED` in enforce mode and served in audit
-mode, since check 9c follows the mode; and an origin sent blocks that are an object is served, since it carries
-neither the chain nor the blocks.
+serve. Each of these is `400 {"reason":"EXTENSION_MISMATCH"}`: in audit mode after a failure, a block altered, no blocks
+where an `ext` is not `""`, blocks that do not decode and blocks that are JSON `null`; where the chain did not read,
+blocks that are an object; and a block altered at a service that verifies only to attest, at one with no verifier and at
+a hop that is off. Each of these is served: in audit mode after a failure, blocks that match their stamps, and none
+where every `ext` is `""`, whether the header is absent or holds only spaces and tabs ([wire.md](wire.md#http)), their
+items handed on as not verified, as at a service with no verifier whose blocks match; where the chain did not read,
+blocks that are an array, and no chain and no blocks, with nothing handed on; and a chain that verifies at a service
+that verifies only to attest, handed on as verified. A last block requiring an extension the service does not act on is
+`403` `EXTENSION_REQUIRED` in enforce mode and served in audit mode, since check 9c follows the mode; and an origin sent
+blocks that are an object is served, since it carries neither the chain nor the blocks.
 
 **The receiver's operation.** The receiver's operation is the handler its framework will run. It works it out from its
 own routing before it verifies, and, where its framework lets later code route a request on after the receiver has

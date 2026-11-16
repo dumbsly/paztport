@@ -105,8 +105,6 @@ final class VectorsHttpPartner {
     /** The egress's boundary key, as {@code boundaryInfluence} derives it. */
     static final byte[] BOUNDARY_KEY =
             Crypto.sha256("paztport-http-v3-vector-boundary-key".getBytes(StandardCharsets.UTF_8));
-    /** The boundary block of a call whose stamp commits to {@link VectorsHttpRules#OWNED}. */
-    private static final Block OWNED_BLOCK = Influence.block(OWNED, List.of());
 
     private VectorsHttpPartner() {
     }
@@ -214,12 +212,22 @@ final class VectorsHttpPartner {
             return st;
         }
 
+        /** {@link VectorsHttpRules#OWNED} as the egress sends it on the next call: blinded for that call's rid. */
+        List<InfluenceEntry> ownedSent() {
+            return sent(OWNED, nextRid());
+        }
+
+        /** The next call's boundary block, naming influence with {@link #ownedSent()}. */
+        Block owned() {
+            return Influence.block(ownedSent(), List.of());
+        }
+
         /**
          * {@code POST /charge} naming {@code session}, carrying a boundary stamp from payment made in that session,
-         * or in {@code s1} when the call names none, and the block it commits to, {@link #OWNED_BLOCK}.
+         * or in {@code s1} when the call names none, and the block it commits to, {@link #owned()}.
          */
         ObjectNode charge(long at, String peer, JsonNode session) {
-            return charge(at, peer, session, OWNED_BLOCK);
+            return charge(at, peer, session, owned());
         }
 
         /** As {@link #charge(long, String, JsonNode)}, carrying and committing to {@code block}. */
@@ -254,6 +262,15 @@ final class VectorsHttpPartner {
 
         Script charge(long at, String peer, JsonNode session, ObjectNode expected) {
             return call(at, charge(at, peer, session), expected);
+        }
+
+        /**
+         * {@link #charge(long, String, JsonNode)} served in an attested session: handed the entries it carries, and
+         * a trusted record allowed, since they are private and public content with owners.
+         */
+        Script chargeAttested(long at, String peer, JsonNode session) {
+            List<InfluenceEntry> carried = ownedSent();
+            return call(at, charge(at, peer, session, Influence.block(carried, List.of())), attested(carried, true));
         }
     }
 
@@ -376,7 +393,7 @@ final class VectorsHttpPartner {
         a.add(none.call(NOW + 1_000, none.charge(NOW + 1_000, "shop", null), unsafe()).c);
         a.add(new Script("the session this peer opened", partner(), shop)
                 .handshake(NOW, "shop", "shop", "s1", opened("attested"))
-                .charge(NOW + 1_000, "shop", of("s1"), attested(OWNED, true)).c);
+                .chargeAttested(NOW + 1_000, "shop", of("s1")).c);
         a.add(new Script("an id that names no session", partner(), shop)
                 .handshake(NOW, "shop", "shop", "s1", opened("attested"))
                 .charge(NOW + 1_000, "shop", id("bm8tc3VjaC1zZXNzaW9u"), refused(ReasonCode.SESSION_UNKNOWN)).c);
@@ -398,8 +415,9 @@ final class VectorsHttpPartner {
         // The case above with blocks other than the stamp commits to: nothing is verified, check 9a included.
         Script unchecked = new Script("an unsafe session applies no check to the blocks the call carries", partner(),
                 shop).handshake(NOW, "shop", "no-root", "u1", opened("unsafe"));
+        List<InfluenceEntry> steeredSent = sent(STEERED, unchecked.nextRid());
         ObjectNode steered = unchecked.charge(NOW + 1_000, "shop", of("u1"));
-        steered.put("extensionsHeader", HttpWire.encodeBlocks(List.of(Influence.block(STEERED, List.of()))));
+        steered.put("extensionsHeader", HttpWire.encodeBlocks(List.of(Influence.block(steeredSent, List.of()))));
         a.add(unchecked.call(NOW + 1_000, steered, unsafe()).c);
         Script other = new Script("a stamp made in another session", partner(), shop)
                 .handshake(NOW, "shop", "shop", "s1", opened("attested"))
@@ -407,7 +425,7 @@ final class VectorsHttpPartner {
         ObjectNode call = other.charge(NOW + 1_000, "shop", of("s2"));
         ((ObjectNode) call.get("stamp")).set("sess", of("s1"));
         a.add(other.call(NOW + 1_000, call, refused(ReasonCode.SESSION_UNKNOWN)).c);
-        // The first case with the header present but holding only spaces and tabs: a header's value is read without
+        // The first case's call, with X-Path-Session present but holding only spaces and tabs: a value is read without
         // HTTP's optional whitespace, and one left empty is an absent header (wire.md, Paztport's headers).
         Script blank = new Script("a header of spaces and tabs is no header: an unsafe session, and nothing it"
                 + " carries is believed", partner(), shop).handshake(NOW, "shop", "shop", "s1", opened("attested"));
@@ -424,38 +442,38 @@ final class VectorsHttpPartner {
         a.add(new Script("a peer's least recently used session is evicted", partner("psp", 2, 900_000), shop)
                 .handshake(NOW, "shop", "shop", "s1", opened("attested"))
                 .handshake(NOW + 1_000, "shop", "shop", "s2", opened("attested"))
-                .charge(NOW + 2_000, "shop", of("s1"), attested(OWNED, true))
+                .chargeAttested(NOW + 2_000, "shop", of("s1"))
                 .handshake(NOW + 3_000, "shop", "shop", "s3", opened("attested"))
                 .charge(NOW + 4_000, "shop", of("s2"), refused(ReasonCode.SESSION_UNKNOWN))
-                .charge(NOW + 5_000, "shop", of("s1"), attested(OWNED, true))
-                .charge(NOW + 6_000, "shop", of("s3"), attested(OWNED, true)).c);
+                .chargeAttested(NOW + 5_000, "shop", of("s1"))
+                .chargeAttested(NOW + 6_000, "shop", of("s3")).c);
         a.add(new Script("replicas that share a certificate are one peer", partner("psp", 2, 900_000), shop)
                 .handshake(NOW, "shop", "shop", "s1", opened("attested"))
                 .handshake(NOW + 1_000, "shop-replica", "shop", "s2", opened("attested"))
                 .handshake(NOW + 2_000, "shop", "shop", "s3", opened("attested"))
                 .charge(NOW + 3_000, "shop", of("s1"), refused(ReasonCode.SESSION_UNKNOWN))
-                .charge(NOW + 4_000, "shop", of("s2"), attested(OWNED, true)).c);
+                .chargeAttested(NOW + 4_000, "shop", of("s2")).c);
         a.add(new Script("another peer's handshakes evict none of this peer's", partner("psp", 2, 900_000), shop)
                 .handshake(NOW, "shop", "shop", "s1", opened("attested"))
                 .handshake(NOW + 1_000, "clinic", "shop", "c1", opened("attested"))
                 .handshake(NOW + 2_000, "clinic", "shop", "c2", opened("attested"))
                 .handshake(NOW + 3_000, "clinic", "shop", "c3", opened("attested"))
-                .charge(NOW + 4_000, "shop", of("s1"), attested(OWNED, true)).c);
+                .chargeAttested(NOW + 4_000, "shop", of("s1")).c);
         a.add(new Script("a handshake replaces no session", partner("psp", 2, 900_000), shop)
                 .handshake(NOW, "shop", "shop", "s1", opened("attested"))
                 .handshake(NOW + 1_000, "shop", "shop", "s2", opened("attested"))
-                .charge(NOW + 2_000, "shop", of("s1"), attested(OWNED, true))
-                .charge(NOW + 3_000, "shop", of("s2"), attested(OWNED, true)).c);
+                .chargeAttested(NOW + 2_000, "shop", of("s1"))
+                .chargeAttested(NOW + 3_000, "shop", of("s2")).c);
         a.add(new Script("an idle session expires, and a call starts its idle period again",
                 partner("psp", 2, 60_000), shop)
                 .handshake(NOW, "shop", "shop", "s1", opened("attested"))
-                .charge(NOW + 30_000, "shop", of("s1"), attested(OWNED, true))
-                .charge(NOW + 89_000, "shop", of("s1"), attested(OWNED, true))
+                .chargeAttested(NOW + 30_000, "shop", of("s1"))
+                .chargeAttested(NOW + 89_000, "shop", of("s1"))
                 .charge(NOW + 150_000, "shop", of("s1"), refused(ReasonCode.SESSION_UNKNOWN)).c);
         a.add(new Script("a handshake that opens no session changes none", partner("psp", 1, 900_000), shop)
                 .handshake(NOW, "shop", "shop", "s1", opened("attested"))
                 .handshake(NOW + 1_000, "shop", "short-nonce", null, handshakeError(HttpSessions.NO_SESSION))
-                .charge(NOW + 2_000, "shop", of("s1"), attested(OWNED, true)).c);
+                .chargeAttested(NOW + 2_000, "shop", of("s1")).c);
         return a;
     }
 
@@ -554,8 +572,8 @@ final class VectorsHttpPartner {
         ArrayNode a = arr();
         a.add(new Script("a session's calls once the client's material has expired", partner(), shop)
                 .handshake(NOW, "shop", "shop-expiring", "s1", opened("attested"))
-                .charge(NOW + 1_000, "shop", of("s1"), attested(OWNED, true))
-                .charge(expires, "shop", of("s1"), attested(OWNED, true))
+                .chargeAttested(NOW + 1_000, "shop", of("s1"))
+                .chargeAttested(expires, "shop", of("s1"))
                 .charge(expires + 1, "shop", of("s1"), refused(ReasonCode.POLICY_EXPIRED)).c);
         a.add(new Script("a handshake once the client's material has expired is unsafe", partner(), shop)
                 .handshake(expires + 1, "shop", "shop-expiring", "u1", opened("unsafe")).c);
@@ -564,7 +582,7 @@ final class VectorsHttpPartner {
                         PartnerSessions.DEFAULT_SESSION_IDLE_MS), shop)
                 .handshake(NOW, "shop", "shop", "s1", opened("attested"))
                 .handshake(expires + 1, "shop", "shop", "u1", opened("unsafe"))
-                .charge(expires + 2, "shop", of("s1"), attested(OWNED, true))
+                .chargeAttested(expires + 2, "shop", of("s1"))
                 .charge(expires + 3, "shop", of("u1"), unsafe()).c);
         return a;
     }
@@ -685,29 +703,32 @@ final class VectorsHttpPartner {
     static ArrayNode boundaryRefusals(Fixtures fx) {
         Material shop = fx.material("shop");
         String proof = shop.proofHeader(VectorsHttpRules.BOUNDARY_ROUTE);
-        String owned = HttpWire.encodeBlocks(List.of(OWNED_BLOCK));
         ArrayNode a = arr();
         Script forged = new Script("a stamp signed with another key", partner(), shop)
                 .handshake(NOW, "shop", "shop", "s1", opened("attested"));
+        Block forgedBlock = forged.owned();
         a.add(forged.call(NOW + 1_000, forged.call("shop", of("s1"), "POST", "/charge", "/charge", CHARGE,
-                forged.stamp(NOW + 1_000, of("s1"), "gateway", CHARGE, OWNED_BLOCK), proof, owned),
-                refused(ReasonCode.BAD_SIGNATURE)).c);
+                forged.stamp(NOW + 1_000, of("s1"), "gateway", CHARGE, forgedBlock), proof,
+                HttpWire.encodeBlocks(List.of(forgedBlock))), refused(ReasonCode.BAD_SIGNATURE)).c);
         Script altered = new Script("a body altered in transit", partner(), shop)
                 .handshake(NOW, "shop", "shop", "s1", opened("attested"));
+        Block alteredBlock = altered.owned();
         a.add(altered.call(NOW + 1_000, altered.call("shop", of("s1"), "POST", "/charge", "/charge",
-                utf8("{\"charge\":999}"), altered.stamp(NOW + 1_000, of("s1"), "payment", CHARGE, OWNED_BLOCK), proof,
-                owned), refused(ReasonCode.BINDING_MISMATCH)).c);
+                utf8("{\"charge\":999}"), altered.stamp(NOW + 1_000, of("s1"), "payment", CHARGE, alteredBlock), proof,
+                HttpWire.encodeBlocks(List.of(alteredBlock))), refused(ReasonCode.BINDING_MISMATCH)).c);
+        // The stamp commits to the entries of alice's order and a public page; the header carries a third-party
+        // ticket beside alice's order, both as the egress sends them on this call.
         Script other = new Script("a block other than the stamp commits to", partner(), shop)
                 .handshake(NOW, "shop", "shop", "s1", opened("attested"));
+        Block otherBlock = Influence.block(sent(STEERED, other.nextRid()), List.of());
         a.add(other.call(NOW + 1_000, other.call("shop", of("s1"), "POST", "/charge", "/charge", CHARGE,
-                other.stamp(NOW + 1_000, of("s1"), "payment", CHARGE, OWNED_BLOCK), proof,
-                HttpWire.encodeBlocks(List.of(Influence.block(STEERED, List.of())))),
-                refused(ReasonCode.EXTENSION_MISMATCH)).c);
+                other.stamp(NOW + 1_000, of("s1"), "payment", CHARGE, other.owned()), proof,
+                HttpWire.encodeBlocks(List.of(otherBlock))), refused(ReasonCode.EXTENSION_MISMATCH)).c);
         Script unreadable = new Script("blocks that cannot be read: a partner has no audit mode", partner(), shop)
                 .handshake(NOW, "shop", "shop", "s1", opened("attested"));
         a.add(unreadable.call(NOW + 1_000, unreadable.call("shop", of("s1"), "POST", "/charge", "/charge", CHARGE,
-                unreadable.stamp(NOW + 1_000, of("s1"), "payment", CHARGE, OWNED_BLOCK), proof, "not*base64url"),
-                refused(ReasonCode.EXTENSION_MISMATCH)).c);
+                unreadable.stamp(NOW + 1_000, of("s1"), "payment", CHARGE, unreadable.owned()), proof,
+                "not*base64url"), refused(ReasonCode.EXTENSION_MISMATCH)).c);
         // The first call of the next case, its block holding an item that is not an entry, which the stamp commits to.
         Script item = new Script("an item that is not an entry", partner(), shop)
                 .handshake(NOW, "shop", "shop", "s1", opened("attested"));
@@ -716,8 +737,9 @@ final class VectorsHttpPartner {
                 refused(400, ReasonCode.INFLUENCE_MISMATCH)).c);
         Script twice = new Script("the same call twice", partner(), shop)
                 .handshake(NOW, "shop", "shop", "s1", opened("attested"));
+        List<InfluenceEntry> twiceSent = twice.ownedSent();
         ObjectNode call = twice.charge(NOW + 1_000, "shop", of("s1"));
-        a.add(twice.call(NOW + 1_000, call, attested(OWNED, true))
+        a.add(twice.call(NOW + 1_000, call, attested(twiceSent, true))
                 .call(NOW + 1_500, call, refused(ReasonCode.REPLAY)).c);
         Script gated = new Script("endpoints switched off for unsafe sessions", partner(), shop)
                 .handshake(NOW, "shop", "no-root", "u1", opened("unsafe"))
@@ -730,9 +752,11 @@ final class VectorsHttpPartner {
                 refused(ReasonCode.UNSAFE_SESSION));
         gated.call(NOW + 4_000, gated.call("shop", of("u1"), "POST", "/charge", "/charge", CHARGE, null, null, null),
                 unsafe());
+        List<InfluenceEntry> gatedSent = gated.ownedSent();
+        Block gatedBlock = Influence.block(gatedSent, List.of());
         gated.call(NOW + 5_000, gated.call("shop", of("s1"), "POST", "/refund", "/refund", CHARGE,
-                gated.stamp(NOW + 5_000, of("s1"), "payment", CHARGE, OWNED_BLOCK), proof, owned),
-                attested(OWNED, true));
+                gated.stamp(NOW + 5_000, of("s1"), "payment", CHARGE, gatedBlock), proof,
+                HttpWire.encodeBlocks(List.of(gatedBlock))), attested(gatedSent, true));
         a.add(gated.c);
         return a;
     }

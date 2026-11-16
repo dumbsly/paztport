@@ -506,7 +506,7 @@ header: every refusal, and every `refusals` and `boundaryRefusals` case among th
 | `refusals` | receiver | What a refusal carries, in a mesh: the code alone, even where the result names a suspect, at a service that acts on no extension too. |
 | `boundaryRefusals` | partner | The same at the boundary: the partner's refusals, a block other than its stamp commits to and blocks that cannot be read included (`EXTENSION_MISMATCH`: a partner has no audit mode), an item that is not an entry (`400 INFLUENCE_MISMATCH`), and an unsafe session's switched-off endpoints refused `UNSAFE_SESSION`, with no session header too. |
 | `trustedRecord` | receiver | Trusted records ([influence.md](influence.md#trusted-records)): a verified chain every stamp of which names `influence`, and no `third-party` or `local-untrusted` content, counting what the handler reads; `private`, `public` and owners do not count. A guarded public write on a verified chain whose origin's block does not name `influence`, or is a pass-along block, is `INFLUENCE_DENIED` whatever the entries say ([influence.md](influence.md#the-every-stamp-rule)). The partner kinds' `trustedRecord` covers a call in an unsafe session, and `partnerTrustedRecord` the same rule at the boundary. |
-| `partnerTrustedRecord` | partner | The same rule at the boundary: an attested call qualifies only with no `third-party` or `local-untrusted` content, counting what the handler reads, and a boundary block that names `influence`, with nothing included; `private`, `public` and owners do not count. And the owner-aware rule over the boundary block's entries ([influence.md](influence.md#blinded-influence)): a guarded public write from a call holding `third-party` content beside alice's private data is `INFLUENCE_DENIED` to bob's destination and `OK` to alice's. Each stamp's block holds what the egress sends, the entries blinded for that call. In an unsafe session nothing is handed on, and the owner-aware rule reads what the handler read: `third-party` content beside alice's private data is `INFLUENCE_DENIED` to bob's destination, a public page `OK`, whatever the call carries ([influence.md](influence.md#what-the-rules-read)). A partner that acts on no extension is handed `{}`, denies the write and the trusted record, and serves an item that is not an entry unread. |
+| `partnerTrustedRecord` | partner | The same rule at the boundary: an attested call qualifies only with no `third-party` or `local-untrusted` content, counting what the handler reads, and a boundary block that names `influence`, with nothing included; `private`, `public` and owners do not count. And the owner-aware rule over the boundary block's entries ([influence.md](influence.md#blinded-influence)): a guarded public write from a call holding `third-party` content beside alice's private data is `INFLUENCE_DENIED` to bob's destination and `OK` to alice's. In an unsafe session nothing is handed on, and the owner-aware rule reads what the handler read: `third-party` content beside alice's private data is `INFLUENCE_DENIED` to bob's destination, a public page `OK`, whatever the call carries ([influence.md](influence.md#what-the-rules-read)). A partner that acts on no extension is handed `{}`, denies the write and the trusted record, and serves an item that is not an entry unread. |
 
 A **receiver** case enters `request` (`method`, `target`, `headers`, `body`) `uses` times at `service`: its `svc`
 and `inst`, whether it is an `origin`, and whether it has a `verifier`, pinned to `material`. Every service holds
@@ -523,25 +523,28 @@ is `destinationOwner` gets (`publicWrite`) and whether a `trustedRecord` may be 
 refusal and at a service that does not act on `influence`. A null `request` is work outside any request, which asks
 only for the trusted record.
 
-A **partner** case runs `steps` against one partner (`partner`: its `material`, the client policy keys it has
-`pinned`, `clientOrigins`, the endpoints it has switched off for unsafe sessions, `maxSessionsPerPeer`,
-`sessionIdleMs`, its windows, its `actsOn` and `allowedExtensions` as a receiver's, and the clock's `start`), its
-clock at each step's `at`. A peer is one of `peers`, a client `certificate` and the `remoteAddr` it connected from,
-read as `peerCertificates` reads one, with its issuer for the session's binding; null is no client certificate. A
-`handshake` posts the request `handshakes` names, as its JCS bytes in `handshakeBodies`, or `body`; `as` names the
-session it opens, since the partner chooses the id. It expects the `status`, the `error` of a `400`, and the reply's
-`sessionStatus`, `disabled` and `extensions` of a `200`. A `call` names its session as `{"of": <as>}`,
-`{"id": <literal id>}`, `{"header": <value>}`, an `X-Path-Session` value sent as written, or null for no
-`X-Path-Session`. Its `stamp`, when present, is a boundary stamp signed with `key` as the step runs, in the session
-its `sess` names, binding the call's method, its target and the stamp's own `body`, and committing to the stamp's
-`block`; `proofHeader` and `extensionsHeader` go as given. `routePattern` is
-the pattern of the handler the call reaches, which an unsafe session's switched-off endpoints are matched against.
-It expects the `refusal`, whether the call is `attested`, what the handler is `handedOn`, as a receiver case records
-it, and `trustedRecord`, null for a refusal. A `call` may carry `read`, what the handler reads after the call is
-accepted, in a receiver case's form; `trustedRecord` counts it after what the call hands on, and no `read` is the
-empty list. A `call` may also carry `destinationOwner`, the owner, from the partner's own records, of a destination the
-handler asks about a guarded public write to; it then expects `publicWrite` too, as a receiver case records it, null
-for a refusal.
+A **partner** case runs `steps` against one partner (`partner`: its `material`, the client policy keys it has `pinned`,
+`clientOrigins`, the endpoints it has switched off for unsafe sessions, `maxSessionsPerPeer`, `sessionIdleMs`, its
+windows, its `actsOn` and `allowedExtensions` as a receiver's, and the clock's `start`), its clock at each step's `at`.
+A peer is one of `peers`, a client `certificate` and the `remoteAddr` it connected from, read as `peerCertificates`
+reads one, with its issuer for the session's binding; null is no client certificate. A `handshake` posts the request
+`handshakes` names, as its JCS bytes in `handshakeBodies`, or `body`; `as` names the session it opens, since the partner
+chooses the id. It expects the `status`, the `error` of a `400`, and the reply's `sessionStatus`, `disabled` and
+`extensions` of a `200`. A `call` names its session as `{"of": <as>}`, `{"id": <literal id>}`, `{"header": <value>}`, an
+`X-Path-Session` value sent as written, or null for no `X-Path-Session`. Its `stamp`, when present, is a boundary stamp
+signed with `key` as the step runs, in the session its `sess` names, binding the call's method, its target and the
+stamp's own `body`, and committing to the stamp's `block`; `proofHeader` and `extensionsHeader` go as given.
+`routePattern` is the pattern of the handler the call reaches, which an unsafe session's switched-off endpoints are
+matched against. It expects the `refusal`, whether the call is `attested`, what the handler is `handedOn`, as a receiver
+case records it, and `trustedRecord`, which a served call records whatever the partner acts on, null for a refusal. A
+`call` may carry `read`, what the handler reads after the call is accepted, in a receiver case's form; `trustedRecord`
+counts it after what the call hands on, and no `read` is the empty list. A `call` may also carry `destinationOwner`, the
+owner, from the partner's own records, of a destination the handler asks about a guarded public write to; it then
+expects `publicWrite` too, the reason the write gets, whatever the partner acts on, null for a refusal. A receiver case
+at a service that does not act on `influence` records both as null, since it holds the core's rules; a partner case
+records what the extension's rules answer at a partner that does not act on `influence`. Every entry a call carries, in
+its stamp's block or its `extensionsHeader`, is in the blinded form an egress sends on that call
+([influence.md](influence.md#blinded-influence)).
 
 An **egress** case enters `inbound`, a receiver case's inputs, at the egress `egress` (null: no request at all),
 which acts on its `actsOn` and carries its `allowedExtensions` as a receiver does, requires `requires` of the

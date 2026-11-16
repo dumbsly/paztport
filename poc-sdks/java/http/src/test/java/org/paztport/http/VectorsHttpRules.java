@@ -170,10 +170,11 @@ final class VectorsHttpRules {
             + " given, signed as the step runs with the key `key`, in the session its `sess` names, over the binding"
             + " of the call's method and target with the stamp's own `body`, and committing to `block`. A call may"
             + " carry `read`, what the handler reads once it is accepted, and `destinationOwner`, which has the"
-            + " handler ask about a guarded public write as a receiver case's does. It expects the `refusal` (an"
-            + " unsafe session's switched-off endpoint, by `routePattern`, included), whether it is served"
-            + " `attested`, `handedOn` as a receiver case records it, `publicWrite` where the call carries"
-            + " `destinationOwner`, and `trustedRecord`, both null for a refusal. An egress case"
+            + " handler ask about a guarded public write to a destination with that owner. It expects the `refusal`"
+            + " (an unsafe session's switched-off endpoint, by `routePattern`, included), whether it is served"
+            + " `attested`, `handedOn` as a receiver case records it, and the handler's answers whatever the partner"
+            + " acts on: `publicWrite` where the call carries `destinationOwner`, and `trustedRecord` for every"
+            + " served call, both null for a refusal. An egress case"
             + " enters `inbound`, a receiver case's inputs (null for work outside any request), at the egress"
             + " `egress`, which acts on `actsOn` and carries `allowedExtensions` as a receiver does, requires"
             + " `requires` of the partner and goes on without them when `continueWithout` is true, and posts each of"
@@ -187,9 +188,8 @@ final class VectorsHttpRules {
             + " and the session its stamp was made in, each the position of the handshake whose reply issued it, its"
             + " stamps without `sess` and `sig`, its proof and its `blocks`), and the entries the request `added` at"
             + " the egress. A boundary block's entries are blinded under the boundary key as `boundaryInfluence` pins"
-            + " it, for the partner `psp`, the egress `payment` and the rid of the stamp that commits to the block:"
-            + " in an egress case, and in `partnerTrustedRecord`'s stamps, which carry what a partner receives. The"
-            + " other partner kinds' stamps carry entries as a hop inside the mesh records them.";
+            + " it, for the partner `psp`, the egress `payment` and the rid of the boundary stamp it travels with:"
+            + " in an egress case, and in a partner case's calls, which carry what a partner receives.";
 
     private VectorsHttpRules() {
     }
@@ -902,7 +902,7 @@ final class VectorsHttpRules {
                 ch.request(hidden)), refused(400, ReasonCode.EXTENSION_MISMATCH)));
         a.add(expect(actingOnNothing("enforce, a last block requiring influence", Service.PAYMENT, "enforce",
                 ch.request(ch.requiringInfluence)), refused(403, ReasonCode.EXTENSION_REQUIRED)));
-        // The third case with the extensions header present but holding only spaces and tabs: a header's value is
+        // The third case's request, with the extensions header present but holding only spaces and tabs: a value is
         // read without HTTP's optional whitespace, and one left empty is an absent header (wire.md, Paztport's
         // headers).
         a.add(expect(receiverCase("audit after a bad signature, an extensions header of spaces and tabs, every ext"
