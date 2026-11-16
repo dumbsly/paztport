@@ -80,7 +80,9 @@ a request first, and serving it without the item would hide content from
 [the owner-aware rule](#the-owner-aware-rule). An MCP server in audit mode runs the call and notes the code in its
 verdict ([Over MCP](#over-mcp)). Offline, a verifier that acts on `influence` gives `INFLUENCE_MISMATCH` for an
 item on a recorded request's block that does not read, as the live service does
-([offline verification](verification.md#offline-verification)). A recorded response whose block holds an
+([offline verification](verification.md#offline-verification)). That reading applied by a verifier whose settings do
+not act on `influence`, which is handed nothing under it, is a fault in the verifier's configuration, never a request
+with nothing handed on: an implementation refuses to run it. A recorded response whose block holds an
 `influence` item that is not a label is judged as it is live: the core's result stands, `OK` when the response
 verifies, no label is taken from it, and it counts as one `local-untrusted` entry; `INFLUENCE_MISMATCH` is given,
 live and offline, only for an item on a request's block. The code names no one and is never attributable,
@@ -242,7 +244,9 @@ attacker writes.
 A refused write is `INFLUENCE_DENIED`. Over HTTP it is `403 {"reason":"INFLUENCE_DENIED"}` in either mode: it is
 the service's own refusal of the write, not a result of verification, so it does not follow audit mode. Over MCP it
 is a verdict, which follows the mode: an audit-mode server runs the call and notes it ([Over MCP](#over-mcp)). Like
-`INFLUENCE_MISMATCH`, it names no one and is never attributable.
+`INFLUENCE_MISMATCH`, it names no one and is never attributable. A handler that asks whether a guarded write may go
+is answered `OK` or `INFLUENCE_DENIED`, never another code: an item handed on that does not read denies the write,
+though a service that acts on `influence` refuses such a request before its handler runs ([Entries](#entries)).
 
 `v4.json` pins the rule's truth table in `influence.rule`: the two conditions above, not the every-stamp rule. In the
 agents demo, neither entries nor destinations have owners, so the rule reduces to "untrusted content plus any private
@@ -300,12 +304,14 @@ written:
 | At an origin | what the origin added | there is no earlier stamp, so the every-stamp rule holds; the owner-aware rule over what the origin added | never written |
 
 What is handed on, and when, is the core's ([the live order](verification.md#the-live-order)). The item check
-([Entries](#entries)) reads the items handed on, verified or not. An unsafe session is none of these rows: there
-the server believes nothing from the call, and a tool or endpoint that `disabled` does not list runs with no
-influence rule at all ([sessions.md](sessions.md#unsafe-sessions)). Over MCP an audit-mode server notes a call that
-failed verification with the first failure's code and does not reach the decision on a guarded write, since it
-decides only a call that verified ([sessions.md](sessions.md#the-server-decision)): the second row is for HTTP
-services, whose handlers apply the rules, and the third row's MCP case says only that nothing is handed on.
+([Entries](#entries)) reads the items handed on, verified or not. In an unsafe session the server believes nothing
+from the call, so nothing is handed on: a guarded write a handler asks about there, as an HTTP partner's may, is
+decided by the owner-aware rule over what the handler read, as wherever nothing is handed on, and no trusted record is
+written from the call. Listing a tool or endpoint in `disabled` remains the way to keep it out of unsafe sessions
+([sessions.md](sessions.md#unsafe-sessions)). An MCP server decides a guarded write only for a call that verified
+([sessions.md](sessions.md#the-server-decision)), so it decides none in an unsafe session, and in audit mode it notes
+a call that failed verification with the first failure's code and does not reach the decision: the second row is for
+HTTP services, whose handlers apply the rules, and the third row's MCP case says only that nothing is handed on.
 
 ## Over MCP
 
