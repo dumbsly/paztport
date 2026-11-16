@@ -537,7 +537,8 @@ describe("known-answer vectors, version 4", () => {
     ["influence.response", "verified, one label and one item that is not a label"],
     ["influence.response", "a result no check ran on, as in an unsafe session"],
     ["influence.recordedCall", "items under influence, at a verifier that acts on it"],
-    // and the whole-branch review
+    // and the cases for an origin block that does not name influence, a local write into a public folder,
+    // a Method not found answer, and a response whose first stamp names another call
     ["influence.request", "an origin block that does not name it, the caller's entries trusted, a write"],
     ["recordedLocalStep", "a write into a public folder, a private entry in the origin's block and the hop's block empty, signed as allowed"],
     ["sessionRequirement", "a Method not found answer (-32601)"],

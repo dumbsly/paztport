@@ -5,8 +5,9 @@ cluster. A Go `ext_proc` processor stamps each request as the origin service `ed
 [java-mesh](../java-mesh/README.md) services `orders` and `payment` verify it. The idea and the concepts are in the
 [root README](../../README.md).
 
-The processor stamps protocol version 4, which the java-mesh services it deploys read. The runs recorded below, the
-checks and the measurements, were made while it stamped version 3, before the Go SDK moved to version 4.
+The processor stamps protocol version 4, which the java-mesh services it deploys read. Its behavioural checks pass on
+version 4 (12 passed, 0 failed, on 2026-11-16). The measurements recorded below were made while it stamped version 3,
+before the Go SDK moved to version 4.
 
 This is the proof of concept, its behavioural checks, the harness for its measurements (see
 [Measuring it](#measuring-it)), and what one full run of them showed: the answers first, then the

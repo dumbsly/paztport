@@ -145,8 +145,8 @@ with a clean copy, automatically, within seconds.
   untrusted content plus any private data; the Java mesh's
   [support-assistant storyline](poc-demos/java-mesh/README.md#the-support-assistant-storyline)
   exercises its owner clause. In the demo's one recorded
-  [eval](poc-demos/agents-mcp/eval/README.md#recorded-results), 20 runs per setting
-  on one local model against a mock server, 9 of 20 runs leaked the private notes
+  [eval](poc-demos/agents-mcp/eval/README.md#recorded-results), measured on version 3,
+  20 runs per setting on one local model against a mock server, 9 of 20 runs leaked the private notes
   with Paztport off and none with it on, and without the planted issue Paztport
   refused nothing. With it, 9 of the 13 refusals stopped a public write that held no
   private text: the rule judges what shaped a write, not what the write holds.
@@ -522,9 +522,9 @@ takes the destination's owner from its own records, never from the request
 #### Response attestation
 
 An answer carries a stamp of its own: one more stamp on the request's chain, signed
-for the caller over the status, the body and the labels of what the service
-answered, each label a class and, where the service has one, an owner from its own
-records (over HTTP, the `X-Path-Response` header). A service attests only an answer
+for the caller over the status and the body of what the service answered, and
+committing to its block, which holds the labels, each a class and, where the service
+has one, an owner from its own records (over HTTP, the `X-Path-Response` header). A service attests only an answer
 to a request whose chain passed the live order there, so no origin attests, nor a
 hop where Paztport is off, and neither a refusal nor a request that failed in
 `audit` mode is attested. A service that confirms its operation a second time, as
@@ -633,8 +633,9 @@ Paztport at a Kubernetes edge, on a local kind cluster. A Go processor, which
 Envoy calls over gRPC for each request through its external processing filter
 (`ext_proc`), and which its own Helm chart installs, stamps each request entering
 the gateway as the origin service `edge`; the Java mesh's `orders` and `payment`
-verify it. The processor is built on the Go SDK and stamps version 4; what follows
-is from runs made while it stamped version 3, before the Go SDK moved. Its
+verify it. The processor is built on the Go SDK and stamps version 4. Its checks pass
+on version 4 (12 passed, 0 failed, on 2026-11-16); the measurements below were made
+while it stamped version 3, before the Go SDK moved. Its
 checks show that a chain a client sends is replaced at the edge, not believed, that a
 request sent around the edge is refused, and that a stamp
 taken from the processor is refused from any connection but Envoy's. Its

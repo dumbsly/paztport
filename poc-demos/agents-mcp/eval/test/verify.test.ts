@@ -359,7 +359,7 @@ describe("verifyEvidence: evidence format 2", { timeout: 30_000 }, () => {
   });
 });
 
-describe("verifyEvidence: fix round 1", { timeout: 30_000 }, () => {
+describe("verifyEvidence: replay, handshakes, response pairing and refusal shape", { timeout: 30_000 }, () => {
   const material = () => loadClientMaterial(join(demo, "client"));
   const callOf = (rs: any[], id: string) => rs.find((x) => x.type === "call" && x.callId === id);
   const responseOf = (rs: any[], id: string) => rs.find((x) => x.type === "response" && x.callId === id);
