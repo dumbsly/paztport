@@ -21,9 +21,9 @@ import org.slf4j.LoggerFactory;
  * service code asks one question before it writes somewhere its owner cannot vouch for: may what this request has
  * read go to this destination? It is {@link Influence#decide} over what the request was handed under influence
  * ({@link RequestContext#handedOn}) and the entries the service added ({@link RequestContext#added}): the answer is
- * {@link ReasonCode#INFLUENCE_DENIED} when a stamp handed on does not name influence, or when untrusted content sits
- * beside private content that is not the destination owner's, {@link ReasonCode#INFLUENCE_MISMATCH} when an item
- * handed on does not read, and {@link ReasonCode#OK} otherwise.
+ * {@link ReasonCode#INFLUENCE_DENIED} when a stamp handed on does not name influence, when an item handed on does not
+ * read, or when untrusted content sits beside private content that is not the destination owner's, and
+ * {@link ReasonCode#OK} otherwise.
  *
  * <p>The rules are those of a service that acts on {@code influence}, so a service whose settings do not act on it
  * ({@link RequestContext}'s, set by the receiver that served the request) is refused every guarded write and holds no
@@ -59,17 +59,21 @@ public final class PublicWrites {
      * rules read). Where nothing was handed on (at an origin, where the chain did not read, or in an unsafe partner
      * session) the rule reads only what the service added, and cannot refuse for content it is not shown: a partner
      * must therefore switch its public writes off for unsafe sessions ({@link UnsafeEndpoints}), so that an unsafe
-     * session never reaches them.
+     * session never reaches them (spec influence.md, What the rules read).
      *
      * @param destinationOwner the owner of the destination from trusted records, or null/empty when unknown
+     * @return {@link ReasonCode#OK} or {@link ReasonCode#INFLUENCE_DENIED}, never another code: an item handed on that
+     *     does not read denies the write (spec influence.md, The owner-aware rule)
      */
     public ReasonCode decide(String destinationOwner) {
         List<InfluenceEntry> added = RequestContext.added();
         HandOver handedOn = RequestContext.handedOn();
         List<HandOver.StampItems> stamps = handedOn == null ? null : handedOn.under(Influence.NAME);
-        ReasonCode reason = !actsOnInfluence() ? ReasonCode.INFLUENCE_DENIED
-                : Influence.decide(stamps, added.stream().map(InfluenceEntry::fact).toList(), true, destinationOwner)
-                        .reason();
+        // Influence.decide gives INFLUENCE_MISMATCH where an item handed on does not read. The receiver refused such a
+        // request at a service acting on influence, so only a hand-over set by hand reaches it here, and it is denied.
+        boolean allowed = actsOnInfluence() && Influence.decide(stamps,
+                added.stream().map(InfluenceEntry::fact).toList(), true, destinationOwner).reason() == ReasonCode.OK;
+        ReasonCode reason = allowed ? ReasonCode.OK : ReasonCode.INFLUENCE_DENIED;
         if (TRACE.isInfoEnabled()) {
             TRACE.info(DecisionLine.of(receiver, "public-write", reason, shown(stamps, added).entries()));
         }

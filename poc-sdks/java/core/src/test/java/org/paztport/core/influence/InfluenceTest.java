@@ -6,11 +6,18 @@ package org.paztport.core.influence;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
+import org.paztport.core.offline.OfflineResult;
 import org.paztport.core.stamp.Block;
+import org.paztport.core.stamp.Stamp;
+import org.paztport.core.verify.ExtensionSettings;
+import org.paztport.core.verify.HandOver;
+import org.paztport.core.verify.ReasonCode;
 
 class InfluenceTest {
 
@@ -148,5 +155,37 @@ class InfluenceTest {
                 fresh.toEntry("http:x", "h"));
         String bad = "{\"cid\":\"c\",\"cls\":\"private\",\"owner\":\"\"}";
         assertThrows(IllegalArgumentException.class, () -> ContentLabel.parse(bad));
+    }
+
+    /** An OK offline result over one stamp whose block is {@code block}, from a verifier acting on {@code actsOn}. */
+    private static OfflineResult okAt(Set<String> actsOn, Block block) {
+        Stamp stamp = new Stamp("gateway", "gw-1", "rid-1", 1L, "", "orders", "b", "", "", "sig");
+        return new OfflineResult(ReasonCode.OK, "", "", new HandOver(true, List.of(stamp), List.of(block),
+                ExtensionSettings.of(actsOn, null)));
+    }
+
+    private static final Block NOT_AN_ENTRY = Block.of(Map.of(Influence.NAME, List.of("7"),
+            "example", List.of("7")), List.of());
+
+    // Such a hand-over holds nothing under influence, so reading it as nothing handed on would pass every item unread:
+    // the verifier's configuration is at fault, not the record (spec influence.md, Entries).
+    @Test
+    void aReadingAtSettingsNotActingOnInfluenceThrows() {
+        OfflineResult result = okAt(Set.of("example"), NOT_AN_ENTRY);
+        IllegalStateException e = assertThrows(IllegalStateException.class, () -> Influence.reason(result));
+        assertTrue(e.getMessage().contains("influence") && e.getMessage().contains("settings"), e.getMessage());
+    }
+
+    @Test
+    void aFailedResultKeepsItsReasonWhateverItsSettings() {
+        assertEquals(ReasonCode.REPLAY, Influence.reason(new OfflineResult(ReasonCode.REPLAY, "", "", null)));
+    }
+
+    // The control for the two above: the same block at a verifier that acts on influence.
+    @Test
+    void anActingResultWithAnUnreadableItemIsMismatch() {
+        assertEquals(ReasonCode.INFLUENCE_MISMATCH, Influence.reason(okAt(Set.of(Influence.NAME), NOT_AN_ENTRY)));
+        assertEquals(ReasonCode.OK, Influence.reason(okAt(Set.of(Influence.NAME), Influence.block(List.of(),
+                List.of()))));
     }
 }

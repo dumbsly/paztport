@@ -42,12 +42,20 @@ export function readRequestInfluence(stamps: readonly StampItems[]): RequestInfl
 
 /**
  * The result a service that acts on `influence` gives a request it verified: INFLUENCE_MISMATCH when the verifier
- * gave OK and an item handed on under `influence` does not read as an entry, else the verifier's reason. A
- * verification whose hand-over holds no `influence` is that of a service that does not act on it, and stands.
+ * gave OK and an item handed on under `influence` does not read as an entry, else the verifier's reason. A null
+ * hand-over hands nothing on. It throws for an OK verification whose hand-over holds no `influence`: that hand-over
+ * comes from settings that do not act on it, so every item would pass unread. That is the verifier's configuration,
+ * never the request's, and is not read as nothing handed on (spec influence.md, Entries).
  */
 export function influenceReason(v: ChainVerification): ReasonCode {
-  const stamps = v.ok ? v.handOver?.get(INFLUENCE) : undefined;
-  if (stamps === undefined) return v.reason;
+  if (!v.ok || v.handOver === null) return v.reason;
+  const stamps = v.handOver.get(INFLUENCE);
+  if (stamps === undefined) {
+    throw new Error(
+      "influenceReason needs a hand-over from settings that act on influence; the verifier's settings must act on " +
+        "influence to read its items",
+    );
+  }
   const read = readRequestInfluence(stamps);
   return read.reads ? v.reason : read.reason;
 }
@@ -57,7 +65,8 @@ export function influenceReason(v: ChainVerification): ReasonCode {
  * verification, row 9): the extension's reading of the items once the offline order gives OK (`influenceReason`), and
  * only then the session's limits at `at`, the call's last stamp's `ts` (`callInSession`). So a call past its session's
  * limits that holds an item that does not read is INFLUENCE_MISMATCH, not OUTSIDE_SESSION. Undefined, as
- * `callInSession` gives it, for a session that is not attested at all.
+ * `callInSession` gives it, for a session that is not attested at all. Throws as `influenceReason` does, at settings
+ * that do not act on `influence`.
  */
 export function recordedCallReason(v: ChainVerification, session: RecordedSession, at: number): ReasonCode | undefined {
   return callInSession(session, influenceReason(v), at);

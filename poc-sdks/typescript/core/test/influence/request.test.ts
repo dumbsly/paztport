@@ -64,9 +64,16 @@ describe("influenceReason", () => {
     expect(influenceReason(failed)).toBe("REPLAY");
   });
 
-  it("anOkVerificationWithNoInfluenceInTheHandOverIsOk", () => {
-    expect(influenceReason(ok(new Map([["example", [{ svc: "a", items: ["x"] }]]])))).toBe("OK");
-    expect(influenceReason(ok(new Map()))).toBe("OK");
+  // Such a hand-over comes from settings that do not act on influence: reading it as nothing handed on would pass
+  // every item unread, so the verifier's configuration is at fault, not the record (spec influence.md, Entries).
+  it("aReadingAtSettingsNotActingOnInfluenceThrows", () => {
+    const thrown = /influence.*settings/;
+    expect(() => influenceReason(ok(new Map([["example", [{ svc: "a", items: ["x"] }]]])))).toThrow(thrown);
+    expect(() => influenceReason(ok(new Map()))).toThrow(thrown);
+  });
+
+  it("anOkVerificationWithNoHandOverIsOk", () => {
+    expect(influenceReason({ ok: true, reason: "OK", suspectSvc: "b", suspectInst: "b-1", handOver: null })).toBe("OK");
   });
 });
 

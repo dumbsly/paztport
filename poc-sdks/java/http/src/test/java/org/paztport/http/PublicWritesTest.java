@@ -13,6 +13,7 @@ import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import java.security.KeyPair;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -265,6 +266,14 @@ class PublicWritesTest {
         assertEquals(ReasonCode.OK, writeHandedOn(ACTS, null, false, "alice"));
         assertEquals(ReasonCode.OK, writeHandedOn(ACTS, null, false, "alice", RELAYED), "the destination owner's own");
         assertEquals(ReasonCode.INFLUENCE_DENIED, writeHandedOn(ACTS, null, false, "bob", MINE, RELAYED));
+    }
+
+    // The write question answers OK or INFLUENCE_DENIED (spec influence.md, The owner-aware rule). Accept refuses a
+    // request holding such an item first, so only a hand-over set by hand reaches the question with one.
+    @Test
+    void anItemThatDoesNotReadDeniesTheWrite() {
+        Block unreadable = Block.of(Map.of(Influence.NAME, List.of("7")), List.of());
+        assertEquals(ReasonCode.INFLUENCE_DENIED, writeHandedOn(ACTS, List.of(unreadable), true, "alice"));
     }
 
     @Test

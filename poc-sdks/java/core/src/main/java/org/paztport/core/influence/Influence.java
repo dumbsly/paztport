@@ -153,14 +153,22 @@ public final class Influence {
     /**
      * A verified record's reason at a verifier that acts on influence (spec verification.md, Offline verification,
      * row 9): {@code INFLUENCE_MISMATCH} when {@code result} is OK and an item handed on under influence does not
-     * read, else {@code result}'s reason. A hand-over with nothing under influence, from a verifier that does not act
-     * on it, is nothing handed on, and the result stands.
+     * read, else {@code result}'s reason.
+     *
+     * @throws IllegalStateException an OK result from a verifier whose settings do not act on influence: its hand-over
+     *     holds nothing under influence, so every item would pass unread. That is the verifier's configuration, never
+     *     the record's, and is not read as nothing handed on (spec influence.md, Entries).
      */
     public static ReasonCode reason(OfflineResult result) {
         if (!result.ok()) {
             return result.reason();
         }
-        RequestInfluence read = readRequest(result.handOver().under(NAME));
+        List<StampItems> stamps = result.handOver().under(NAME);
+        if (stamps == null) {
+            throw new IllegalStateException("Influence.reason needs a hand-over from settings that act on influence; "
+                    + "the offline verifier's settings must act on influence to read its items");
+        }
+        RequestInfluence read = readRequest(stamps);
         return read.reads() ? result.reason() : read.reason();
     }
 
@@ -170,6 +178,8 @@ public final class Influence {
      * The item reading comes before {@code OUTSIDE_SESSION} (spec verification.md, Offline verification, row 9), so a
      * call past its session's limits that holds an item that does not read is {@code INFLUENCE_MISMATCH}. Null, as
      * {@link RecordSet#callInSession} gives it, for a session that is not attested at all.
+     *
+     * @throws IllegalStateException as {@link #reason(OfflineResult)} does, at settings that do not act on influence
      */
     public static ReasonCode recordedCallReason(OfflineResult result, RecordedSession session, long at) {
         return RecordSet.callInSession(session, reason(result), at);
