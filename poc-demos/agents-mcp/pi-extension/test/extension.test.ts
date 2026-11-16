@@ -982,6 +982,31 @@ describe("local gate wiring", { timeout: 30_000 }, () => {
     expect(out.details.influence).toEqual({ ...ZERO, "third-party": 1 });
   });
 
+  it("aToolResultWhoseEntryIsRefusedIsWithheld", async () => {
+    const cwd = join(tmp, `local-ws-${n++}`);
+    mkdirSync(join(cwd, "website"), { recursive: true });
+    writeFileSync(join(cwd, "website", "README.md"), "# Acme\n");
+    const raw = JSON.stringify({ mode: "enforce", clientDir: join(demo, "client"), clientPolicyDir: join(demo, "client/local-tools"), servers: [github()] });
+    const { pi } = setup([], { cwd, raw });
+    await pi.emit("session_start", { reason: "startup" });
+    await pi.prompt("fix the typo");
+    const content = [{ type: "text", text: "secret text" }];
+    const withheldResult = { content: [{ type: "text", text: UNRECORDABLE_TEXT }], isError: true, details: undefined };
+    // an MCP tool of another extension whose name an entry cannot carry
+    for (const toolName of ["mcp__other__x\ud800", "mcp__other__x\ufdd0"]) {
+      const r = await pi.call("tool_result", { toolName, toolCallId: id(), input: {}, content, isError: false, details: undefined });
+      expect(r, toolName).toEqual(withheldResult);
+    }
+    // a gated local result whose labels the gate gave, under a name an entry cannot carry
+    const readId = id();
+    expect(await pi.call("tool_call", { toolName: "read", toolCallId: readId, input: { path: "website/README.md" } })).toBeUndefined();
+    const r = await pi.call("tool_result", { toolName: "read\ud800", toolCallId: readId, input: {}, content, isError: false, details: undefined });
+    expect(r).toEqual(withheldResult);
+    // nothing was recorded for any of them: the next call's influence is the prompt's alone
+    const out = await pi.execute("mcp__github__list_issues", LIST, id());
+    expect(out.details.influence).toEqual({ ...ZERO, "third-party": 1 });
+  });
+
   it("offModeDoesNotGate", async () => {
     const { pi, evidenceLog } = local("off");
     await pi.emit("session_start", { reason: "startup" });

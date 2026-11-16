@@ -517,7 +517,12 @@ export default function paztport(pi: ExtensionAPI): void {
       if (h === undefined) {
         return withheld(event.details);
       }
-      influence.recordUntrusted(`builtin:${name}`, h);
+      // a name the SDK refuses in an entry (a lone surrogate, a noncharacter) leaves the result unrecordable too
+      try {
+        influence.recordUntrusted(`builtin:${name}`, h);
+      } catch {
+        return withheld(event.details);
+      }
       return undefined;
     }
     // undefined: refused (pi emits no tool_result for a blocked call), off mode, or no config
@@ -528,7 +533,11 @@ export default function paztport(pi: ExtensionAPI): void {
     if (h === undefined) {
       return withheld(event.details);
     }
-    influence.recordClasses(`local:${name}`, labels, h);
+    try {
+      influence.recordClasses(`local:${name}`, labels, h);
+    } catch {
+      return withheld(event.details);
+    }
     return { details: { ...(isObject(event.details) ? event.details : {}), paztport: { labels } } };
   });
 
