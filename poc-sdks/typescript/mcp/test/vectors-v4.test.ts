@@ -518,8 +518,7 @@ describe("known-answer vectors, version 4", () => {
     expect(replayRecordedCalls(committed, c)).toEqual(c.expected);
   });
 
-  // The committed vectors carry these cases, each of which separates two readings of the spec: a block, a write, a
-  // response, a recorded call, a local step, a Method not found answer.
+  // The committed vectors carry these cases, each of which separates two readings of the spec.
   it.each([
     ["verify", "a block that only requires example, at a receiver that acts on it"],
     ["influence.request", "a pass-along block (as the hand-over gives it: items null), a write"],

@@ -149,8 +149,9 @@ with a clean copy, automatically, within seconds.
   3, 20 runs per setting on one local model against a mock server, 9 of 20 runs
   leaked the private notes with Paztport off and none with it on, and without the
   planted issue Paztport refused nothing. With it, 9 of the 13 refusals stopped a
-  public write that held no private text: the rule judges what shaped a write, not what the write holds.
-  [Where this could go](docs/directions.md) says what is still open.
+  public write that held no private text: the rule judges what shaped a write, not
+  what the write holds. [Where this could go](docs/directions.md) says what is still
+  open.
 - It is checked end to end. The Java mesh's `demo.sh` makes 27 checks, among them
   forged stamps, replays, altered bodies and blocks, expired requests, routes the
   policy does not list, `audit` mode, and the responder's quarantine with its limit on
