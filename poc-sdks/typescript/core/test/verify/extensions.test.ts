@@ -15,11 +15,13 @@ describe("extension settings", () => {
   });
   // a string is iterable, so read as names it would be one-letter names: "influence" would act on seven
   it("aStringIsNotAListOfNames", () => {
-    const word = "influence" as unknown as string[];
-    expect(() => extensionSettings(word)).toThrow(TypeError);
-    expect(() => extensionSettings([], word)).toThrow(TypeError);
-    expect(() => recordExtensionSettings(word, ["influence"])).toThrow(TypeError);
-    expect(() => recordExtensionSettings([], word)).toThrow(TypeError);
+    // a String object iterates the same way
+    for (const word of ["influence", new String("influence")] as unknown as string[][]) {
+      expect(() => extensionSettings(word)).toThrow(TypeError);
+      expect(() => extensionSettings([], word)).toThrow(TypeError);
+      expect(() => recordExtensionSettings(word, ["influence"])).toThrow(TypeError);
+      expect(() => recordExtensionSettings([], word)).toThrow(TypeError);
+    }
     for (const names of [["influence"], new Set(["influence"])]) {
       expect(extensionSettings(names).actsOn).toEqual(new Set(["influence"]));
       expect(extensionSettings([], names).allowed).toEqual(new Set(["influence"]));

@@ -68,6 +68,8 @@ describe("requirement", () => {
   it("aStringIsNotAListOfNames", () => {
     expect(() => requirement("influence" as unknown as string[])).toThrow(TypeError);
     expect(() => requirement("influence" as unknown as string[], true)).toThrow(TypeError);
+    // a String object iterates the same way
+    expect(() => requirement(new String("influence") as unknown as string[])).toThrow(TypeError);
     expect(requirement(["influence"]).extensions).toEqual(["influence"]);
     expect(requirement(new Set(["influence"])).extensions).toEqual(["influence"]);
   });

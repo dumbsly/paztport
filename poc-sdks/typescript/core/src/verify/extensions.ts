@@ -5,7 +5,7 @@
 // order). The settings are built and checked here once, so a verifier never meets settings that break the rule.
 
 import type { JsonValue } from "../encoding/json.ts";
-import { isExtensionName } from "../stamp/block.ts";
+import { extensionNames } from "../internal/extension-names.ts";
 
 /** The extension names a verifier acts on and carries, and whether it holds a sender to the last block's `requires`. */
 export type ExtensionSettings = {
@@ -17,24 +17,13 @@ export type ExtensionSettings = {
   readonly enforceRequires: boolean;
 };
 
-function names(given: Iterable<string>): Set<string> {
-  // a string iterates as one-letter names, each an extension name: "influence" would read as seven
-  if (typeof given === "string") throw new TypeError("a string where a list of extension names is expected");
-  const set = new Set<string>();
-  for (const name of given) {
-    if (typeof name !== "string" || !isExtensionName(name)) throw new Error("a name that is not an extension name");
-    set.add(name);
-  }
-  return set;
-}
-
 function settings(
   actsOn: Iterable<string>,
   allowed: Iterable<string> | undefined,
   enforceRequires: boolean,
 ): ExtensionSettings {
-  const acts = names(actsOn);
-  const carried = allowed === undefined ? undefined : names(allowed);
+  const acts = extensionNames(actsOn);
+  const carried = allowed === undefined ? undefined : extensionNames(allowed);
   // A service cannot act on an extension its own list refuses (spec verification.md, Inputs).
   if (carried !== undefined && [...acts].some((name) => !carried.has(name))) {
     throw new Error("a name in actsOn outside the allowed list");

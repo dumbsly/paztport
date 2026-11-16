@@ -1,7 +1,7 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-import { isExtensionName } from "../stamp/block.ts";
+import { extensionNames } from "../internal/extension-names.ts";
 import type { ReplyCheck } from "./reply-check.ts";
 
 /** Marks a requirement `requirement` built, so `callsAfter` never meets one whose names were not checked. */
@@ -21,15 +21,10 @@ export type Requirement = {
  * A client's requirement, built and checked once (spec sessions.md, A client that requires extensions): `extensions`
  * with each name once, sorted, and the switch `continueWithout`, false unless given. Throws on a name that is not an
  * extension name, so a bad configuration fails where it is read, not at the first call's stamp, and a TypeError for
- * a string, which iterates as one-letter names.
+ * a string, which iterates as one-letter names (`extensionNames`).
  */
 export function requirement(extensions: Iterable<string>, continueWithout = false): Requirement {
-  if (typeof extensions === "string") throw new TypeError("a string where a list of extension names is expected");
-  const names = new Set<string>();
-  for (const name of extensions) {
-    if (typeof name !== "string" || !isExtensionName(name)) throw new Error("a name that is not an extension name");
-    names.add(name);
-  }
+  const names = extensionNames(extensions);
   return Object.freeze({ extensions: Object.freeze([...names].sort()), continueWithout }) as Requirement;
 }
 
@@ -38,11 +33,12 @@ export const NO_REQUIREMENT: Requirement = requirement([]);
 
 /**
  * What a client with `req` may do in the session a handshake left it (sessions.md, "A client that requires
- * extensions"): `check` is the first reply's, or null for a JSON-RPC error or a timeout; a client that sent no handshake
- * passes "UNSAFE". `listed` is that reply's `extensions`, [] when it did not read. `calls` says whether it makes calls at all, `requires` the names its calls
- * carry. Only an attested session whose reply lists every required name lets a client make calls under its
- * requirement, so neither a server answering "unsafe" nor anyone who can make the handshake fail switches it off;
- * only `continueWithout` does, and then a call carries no `requires` for a name the client could not get.
+ * extensions"): `check` is the first reply's, or null for a JSON-RPC error or a timeout; a client that sent no
+ * handshake passes "UNSAFE". `listed` is that reply's `extensions`, [] when it did not read. `calls` says whether it
+ * makes calls at all, `requires` the names its calls carry. Only an attested session whose reply lists every required
+ * name lets a client make calls under its requirement, so neither a server answering "unsafe" nor anyone who can make
+ * the handshake fail switches it off; only `continueWithout` does, and then a call carries no `requires` for a name the
+ * client could not get.
  */
 export function callsAfter(check: ReplyCheck | null, listed: readonly string[], req: Requirement): { calls: boolean; requires: string[] } {
   if (req.extensions.length === 0) return { calls: true, requires: [] };
