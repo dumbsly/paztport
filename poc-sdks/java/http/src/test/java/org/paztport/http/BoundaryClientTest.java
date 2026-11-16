@@ -941,6 +941,72 @@ class BoundaryClientTest {
         assertEquals(partner.issued().get(1), partner.calls().get(3).header(PaztportHeaders.SESSION));
     }
 
+    // A call refused before it goes sends the partner nothing, so it must not carry this side's session past the
+    // partner's idle period: only a call sent uses the session.
+    @Test
+    void aRefusedCallDoesNotKeepTheSessionAlive() throws Exception {
+        verified("rid-1", this::charge);
+
+        nanos.addAndGet(TimeUnit.MILLISECONDS.toNanos(IDLE_MS) - 1);
+        onSent = (rid, partnerEntry, originals, sent) -> {
+            onSent = (r, p, o, s) -> { };
+            throw new IllegalStateException("store unavailable");
+        };
+        assertThrows(IllegalStateException.class, () -> verified("rid-2", this::charge));
+        assertEquals(1, partner.calls().size(), "the refused call is not sent");
+
+        nanos.addAndGet(1);
+        BoundaryClient.Response after = verified("rid-3", this::charge);
+        assertTrue(after.attested());
+        assertEquals(2, partner.handshakes().size(), "the session no call used for the period is dropped");
+        assertEquals(partner.issued().get(1), partner.calls().get(1).header(PaztportHeaders.SESSION));
+    }
+
+    // A call that read the clock earlier, as one that took longer to reach the send can, never moves the session's
+    // last use back: the clock is set back here to stand for it.
+    @Test
+    void aCallThatReadTheClockEarlierDoesNotMoveTheSessionsUseBack() throws Exception {
+        verified("rid-1", this::charge);
+
+        nanos.addAndGet(-TimeUnit.MILLISECONDS.toNanos(IDLE_MS / 2));
+        verified("rid-2", this::charge);
+        nanos.set(TimeUnit.MILLISECONDS.toNanos(IDLE_MS) - 1);
+        verified("rid-3", this::charge);
+        assertEquals(1, partner.handshakes().size(), "the session is kept to the end of its period");
+    }
+
+    /**
+     * A boundary block past the wire limit, 256 KiB, is refused before anything is signed, recorded or sent; and the
+     * call, never sent, does not keep the session alive.
+     */
+    @Test
+    void aBlockPastTheWireLimitIsNeitherSignedNorRecorded() throws Exception {
+        AtomicLong signed = new AtomicLong();
+        Stamper counting = new Stamper("payment", "payment-1", payment.getPrivate(), false, () -> "unused", () -> {
+            signed.incrementAndGet();
+            return System.currentTimeMillis();
+        });
+        // Three owners of 100 KiB each: three groups, so three blinded entries, each carrying its owner.
+        List<InfluenceEntry> big = List.of("a", "b", "c").stream()
+                .map(o -> new InfluenceEntry(InfluenceClass.PRIVATE, "http:orders", "h", null, o.repeat(100 << 10)))
+                .toList();
+        try (BoundaryClient egress = egress(partner, tls()).stamper(counting).build()) {
+            assertTrue(verified("rid-1", () -> egress.post("/charge", CHARGE)).attested());
+            assertEquals(1, signed.get());
+
+            nanos.addAndGet(TimeUnit.MILLISECONDS.toNanos(IDLE_MS) - 1);
+            assertThrows(IllegalArgumentException.class,
+                    () -> verified("rid-2", List.of(NAMED), big, () -> egress.post("/charge", CHARGE)));
+            assertEquals(1, signed.get(), "nothing signed");
+            assertEquals(1, heard.size(), "the listener not told");
+            assertEquals(1, partner.calls().size(), "nothing sent");
+
+            nanos.addAndGet(1);
+            assertTrue(verified("rid-3", () -> egress.post("/charge", CHARGE)).attested());
+            assertEquals(2, partner.handshakes().size(), "the refused call did not keep the session");
+        }
+    }
+
     // A replacement's session goes idle like any other, before its own period is up.
     @Test
     void idleFallbackSessionIsReopened() throws Exception {
@@ -1115,6 +1181,25 @@ class BoundaryClientTest {
                 assertEquals(1, stalling.handshakes().size(), stall + ": the session is kept");
                 assertEquals(stalling.issued().get(0), stalling.calls().get(1).header(PaztportHeaders.SESSION));
             }
+        }
+    }
+
+    // A call that fails once it is sent may have reached the partner, which then counts it as a use: so does this side,
+    // and the session is kept a whole period from that call.
+    @Test
+    void aCallThatMayHaveGoneKeepsTheSessionAlive() throws Exception {
+        try (StubPartner stalling = new StubPartner();
+                BoundaryClient bounded = egress(stalling, tls()).listener(null)
+                        .readTimeout(Duration.ofMillis(300)).build()) {
+            verified("rid-1", () -> bounded.post("/charge", CHARGE));
+
+            nanos.addAndGet(TimeUnit.MILLISECONDS.toNanos(IDLE_MS) - 1);
+            stalling.stallNextCall(SilentPeer.Stall.BEFORE_HEADERS);
+            assertThrows(UncheckedIOException.class, () -> verified("rid-2", () -> bounded.post("/charge", CHARGE)));
+
+            nanos.addAndGet(1);
+            assertTrue(verified("rid-3", () -> bounded.post("/charge", CHARGE)).attested());
+            assertEquals(1, stalling.handshakes().size(), "the session is kept");
         }
     }
 

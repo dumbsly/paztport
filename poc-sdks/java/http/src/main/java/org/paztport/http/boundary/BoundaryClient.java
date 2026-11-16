@@ -234,9 +234,10 @@ public final class BoundaryClient implements AutoCloseable {
 
     /**
      * POSTs {@code json} to {@code path} at the partner, in the session, opening it first if there is none. In an
-     * attested session the influence is reduced where the block names it, the boundary stamp signed over the block,
-     * and the listener told, in that order, before the request is sent: a call that cannot be signed is never
-     * recorded.
+     * attested session the influence is reduced where the block names it, the block encoded, the boundary stamp
+     * signed over it, and the listener told, in that order, before the request is sent: a call whose block passes
+     * the wire limit, or that cannot be signed, is never recorded. Only a call that is sent marks the session used,
+     * so one refused here does not keep it past its idle period.
      *
      * @param path the raw path, and {@code ?} and the raw query if any, exactly as it is to go on the wire
      * @throws IllegalStateException with nothing sent, when this request's chain did not verify at this hop or
@@ -283,7 +284,10 @@ public final class BoundaryClient implements AutoCloseable {
                 sent = List.copyOf(BoundaryInfluence.reduce(held, blindingKey, rid, partner, stamper.svc()));
                 block = Influence.block(sent, requires);
             }
-            // Signed first, so a call that can't be signed is never sent and never recorded.
+            // Encoded before anything is signed, as every caller encodes its blocks, so the wire limit is met before
+            // anything is signed or recorded.
+            String blocks = HttpWire.encodeBlocks(List.of(block));
+            // Signed next, so a call that can't be signed is never sent and never recorded.
             Stamper.Stamped stamped = stamper.boundary(verified, current.sess(), partner, bind, block, bundle);
             if (held != null && listener != null) {
                 // Before anything of the request goes: if this organisation can't keep the originals, nothing is sent.
@@ -293,9 +297,13 @@ public final class BoundaryClient implements AutoCloseable {
             if (stamped.proof() != null) {
                 request.header(PaztportHeaders.PROOF, HttpWire.encodeProof(stamped.proof()));
             }
-            request.header(PaztportHeaders.EXTENSIONS, HttpWire.encodeBlocks(List.of(block)));
+            request.header(PaztportHeaders.EXTENSIONS, blocks);
         }
 
+        // Only now does the call go, so only now is the session used: a call refused before this sent the partner
+        // nothing, and must not keep the session past the partner's idle period. A send that fails may still have
+        // gone, so it counts.
+        used(current);
         HttpResponse<byte[]> response;
         try {
             response = send(request.build());
@@ -391,8 +399,9 @@ public final class BoundaryClient implements AutoCloseable {
 
     /**
      * The current session, opened if there is none or it has expired; one handshake at a time, and only when still
-     * needed. It is marked as used now only when a call is made in it: one in which none may be is used by no call,
-     * so it expires at its idle period and the partner is asked again, which may by then meet the requirement.
+     * needed. It is not marked used here: {@link #post} marks it as its call goes. One in which no call may be made
+     * is used by no call, so it expires at its idle period and the partner is asked again, which may by then meet the
+     * requirement.
      */
     private Session session() {
         Session s = session.get();
@@ -405,13 +414,12 @@ public final class BoundaryClient implements AutoCloseable {
                 }
             }
         }
-        return s.calls().calls() ? used(s) : s;
+        return s;
     }
 
     /** Starts the session's idle period again; never moved back by a call that read the clock earlier. */
-    private Session used(Session s) {
+    private void used(Session s) {
         s.lastUsed().accumulateAndGet(nanos.getAsLong(), Math::max);
-        return s;
     }
 
     /** No call has used it for the idle period, or it is a replacement's that has had its period. */
