@@ -306,6 +306,7 @@ cmd_test() {
   [ -x "$maven_java" ] || missing java 25 "https://adoptium.net or your package manager (mvn -v must report the JDK's runtime)"
   node poc-sdks/scripts/check-links.mjs
   node poc-sdks/scripts/check-imports.mjs
+  node poc-sdks/scripts/check-review-path.mjs
   (cd poc-sdks/java && mvn -q install)
   (cd poc-demos/java-mesh && mvn -q verify)
   bash poc-sdks/scripts/check-artefacts.sh

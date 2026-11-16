@@ -803,11 +803,11 @@ paztport/
 ├── LICENSING.md              what each jar and image carries, and why
 ├── THIRD-PARTY.txt           runtime dependencies and their licences (generated)
 ├── licenses/                 licence texts the bundling jars carry, and the licence plugin's shared settings
-├── docs/                     limits.md, the known limits in full; directions.md, where this could go
+├── docs/                     limits.md, the known limits in full; directions.md, where this could go; review-path.md, a reviewer's reading path
 ├── run                       front door: java-mesh, envoy-gateway, agents-mcp, test, bench
 ├── poc-sdks/
 │   ├── spec/                 the protocol spec, and vectors/: v4.json, TypeScript's, and Java's and Go's but the MCP profile's sections; http-v4.json, Java's and Go's; events.json, all three's; json.json, TypeScript's but its http bindings, Java's and Go's but the MCP profile's sections; ed25519.json, all three's
-│   ├── scripts/              name check, link check, import check, jar check, tests for ./run, THIRD-PARTY.txt regeneration
+│   ├── scripts/              name check, link check, import check, review path count check, jar check, tests for ./run, THIRD-PARTY.txt regeneration
 │   ├── java/                 core, http, spring (paztport-core, paztport-http, paztport-spring), tools/keygen, tools/policy-tool, tools/bench
 │   ├── typescript/           core, mcp (@paztport/core, @paztport/mcp), policy-tool
 │   └── go/                   one module: the protocol's packages, and paztporthttp with wire and boundary
@@ -839,6 +839,8 @@ paztport/
   - [poc-demos/envoy-gateway](poc-demos/envoy-gateway/README.md): the edge processor at
     an Envoy Gateway, its chart, and the checks on a local kind cluster.
   - [poc-demos/agents-mcp](poc-demos/agents-mcp/README.md): the agent and MCP demo.
+- [docs/review-path.md](docs/review-path.md): a reading path for a reviewer: the
+  spec and the code of path attestation in one sitting, then each add-on.
 - [docs/limits.md](docs/limits.md): the known limits in full: what a deployment
   must supply, what any design of this kind cannot do, and what this proof of
   concept leaves out.
