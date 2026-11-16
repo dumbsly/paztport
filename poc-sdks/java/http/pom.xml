@@ -12,7 +12,9 @@
 
     <artifactId>paztport-http</artifactId>
     <name>Paztport HTTP</name>
-    <description>Paztport over HTTP, no web framework: codecs, receivers, session registry, request context.</description>
+    <description>
+        Paztport over HTTP, no web framework: codecs, receivers, session registry, request context.
+    </description>
 
     <properties>
         <test.logback>${project.basedir}/src/test/logback/logback-test.xml</test.logback>
