@@ -136,7 +136,6 @@ describe("json.json", () => {
     // @paztport/mcp's tests replay toolsCall; http is Java's.
     const refusals: Record<string, (i: Record<string, any>) => unknown> = {
       prompt: (i) => bindPrompt(i.text),
-      // The `labels` input predates version 4, whose response binding has none; it is ignored.
       response: (i) => bindResponse(i.resultHash, i.toolCallId),
       result: (i) => bindResult(i.result),
       localTool: (i) => bindLocalTool(i.tool, i.input, i.resolved),

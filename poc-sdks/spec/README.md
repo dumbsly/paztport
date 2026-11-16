@@ -499,8 +499,7 @@ that first refuses it.
 - `bindings`: each binding ([wire.md](wire.md#bindings)) but the HTTP result, which hashes no string it is given, and
   the Merkle leaf ([wire.md](wire.md#the-merkle-tree)), each refusing a lone surrogate in one string it hashes (the
   prompt text, a response's `resultHash` or `toolCallId`, a `tools/call`'s tool, call id or argument, a result, a local
-  tool's name or input, a Merkle leaf's route, an HTTP request's method or target). The two `response` cases also carry
-  a `labels` input, from version 3's response binding, which a replay of version 4 ignores.
+  tool's name or input, a Merkle leaf's route, an HTTP request's method or target).
 
 ### ed25519.json
 

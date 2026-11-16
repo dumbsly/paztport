@@ -49,7 +49,7 @@ const ABOUT =
   "A base64url case is a text given to the base64url decoder, not to the JSON reader, so it has no step: expected is the decoded bytes in hex, or null when the text is refused. " +
   "The decoder accepts the one canonical unpadded encoding of RFC 4648 §3.5, written with the url-safe alphabet of §5. " +
   "A binding case names one of the bindings (spec wire.md, Bindings) and gives its inputs, each a JSON value: " +
-  "prompt {text}; response {resultHash, toolCallId, labels}; toolsCall {tool, toolCallId, arguments}; result {result}; " +
+  "prompt {text}; response {resultHash, toolCallId}; toolsCall {tool, toolCallId, arguments}; result {result}; " +
   "localTool {tool, input, resolved}; merkleLeaf {salt, route}, the salt in hex; http {method, target, body}, the body in hex. " +
   "Each case puts the lone surrogate U+D800, written as an escape in this file, into one string the binding hashes, " +
   "so the binding refuses it: expected is null, as for a jcs case, and a verifier that cannot compute a binding answers as it does for a mismatch. " +
@@ -580,13 +580,13 @@ const BINDINGS: BindingCase[] = [
   {
     name: "a response whose result hash holds a lone surrogate",
     binding: "response",
-    inputs: { resultHash: "h\ud800", toolCallId: "call-1", labels: [] },
+    inputs: { resultHash: "h\ud800", toolCallId: "call-1" },
     expected: null,
   },
   {
     name: "a response whose call id holds a lone surrogate",
     binding: "response",
-    inputs: { resultHash: "h1", toolCallId: "call-\ud800", labels: [] },
+    inputs: { resultHash: "h1", toolCallId: "call-\ud800" },
     expected: null,
   },
   {

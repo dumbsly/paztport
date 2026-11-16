@@ -189,7 +189,6 @@ class VectorsJsonTest {
             JsonNode in = c.get("inputs");
             Executable compute = switch (c.get("binding").textValue()) {
                 case "prompt" -> () -> Bindings.prompt(in.get("text").textValue());
-                // its labels input is version 3's, which version 4's response binding no longer has (spec/README.md)
                 case "response" -> () -> Bindings.response(in.get("resultHash").textValue(),
                         in.get("toolCallId").textValue());
                 case "merkleLeaf" -> () -> MerkleHash.leaf(HexFormat.of().parseHex(in.get("salt").textValue()),

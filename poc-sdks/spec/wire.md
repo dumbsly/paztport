@@ -502,8 +502,7 @@ Rules:
 and `bindResponse`, and the local-tool binding through `recordedLocalStep`, whose check computes it from each step's
 tool, input and decision. `http-v4.json` pins the HTTP binding with and without a query in `requestBinding`, and the
 HTTP result hash in `resultHash`. `json.json` pins the refusals in `bindings`: a lone surrogate in one string a
-binding hashes, for each binding but the HTTP result, which hashes no string it is given. Its two `response` cases
-also carry a `labels` input, from version 3's response binding, which a replay of version 4 ignores.
+binding hashes, for each binding but the HTTP result, which hashes no string it is given.
 
 ## Carrying a chain
 

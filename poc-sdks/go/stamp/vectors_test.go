@@ -105,8 +105,7 @@ func TestBindResponse(t *testing.T) {
 
 // TestBindingRefusals replays json.json's prompt and response bindings, each given a lone surrogate in one
 // string it hashes. The harness hands it over as the Go string that stands for it, which is not valid
-// UTF-8, and the binding refuses it. A response case's labels input is version 3's, which version 4's
-// response binding does not hold, so it is ignored, as spec/README.md's json.json section says.
+// UTF-8, and the binding refuses it.
 func TestBindingRefusals(t *testing.T) {
 	found := map[string]int{}
 	vectors.Load(t, "json.json").Get("bindings").Each(func(name string, c vectors.Node) {
