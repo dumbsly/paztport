@@ -198,7 +198,8 @@ type Step struct {
 	// request holds, normalised, and the blinded entries the block carries, both empty, not nil, when the
 	// request holds none (influence.md, Opening an entry). Before sending the call, the embedder keeps them
 	// under the request's rid and the partner, so that any entry sent can later be opened; it does not send the
-	// call if it cannot keep them. Every other step has neither.
+	// call if it cannot keep them; once the call is given as a step its session counts as used all the same,
+	// unlike a call Begin refuses before giving one. Every other step has neither.
 	Originals, Sent []influence.Entry
 }
 
