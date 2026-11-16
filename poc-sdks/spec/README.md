@@ -275,8 +275,8 @@ cd poc-sdks/typescript && node mcp/test/vectors-v4-export.ts --write
   signed that fails the client's shape check included, and a request without a client keyring signature or
   `notAfter`, or with a client root without one; a reply without `extensions`, which is not attested, and one listing
   an extension, judged with no requirement, since step 5 is live only).
-- `recordedCall`: recorded calls (the session's limits, a failing call past them, and replay across a record set, a
-  repeated handshake included).
+- `recordedCall`: recorded calls (the session's limits, a failing call past them, replay across a record set, a
+  repeated handshake included, and a client key in the recorded request that does not parse, which signs no call).
 - `recordedLocalStep`: recorded local steps ([MCP profile](#the-mcp-profile): allowed, refused and unlisted steps, the
   client's root and keyring windows, each re-check, and a step at the run window and 1 ms past it; a block altered; an
   `influence` item that is not an entry, in the client hop's block, in the origin's, under an expired root, in an

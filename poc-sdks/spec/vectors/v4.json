@@ -12681,6 +12681,207 @@
           "reason": "REPLAY"
         }
       ]
+    },
+    {
+      "name": "a client key that does not parse signs no call",
+      "handshakes": [
+        {
+          "request": {
+            "clientRoot": {
+              "rootId": "v128498df6662",
+              "root": "SOU3UQ3YhNm3n8xvLwVDNVE_OjYUyaxSc9I0GLoAFr4",
+              "sig": "vRROYYlhig1MqY75cgeaz0mBFn_ir026jAEFbA4YSU2h3Rtuxtc75CbzPy2zZl8OHzZBJxwpjzaYWkyO5i0dCg",
+              "notAfter": 4102444800000
+            },
+            "clientPolicyKey": "MCowBQYDK2VwAyEAfQNZTmPjT9_g3vetQl2BiLIQRjx52SazyRoXh7V227c",
+            "clientKeyring": {
+              "session": "MCowBQYDK2VwAyEAb0m5BDnl3LzmednUhwMpU9Oc58beN-Saat_c5CTamcY",
+              "pi": "MCowBQYDK2VwAyEAUd0vHKUihGesdJJMfvbah8t0g6b1whtUnRRslYPr1i8",
+              "orders": "not-a-key"
+            },
+            "clientKeyringSig": "3dkH2G91aCrJm_eFQvrxbSEH3YH2r4QXX3l20pEO2RpecY_mV-DFJUrCsyodYnhvQgubHu7x5yOT6ZWCAdRTDg",
+            "nonce": "DnRxEJ-B4WC-BSlSIgnvEQ",
+            "clientKeyringNotAfter": 4102444800000
+          },
+          "requestToken": "eyJjbGllbnRLZXlyaW5nIjp7Im9yZGVycyI6Im5vdC1hLWtleSIsInBpIjoiTUNvd0JRWURLMlZ3QXlFQVVkMHZIS1VpaEdlc2RKSk1mdmJhaDh0MGc2YjF3aHRVblJSc2xZUHIxaTgiLCJzZXNzaW9uIjoiTUNvd0JRWURLMlZ3QXlFQWIwbTVCRG5sM0x6bWVkblVod01wVTlPYzU4YmVOLVNhYXRfYzVDVGFtY1kifSwiY2xpZW50S2V5cmluZ05vdEFmdGVyIjo0MTAyNDQ0ODAwMDAwLCJjbGllbnRLZXlyaW5nU2lnIjoiM2RrSDJHOTFhQ3JKbV9lRlF2cnhiU0VIM1lIMnI0UVhYM2wyMHBFTzJScGVjWV9tVi1ERkpVckNzeW9kWW5odlFndWJIdTd4NXlPVDZaV0NBZFJURGciLCJjbGllbnRQb2xpY3lLZXkiOiJNQ293QlFZREsyVndBeUVBZlFOWlRtUGpUOV9nM3ZldFFsMkJpTElRUmp4NTJTYXp5Um9YaDdWMjI3YyIsImNsaWVudFJvb3QiOnsibm90QWZ0ZXIiOjQxMDI0NDQ4MDAwMDAsInJvb3QiOiJTT1UzVVEzWWhObTNuOHh2THdWRE5WRV9PallVeWF4U2M5STBHTG9BRnI0Iiwicm9vdElkIjoidjEyODQ5OGRmNjY2MiIsInNpZyI6InZSUk9ZWWxoaWcxTXFZNzVjZ2VhejBtQkZuX2lyMDI2akFFRmJBNFlTVTJoM1J0dXh0Yzc1Q2J6UHkyelpsOE9IelpCSnh3cGp6YVlXa3lPNWkwZENnIn0sIm5vbmNlIjoiRG5SeEVKLUI0V0MtQlNsU0lnbnZFUSJ9",
+          "reply": {
+            "serverRoot": {
+              "rootId": "v33dc7a7d5de4",
+              "root": "onAKorO9LjCxSJhkXsvdTMc-0VwbjPLoxjzUA2gbsDI",
+              "sig": "q_LVjnuhvlCWVbz_SOgKrD3n9fk5TtrfSZYJ-68Oqygyn_UwGiVv34Hjby2wdR3hue5gF2l6Lr_ZI0J0_bDzAw",
+              "notAfter": 4102444800000
+            },
+            "serverPolicyKey": "MCowBQYDK2VwAyEAOdyoxLQRNmlGbFkPnV76zvhKoT6dVmtC3o6ZUBRrB-I",
+            "serverKeyring": {
+              "mcp-entry": "MCowBQYDK2VwAyEAHBvgTd_hlBakY5DQ-jLgYs8ur1YIxJ0AdTwbAMpFJlw",
+              "github-tools": "MCowBQYDK2VwAyEA2cLgL1i2uBmypEWBIPWIC7hzFbubhFHijMwM_KOH-uA"
+            },
+            "serverKeyringSig": "DFfLolrqSjyD85_hqjhuviVPigEu0sPNPRHiC6O4Xk60vqH5wauAdDC1pCu79nNXWou3yPW8B1_YKb0KiMb_AA",
+            "serverKeyringNotAfter": 4102444800000,
+            "serverReplyCert": {
+              "policy": "MCowBQYDK2VwAyEAOdyoxLQRNmlGbFkPnV76zvhKoT6dVmtC3o6ZUBRrB-I",
+              "svc": "mcp-entry",
+              "key": "MCowBQYDK2VwAyEAHBvgTd_hlBakY5DQ-jLgYs8ur1YIxJ0AdTwbAMpFJlw",
+              "notAfter": 1798761600000,
+              "sig": "Di-W3XltVTD0v5qr14K2ctA6aMBFAWnbAimC3RxiD3_jGijp5TTJ76TgikwuOgvy9H_lFbNj-r_lbPo63gSVAA"
+            },
+            "nonce": "TJQb7rNCTipnIfTXkeDaKg",
+            "sess": "EFLjRnMRKTkdhzJp0Jc8EZBp-6xPtdVhf91AKrUwx08",
+            "status": "attested",
+            "disabled": [],
+            "extensions": [],
+            "sig": "MzWlsdIqOrfOuf1w6QHPry3stSIUY8dF9pSE7gwguRtjo6qQzegoCvLvwCqMXxnsyZGVtrmikbVCm-9rxDlSBQ"
+          },
+          "replyToken": "eyJkaXNhYmxlZCI6W10sImV4dGVuc2lvbnMiOltdLCJub25jZSI6IlRKUWI3ck5DVGlwbklmVFhrZURhS2ciLCJzZXJ2ZXJLZXlyaW5nIjp7ImdpdGh1Yi10b29scyI6Ik1Db3dCUVlESzJWd0F5RUEyY0xnTDFpMnVCbXlwRVdCSVBXSUM3aHpGYnViaEZIaWpNd01fS09ILXVBIiwibWNwLWVudHJ5IjoiTUNvd0JRWURLMlZ3QXlFQUhCdmdUZF9obEJha1k1RFEtakxnWXM4dXIxWUl4SjBBZFR3YkFNcEZKbHcifSwic2VydmVyS2V5cmluZ05vdEFmdGVyIjo0MTAyNDQ0ODAwMDAwLCJzZXJ2ZXJLZXlyaW5nU2lnIjoiREZmTG9scnFTanlEODVfaHFqaHV2aVZQaWdFdTBzUE5QUkhpQzZPNFhrNjB2cUg1d2F1QWREQzFwQ3U3OW5OWFdvdTN5UFc4QjFfWUtiMEtpTWJfQUEiLCJzZXJ2ZXJQb2xpY3lLZXkiOiJNQ293QlFZREsyVndBeUVBT2R5b3hMUVJObWxHYkZrUG5WNzZ6dmhLb1Q2ZFZtdEMzbzZaVUJSckItSSIsInNlcnZlclJlcGx5Q2VydCI6eyJrZXkiOiJNQ293QlFZREsyVndBeUVBSEJ2Z1RkX2hsQmFrWTVEUS1qTGdZczh1cjFZSXhKMEFkVHdiQU1wRkpsdyIsIm5vdEFmdGVyIjoxNzk4NzYxNjAwMDAwLCJwb2xpY3kiOiJNQ293QlFZREsyVndBeUVBT2R5b3hMUVJObWxHYkZrUG5WNzZ6dmhLb1Q2ZFZtdEMzbzZaVUJSckItSSIsInNpZyI6IkRpLVczWGx0VlREMHY1cXIxNEsyY3RBNmFNQkZBV25iQWltQzNSeGlEM19qR2lqcDVUVEo3NlRnaWt3dU9ndnk5SF9sRmJOai1yX2xiUG82M2dTVkFBIiwic3ZjIjoibWNwLWVudHJ5In0sInNlcnZlclJvb3QiOnsibm90QWZ0ZXIiOjQxMDI0NDQ4MDAwMDAsInJvb3QiOiJvbkFLb3JPOUxqQ3hTSmhrWHN2ZFRNYy0wVndialBMb3hqelVBMmdic0RJIiwicm9vdElkIjoidjMzZGM3YTdkNWRlNCIsInNpZyI6InFfTFZqbnVodmxDV1Ziel9TT2dLckQzbjlmazVUdHJmU1pZSi02OE9xeWd5bl9Vd0dpVnYzNEhqYnkyd2RSM2h1ZTVnRjJsNkxyX1pJMEowX2JEekF3In0sInNlc3MiOiJFRkxqUm5NUktUa2RoekpwMEpjOEVaQnAtNnhQdGRWaGY5MUFLclV3eDA4Iiwic2lnIjoiTXpXbHNkSXFPcmZPdWYxdzZRSFByeTNzdFNJVVk4ZEY5cFNFN2d3Z3VSdGpvNnFRemVnb0N2THZ3Q3FNWHhuc3laR1Z0cm1pa2JWQ20tOXJ4RGxTQlEiLCJzdGF0dXMiOiJhdHRlc3RlZCJ9",
+          "pin": "server-policy",
+          "serverEntry": "mcp-entry"
+        }
+      ],
+      "allowedOrigins": [
+        "session"
+      ],
+      "actsOn": [
+        "example"
+      ],
+      "allowedExtensions": null,
+      "callMaxAgeMs": 5000,
+      "runMaxAgeMs": 1800000,
+      "calls": [
+        {
+          "handshake": 0,
+          "chain": [
+            {
+              "v": 4,
+              "svc": "session",
+              "inst": "pi-1",
+              "rid": "rid-1",
+              "ts": 1767225599000,
+              "sess": "EFLjRnMRKTkdhzJp0Jc8EZBp-6xPtdVhf91AKrUwx08",
+              "rcv": "pi",
+              "bind": "GHG2oeO8ahTQudo8ccWAGXTPNXpDcXX_dY_l1pjy4Uk",
+              "ext": "_RHTwnyjmcO55gt97p7SE1Am-7G7y3WOE6SAQMMN4jQ",
+              "prev": "",
+              "sig": "vdcUiKiZra2sU8-ZHNj1eDkIAemUUQ-vnH_v5Vplf-MXNe2YQxX3668cLMr2MQcaw1ISIIH42QI6ChYrndpBAA"
+            },
+            {
+              "v": 4,
+              "svc": "pi",
+              "inst": "pi-1",
+              "rid": "rid-1",
+              "ts": 1767225600000,
+              "sess": "EFLjRnMRKTkdhzJp0Jc8EZBp-6xPtdVhf91AKrUwx08",
+              "rcv": "mcp:github.create_pull_request",
+              "bind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
+              "ext": "kcwzeTeKM7Fzc-7hdUOhO3RVpZocuLUkP2cO-lDGgYM",
+              "prev": "vdcUiKiZra2sU8-ZHNj1eDkIAemUUQ-vnH_v5Vplf-MXNe2YQxX3668cLMr2MQcaw1ISIIH42QI6ChYrndpBAA",
+              "sig": "pMxS2VluI6YKfzPMrROcUAxCznfD_SWrIM_nbxKrhKVXKgGjGy3JmfMzUqDNWDN76URP63llH0l9k4vfRfEUDg"
+            }
+          ],
+          "chainToken": "W3siYmluZCI6IkdIRzJvZU84YWhUUXVkbzhjY1dBR1hUUE5YcERjWFhfZFlfbDFwank0VWsiLCJleHQiOiJfUkhUd255am1jTzU1Z3Q5N3A3U0UxQW0tN0c3eTNXT0U2U0FRTU1ONGpRIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiIiwicmN2IjoicGkiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiJFRkxqUm5NUktUa2RoekpwMEpjOEVaQnAtNnhQdGRWaGY5MUFLclV3eDA4Iiwic2lnIjoidmRjVWlLaVpyYTJzVTgtWkhOajFlRGtJQWVtVVVRLXZuSF92NVZwbGYtTVhOZTJZUXhYMzY2OGNMTXIyTVFjYXcxSVNJSUg0MlFJNkNoWXJuZHBCQUEiLCJzdmMiOiJzZXNzaW9uIiwidHMiOjE3NjcyMjU1OTkwMDAsInYiOjR9LHsiYmluZCI6IjFPQ1Bya2YyYVEyek1ST2c5ZTl5MUoyVXQtX2VZVUpTWE5MQWx2Q0RCb0kiLCJleHQiOiJrY3d6ZVRlS003RnpjLTdoZFVPaE8zUlZwWm9jdUxVa1AyY08tbERHZ1lNIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoidmRjVWlLaVpyYTJzVTgtWkhOajFlRGtJQWVtVVVRLXZuSF92NVZwbGYtTVhOZTJZUXhYMzY2OGNMTXIyTVFjYXcxSVNJSUg0MlFJNkNoWXJuZHBCQUEiLCJyY3YiOiJtY3A6Z2l0aHViLmNyZWF0ZV9wdWxsX3JlcXVlc3QiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiJFRkxqUm5NUktUa2RoekpwMEpjOEVaQnAtNnhQdGRWaGY5MUFLclV3eDA4Iiwic2lnIjoicE14UzJWbHVJNllLZnpQTXJST2NVQXhDem5mRF9TV3JJTV9uYnhLcmhLVlhLZ0dqR3kzSm1mTXpVcUROV0RONzZVUlA2M2xsSDBsOWs0dmZSZkVVRGciLCJzdmMiOiJwaSIsInRzIjoxNzY3MjI1NjAwMDAwLCJ2Ijo0fV0",
+          "expectedBind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
+          "blocks": [
+            {
+              "items": {
+                "example": []
+              },
+              "requires": []
+            },
+            {
+              "items": {
+                "example": [
+                  {
+                    "note": "n1"
+                  },
+                  7
+                ]
+              },
+              "requires": []
+            }
+          ],
+          "blocksToken": "W3siaXRlbXMiOnsiZXhhbXBsZSI6W119LCJyZXF1aXJlcyI6W119LHsiaXRlbXMiOnsiZXhhbXBsZSI6W3sibm90ZSI6Im4xIn0sN119LCJyZXF1aXJlcyI6W119XQ",
+          "policy": "client",
+          "proofRoute": "session/pi/mcp:github.create_pull_request",
+          "receiver": "mcp:github.create_pull_request",
+          "receiverInRoute": true,
+          "nonceKey": "[\"rid-1\",\"call-1\",\"req\"]",
+          "rid": "rid-1",
+          "recordedTs": {
+            "last": 1767225600000
+          },
+          "prompt": "open a PR for issue #42"
+        },
+        {
+          "handshake": 0,
+          "chain": [
+            {
+              "v": 4,
+              "svc": "session",
+              "inst": "pi-1",
+              "rid": "rid-1",
+              "ts": 1767225599000,
+              "sess": "EFLjRnMRKTkdhzJp0Jc8EZBp-6xPtdVhf91AKrUwx08",
+              "rcv": "orders",
+              "bind": "GHG2oeO8ahTQudo8ccWAGXTPNXpDcXX_dY_l1pjy4Uk",
+              "ext": "_RHTwnyjmcO55gt97p7SE1Am-7G7y3WOE6SAQMMN4jQ",
+              "prev": "",
+              "sig": "Uas-UfjUkEIw2LDT4KZ696IjXhegYSAhYxzwabo3o8CXBvbHX825NX2s8zfU0jgtC9qhZm814H1SyKU8Z4BiAA"
+            },
+            {
+              "v": 4,
+              "svc": "orders",
+              "inst": "pi-1",
+              "rid": "rid-1",
+              "ts": 1767225600000,
+              "sess": "EFLjRnMRKTkdhzJp0Jc8EZBp-6xPtdVhf91AKrUwx08",
+              "rcv": "mcp:github.create_pull_request",
+              "bind": "pLt1XdUOmNX8N59WIhkYwjbeRBhsM-B8Of8EI-lL1Ko",
+              "ext": "kcwzeTeKM7Fzc-7hdUOhO3RVpZocuLUkP2cO-lDGgYM",
+              "prev": "Uas-UfjUkEIw2LDT4KZ696IjXhegYSAhYxzwabo3o8CXBvbHX825NX2s8zfU0jgtC9qhZm814H1SyKU8Z4BiAA",
+              "sig": "JhYoKFfPD6o5mitZvw4Eoacmxg4glsRxtbZbcLnHGICLfweVfzruloqVByOtYe6Ac2D50pGh4MYa7DuBgc_2BQ"
+            }
+          ],
+          "chainToken": "W3siYmluZCI6IkdIRzJvZU84YWhUUXVkbzhjY1dBR1hUUE5YcERjWFhfZFlfbDFwank0VWsiLCJleHQiOiJfUkhUd255am1jTzU1Z3Q5N3A3U0UxQW0tN0c3eTNXT0U2U0FRTU1ONGpRIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiIiwicmN2Ijoib3JkZXJzIiwicmlkIjoicmlkLTEiLCJzZXNzIjoiRUZMalJuTVJLVGtkaHpKcDBKYzhFWkJwLTZ4UHRkVmhmOTFBS3JVd3gwOCIsInNpZyI6IlVhcy1VZmpVa0VJdzJMRFQ0S1o2OTZJalhoZWdZU0FoWXh6d2FibzNvOENYQnZiSFg4MjVOWDJzOHpmVTBqZ3RDOXFoWm04MTRIMVN5S1U4WjRCaUFBIiwic3ZjIjoic2Vzc2lvbiIsInRzIjoxNzY3MjI1NTk5MDAwLCJ2Ijo0fSx7ImJpbmQiOiJwTHQxWGRVT21OWDhONTlXSWhrWXdqYmVSQmhzTS1COE9mOEVJLWxMMUtvIiwiZXh0Ijoia2N3emVUZUtNN0Z6Yy03aGRVT2hPM1JWcFpvY3VMVWtQMmNPLWxER2dZTSIsImluc3QiOiJwaS0xIiwicHJldiI6IlVhcy1VZmpVa0VJdzJMRFQ0S1o2OTZJalhoZWdZU0FoWXh6d2FibzNvOENYQnZiSFg4MjVOWDJzOHpmVTBqZ3RDOXFoWm04MTRIMVN5S1U4WjRCaUFBIiwicmN2IjoibWNwOmdpdGh1Yi5jcmVhdGVfcHVsbF9yZXF1ZXN0IiwicmlkIjoicmlkLTEiLCJzZXNzIjoiRUZMalJuTVJLVGtkaHpKcDBKYzhFWkJwLTZ4UHRkVmhmOTFBS3JVd3gwOCIsInNpZyI6IkpoWW9LRmZQRDZvNW1pdFp2dzRFb2FjbXhnNGdsc1J4dGJaYmNMbkhHSUNMZndlVmZ6cnVsb3FWQnlPdFllNkFjMkQ1MHBHaDRNWWE3RHVCZ2NfMkJRIiwic3ZjIjoib3JkZXJzIiwidHMiOjE3NjcyMjU2MDAwMDAsInYiOjR9XQ",
+          "expectedBind": "pLt1XdUOmNX8N59WIhkYwjbeRBhsM-B8Of8EI-lL1Ko",
+          "blocks": [
+            {
+              "items": {
+                "example": []
+              },
+              "requires": []
+            },
+            {
+              "items": {
+                "example": [
+                  {
+                    "note": "n1"
+                  },
+                  7
+                ]
+              },
+              "requires": []
+            }
+          ],
+          "blocksToken": "W3siaXRlbXMiOnsiZXhhbXBsZSI6W119LCJyZXF1aXJlcyI6W119LHsiaXRlbXMiOnsiZXhhbXBsZSI6W3sibm90ZSI6Im4xIn0sN119LCJyZXF1aXJlcyI6W119XQ",
+          "policy": "client",
+          "proofRoute": "session/pi/mcp:github.create_pull_request",
+          "receiver": "mcp:github.create_pull_request",
+          "receiverInRoute": true,
+          "nonceKey": "[\"rid-1\",\"call-2\",\"req\"]",
+          "rid": "rid-1",
+          "recordedTs": {
+            "last": 1767225600000
+          },
+          "prompt": "open a PR for issue #42"
+        }
+      ],
+      "expected": [
+        {
+          "reason": "OK"
+        },
+        {
+          "reason": "BAD_SIGNATURE"
+        }
+      ]
     }
   ],
   "recordedLocalStep": [

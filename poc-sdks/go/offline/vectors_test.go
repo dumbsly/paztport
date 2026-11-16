@@ -254,10 +254,10 @@ func TestRecordedHandshakeVectors(t *testing.T) {
 func TestRecordedCallVectors(t *testing.T) {
 	v4 := vectors.Load(t, "v4.json")
 	cases := v4.Get("recordedCall")
-	if cases.Len() != 6 {
-		t.Fatalf("v4.json has %d recordedCall cases, want 6", cases.Len())
+	if cases.Len() != 7 {
+		t.Fatalf("v4.json has %d recordedCall cases, want 7", cases.Len())
 	}
-	// The section's shape, from its data, so that a filtered run still checks it: nine calls, and at least
+	// The section's shape, from its data, so that a filtered run still checks it: eleven calls, and at least
 	// one that is OUTSIDE_SESSION.
 	calls, outside := 0, 0
 	cases.Each(func(_ string, c vectors.Node) {
@@ -269,8 +269,8 @@ func TestRecordedCallVectors(t *testing.T) {
 			}
 		})
 	})
-	if calls != 9 || outside == 0 {
-		t.Fatalf("the section has %d calls, %d of them OUTSIDE_SESSION; want 9, and at least one", calls, outside)
+	if calls != 11 || outside == 0 {
+		t.Fatalf("the section has %d calls, %d of them OUTSIDE_SESSION; want 11, and at least one", calls, outside)
 	}
 	cases.Each(func(name string, c vectors.Node) {
 		t.Run(name, func(t *testing.T) {

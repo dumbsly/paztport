@@ -1831,16 +1831,22 @@ export function buildVectors(): Record<string, unknown> {
     recordedTs: { last: number };
     prompt: string;
   };
-  /** A call recorded at `ts` in the session `reply` opened, its stamps committing to `o.blocks` (the base call's). */
+  /**
+   * A call recorded at `ts` in the session `reply` opened, its stamps committing to `o.blocks` (the base call's), its
+   * hop by `o.by` (pi unless given), signed with pi's key whoever it names.
+   */
   const callIn = (
-    reply: SessionReply, ts: number, callId: string, o: { forged?: boolean; blocks?: [BlockJson, BlockJson] } = {},
+    reply: SessionReply, ts: number, callId: string,
+    o: { forged?: boolean; blocks?: [BlockJson, BlockJson]; by?: string } = {},
   ): RecordedCallInput => {
     const bind = bindMcpCall(TOOL, callId, ARGS);
     const sess = reply.sess;
     const blocks = o.blocks ?? [ORIGIN_BLOCK, HOP_BLOCK];
-    const first = stampBy({ ...originFields, ts: ts - 1000, sess, ext: extOf(blocks[0]) }, "session");
+    const by = o.by ?? "pi";
+    const first = stampBy({ ...originFields, ts: ts - 1000, sess, rcv: by, ext: extOf(blocks[0]) }, "session");
     const hopSigner = o.forged === true ? "session" : "pi";
-    const chain = [first, stampBy({ ...hopFields(first.sig), ts, sess, bind, ext: extOf(blocks[1]) }, hopSigner)];
+    const hop = { ...hopFields(first.sig), svc: by, ts, sess, bind, ext: extOf(blocks[1]) };
+    const chain = [first, stampBy(hop, hopSigner)];
     return {
       handshake: 0, chain, chainToken: tokenOf(chain), expectedBind: bind, blocks,
       blocksToken: tokenOf(blocks), policy: "client", proofRoute: CALL_ROUTE, receiver: CALL_RCV,
@@ -1898,6 +1904,13 @@ export function buildVectors(): Record<string, unknown> {
   const shortRoot = clientRootAt(NOW);
   const shortRootReply = replyTo(shortRoot, "mcp-entry");
   const inSession = { request, reply: entryKeyReply };
+  // The client policy key signs the keyring's text, so a value that is not a key can stand in a signed request: the
+  // session is attested, the key is left out of its calls' config, and only a stamp under it fails.
+  const unparsableRing = signKeyring(
+    { ...resolveKeyring(ringServices), orders: "not-a-key" }, ringPolicy, keys["client-policy"].priv, LIVE_NOT_AFTER,
+  );
+  const unparsableKey: SessionRequest = { ...withClientRing(unparsableRing), clientKeyring: unparsableRing.services };
+  const unparsableKeyReply = replyTo(unparsableKey, "mcp-entry");
   const recordedCall = [
     recordedCallCase("at the certificate's notAfter", [inSession], [callIn(entryKeyReply, CERT_NOT_AFTER, "call-1")]),
     recordedCallCase("past the certificate's notAfter", [inSession], [callIn(entryKeyReply, CERT_NOT_AFTER + 1, "call-1")]),
@@ -1905,6 +1918,7 @@ export function buildVectors(): Record<string, unknown> {
     recordedCallCase("a failing call keeps its result past the limit", [{ request: shortRoot, reply: shortRootReply }], [callIn(shortRootReply, NOW + 1, "call-1", { forged: true })]),
     recordedCallCase("replay in the record set", [inSession], [callIn(entryKeyReply, NOW, "call-1"), callIn(entryKeyReply, NOW + 60_000, "call-1")]),
     recordedCallCase("a repeated handshake resets no spent key", [inSession, inSession], [callIn(entryKeyReply, NOW, "call-1"), { ...callIn(entryKeyReply, NOW, "call-1"), handshake: 1 }]),
+    recordedCallCase("a client key that does not parse signs no call", [{ request: unparsableKey, reply: unparsableKeyReply }], [callIn(unparsableKeyReply, NOW, "call-1"), callIn(unparsableKeyReply, NOW, "call-2", { by: "orders" })]),
   ];
   check("recorded call answers", recordedCall.map((c) => [c.name, c.expected]), [
     ["at the certificate's notAfter", [{ reason: "OK" }]],
@@ -1913,6 +1927,7 @@ export function buildVectors(): Record<string, unknown> {
     ["a failing call keeps its result past the limit", [{ reason: "BAD_SIGNATURE" }]],
     ["replay in the record set", [{ reason: "OK" }, { reason: "REPLAY" }]],
     ["a repeated handshake resets no spent key", [{ reason: "OK" }, { reason: "REPLAY" }]],
+    ["a client key that does not parse signs no call", [{ reason: "OK" }, { reason: "BAD_SIGNATURE" }]],
   ]);
 
   // The influence the client's run holds: the origin names influence with nothing to add, and the client's hop
