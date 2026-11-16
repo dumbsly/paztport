@@ -558,11 +558,11 @@ A request carries Paztport in three headers, each a token, the base64url of the 
 **Paztport's headers.** Every header whose name begins with `X-Path-` is Paztport's: the four above,
 `X-Path-Response`, and any added later. Names are compared case-insensitively over ASCII, as HTTP compares field
 names (RFC 9110 §5.1). A Paztport header's value is read without its leading and trailing spaces and tabs, as HTTP
-reads every field value (RFC 9110 §5.6.3); a value left empty is read as absent. A caller MUST send only the
-Paztport headers it stamped: before it sets them, it removes every Paztport header the call already carries, with
-all its values. An origin that forwards a request it received, such as a gateway's external processor, sends that
-request as its call, so it removes every Paztport header the client sent; and since its client is outside the
-request tree, it also removes every Paztport header from the response it passes back.
+reads every field value (RFC 9110 §5.5; its optional whitespace is §5.6.3); a value left empty is read as absent. A
+caller MUST send only the Paztport headers it stamped: before it sets them, it removes every Paztport header the call
+already carries, with all its values. An origin that forwards a request it received, such as a gateway's external
+processor, sends that request as its call, so it removes every Paztport header the client sent; and since its client
+is outside the request tree, it also removes every Paztport header from the response it passes back.
 
 Why: setting only the headers it stamped would leave the rest as the client sent them, beside a chain the origin
 signed: the client's own `X-Path-Proof` on a route this origin holds no proof for, its `X-Path-Extensions`

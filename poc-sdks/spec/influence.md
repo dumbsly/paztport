@@ -311,10 +311,11 @@ What is handed on, and when, is the core's ([the live order](verification.md#the
 from the call, so nothing is handed on: a guarded write a handler asks about there, as an HTTP partner's may, is
 decided by the owner-aware rule over what the handler read, as wherever nothing is handed on, and no trusted record is
 written from the call. Listing a tool or endpoint in `disabled` remains the way to keep it out of unsafe sessions
-(tools in [sessions.md](sessions.md#unsafe-sessions), endpoints in [Over HTTP](sessions.md#over-http)). An MCP server decides a guarded write only for a call that verified
-([sessions.md](sessions.md#the-server-decision)), so it decides none in an unsafe session, and in audit mode it notes
-a call that failed verification with the first failure's code and does not reach the decision: the second row is for
-HTTP services, whose handlers apply the rules, and the third row's MCP case says only that nothing is handed on.
+(tools in [sessions.md](sessions.md#unsafe-sessions), endpoints in [Over HTTP](sessions.md#over-http)). An MCP server
+decides a guarded write only for a call that verified ([sessions.md](sessions.md#the-server-decision)), so it decides
+none in an unsafe session, and in audit mode it notes a call that failed verification with the first failure's code and
+does not reach the decision: the second row is for HTTP services, whose handlers apply the rules, and the third row's
+MCP case says only that nothing is handed on.
 
 ## Over MCP
 

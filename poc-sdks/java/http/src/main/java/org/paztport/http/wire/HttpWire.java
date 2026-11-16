@@ -69,10 +69,10 @@ public final class HttpWire {
 
     /**
      * A received Paztport header's value without the spaces and horizontal tabs around it, or {@code null} when the
-     * header is absent or nothing else is left (spec wire.md, HTTP). Those two are HTTP's optional whitespace, which is
-     * no part of a field value (RFC 9110 section 5.6.3), so only they are removed: a value holding any other character
-     * keeps it, whatever Java calls whitespace. A blank header asks for nothing an absent one does not, since a caller
-     * can always leave the header out.
+     * header is absent or nothing else is left (spec wire.md, HTTP). Those two are HTTP's optional whitespace (RFC 9110
+     * section 5.6.3), which is no part of a field value (section 5.5), so only they are removed: a value holding any
+     * other character keeps it, whatever Java calls whitespace. A blank header asks for nothing an absent one does not,
+     * since a caller can always leave the header out.
      */
     public static String headerValue(String header) {
         if (header == null) {
