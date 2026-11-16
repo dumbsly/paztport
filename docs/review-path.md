@@ -6,6 +6,7 @@ core attests the path a request took; the profiles and the one extension,
 ([the protocol](../poc-sdks/spec/README.md#the-protocol)). The first sitting reads
 the spec's sections on path attestation, then the TypeScript core that implements
 them. Each add-on after it is a further sitting, read the same way.
+To report what you find, see [SECURITY.md](../SECURITY.md).
 
 Each table gives the lines to read: lines as an editor numbers them, comments and
 blank lines included; a spec section runs from its heading to the next heading of
