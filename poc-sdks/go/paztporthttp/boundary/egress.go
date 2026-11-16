@@ -277,9 +277,10 @@ type Exchange struct {
 // A refusal comes with no exchange and nothing to send.
 //
 // A session no call has used for Config.IdleMs is dropped here, and so is an attested session once the
-// root or the keyring the egress presents has passed its notAfter; the call then opens a new session. A
-// session in which no call may be made is never marked used, so it goes at its idle period, and the call
-// after that asks the partner again.
+// root or the keyring the egress presents has passed its notAfter; the call then opens a new session. Only a
+// call Begin gives a step for marks the session used: one it refuses sends nothing, so it keeps no session
+// past the partner's idle period. A session in which no call may be made is never marked used, so it goes at
+// its idle period, and the call after that asks the partner again.
 func (e *Egress) Begin(
 	a paztporthttp.Accepted, added []influence.Entry, path string, body []byte,
 ) (*Exchange, Step, error) {
@@ -328,6 +329,9 @@ func (e *Egress) Begin(
 		if err != nil {
 			return nil, Step{}, err
 		}
+		// Only now is the call about to go, so only now is the session used: a call refused before this
+		// sent nothing the partner saw, so it must not keep the session past the partner's idle period.
+		e.used(s)
 		x.phase = phaseCall
 		return x, step, nil
 	}
@@ -598,11 +602,12 @@ func (x *Exchange) fail() (Step, bool, error) {
 	return Step{}, false, nil
 }
 
-// take returns the session open with the partner, or nil when none is, marked as used now when calls may be
-// made in it; a session no call has used for IdleMs is dropped first, and so is an attested session once the
-// egress's own root or keyring has passed its notAfter, since the partner would refuse every call in it as
-// POLICY_EXPIRED. A session in which no call may be made is used by no call, so it goes at its idle period
-// and the partner is asked again, which may by then meet the requirement.
+// take returns the session open with the partner, or nil when none is. A session no call has used for IdleMs is
+// dropped first, and so is an attested session once the egress's own root or keyring has passed its notAfter,
+// since the partner would refuse every call in it as POLICY_EXPIRED. take does not mark the session used: Begin
+// does, once the call's step is made, so that a call refused after take sends nothing and uses nothing. A session
+// in which no call may be made is used by no call, so it goes at its idle period and the partner is asked again,
+// which may by then meet the requirement.
 func (e *Egress) take() *partnerSession {
 	now := e.cfg.Now()
 	e.mu.Lock()
@@ -616,11 +621,17 @@ func (e *Egress) take() *partnerSession {
 		e.current = nil
 		return nil
 	}
-	if s.calls.Calls {
-		// A clock read earlier, by a call that took the lock later, never moves the time back.
-		s.lastUsed = max(s.lastUsed, now)
-	}
 	return s
+}
+
+// used marks s used now, by a call about to go in it. s may have been dropped or replaced since the call found
+// it; marking it then changes nothing the egress reads.
+func (e *Egress) used(s *partnerSession) {
+	now := e.cfg.Now()
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	// A clock read earlier, by a call that took the lock later, never moves the time back.
+	s.lastUsed = max(s.lastUsed, now)
 }
 
 // install makes the session id, attested or not and allowing calls, the one open with the partner, opened now,

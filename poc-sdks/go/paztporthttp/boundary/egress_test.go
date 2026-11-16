@@ -698,16 +698,85 @@ func TestIdleSession(t *testing.T) {
 	}
 }
 
+// TestARefusedCallDoesNotKeepTheSessionAlive: a call Begin refuses after finding the session, here one the
+// stamper cannot sign, sends nothing, so it does not use the session: a call at the end of the idle period,
+// counted from the last call sent, opens a new one, as the partner, which saw no call since, has let it go.
+func TestARefusedCallDoesNotKeepTheSessionAlive(t *testing.T) {
+	for _, open := range []string{"attested", "unsafe"} {
+		t.Run(open, func(t *testing.T) {
+			f, unsignable := idleFixture(t, open)
+			start := f.clock.Load()
+			if out := f.post(t, nil); out.Failed || out.Attested != (open == "attested") {
+				t.Fatalf("the first call ended %+v, want answered in the %s session", out, open)
+			}
+			f.clock.Store(start + f.cfg.IdleMs - 1)
+			unsignable.Store(true)
+			if x, step, err := f.e.Begin(f.a, nil, "/charge", charge); err == nil || x != nil ||
+				!reflect.DeepEqual(step, boundary.Step{}) {
+				t.Fatalf("Begin with a stamper's clock out of range = %v, %+v, %v; want a refusal", x, step, err)
+			}
+			unsignable.Store(false)
+			f.clock.Store(start + f.cfg.IdleMs)
+			if _, step := f.begin(t); !step.Handshake {
+				t.Fatalf("the call after the idle period of the last call sent went to %q, want a handshake", step.Path)
+			}
+		})
+	}
+}
+
+// TestARealCallKeepsTheSessionAlive: the control of TestARefusedCallDoesNotKeepTheSessionAlive. A call sent at
+// the end of the idle period uses the session, so the call after it goes in the same session.
+func TestARealCallKeepsTheSessionAlive(t *testing.T) {
+	for _, open := range []string{"attested", "unsafe"} {
+		t.Run(open, func(t *testing.T) {
+			f, _ := idleFixture(t, open)
+			start := f.clock.Load()
+			f.post(t, nil)
+			f.clock.Store(start + f.cfg.IdleMs - 1)
+			if out := f.post(t, nil); out.Failed || out.Attested != (open == "attested") {
+				t.Fatalf("the call inside the idle period ended %+v, want answered in the %s session", out, open)
+			}
+			f.clock.Store(start + f.cfg.IdleMs)
+			if _, step := f.begin(t); step.Handshake || step.Path != "/charge" {
+				t.Fatalf("the call after a call sent within the idle period went to %q, want the call", step.Path)
+			}
+		})
+	}
+}
+
+// idleFixture returns a fixture whose partner opens two sessions of the kind open, and the switch that makes
+// its stamper's clock leave the range a stamp's time may hold, so that every call is refused before it is sent.
+func idleFixture(t testing.TB, open string) (*fixture, *atomic.Bool) {
+	t.Helper()
+	f := newFixture(t, []string{open, open}, "unsafe", ok200, ok200, ok200)
+	unsignable := &atomic.Bool{}
+	st := *f.cfg.Stamper
+	st.Now = func() int64 {
+		if unsignable.Load() {
+			return math.MaxInt64
+		}
+		return f.clock.Load()
+	}
+	f.remake(t, func(c *boundary.Config) { c.Stamper = &st })
+	return f, unsignable
+}
+
 // TestIdleSessionClockExtremes: the idle period is computed exactly, so a clock that jumps across the
 // range of an int64 neither keeps a session it should drop nor drops one it should keep.
 func TestIdleSessionClockExtremes(t *testing.T) {
 	// A clock gone far back has not aged the session: now - lastUsed is below every limit.
 	f := newFixture(t, []string{"attested"}, "unsafe", ok200, ok200)
 	f.fixStamperClock(t)
+	start := f.clock.Load()
 	f.post(t, nil)
 	f.clock.Store(math.MinInt64)
 	if _, step := f.begin(t); step.Path != "/charge" {
 		t.Fatalf("a clock gone back dropped the session: %q", step.Path)
+	}
+	// Nor has the call made then moved the session's last use back: it is kept to the end of the idle period.
+	f.clock.Store(start + f.cfg.IdleMs - 1)
+	if _, step := f.begin(t); step.Path != "/charge" {
+		t.Fatalf("a call made with the clock gone back moved the session's last use back: %q", step.Path)
 	}
 
 	// A session used near the bottom of the range is idle at the top: now - lastUsed is above every limit.
