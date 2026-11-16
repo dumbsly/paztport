@@ -20,9 +20,11 @@ export type Requirement = {
 /**
  * A client's requirement, built and checked once (spec sessions.md, A client that requires extensions): `extensions`
  * with each name once, sorted, and the switch `continueWithout`, false unless given. Throws on a name that is not an
- * extension name, so a bad configuration fails where it is read, not at the first call's stamp.
+ * extension name, so a bad configuration fails where it is read, not at the first call's stamp, and a TypeError for
+ * a string, which iterates as one-letter names.
  */
 export function requirement(extensions: Iterable<string>, continueWithout = false): Requirement {
+  if (typeof extensions === "string") throw new TypeError("a string where a list of extension names is expected");
   const names = new Set<string>();
   for (const name of extensions) {
     if (typeof name !== "string" || !isExtensionName(name)) throw new Error("a name that is not an extension name");
@@ -36,8 +38,8 @@ export const NO_REQUIREMENT: Requirement = requirement([]);
 
 /**
  * What a client with `req` may do in the session a handshake left it (sessions.md, "A client that requires
- * extensions"): `check` is the first reply's, or null for a JSON-RPC error or a timeout, and `listed` that reply's
- * `extensions`, [] when it did not read. `calls` says whether it makes calls at all, `requires` the names its calls
+ * extensions"): `check` is the first reply's, or null for a JSON-RPC error or a timeout; a client that sent no handshake
+ * passes "UNSAFE". `listed` is that reply's `extensions`, [] when it did not read. `calls` says whether it makes calls at all, `requires` the names its calls
  * carry. Only an attested session whose reply lists every required name lets a client make calls under its
  * requirement, so neither a server answering "unsafe" nor anyone who can make the handshake fail switches it off;
  * only `continueWithout` does, and then a call carries no `requires` for a name the client could not get.

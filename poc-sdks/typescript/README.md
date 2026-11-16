@@ -81,7 +81,8 @@ operation in an `rcv`.
   `ExtensionSettings`, built by `extensionSettings(actsOn, allowed?)`, or for a recorded response by
   `recordExtensionSettings`, never by hand. `extensionSettings` throws on a name that is not an extension name, and on a
   name in `actsOn` that `allowed` does not hold, so a verifier never meets settings that break the rule of
-  [Inputs](../spec/verification.md#inputs). `NO_EXTENSIONS` acts on none and carries any name.
+  [Inputs](../spec/verification.md#inputs). Both throw a `TypeError` for a string in place of a list of names, which
+  would iterate as one-letter names. `NO_EXTENSIONS` acts on none and carries any name.
 - **The verifier's inputs.** `verifyChain` takes the tokens as received: the chain, the blocks (null for no token, which
   is one empty block per stamp) and the proof, so a token that does not read is the typed rejection of the check that
   reads it; so do `verifyResponse` for an attestation and `checkSessionReply` for a reply. Its config is the pinned
@@ -158,14 +159,14 @@ operation in an `rcv`.
   that loads its own keyring and root checks them with `checkOwnMaterial` and warns near their end with
   `expiryWarnings` (`WARN_WITHIN_MS`, `describeNotAfter`).
 - **A client's requirement.** `requirement(extensions, continueWithout?)` builds what a client requires of a server,
-  once: it refuses a name that is not an extension name, keeps each name once, sorted, and returns a frozen
-  `Requirement`, the only kind `callsAfter` takes (`NO_REQUIREMENT` requires nothing). `callsAfter(check, listed,
-  requirement)` is the rule for a client that requires extensions of a server
+  once: it refuses a name that is not an extension name, and a string in place of the list (a `TypeError`), keeps each
+  name once, sorted, and returns a frozen `Requirement`, the only kind `callsAfter` takes (`NO_REQUIREMENT` requires
+  nothing). `callsAfter(check, listed, requirement)` is the rule for a client that requires extensions of a server
   ([sessions.md](../spec/sessions.md#the-clients-check-of-the-reply)), in one function, which the MCP client's
-  `openSession` calls: given the first reply's check (null for a JSON-RPC error or a timeout) and the extensions the
-  reply lists, it says whether the client makes calls and the `requires` its calls carry. Only an attested session
-  whose reply lists every required name lets it make calls, unless the requirement's `continueWithout` switch is set,
-  and then its calls carry no `requires` for a name it could not get.
+  `openSession` calls: given the first reply's check (null for a JSON-RPC error or a timeout, `"UNSAFE"` for a client
+  that sent no handshake) and the extensions the reply lists, it says whether the client makes calls and the `requires`
+  its calls carry. Only an attested session whose reply lists every required name lets it make calls, unless the
+  requirement's `continueWithout` switch is set, and then its calls carry no `requires` for a name it could not get.
 - **The server's gate.** `decideServerCall` is the gate no extension decides: in an unsafe session, or with no
   handshake yet, the tools disabled when unsafe are refused, and every other call is allowed.
   `sanitiseVerdictReason` makes a server's refusal reason safe to show, since it reaches the model.

@@ -13,6 +13,19 @@ describe("extension settings", () => {
     }
     expect(extensionSettings(["x".repeat(32), "a-0", "constructor"]).actsOn.size).toBe(3);
   });
+  // a string is iterable, so read as names it would be one-letter names: "influence" would act on seven
+  it("aStringIsNotAListOfNames", () => {
+    const word = "influence" as unknown as string[];
+    expect(() => extensionSettings(word)).toThrow(TypeError);
+    expect(() => extensionSettings([], word)).toThrow(TypeError);
+    expect(() => recordExtensionSettings(word, ["influence"])).toThrow(TypeError);
+    expect(() => recordExtensionSettings([], word)).toThrow(TypeError);
+    for (const names of [["influence"], new Set(["influence"])]) {
+      expect(extensionSettings(names).actsOn).toEqual(new Set(["influence"]));
+      expect(extensionSettings([], names).allowed).toEqual(new Set(["influence"]));
+      expect(recordExtensionSettings(names, names).actsOn).toEqual(new Set(["influence"]));
+    }
+  });
   it("refusesAnActsOnNameOutsideTheAllowedList", () => {
     expect(() => extensionSettings(["example"], ["other"])).toThrow("outside the allowed list");
     expect(() => recordExtensionSettings(["example"], [])).toThrow("outside the allowed list");

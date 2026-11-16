@@ -18,6 +18,8 @@ export type ExtensionSettings = {
 };
 
 function names(given: Iterable<string>): Set<string> {
+  // a string iterates as one-letter names, each an extension name: "influence" would read as seven
+  if (typeof given === "string") throw new TypeError("a string where a list of extension names is expected");
   const set = new Set<string>();
   for (const name of given) {
     if (typeof name !== "string" || !isExtensionName(name)) throw new Error("a name that is not an extension name");
@@ -42,7 +44,8 @@ function settings(
 
 /**
  * A live verifier's settings: the extensions it acts on and, when given, the names it carries. Throws on a name that
- * is not an extension name, and on a name in `actsOn` outside `allowed`.
+ * is not an extension name, and on a name in `actsOn` outside `allowed`; a TypeError for a string in place of either
+ * list.
  */
 export function extensionSettings(actsOn: Iterable<string>, allowed?: Iterable<string>): ExtensionSettings {
   return settings(actsOn, allowed, true);

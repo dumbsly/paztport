@@ -106,7 +106,6 @@ function parseServer(v: unknown, i: number, dir: string, clientDir: string, seen
     if (!v.attested) {
       throw new Error(`config ${at}.requires needs an attested server: an unattested one opens no session to hold it`);
     }
-    // a string is iterable too, so the SDK would read "influence" as nine one-letter names
     if (!Array.isArray(v.requires)) {
       throw new Error(`config ${at}.requires must be an array of extension names`);
     }

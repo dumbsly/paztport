@@ -64,6 +64,13 @@ describe("requirement", () => {
     expect(requirement(["influence"], true).continueWithout).toBe(true);
     expect(Object.isFrozen(req) && Object.isFrozen(req.extensions)).toBe(true);
   });
+  // a string is iterable, so read as names it would be one-letter names: "influence" would require seven
+  it("aStringIsNotAListOfNames", () => {
+    expect(() => requirement("influence" as unknown as string[])).toThrow(TypeError);
+    expect(() => requirement("influence" as unknown as string[], true)).toThrow(TypeError);
+    expect(requirement(["influence"]).extensions).toEqual(["influence"]);
+    expect(requirement(new Set(["influence"])).extensions).toEqual(["influence"]);
+  });
   it("noRequirementIsTheEmptyOne", () => {
     expect(NO_REQUIREMENT).toEqual(requirement([]));
   });
