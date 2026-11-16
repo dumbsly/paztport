@@ -30,8 +30,6 @@ const committedText = readFileSync(new URL("../../../spec/vectors/v4.json", impo
 type Keys = Record<string, { pub: string; priv: string }>;
 const committed: Record<Sections, any[]> & { keys: Keys; policies: any; blocks: any; influence: any } =
   JSON.parse(committedText);
-/** The version 3 file, which the sections whose rule did not change must equal; it goes when v3.json does. */
-const v3 = JSON.parse(readFileSync(new URL("../../../spec/vectors/v3.json", import.meta.url), "utf8"));
 
 /** The verify case whose blocks token does not read, the one blocks token that is not its value's JCS bytes. */
 const UNREADABLE_BLOCKS_CASE = "a blocks token that does not read";
@@ -226,18 +224,6 @@ const sectionAt = (file: any, path: string): unknown => path.split(".").reduce((
 describe("known-answer vectors, version 4", () => {
   it("the committed file is what the exporter builds", () => expect(buildVectors()).toEqual(committed));
   it("the committed file is byte for byte what the exporter writes", () => expect(committedText).toBe(vectorsText()));
-
-  // A section whose rule did not change is v3.json's, value for value, so no answer moved by accident while the
-  // exporter was rewritten. This test goes when v3.json does.
-  it.each([
-    ["keys", "keys"], ["policies", "policies"], ["keyring", "keyring"], ["root", "root"], ["replyCert", "replyCert"],
-    ["sessionStatus", "sessionStatus"], ["sessionRequest", "sessionRequest"], ["sessionParams", "sessionParams"],
-    ["fixedInputs", "fixedInputs"], ["deriveSessionId", "deriveSessionId"], ["bindPrompt", "bindPrompt"],
-    ["bindMcpCall", "bindMcpCall"], ["bindResult", "bindResult"], ["merkle", "merkle"], ["influence.rule", "rule"],
-  ])("theSectionsWhoseRuleDidNotChangeAreV3s %s", (section, inV3) => {
-    expect(sectionAt(committed, section)).toBeDefined();
-    expect(sectionAt(committed, section)).toEqual(v3[inV3]);
-  });
 
   const blockReads = (committed.blocks.read as any[]).map((c: any): [string, any] => [c.name, c]);
   it.each(blockReads)("blocks read %s", (_n, c: any) => {

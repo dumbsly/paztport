@@ -80,10 +80,8 @@ class VectorsHttpV4Export {
             + " derived by v4.json's rule (seed = SHA-256(utf8(\"paztport-v3-vector-key:payment\")), the same PKCS#8"
             + " and SPKI encodings, both base64url), and the boundary key below is"
             + " SHA-256(utf8(\"paztport-http-v3-vector-boundary-key\")), base64url. The v3 in these seed strings,"
-            + " and in those `rules.about` gives, is historical: they are http-v3.json's, kept so that the keys,"
-            + " boundaryInfluence, and the keys, material, handshakes and peers of `rules`, are http-v3.json's value"
-            + " for value. resultHash, requestBinding, and operations but for `receive`, are too, since their rules"
-            + " did not change, and headerNames holds each of http-v3.json's cases. resultHash maps a status and body"
+            + " and in those `rules.about` gives, is historical: version 3's vectors over HTTP used them, and keeping"
+            + " them keeps every key, root and nonce they derive unchanged. resultHash maps a status and body"
             + " (hex) to the result hash. requestBinding maps a method, a target (the raw path plus `?` and the raw"
             + " query when there is one) and a body (hex) to the request binding. headerNames maps a header name to"
             + " whether it is Paztport's: it begins with `X-Path-`, compared case-insensitively over ASCII. A"
@@ -392,7 +390,7 @@ class VectorsHttpV4Export {
         operationsResponses(gatewayKey, ordersKey, payment).forEach(responses::add);
         keyedResponses(gatewayKey, ordersKey).forEach(responses::add);
 
-        // In http-v3.json's place, before the sections after it: the keyed receive cases read its material.
+        // The rules go before `operations`, whose keyed receive cases read their material.
         out.set("rules", VectorsHttpRules.build(out, core));
         out.set("boundaryInfluence", boundaryInfluence());
         out.set("operations", operations(core, out.get("rules"), gatewayKey));

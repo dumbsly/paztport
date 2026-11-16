@@ -72,8 +72,8 @@ const ABOUT =
   "taken as it is, not hashed as a leaf; mesh-second, below, derives its rootId and salts with a seed as well. " +
   'A handshake nonce labelled l is the first 16 bytes of SHA-256(utf8("paztport-v3-vector-nonce:" + l)), base64url: ' +
   "every request's nonce is labelled client, and every reply's server. " +
-  "The v3 in these seed strings is historical: they are v3.json's, kept so that the keys, the policies and every section whose rule did not change " +
-  "are v3.json's value for value, and a file of other vectors can take its keys and policies from either. " +
+  "The v3 in these seed strings is historical: version 3's vectors used them, " +
+  "and keeping them keeps every key and policy unchanged. " +
   "This placement and rootId derivation are for the vectors only; real builds use random slots and a random rootId. " +
   "Ed25519 is deterministic, so the file is reproduced byte for byte. " +
   "The core sections use a made-up extension, example, name influence only as an opaque second name, " +
@@ -654,7 +654,7 @@ function influenceSection(run: {
     labelCase("an entry", { ...THIRD_PARTY, cid: "cid-2" }, false),
   ];
 
-  // The owner-aware rule's truth table, by hand: v3.json's `rule`, whose rule did not change.
+  // The owner-aware rule's truth table, by hand; the rule is version 3's, unchanged.
   const TP = { cls: "third-party" } as const;
   const LU = { cls: "local-untrusted" } as const;
   const PUB = { cls: "public" } as const;
