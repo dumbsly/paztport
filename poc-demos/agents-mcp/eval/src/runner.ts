@@ -150,7 +150,8 @@ export function settleWorkspace(work: string, dest: string, stderrFile: string):
     rmSync(staging, { recursive: true, force: true });
     cpSync(work, staging, { recursive: true, verbatimSymlinks: true, filter });
     renameSync(staging, dest);
-    if (skipped.length > 0) note(`left out of the workspace copy, as not a file, folder or link: ${skipped.join(", ")}`);
+    // sorted, as the copy visits a folder in the file system's order, which differs between hosts
+    if (skipped.length > 0) note(`left out of the workspace copy, as not a file, folder or link: ${skipped.sort().join(", ")}`);
   } catch (e) {
     // the error names the temp folder, which the run folder never shows
     note(`could not copy the workspace into the run folder (${(e as NodeJS.ErrnoException).code ?? "error"}), so it is left out`);
