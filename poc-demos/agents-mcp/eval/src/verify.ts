@@ -153,12 +153,12 @@ const CALL_EXTENSIONS = extensionSettings(["influence"]);
 /** A recorded response is read as `influence` says, with no check 9c: it was held to the caller's `actsOn` live, which a record does not hold. */
 const RESPONSE_EXTENSIONS = recordExtensionSettings(["influence"]);
 
-/** What a verified session gives the checks that follow it: the recorded handshake as the library reads it, and the material its records are checked against. */
+/**
+ * What a verified session gives the checks that follow it: the recorded handshake as the library reads it, which gives
+ * its calls their config, and the server material its responses are checked against.
+ */
 type Session = {
   recorded: RecordedSession;
-  clientKeyring: Record<string, string>;
-  clientRoot: Uint8Array;
-  clientRootId: string;
   serverKeyring: Record<string, string>;
   serverRoot: Uint8Array;
   serverRootId: string;
@@ -183,13 +183,9 @@ function verifySession(r: Rec): Session | undefined {
     if (!recorded.attested) {
       return undefined;
     }
-    const request = readSessionRequest(r.request);
     const reply = readSessionReply(r.reply);
     return {
       recorded,
-      clientKeyring: request.clientKeyring,
-      clientRoot: decode(request.clientRoot!.root),
-      clientRootId: request.clientRoot!.rootId,
       serverKeyring: reply.serverKeyring,
       serverRoot: decode(reply.serverRoot!.root),
       serverRootId: reply.serverRoot!.rootId,
@@ -347,12 +343,9 @@ function verifyFile(path: string, label: string): VerifyReport {
         const v = verifyRecordedCall(
           params,
           { serverId: server, rid: rec.rid, callId: rec.callId, stampedAt: rec.now, ...(run !== undefined ? { prompt: run.prompt } : {}) },
-          // the session's windows are judged by callInSession below, so the members have none here
-          {
-            keyrings: [{ keys: session.clientKeyring, notAfter: Infinity }],
-            roots: [{ root: session.clientRoot, rootId: session.clientRootId, notAfter: Infinity }],
-            allowedOrigins: [ORIGIN_SVC], sess: session.sess, seen: records.spent, extensions: CALL_EXTENSIONS,
-          },
+          // the request's client material and the reply's session id, with no windows: recordedCallReason below judges
+          // the session's limits. The session is attested, so it gives a config.
+          session.recorded.callConfig({ allowedOrigins: [ORIGIN_SVC], seen: records.spent, extensions: CALL_EXTENSIONS })!,
         );
         // `now` is the time of the call's last stamp, which the client signed (a call whose stamp time differs is
         // TIME_MISMATCH): a call recorded past one of its session's limits is OUTSIDE_SESSION. The session is attested.

@@ -1869,25 +1869,20 @@ export function buildVectors(): Record<string, unknown> {
     );
     const records = newRecordSet();
     const expected = calls.map((c) => {
-      const h = recorded[c.handshake]!;
-      const request = readSessionRequest(h.requestToken);
-      const clientRoot = request.clientRoot!;
+      const session = sessions[c.handshake]!;
+      const cfg = session.callConfig({
+        allowedOrigins: ["session"], seen: records.spent, callMaxAgeMs: CALL_MAX_AGE_MS, runMaxAgeMs: RUN_MAX_AGE_MS,
+        extensions: settingsOf(settings),
+      });
+      if (cfg === undefined) throw new Error(`recorded call ${name}: its session is not attested`);
       const v = verifyChainOffline(
         {
           chain: c.chainToken, expectedBind: c.expectedBind, blocks: c.blocksToken, proof: proofTokenOf(c),
           receiver: c.receiver, receiverInRoute: c.receiverInRoute, rid: c.rid, recordedTs: c.recordedTs,
           prompt: c.prompt,
         },
-        {
-          // the session's windows are judged by callInSession, so the members have none
-          keyrings: [{ keys: request.clientKeyring, notAfter: Infinity }],
-          roots: [{ root: decode(clientRoot.root), rootId: clientRoot.rootId, notAfter: Infinity }],
-          allowedOrigins: ["session"], sess: h.reply.sess,
-          nonceKey: c.nonceKey, seen: records.spent, callMaxAgeMs: CALL_MAX_AGE_MS, runMaxAgeMs: RUN_MAX_AGE_MS,
-          extensions: settingsOf(settings),
-        },
+        { ...cfg, nonceKey: c.nonceKey },
       );
-      const session = sessions[c.handshake]!;
       const reason = settings.actsOn.includes(INFLUENCE)
         ? recordedCallReason(v, session, c.recordedTs.last)
         : callInSession(session, v.reason, c.recordedTs.last);

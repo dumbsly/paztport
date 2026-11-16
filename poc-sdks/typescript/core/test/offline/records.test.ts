@@ -5,10 +5,10 @@
 // verification's recorded call, response and handshake.
 
 import { describe, expect, it } from "vitest";
-import { generateKeyPair, randomBytes, utf8 } from "../../src/crypto/crypto.ts";
+import { generateKeyPair, randomBytes, sign, utf8 } from "../../src/crypto/crypto.ts";
 import { signKeyring } from "../../src/policy/keyring.ts";
 import { buildTree } from "../../src/policy/merkle.ts";
-import { signRoot } from "../../src/policy/root.ts";
+import { rootSigningBytes, signRoot, type SignedRoot } from "../../src/policy/root.ts";
 import { bindResponse, verifyResponse } from "../../src/session/attestation.ts";
 import { signReplyCert } from "../../src/session/reply-cert.ts";
 import { deriveSessionId, newNonce, signSessionReply, type SessionReply, type SessionRequest } from "../../src/session/session.ts";
@@ -35,7 +35,13 @@ type Windows = { cert: number; clientRoot: number; clientKeyring: number; server
  * A recorded handshake: an attested reply in the entry-key form (signed by the entry's certified key, carrying the
  * server keyring's signature and the certificate) or the policy-key form, every window FAR unless given.
  */
-function handshake(o: { form?: "entry-key" | "policy-key"; windows?: Partial<Windows>; status?: "attested" | "unsafe" } = {}) {
+function handshake(o: {
+  form?: "entry-key" | "policy-key"; windows?: Partial<Windows>; status?: "attested" | "unsafe";
+  /** Services the client keyring signs beside session and pi. */
+  services?: Record<string, string>;
+  /** The client root's text in place of the tree's, signed as it stands. */
+  clientRootText?: string;
+} = {}) {
   const w: Windows = { cert: FAR, clientRoot: FAR, clientKeyring: FAR, serverRoot: FAR, serverKeyring: FAR, ...o.windows };
   const form = o.form ?? "entry-key";
   const clientPolicy = generateKeyPair();
@@ -45,8 +51,13 @@ function handshake(o: { form?: "entry-key" | "policy-key"; windows?: Partial<Win
   const pi = generateKeyPair();
   const clientTree = buildTree([{ salt: randomBytes(16), path: "session/pi/orders" }], 4, "c1");
   const serverTree = buildTree([{ salt: randomBytes(16), path: "mcp-entry/tools" }], 4, "s1");
-  const clientRoot = signRoot(clientTree.root, "c1", clientPolicy.privateKey, w.clientRoot);
-  const clientServices = { session: session.publicKey, pi: pi.publicKey };
+  const clientRoot: SignedRoot = o.clientRootText === undefined
+    ? signRoot(clientTree.root, "c1", clientPolicy.privateKey, w.clientRoot)
+    : {
+        rootId: "c1", root: o.clientRootText, notAfter: w.clientRoot,
+        sig: encode(sign(clientPolicy.privateKey, rootSigningBytes("c1", o.clientRootText, w.clientRoot))),
+      };
+  const clientServices = { session: session.publicKey, pi: pi.publicKey, ...o.services };
   const clientRing = signKeyring(clientServices, clientPolicy.publicKey, clientPolicy.privateKey, w.clientKeyring);
   const request: SessionRequest = {
     clientRoot,
@@ -262,25 +273,28 @@ describe("recordedSession: what a recorded handshake opened", () => {
   });
 });
 
-/** A two-stamp call chain in `sess`, its last stamp at `ts`, signed by the handshake's client keys. */
-function call(h: ReturnType<typeof handshake>, ts: number, sess = h.reply.sess) {
-  const origin = signStamp({ svc: "session", inst: "pi-1", rid: "rid-1", ts: ts - 1, sess, rcv: "pi", bind: bindPrompt("p"), ext: "", prev: "" }, h.session.privateKey);
-  const hop = signStamp({ svc: "pi", inst: "pi-1", rid: "rid-1", ts, sess, rcv: "orders", bind: "call-bind", ext: "", prev: origin.sig }, h.pi.privateKey);
+/**
+ * A two-stamp call chain in `sess`, its last stamp at `ts`, signed by the handshake's client keys: the origin by
+ * session, the hop by `by`, signed with pi's key whoever it names.
+ */
+function call(h: ReturnType<typeof handshake>, ts: number, sess = h.reply.sess, by = "pi") {
+  const origin = signStamp({ svc: "session", inst: "pi-1", rid: "rid-1", ts: ts - 1, sess, rcv: by, bind: bindPrompt("p"), ext: "", prev: "" }, h.session.privateKey);
+  const hop = signStamp({ svc: by, inst: "pi-1", rid: "rid-1", ts, sess, rcv: "orders", bind: "call-bind", ext: "", prev: origin.sig }, h.pi.privateKey);
   return [origin, hop];
 }
 
-/** The offline check of a call recorded in `h`'s session: the client's keyring and root from the request, and the session id. */
+/** The offline check of a call recorded in `h`'s session, with the config the session gives its calls. */
 function checkCall(h: ReturnType<typeof handshake>, chain: Stamp[], ts: number, spent: Set<string>) {
+  const given = { allowedOrigins: ["session"], seen: spent, extensions: NO_EXTENSIONS };
+  const cfg = recordedSession(h.recorded).callConfig(given);
+  if (cfg === undefined) throw new Error("the session is not attested");
   return verifyChainOffline(
     {
       chain: writeToken(chain), expectedBind: "call-bind", blocks: null,
       proof: writeToken(h.clientTree.proofFor("session/pi/orders")), receiver: "orders", receiverInRoute: true,
       rid: "rid-1", recordedTs: { last: ts }, prompt: "p",
     },
-    {
-      keyrings: [{ keys: h.request.clientKeyring, notAfter: Infinity }], roots: [{ root: h.clientTree.root, rootId: "c1", notAfter: Infinity }],
-      allowedOrigins: ["session"], sess: h.reply.sess, seen: spent, nonceKey: nonceKey(["rid-1", "call-1", "req"]), extensions: NO_EXTENSIONS,
-    },
+    { ...cfg, nonceKey: nonceKey(["rid-1", "call-1", "req"]) },
   );
 }
 
@@ -307,6 +321,51 @@ describe("callInSession: a recorded call counts in its session only up to the se
   it("aSessionNotAttestedGivesNoResult", () => {
     const h = handshake({ status: "unsafe" });
     expect(callInSession(recordedSession(h.recorded), "OK", NOW)).toBeUndefined();
+  });
+});
+
+describe("callConfig: the config a recorded session gives its calls", () => {
+  const given = {
+    allowedOrigins: ["session"], seen: new Set<string>(), extensions: NO_EXTENSIONS, runMaxAgeMs: 5, callMaxAgeMs: 6,
+  };
+
+  // "the client keyring and root of that handshake's request and the session id of its reply", with no window of
+  // their own: the session's limits judge them
+  it("holdsTheRequestsMaterialAndTheRepliesSessionId", () => {
+    const h = handshake();
+    const cfg = recordedSession(h.recorded).callConfig(given)!;
+    expect(cfg.keyrings).toEqual([{ keys: h.request.clientKeyring, notAfter: Infinity }]);
+    expect(cfg.roots).toEqual([{ root: h.clientTree.root, rootId: "c1", notAfter: Infinity }]);
+    expect(cfg.sess).toBe(h.reply.sess);
+    expect(cfg).toMatchObject({
+      allowedOrigins: ["session"], extensions: NO_EXTENSIONS, runMaxAgeMs: 5, callMaxAgeMs: 6,
+    });
+    // the record set's spent keys are held, so a call's own key is added to them
+    expect(cfg.seen).toBe(given.seen);
+  });
+
+  it("callConfigLeavesOutAKeyThatDoesNotParse", () => {
+    const h = handshake({ services: { orders: "not-a-key" } });
+    const s = recordedSession(h.recorded);
+    // the policy key signed the keyring's text, so the session is attested
+    expect(s.attested).toBe(true);
+    expect(Object.keys(s.callConfig(given)!.keyrings[0]!.keys).sort()).toEqual(["pi", "session"]);
+    // a call by pi verifies, and one under orders's key is BAD_SIGNATURE
+    expect(checkCall(h, call(h, NOW), NOW, new Set()).reason).toBe("OK");
+    expect(checkCall(h, call(h, NOW, h.reply.sess, "orders"), NOW, new Set()).reason).toBe("BAD_SIGNATURE");
+  });
+
+  it("aRootThatDoesNotDecodeProvesNoRoute", () => {
+    const h = handshake({ clientRootText: "not base64url!" });
+    expect(recordedSession(h.recorded).attested).toBe(true);
+    expect(recordedSession(h.recorded).callConfig(given)!.roots[0]!.root).toEqual(new Uint8Array(0));
+    expect(checkCall(h, call(h, NOW), NOW, new Set()).reason).toBe("PATH_NOT_ALLOWED");
+  });
+
+  it("isUndefinedForASessionNotAttested", () => {
+    expect(recordedSession(handshake({ status: "unsafe" }).recorded).callConfig(given)).toBeUndefined();
+    const h = handshake();
+    expect(recordedSession({ ...h.recorded, pin: generateKeyPair().publicKey }).callConfig(given)).toBeUndefined();
   });
 });
 

@@ -86,7 +86,9 @@ describe("verifyRecordedCall", () => {
   it("anItemThatIsNotAnEntryIsInfluenceMismatchBeforeTheSessionsLimits", () => {
     const w = world();
     // a session attested only before the call: the call is past its limits
-    const session: RecordedSession = { attested: true, attestedAt: (at) => at < CALL_TS, responseNotAfter: undefined };
+    const session: RecordedSession = {
+      attested: true, attestedAt: (at) => at < CALL_TS, responseNotAfter: undefined, callConfig: () => undefined,
+    };
     const result = (blocks: readonly Block[]) => {
       const r = verifyRecordedCall(w.params("call-1", { title: "t" }, undefined, undefined, blocks), w.call, w.cfg());
       return recordedCallReason(r.result, session, CALL_TS);

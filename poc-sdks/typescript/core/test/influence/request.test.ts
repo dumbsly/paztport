@@ -79,7 +79,9 @@ describe("influenceReason", () => {
 
 describe("recordedCallReason", () => {
   // a session attested only up to time 100
-  const session: RecordedSession = { attested: true, attestedAt: (at) => at <= 100, responseNotAfter: undefined };
+  const session: RecordedSession = {
+    attested: true, attestedAt: (at) => at <= 100, responseNotAfter: undefined, callConfig: () => undefined,
+  };
   const good = ok(new Map([["influence", [{ svc: "a", items: [a] }]]]));
   const bad = ok(new Map([["influence", [{ svc: "a", items: [a, notAnEntry] }]]]));
   it("aCallThatReadsIsHeldToTheSessionsLimits", () => {

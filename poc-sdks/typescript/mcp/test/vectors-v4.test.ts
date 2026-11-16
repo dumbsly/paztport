@@ -144,8 +144,9 @@ function replayHandshake(v: any, c: any) {
 }
 
 /**
- * A recorded call case: its calls in order, as one record set, each by the offline verifier in the session of the
- * handshake it names (that request's client keyring and root, that reply's session id) and then limited to it.
+ * A recorded call case: its calls in order, as one record set, each by the offline verifier with the config the
+ * session of the handshake it names gives (callConfig: that request's client keyring and root, that reply's session
+ * id) and then limited to it.
  */
 function replayRecordedCalls(v: any, c: any) {
   const sessions = c.handshakes.map((h: any) =>
@@ -154,26 +155,23 @@ function replayRecordedCalls(v: any, c: any) {
     }),
   );
   const records = newRecordSet();
-  return c.calls.map((call: any) => {
-    const h = c.handshakes[call.handshake];
-    const request = readSessionRequest(h.requestToken);
+  return c.calls.map((call: any, i: number) => {
+    const session = sessions[call.handshake];
     const policy = v.policies[call.policy];
+    const cfg = session.callConfig({
+      allowedOrigins: c.allowedOrigins, seen: records.spent, callMaxAgeMs: c.callMaxAgeMs, runMaxAgeMs: c.runMaxAgeMs,
+      extensions: settingsOf(c),
+    });
+    if (cfg === undefined) throw new Error(`${c.name}: call ${i}'s session is not attested`);
     const result = verifyChainOffline(
       {
         chain: call.chainToken, expectedBind: call.expectedBind, blocks: call.blocksToken,
         proof: call.proofRoute === null ? null : policy.proofTokens[call.proofRoute], receiver: call.receiver,
         receiverInRoute: call.receiverInRoute, rid: call.rid, recordedTs: call.recordedTs, prompt: call.prompt,
       },
-      {
-        // the session's windows are judged by callInSession, so the members have none
-        keyrings: [{ keys: request.clientKeyring, notAfter: Infinity }],
-        roots: [{ root: decode(request.clientRoot!.root), rootId: request.clientRoot!.rootId, notAfter: Infinity }],
-        allowedOrigins: c.allowedOrigins, sess: readSessionReply(h.replyToken).sess, nonceKey: call.nonceKey,
-        seen: records.spent, callMaxAgeMs: c.callMaxAgeMs, runMaxAgeMs: c.runMaxAgeMs, extensions: settingsOf(c),
-      },
+      { ...cfg, nonceKey: call.nonceKey },
     );
     // a verifier that acts on influence reads the items before the session's limits (recordedCallReason)
-    const session = sessions[call.handshake];
     const at = call.recordedTs.last;
     const reason = c.actsOn.includes(INFLUENCE)
       ? recordedCallReason(result, session, at)

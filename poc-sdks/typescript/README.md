@@ -145,12 +145,17 @@ operation in an `rcv`.
   and `readSessionRequest` refuse it, and `verifyRoot` and `verifyKeyring` never accept it.
 - **Checking a record set.** `recordedSession` reads a recorded handshake: attested at a time, at all (at the earliest
   of its limits) and the `policyNotAfter` a response in it is checked with, undefined where the server's signatures do
-  not verify, which check 0 refuses (`POLICY_EXPIRED`). `callInSession` limits a recorded call to its session
-  (`OUTSIDE_SESSION`), `newRecordSet` holds a record set's spent keys and its response cache that never forgets, and
-  `verifyRecordedLocalStep` checks a recorded local step ([the MCP profile](../spec/README.md#the-mcp-profile)) with its
-  signers given. The agents demo's `verify` calls these four. A verifier that acts on `influence` judges a recorded call
-  with `recordedCallReason` instead of `callInSession` alone: it reads the items once the offline order gives `OK`,
-  before the session's limits, so a call past them that holds an item that does not read is `INFLUENCE_MISMATCH`.
+  not verify, which check 0 refuses (`POLICY_EXPIRED`). Its `callConfig(given)` is the config a call recorded in the
+  session is checked with, but for the call's nonce key: the recorded request's client keyring and root, with no window
+  of their own, and the reply's session id; a key that does not parse is left out, so a stamp under it is
+  `BAD_SIGNATURE`, a root that does not decode proves no route, and a session not attested gives none. `callInSession`
+  limits a recorded call to its session (`OUTSIDE_SESSION`), `newRecordSet` holds a record set's spent keys and its
+  response cache that never forgets, and `verifyRecordedLocalStep` checks a recorded local step ([the MCP
+  profile](../spec/README.md#the-mcp-profile)) with its signers given. The agents demo's `verify` calls
+  `recordedSession` and its `callConfig`, `newRecordSet` and `verifyRecordedLocalStep`. A verifier that acts on
+  `influence` judges a recorded call with `recordedCallReason` instead of `callInSession` alone: it reads the items once
+  the offline order gives `OK`, before the session's limits, so a call past them that holds an item that does not read
+  is `INFLUENCE_MISMATCH`.
 - **The handshake's pieces.** `readSessionRequest` reads a request from its token, with exactly its members (a
   missing `clientKeyringSig` is refused, as in the Java SDK), `sessionRequest` and `replacementRequest` write
   one, and `buildSessionReply` answers it in the entry-key form, listing the extensions the server acts on, sorted,
