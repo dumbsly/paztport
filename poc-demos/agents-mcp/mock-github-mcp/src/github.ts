@@ -87,7 +87,7 @@ export type ToolOutcome = {
   text: string;
   isError?: boolean;
   write?: { owner: string; repo: string; texts: string[] };
-  read?: { owner: string; repo: string; what: "issues" | "file" | "repo-list"; includesPrivate: boolean };
+  read?: { owner: string; repo: string; what: "issues" | "no-issues" | "file" | "repo-list"; includesPrivate: boolean };
 };
 export type GithubTool = {
   name: string;
@@ -210,7 +210,7 @@ export const GITHUB_TOOLS: GithubTool[] = [
       const st = str(args, "state", false);
       const issues = state.issues(t.owner, t.repo)!.filter((i) => !st || i.state === st.toLowerCase());
       const text = issues.map((i) => `#${i.number} ${i.title} (by ${i.author}, ${i.state})\n${i.body}`).join("\n\n") || "No issues found.";
-      return { text, read: { owner: t.owner, repo: t.repo, what: "issues", includesPrivate: t.private } };
+      return { text, read: { owner: t.owner, repo: t.repo, what: issues.length === 0 ? "no-issues" : "issues", includesPrivate: t.private } };
     }),
   },
   {

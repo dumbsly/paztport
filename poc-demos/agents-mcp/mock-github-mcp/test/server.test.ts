@@ -212,6 +212,15 @@ describe("composed github server", () => {
     expect(h.state.pulls()).toHaveLength(1);
   });
 
+  it("emptyIssueListIsLabelledPublic", async () => {
+    const h = setup();
+    await h.open();
+    const issues = await h.call("list_issues", { owner: "acme", repo: "payroll-notes" });
+    expect(issues.verified).toBe("OK");
+    expect(h.outcome.records[0]).toMatchObject({ tool: "list_issues", kind: "read", label: "public", privateRead: true, verdict: "ALLOWED" });
+    expect(h.influence.map((e) => e.cls)).not.toContain("third-party");
+  });
+
   it("offModeLeaks", async () => {
     const h = setup({ mode: "off" });
     const s = await h.rpc(SESSION_METHOD, sessionParams(h.client.request()));

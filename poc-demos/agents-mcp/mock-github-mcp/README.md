@@ -107,9 +107,10 @@ the items its blocks hand on under `influence` as entries (one that does not rea
 decides a public write by the every-stamp rule and then the owner-aware rule, over those entries plus every
 class the server has served in the session ([Over MCP](../../../poc-sdks/spec/influence.md#over-mcp)). The
 server supplies only the facts: whether the tool writes, whether the target is a known public repo, and the
-class of each result it returns (issue text `third-party`, private repo content `private`, anything else
-`public`). Each response it attests carries that class as a label in its last block, which also requires
-`influence` of the client, so a client that would drop the label refuses the response instead.
+class of each result it returns (issue text `third-party`, an issue list with no issues `public`, private
+repo content `private`, anything else `public`). Each response it attests carries that class as a label in
+its last block, which also requires `influence` of the client, so a client that would drop the label
+refuses the response instead.
 
 ## Outcome log
 

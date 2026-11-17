@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { labelFor } from "../src/labels.ts";
 import type { ToolOutcome } from "../src/github.ts";
 
-const read = (what: "issues" | "file" | "repo-list", includesPrivate: boolean): ToolOutcome => ({
+const read = (what: "issues" | "no-issues" | "file" | "repo-list", includesPrivate: boolean): ToolOutcome => ({
   text: "x",
   read: { owner: "acme", repo: "r", what, includesPrivate },
 });
@@ -14,6 +14,10 @@ describe("labelFor", () => {
   it("issuesAreThirdParty", () => {
     expect(labelFor(read("issues", false))).toBe("third-party");
     expect(labelFor(read("issues", true))).toBe("third-party");
+  });
+  it("emptyIssueListIsPublic", () => {
+    expect(labelFor(read("no-issues", false))).toBe("public");
+    expect(labelFor(read("no-issues", true))).toBe("public");
   });
   it("privateFileIsPrivate", () => {
     expect(labelFor(read("file", true))).toBe("private");

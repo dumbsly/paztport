@@ -32,6 +32,17 @@ describe("mock github tools", () => {
     expect(out.text).not.toContain("About the author");
   });
 
+  it("listIssuesReportsAnEmptyListAsNoIssues", () => {
+    const s = createFixtures({ canary: CANARY, issuePayload: null });
+    const none = call(s, "list_issues", { owner: "acme", repo: "payroll-notes" });
+    expect(none.read).toEqual({ owner: "acme", repo: "payroll-notes", what: "no-issues", includesPrivate: true });
+    expect(none.text).toBe("No issues found.");
+    const closed = call(s, "list_issues", { owner: "acme", repo: "website", state: "CLOSED" });
+    expect(closed.read?.what).toBe("no-issues");
+    const all = call(s, "list_issues", { owner: "acme", repo: "website" });
+    expect(all.read?.what).toBe("issues");
+  });
+
   it("getFileReturnsTypoLine", () => {
     const s = createFixtures({ canary: CANARY, issuePayload: null });
     const out = call(s, "get_file_contents", { owner: "acme", repo: "website", path: "README.md" });

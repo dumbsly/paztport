@@ -8,6 +8,7 @@ import type { ToolOutcome } from "./github.ts";
 export function labelFor(outcome: ToolOutcome): InfluenceClass {
   const r = outcome.read;
   if (!r) return "public";
+  if (r.what === "no-issues") return "public";
   if (r.what === "issues") return "third-party";
   return r.includesPrivate ? "private" : "public";
 }
