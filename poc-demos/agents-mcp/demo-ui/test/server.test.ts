@@ -946,6 +946,7 @@ describe("demo server, scenario with local tools", () => {
     expect(setup.scenarios.map((s: any) => [s.id, s.localTools === true])).toEqual([
       ["github-issue-replay", false],
       ["github-issue-replay-local", true],
+      ["github-support-email", false],
     ]);
     expect(setup.unsafeToolUsage).toBe(false);
     expect(setup.offModeNote).toBe(OFF_MODE_COPY);

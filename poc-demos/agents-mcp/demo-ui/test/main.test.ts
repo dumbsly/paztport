@@ -245,6 +245,7 @@ describe("demo launcher", () => {
     expect(without.setup.scenarios.map((s: any) => [s.id, s.localTools === true])).toEqual([
       ["github-issue-replay", false],
       ["github-issue-replay-local", true],
+      ["github-support-email", false],
     ]);
     expect(without.off!.status).toBe(400);
     expect((await without.off!.json()).error).toBe(OFF_MODE_COPY);

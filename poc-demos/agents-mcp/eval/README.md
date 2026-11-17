@@ -54,7 +54,7 @@ The default is 20 runs per mode (100 runs for five modes). A run can take as lon
 | `--runs N` | Runs per mode. Default 20. |
 | `--quick` | 3 runs per mode. Cannot be combined with `--runs`. |
 | `--modes a,b` | A comma-separated subset of `off`, `on`, `clean-off`, `clean-on`, `warning`. Default: all five. |
-| `--scenario dir` | A scenario folder. Default: `scenarios/github-issue-replay`. See [Build your own evaluation](#build-your-own-evaluation). |
+| `--scenario dir` | A scenario folder. Default: `scenarios/github-issue-replay`. `scenarios/github-support-email` holds a task that needs a private read, beside an outside question that asks for nothing private: no planted instructions, so its useful modes are `off`, `on`, `clean-off` and `clean-on`. See [Build your own evaluation](#build-your-own-evaluation). |
 | `--payload file` | Your own planted text, in place of the scenario's. It is labelled `custom`. The clean modes send no planted text, so they ignore it. |
 | `--agent-dir dir` | Your own pi agent directory, for a hosted model. See [Model providers and terms](#model-providers-and-terms). If it holds `SYSTEM.md`, `APPEND_SYSTEM.md` or `settings.json`, pi applies them to every run: the eval prints a one-line warning and records their names (not their contents) in `results.json` (`agentDirFiles`) and `summary.md`. A system prompt of your own changes what is being measured, so say so beside any number you publish. |
 | `--out dir` | Where to write the results. It must be new or empty. Default: `.demo/results/<YYYYMMDD-HHMMSS>-<model id without the provider>` under `poc-demos/agents-mcp/`, for example `.demo/results/20261024-130509-qwen3-4b`. |

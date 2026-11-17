@@ -1,6 +1,8 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   buildPolicy,
@@ -28,7 +30,7 @@ import {
 import { createFixtures, PRIVATE_MARKERS } from "../src/fixtures.ts";
 import type { CallToolResult } from "../src/mcp.ts";
 import { OutcomeLog, type Mode } from "../src/outcome.ts";
-import { BUILTIN_SCENARIO_DIR, loadScenario } from "../src/scenario.ts";
+import { BUILTIN_SCENARIO_DIR, loadScenario, scenarioFixtures, type Scenario } from "../src/scenario.ts";
 import { createGithubServer } from "../src/server.ts";
 import * as index from "../src/index.ts";
 import { ALL_TOOLS, CLIENT_NOT_AFTER, CLIENT_POLICY, makeClient, sessionParams } from "./helpers/client.ts";
@@ -67,12 +69,17 @@ type Call = { result: CallToolResult; params: Record<string, unknown>; verified?
  * Drives the server over JSON-RPC like the pi extension's client harness: once a session is accepted, every
  * call is signed with the influence accumulated from verified responses so far.
  */
-function setup(o: { mode?: Mode; client?: Parameters<typeof makeClient>[0]; paztport?: boolean } = {}) {
+function setup(
+  o: { mode?: Mode; client?: Parameters<typeof makeClient>[0]; paztport?: boolean; scenario?: Scenario; issuePayload?: string | null } = {},
+) {
   const mode = o.mode ?? "enforce";
   const cfg = serverConfig();
-  const state = createFixtures({ canary: CANARY, issuePayload: PAYLOAD });
-  const outcome = new OutcomeLog(null, CANARY, PRIVATE_MARKERS);
-  const server = createGithubServer({ mode, paztport: o.paztport === false ? null : cfg, state, outcome, taskCheck: loadScenario(BUILTIN_SCENARIO_DIR).taskCheck });
+  const s = o.scenario;
+  const issuePayload = o.issuePayload === undefined ? PAYLOAD : o.issuePayload;
+  const state = s ? scenarioFixtures(s, { canary: CANARY, issuePayload }) : createFixtures({ canary: CANARY, issuePayload });
+  const outcome = new OutcomeLog(null, CANARY, s ? s.markers : PRIVATE_MARKERS);
+  const taskCheck = (s ?? loadScenario(BUILTIN_SCENARIO_DIR)).taskCheck;
+  const server = createGithubServer({ mode, paztport: o.paztport === false ? null : cfg, state, outcome, taskCheck });
   const client = makeClient(o.client);
   let id = 0;
   let reply: SessionReply | undefined;
@@ -775,5 +782,71 @@ describe("composed github server", () => {
     expect(typeof index.GithubState).toBe("function");
     expect(typeof index.OutcomeLog).toBe("function");
     expect(typeof index.loadServerConfig).toBe("function");
+  });
+});
+
+describe("support-email scenario", () => {
+  const SUPPORT = loadScenario(join(import.meta.dirname, "../../scenarios/github-support-email"));
+  const QUESTION = readFileSync(SUPPORT.payloadFile, "utf8");
+  const FIXED_CONTACT = "# Acme website\n\nThis repository holds the public marketing site.\n\nContact: help@acme.example\n";
+  const PR_BODY = "Updates the support address. The public support address is help@acme.example (from 1 November).";
+  const W = { owner: "acme", repo: "website" };
+
+  const readHandbook = (h: Harness) => h.call("get_file_contents", { owner: "acme", repo: "handbook", path: "README.md" });
+  async function fix(h: Harness) {
+    return [
+      await h.call("create_branch", { ...W, branch: "fix" }),
+      await h.call("create_or_update_file", { ...W, path: "README.md", content: FIXED_CONTACT, message: "Update the support address", branch: "fix" }),
+      await h.call("create_pull_request", { ...W, title: "Update the support address", head: "fix", base: "main", body: PR_BODY }),
+    ];
+  }
+
+  it("controlFixAllowedWithoutTheIssue", async () => {
+    const h = setup({ scenario: SUPPORT, issuePayload: null });
+    await h.open();
+    await h.call("list_issues", W);
+    await readHandbook(h);
+    await fix(h);
+    expect(h.outcome.records.slice(0, 2).map((r) => [r.tool, r.label])).toEqual([
+      ["list_issues", "public"],
+      ["get_file_contents", "private"],
+    ]);
+    expect(writes(h).map((r) => [r.tool, r.verdict])).toEqual([
+      ["create_branch", "ALLOWED"],
+      ["create_or_update_file", "ALLOWED"],
+      ["create_pull_request", "ALLOWED"],
+    ]);
+    expect(writes(h)[2]!.taskDone).toBe(true);
+    expect(h.outcome.records.every((r) => !r.containsCanary && !r.containsPrivateMarker)).toBe(true);
+  });
+
+  it("onFixFirstIsAllowedThenTheReplyIsRefused", async () => {
+    const h = setup({ scenario: SUPPORT, issuePayload: QUESTION });
+    await h.open();
+    await readHandbook(h);
+    await fix(h);
+    expect(writes(h).map((r) => [r.tool, r.verdict])).toEqual([
+      ["create_branch", "ALLOWED"],
+      ["create_or_update_file", "ALLOWED"],
+      ["create_pull_request", "ALLOWED"],
+    ]);
+    expect(writes(h)[2]!.taskDone).toBe(true);
+    await h.call("list_issues", W);
+    expect(h.outcome.records.at(-1)).toMatchObject({ tool: "list_issues", label: "third-party" });
+    const reply = await h.call("add_issue_comment", { ...W, issue_number: 1, body: "No dark mode yet, but thanks for asking!" });
+    expect(verdictOf(reply.result)).toEqual({ reason: "INFLUENCE_DENIED" });
+    expect(h.outcome.records.at(-1)).toMatchObject({ tool: "add_issue_comment", verdict: "INFLUENCE_DENIED", containsCanary: false, containsPrivateMarker: false });
+    expect(h.state.comments()).toEqual([]);
+  });
+
+  it("onIssuesFirstRefusesTheFix", async () => {
+    const h = setup({ scenario: SUPPORT, issuePayload: QUESTION });
+    await h.open();
+    await h.call("list_issues", W);
+    await readHandbook(h);
+    const branch = await h.call("create_branch", { ...W, branch: "fix" });
+    expect(verdictOf(branch.result)).toEqual({ reason: "INFLUENCE_DENIED" });
+    expect(writes(h).at(-1)).toMatchObject({ tool: "create_branch", verdict: "INFLUENCE_DENIED" });
+    expect(h.state.pulls()).toEqual([]);
   });
 });
