@@ -48,10 +48,13 @@ What it costs, beyond the mutual TLS and the allowlist:
   5 s from its own clock, either way (`CALL_MAX_AGE_MS`), so a caller's clock and
   its receiver's must agree to within that, less the time the call takes
   ([freshness](../poc-sdks/spec/verification.md#freshness-and-replay)).
-- **Revocation waits for expiry.** A keyring or root shown in a session handshake
-  can be replayed until it expires, 7 days by default, so a leaked stamping key or
-  a removed route stays usable that long (see "Revocation takes up to a lifetime"
-  below).
+- **Revocation across a session waits for expiry.** Inside a mesh, with no
+  handshake, a verifier trusts only the keyrings and roots it pins, so a leaked
+  stamping key or a removed route stops verifying once every verifier has replaced
+  its files. A keyring or root shown in a session handshake can be replayed to the
+  side that received it until it expires, 7 days by default, so there a leaked key
+  or a removed route stays usable that long (see "Revocation takes up to a
+  lifetime" below).
 - **The policy names every route a request may take**, not only who may call whom,
   and `enforce` refuses a route it leaves out. The on-ramp is `audit` on real
   traffic, to find the retries, health checks and batch jobs it trips; this proof of
@@ -77,7 +80,8 @@ What it costs, beyond the mutual TLS and the allowlist:
   calls a given receiver, or a given operation of it, at most once per request tree,
   once per item for a keyed operation, so an application's retry of a call that was
   delivered is refused `REPLAY` on the replica that saw it
-  ([nonce keys](../poc-sdks/spec/verification.md#freshness-and-replay)).
+  ([nonce keys](../poc-sdks/spec/verification.md#freshness-and-replay); an attempt
+  number is sketched in [where this could go](directions.md)).
 
 ## Using it soundly
 
@@ -93,7 +97,8 @@ What Paztport needs from a deployment, and what it deliberately doesn't cover ye
   (Istio's or Linkerd's per-pod proxy), mutual TLS ends at the sidecar and the
   application sees only a local connection, so the peer would be a header the
   sidecar asserts. That is a different trust model, in which the application must be
-  reachable only through its sidecar, and the SDKs don't support it today. The
+  reachable only through its sidecar, and the SDKs don't support it today
+  ([where this could go](directions.md) sketches what support would take). The
   agents demo runs over stdio, which has no TLS, so there the check is skipped and
   the last signer is known only by its signature
   ([the peer check](../poc-sdks/spec/verification.md#receivers-the-peer-and-attribution)).
@@ -157,12 +162,16 @@ What Paztport needs from a deployment, and what it deliberately doesn't cover ye
 - **Revocation takes up to a lifetime.** A keyring or root presented when a
   session opens with a partner (the handshake) stays usable by someone replaying it
   until its `notAfter`, so a leaked service key, or a route removed from a policy,
-  can be used until the keyring or root that names it expires: 7 days by default.
-  A deployment can shorten that by refusing any keyring or root whose `notAfter` is
-  earlier than the latest it has seen per policy key, but that holds only while
-  every issue's `notAfter` is later than the one before, since a renewal can write
-  an earlier one; nothing signed says which issue is newer (a version number would
-  make it exact, but the format carries none). Re-pinning a new policy key ends it
+  can be used at that partner until the keyring or root that names it expires: 7
+  days by default. A deployment can shorten that by refusing any keyring or root
+  whose `notAfter` is earlier than the latest it has seen per policy key. That holds
+  only while every issue's `notAfter` is later than the one before, since a renewal
+  can write an earlier one, and nothing signed says which issue is newer. A version
+  number in the signed files would order the issues exactly, but the format carries
+  none, and either mark is only as good as the receiver's memory: a replica that has
+  not yet seen the newer issue, or has restarted since, still takes the old one.
+  Ending the window needs the receiver to learn the newest issue from a source it
+  trusts ([where this could go](directions.md)). Re-pinning a new policy key ends it
   at once. Choosing the lifetime and running the renewals are the deployment's job.
 - **Async is out of scope.** Queues, caches, and scheduled jobs break the
   linear-chain model (see the async direction in

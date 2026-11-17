@@ -150,7 +150,11 @@ with a clean copy, automatically, within seconds.
   leaked the private notes with Paztport off and none with it on, and without the
   planted issue Paztport refused nothing. With it, 9 of the 13 refusals stopped a
   public write that held no private text: the rule judges what shaped a write, not
-  what the write holds. [Where this could go](docs/directions.md) says what is still
+  what the write holds. Six were the agent's replies to the planted issue, saying it
+  could not find the repositories asked for. The legitimate pull request was allowed
+  in every run with Paztport on, opened before any private read; what the rule costs
+  a task that needs a public write after such a read is not measured.
+  [Where this could go](docs/directions.md) says what is still
   open.
 - It is checked end to end. The Java mesh's `demo.sh` makes 27 checks, among them
   forged stamps, replays, altered bodies and blocks, expired requests, routes the
@@ -684,10 +688,11 @@ for Paztport to hold and sets out
 - Without a peer, anyone holding a captured request can send it again to the same
   receiver within the call window, and only the replica that saw it first refuses
   it ([using it soundly](docs/limits.md#using-it-soundly)).
-- A keyring or root shown in a session handshake can be replayed until it expires,
-  7 days by default, so a leaked key or a removed route stays usable that long
-  unless a new policy key is pinned
-  ([using it soundly](docs/limits.md#using-it-soundly)).
+- A keyring or root shown in a session handshake can be replayed to the side that
+  received it until it expires, 7 days by default, so there a leaked key or a
+  removed route stays usable that long unless a new policy key is pinned. Inside a
+  mesh, with no handshake, they stop verifying once every verifier has replaced its
+  files ([using it soundly](docs/limits.md#using-it-soundly)).
 - The owner-aware rule judges only the influence a request carries, and passes what
   it cannot see: where a chain did not pass the live order (Paztport off on a hop,
   a chain that failed in `audit` mode, a call in an unsafe partner session), that
@@ -726,17 +731,44 @@ takes from each and where it differs; it does not rank them.
   [Macaroons](https://www.ndss-symposium.org/ndss2014/programme/macaroons-cookies-contextual-caveats-decentralized-authorization-cloud/)
   (Birgisson et al., NDSS 2014) chain an HMAC through the caveats each holder adds,
   so a credential records the limits placed on it as it is passed on. A stamp chain
-  links each signature to the one before it in the same way, but each link is signed
-  with the hop's own key, so any receiver holding the public keys can check it, and
-  it records where the request went rather than what it may do.
+  links each signature to the one before it in the same way.
+  [Biscuit](https://www.biscuitsec.org/) does it with public-key signatures, so any
+  verifier with the root key can check the chain: each block signs the next block's
+  public key, and whoever holds the token holds the matching private key and can add
+  a block. A stamp is signed instead with the key of the service that sent the
+  request, which the policy's keyring names, so the chain says which services
+  handled the request, and it records where the request went rather than what it
+  may do.
+- **Steps checked against a signed plan.**
+  [in-toto](https://www.usenix.org/conference/usenixsecurity19/presentation/torres-arias)
+  (Torres-Arias et al., USENIX Security 2019) has each step of a software supply
+  chain sign a record of what it did, with the key of whoever performed it, and
+  checks those records against a layout, signed by the project owner, that names
+  the steps and who may perform them. Stamps and the policy tree play those parts
+  for one request at run time: each hop checks the chain within seconds of its
+  being signed, a nonce cache refuses a second sending where it saw the first, and
+  the plan is committed
+  in a salted tree, so a verifier learns that its own route is allowed and nothing
+  else of the plan.
 - **Identity per hop.** Workload identity such as [SPIFFE](https://spiffe.io/), with
   mutual TLS, names the service at the other end of a connection. Paztport relies on
-  that for the last hop, through the peer check, and adds the hops before it.
+  that for the last hop, through the peer check, and adds the hops before it. The
+  IETF [WIMSE](https://datatracker.ietf.org/wg/wimse/about/) working group's drafts,
+  none yet an RFC, define workload credentials and ways to present them, among them
+  mutual TLS and
+  [HTTP Message Signatures](https://datatracker.ietf.org/doc/draft-ietf-wimse-http-signature/)
+  that bind a request to its caller's credential and its audience and survive TLS
+  ending at a proxy. Such a signature authenticates the hop that made the call, as a
+  stamp does, but it is not linked to the hop before, so it says who called, not by
+  what route. Like a stamp, it is a signature, not a connection: it survives a
+  proxy, but does not bind the request to the connection it came on, which is what
+  the peer check adds ([limits](docs/limits.md#using-it-soundly)).
 - **Context carried along a call chain.**
   [OAuth Transaction Tokens](https://datatracker.ietf.org/doc/draft-ietf-oauth-transaction-tokens/),
   an IETF OAuth working-group draft, pass a short-lived signed token, issued by one
   token service per trust domain, along the calls an external request sets off, so
-  each service sees the identity and context the chain acts for.
+  each service sees the identity and context the chain acts for; WIMSE's
+  architecture carries context along a call chain the same way.
   [W3C Trace Context](https://www.w3.org/TR/trace-context/) carries a request's
   trace identity across services for observability, unsigned. Paztport's chain
   carries the route itself, signed hop by hop, with no central issuer.

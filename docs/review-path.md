@@ -46,7 +46,7 @@ an add-on uses, its row says so.
 | [wire.md: The signed keyring](../poc-sdks/spec/wire.md#the-signed-keyring) | What the policy key signs over the services' keys, and its window. | 37 |
 | [wire.md: Proof bundles, and who holds what](../poc-sdks/spec/wire.md#proof-bundles-and-who-holds-what) | Which service holds which proof, and which party holds which key. | 47 |
 | [verification.md: Inputs](../poc-sdks/spec/verification.md#inputs) | What a verifier takes, and that every input comes from its own configuration or its transport, never from the request. | 34 |
-| [verification.md: The live order](../poc-sdks/spec/verification.md#the-live-order) | Checks 0 to 12, why they run in this order, and what a service is handed on `OK`. | 73 |
+| [verification.md: The live order](../poc-sdks/spec/verification.md#the-live-order) | Checks 0 to 12, why they run in this order, and what a service is handed on `OK`. | 79 |
 | [verification.md: Freshness and replay](../poc-sdks/spec/verification.md#freshness-and-replay) | The time limits (check 7), the nonce keys and the cache (check 11), and duplicate delivery across replicas. | 51 |
 | [verification.md: Receivers, the peer and attribution](../poc-sdks/spec/verification.md#receivers-the-peer-and-attribution) | Naming the receiver (check 4), the peer (check 10), and whom each result names as suspect. | 56 |
 | [verification.md: Reason codes](../poc-sdks/spec/verification.md#reason-codes) | Every code and where it is given; only the live order's belong to this sitting. | 40 |
@@ -74,7 +74,7 @@ an add-on uses, its row says so.
 | [policy/validity.ts](../poc-sdks/typescript/core/src/policy/validity.ts) | A valid `notAfter`, and `policyNotAfter` from several keyrings and roots (check 0). | 34 |
 | [policy/policy.ts](../poc-sdks/typescript/core/src/policy/policy.ts) | How the owner builds a tree: random slots, a fresh `rootId`, and each service's proof bundle. | 106 |
 | [verify/reason.ts](../poc-sdks/typescript/core/src/verify/reason.ts) | The codes as types; only the live order's belong to this sitting. | 131 |
-| **Total** | | 3,452 |
+| **Total** | | 3,458 |
 
 ## Influence and the owner-aware rule
 

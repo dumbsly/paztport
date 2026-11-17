@@ -114,6 +114,12 @@ Why this order:
   another receiver is bound to another request, exactly as a chain spliced onto another body is.
 - **A block is matched to its stamp before any name in it is believed.** Check 9a runs before 9b and 9c, so every
   name they read is one that its block's signer committed to, not one a later hop put there.
+- **The peer after the signatures.** Check 10 is a string comparison and check 3 is a signature per stamp, but
+  running check 10 first would save that work only on a request that fails it. Under mutual TLS only a sender
+  holding a valid certificate reaches the verifier, and such a sender can name itself as the last signer and fail
+  check 3 instead, so an earlier check 10 would not cap the signature work a sender can cause. In this order a forged
+  chain is reported as forged, whatever connection it came on, as with the receivers above; with a peer, every
+  result names that peer either way.
 - **The peer before the nonce, and the route after it.** A nonce key is recorded only once the sender is known to
   be the signer, and before any check that can blame the signer. A request from any other peer that passes checks
   1 to 9c is `PEER_MISMATCH` before the nonce is touched, so a captured request sent again by someone else spends
