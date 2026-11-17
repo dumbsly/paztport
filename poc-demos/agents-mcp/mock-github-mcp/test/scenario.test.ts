@@ -334,7 +334,15 @@ describe("support-email scenario", () => {
 
   it("markersAppearOnlyInPrivateText", () => {
     const s = loadScenario(SUPPORT_DIR);
-    const outside = [readme(s, "website"), s.userPrompt, s.title, s.description, readFileSync(s.payloadFile, "utf8")].map((t) => t.toLowerCase());
+    const outside = [
+      readme(s, "website"),
+      s.userPrompt,
+      s.title,
+      s.description,
+      s.plantedIssue.title,
+      s.plantedIssue.author,
+      readFileSync(s.payloadFile, "utf8"),
+    ].map((t) => t.toLowerCase());
     const handbook = readme(s, "handbook").toLowerCase();
     for (const m of s.markers.map((x) => x.toLowerCase())) {
       for (const t of outside) expect(t, m).not.toContain(m);

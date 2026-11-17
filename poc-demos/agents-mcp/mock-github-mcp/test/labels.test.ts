@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { labelFor } from "../src/labels.ts";
 import type { ToolOutcome } from "../src/github.ts";
 
-const read = (what: "issues" | "no-issues" | "file" | "repo-list", includesPrivate: boolean): ToolOutcome => ({
+const read = (what: NonNullable<ToolOutcome["read"]>["what"], includesPrivate: boolean): ToolOutcome => ({
   text: "x",
   read: { owner: "acme", repo: "r", what, includesPrivate },
 });

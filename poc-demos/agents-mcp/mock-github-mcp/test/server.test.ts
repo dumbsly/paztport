@@ -75,7 +75,8 @@ function setup(
   const mode = o.mode ?? "enforce";
   const cfg = serverConfig();
   const s = o.scenario;
-  const issuePayload = o.issuePayload === undefined ? PAYLOAD : o.issuePayload;
+  // left out, the planted issue holds the scenario's own text (or PAYLOAD for the built-in fixtures); null leaves it out
+  const issuePayload = o.issuePayload !== undefined ? o.issuePayload : s ? readFileSync(s.payloadFile, "utf8") : PAYLOAD;
   const state = s ? scenarioFixtures(s, { canary: CANARY, issuePayload }) : createFixtures({ canary: CANARY, issuePayload });
   const outcome = new OutcomeLog(null, CANARY, s ? s.markers : PRIVATE_MARKERS);
   const taskCheck = (s ?? loadScenario(BUILTIN_SCENARIO_DIR)).taskCheck;
@@ -225,7 +226,7 @@ describe("composed github server", () => {
     const issues = await h.call("list_issues", { owner: "acme", repo: "payroll-notes" });
     expect(issues.verified).toBe("OK");
     expect(h.outcome.records[0]).toMatchObject({ tool: "list_issues", kind: "read", label: "public", privateRead: true, verdict: "ALLOWED" });
-    expect(h.influence.map((e) => e.cls)).not.toContain("third-party");
+    expect(h.influence.map((e) => [e.src, e.cls])).toEqual([["server:github", "public"]]);
   });
 
   it("offModeLeaks", async () => {
@@ -839,14 +840,37 @@ describe("support-email scenario", () => {
     expect(h.state.comments()).toEqual([]);
   });
 
+  /** Each call of the fix carries INFLUENCE_DENIED in its token and its outcome record, and no pull request is opened. */
+  function expectFixRefused(h: Harness, calls: Call[]) {
+    for (const c of calls) expect(verdictOf(c.result)).toEqual({ reason: "INFLUENCE_DENIED" });
+    expect(writes(h).slice(-3).map((r) => [r.tool, r.verdict])).toEqual([
+      ["create_branch", "INFLUENCE_DENIED"],
+      ["create_or_update_file", "INFLUENCE_DENIED"],
+      ["create_pull_request", "INFLUENCE_DENIED"],
+    ]);
+    expect(h.state.pulls()).toEqual([]);
+  }
+
   it("onIssuesFirstRefusesTheFix", async () => {
     const h = setup({ scenario: SUPPORT, issuePayload: QUESTION });
     await h.open();
     await h.call("list_issues", W);
     await readHandbook(h);
-    const branch = await h.call("create_branch", { ...W, branch: "fix" });
-    expect(verdictOf(branch.result)).toEqual({ reason: "INFLUENCE_DENIED" });
-    expect(writes(h).at(-1)).toMatchObject({ tool: "create_branch", verdict: "INFLUENCE_DENIED" });
-    expect(h.state.pulls()).toEqual([]);
+    expectFixRefused(h, await fix(h));
+  });
+
+  it("onReplyFirstIsAllowedThenTheFixIsRefused", async () => {
+    const h = setup({ scenario: SUPPORT, issuePayload: QUESTION });
+    await h.open();
+    await h.call("list_issues", W);
+    expect(h.outcome.records.at(-1)).toMatchObject({ tool: "list_issues", label: "third-party" });
+    const body = "No dark mode yet, but thanks for asking!";
+    const reply = await h.call("add_issue_comment", { ...W, issue_number: 1, body });
+    expect(reply.result.isError).toBeFalsy();
+    expect(verdictOf(reply.result)).toBeUndefined();
+    expect(writes(h).at(-1)).toMatchObject({ tool: "add_issue_comment", verdict: "ALLOWED" });
+    expect(h.state.comments()).toEqual([{ owner: "acme", repo: "website", issue_number: 1, body }]);
+    await readHandbook(h);
+    expectFixRefused(h, await fix(h));
   });
 });
