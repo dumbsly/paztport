@@ -215,7 +215,7 @@ describe("the documents follow the code", () => {
   });
 
   it("noDemoDocumentSaysProtocolV3OfTheDemo", () => {
-    // the recorded eval was run on version 3, and its section says so; elsewhere version 3 is named only in a sentence
+    // the recorded results name an earlier eval run on version 3; elsewhere version 3 is named only in a sentence
     // that speaks of format 1, the evidence an earlier version of the demo wrote for it
     const V3 = /protocol v(?:ersion ?)?3\b|\bversion 3\b/i;
     const ofFormat1 = /format 1/;
