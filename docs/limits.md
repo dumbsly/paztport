@@ -228,10 +228,12 @@ What any design of this kind meets, and what this one has not yet tackled.
   person pasting text) is invisible to the rule.
 - **The rule counts presence, not effect.** It can't tell whether third-party text
   actually changed what a model did, so it refuses conservatively, preferring a
-  false refusal to a missed one. It doesn't refuse on third-party text alone: it
-  refuses when untrusted content and private data not owned by the destination are
-  both in the influence. Untrusted content can still steer a customer's own data to
-  that customer.
+  false refusal to a missed one; the agents eval
+  [measures what that costs](../poc-demos/agents-mcp/eval/README.md#the-support-email-scenario)
+  an honest task when the data has no owners. It doesn't refuse on third-party
+  text alone: it refuses when untrusted content and private data not owned by the
+  destination are both in the influence. Untrusted content can still steer a
+  customer's own data to that customer.
 - **The proof hides the policy, not the request's route.** The stamps name the
   route to whoever verifies them, and a route's proof is the same on every
   request, so a partner can count and cluster requests by route. It sees one

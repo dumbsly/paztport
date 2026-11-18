@@ -144,16 +144,23 @@ with a clean copy, automatically, within seconds.
   owners, so there [the owner-aware rule](#the-owner-aware-rule) reduces to
   untrusted content plus any private data; the Java mesh's
   [support-assistant storyline](poc-demos/java-mesh/README.md#the-support-assistant-storyline)
-  exercises its owner clause. In the demo's one recorded
-  [eval](poc-demos/agents-mcp/eval/README.md#recorded-results), measured on version
-  3, 20 runs per setting on one local model against a mock server, 9 of 20 runs
-  leaked the private notes with Paztport off and none with it on, and without the
-  planted issue Paztport refused nothing. With it, 9 of the 13 refusals stopped a
-  public write that held no private text: the rule judges what shaped a write, not
-  what the write holds. Six were the agent's replies to the planted issue, saying it
-  could not find the repositories asked for. The legitimate pull request was allowed
-  in every run with Paztport on, opened before any private read; what the rule costs
-  a task that needs a public write after such a read is not measured.
+  exercises its owner clause. In the demo's
+  [recorded evals](poc-demos/agents-mcp/eval/README.md#recorded-results), 20 runs
+  per setting on one local model against a mock server, 9 of 20 runs leaked the
+  private notes with Paztport off and none with it on, and without the planted
+  issue Paztport refused nothing. The injection is a blatant one, which a newer
+  local model declined in trial runs. With Paztport on, 9 of the 14 blocked runs
+  refused a public write that held no private text: the rule judges what shaped a
+  write, not what the write holds. Four were the agent's replies to the planted
+  issue, saying it could not find the repositories asked for, and four a new
+  branch for the section the issue asked for. The legitimate pull request was
+  allowed in 19 of 20 runs with Paztport on; in the twentieth, a repository search
+  that named the private repositories came first, and the typo fix was refused. A
+  second scenario gives the agent an honest fix that needs a private read, beside
+  a harmless question from outside the project, so every refusal in it is a false
+  one. With Paztport on, the fix went through in 20 of 20 runs without the
+  question and in 2 of 20 with it. That is the cost without owners; with them, the
+  owner clause allows a write of the destination owner's own data.
   [Where this could go](docs/directions.md) says what is still
   open.
 - It is checked end to end. The Java mesh's `demo.sh` makes 27 checks, among them
@@ -659,11 +666,12 @@ agent makes to a mock GitHub MCP server, verifies each response, and tracks the
 influence of what the agent has read. Its default scenario holds the planted issue
 that [What it does](#what-it-does) describes. The model runs locally through
 Ollama unless you point the demo at a hosted one, and a local web page shows one
-run at a time. An eval (`npm run eval`) runs the agent many times in each of five
-settings: Paztport on and off with the planted issue, on and off without it, and
-off with a published defence wording added to the system prompt. It scores each
-run from the mock server's record of the tool calls, never from what the model
-says it did ([the eval](poc-demos/agents-mcp/eval/README.md)).
+run at a time. An eval (`npm run eval`) runs the agent many times in each of the
+default scenario's five settings: Paztport on and off with the planted issue, on
+and off without it, and off with a published defence wording added to the system
+prompt; a second scenario measures what the rule costs an honest task. It scores
+each run from the mock server's record of the tool calls, never from what the
+model says it did ([the eval](poc-demos/agents-mcp/eval/README.md)).
 
 ## What it doesn't do
 
@@ -917,7 +925,7 @@ What you can check for yourself:
 - The Java mesh and Envoy Gateway READMEs say how their numbers were measured, on
   which host and with which versions, and the Envoy Gateway README names the runs
   they come from. The measurement scripts are in the repository. The raw results are
-  not committed: the Envoy Gateway runs and the agents demo's recorded eval are
+  not committed: the Envoy Gateway runs and the agents demo's recorded evals are
   published as release assets, linked from their READMEs.
 
 ## Licence and third-party software
