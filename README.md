@@ -147,8 +147,8 @@ with a clean copy, automatically, within seconds.
   exercises its owner clause. In the demo's
   [recorded evals](poc-demos/agents-mcp/eval/README.md#recorded-results), 20 runs
   per setting on one local model against a mock server, 9 of 20 runs leaked the
-  private notes with Paztport off (12 of 20 in an earlier run that Ollama's
-  self-update split) and none with it on, and without the planted issue Paztport
+  private notes with Paztport off (12 of 20 in an earlier run, during which Ollama
+  updated itself) and none with it on, and without the planted issue Paztport
   refused nothing. The injection is a blatant one, which a newer local model,
   `qwen3.8:27b-mlx`, declined in trial runs that are not recorded results. With
   Paztport on, 9 of the 14 blocked runs refused a public write that held no
