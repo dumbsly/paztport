@@ -147,22 +147,23 @@ with a clean copy, automatically, within seconds.
   exercises its owner clause. In the demo's
   [recorded evals](poc-demos/agents-mcp/eval/README.md#recorded-results), 20 runs
   per setting on one local model against a mock server, 9 of 20 runs leaked the
-  private notes with Paztport off (12 of 20 in an earlier run) and none with it on,
-  and without the planted issue Paztport refused nothing. The injection is a
-  blatant one, which a newer local model declined in trial runs. With Paztport on,
-  9 of the 14 blocked runs refused a public write that held no private text: the
-  rule judges what shaped a write, not what the write holds. Four of those were the
-  agent's replies to the planted issue, saying it could not find the repositories
-  asked for. Four tried to create a branch for the section the issue asked for;
-  whether a leak would have followed is not known. The ninth was the typo fix
-  itself: a repository search that named the private repositories had come first,
-  and the task was lost. In the other 19 runs with Paztport on, the legitimate pull
-  request was allowed. A second scenario gives the agent an honest fix that needs a
-  private read, beside a harmless question from outside the project, so every
-  refusal in it is a false one. With Paztport on, the fix went through in 20 of 20
-  runs without the question and in 2 of 20 with it. That is the cost without
-  owners; with them, the owner clause allows a write of the destination owner's own
-  data.
+  private notes with Paztport off (12 of 20 in an earlier run that Ollama's
+  self-update split) and none with it on, and without the planted issue Paztport
+  refused nothing. The injection is a blatant one, which a newer local model,
+  `qwen3.8:27b-mlx`, declined in trial runs that are not recorded results. With
+  Paztport on, 9 of the 14 blocked runs refused a public write that held no
+  private text: the rule judges what shaped a write, not what the write holds.
+  Four of those were the agent's replies to the planted issue, saying it could not
+  find the repositories asked for. Four tried to create a branch for the section
+  the issue asked for; whether a leak would have followed is not known. The ninth
+  was the typo fix itself: a repository search that named the private repositories
+  had come first, and the task was lost. In the other 19 runs with Paztport on, the
+  legitimate pull request was allowed. A second scenario gives the agent an honest
+  fix that needs a private read, beside a harmless question from outside the
+  project, so every refusal in it is a false one. With Paztport on, the fix went
+  through in 20 of 20 runs without the question and in 2 of 20 with it. That is
+  the cost without owners; with them, the owner clause allows a write of the
+  destination owner's own data (not measured in this demo).
   [Where this could go](docs/directions.md) says what is still
   open.
 - It is checked end to end. The Java mesh's `demo.sh` makes 27 checks, among them
