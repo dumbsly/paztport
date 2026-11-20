@@ -5,10 +5,13 @@ package org.paztport.http;
 
 import java.util.List;
 import java.util.Objects;
+import org.paztport.core.intent.Intent;
 import org.paztport.core.stamp.Block;
 import org.paztport.core.stamp.Chains;
 import org.paztport.core.stamp.ParsedChain;
 import org.paztport.core.stamp.Stamp;
+import org.paztport.core.verify.ExtensionSettings;
+import org.paztport.core.verify.HandOver;
 import org.paztport.core.verify.Peer;
 import org.paztport.core.verify.ReasonCode;
 import org.paztport.core.verify.VerifyInput;
@@ -41,7 +44,10 @@ import org.slf4j.LoggerFactory;
  *   <li>In an attested session the chain is verified in the live order by that session's own verifier, which
  *       carries this partner's extension settings, with this service as receiver and the peer as last signer, and a
  *       failure is refused {@code 403} with its code. Only on {@code OK} does the handler get the verified chain, its
- *       one block, and the verified hand-over, owners included.</li>
+ *       one block, and the verified hand-over, owners included. A partner that acts on {@code influence} first
+ *       refuses an item that does not read, {@code 400 INFLUENCE_MISMATCH}; one that acts on {@code intent} then
+ *       refuses any item under it, {@code 400 INTENT_MISMATCH}, since the origin's facts do not cross the boundary,
+ *       so a handler here is handed no facts.</li>
  * </ul>
  *
  * <p>Each call logs one {@code PAZTPORT_TRACE request} line naming its session's status. Like {@link HttpReceiver},
@@ -106,12 +112,40 @@ public final class PartnerReceiver {
             return PartnerAccepted.refused(HttpAnswer.refusal(403, result.reason()), result);
         }
         HttpAnswer unread = HttpReceiver.unreadInfluence(sessions.extensions(), result.handOver(), rid);
+        if (unread == null) {
+            unread = intentItem(sessions.extensions(), result.handOver(), rid);
+        }
         if (unread != null) {
             return PartnerAccepted.refused(unread, result);
         }
         // Check 9a held, so the blocks read as one per stamp.
         List<Block> blocks = HttpReceiver.carriedBlocks(received, HttpWire.decodeBlocks(blocksHeader));
         return PartnerAccepted.attested(received, blocks, result, sessions.extensions());
+    }
+
+    /**
+     * The refusal of a partner that acts on {@code intent} and is handed any item under it, in any stamp,
+     * {@code 400 INTENT_MISMATCH}; null otherwise (spec intent.md, Anything across the boundary). The origin's facts
+     * do not cross the boundary, and an item in the boundary block would be the egress's own statement, which the
+     * checks would read as the first stamp's: so no item is read as facts here, whether or not it reads. A block
+     * that names {@code intent} with no items is served. It runs after {@link HttpReceiver#unreadInfluence}, as
+     * {@link HttpReceiver#unreadIntent} does at a service. The log names the signer of the first block holding an
+     * item, never the item.
+     *
+     * @param handOver what the partner is handed, verified
+     */
+    private static HttpAnswer intentItem(ExtensionSettings settings, HandOver handOver, String rid) {
+        if (handOver == null || !settings.actsOn().contains(Intent.NAME)) {
+            return null;
+        }
+        for (HandOver.StampItems stamp : handOver.under(Intent.NAME)) {
+            if (stamp.items() != null && !stamp.items().isEmpty()) {
+                HttpReceiver.LOG.warn("call refused, an intent item crossed the boundary: rid={} signer={}",
+                        LogSafe.of(rid), LogSafe.of(stamp.svc()));
+                return HttpAnswer.refusal(400, ReasonCode.INTENT_MISMATCH);
+            }
+        }
+        return null;
     }
 
     private static void trace(String line) {

@@ -40,8 +40,8 @@ import org.springframework.web.servlet.mvc.method.RequestMappingInfoHandlerMappi
  * {@code intent}.
  *
  * <p>The context does not start, naming the handler, where a handler method is annotated {@link RequiresIntent} and
- * {@code paztport.extensions.acts-on} does not hold {@code intent}, since such a service is handed no facts and would
- * refuse every request; where the annotation names no fact; where a name is not a fact name; or where a bean's method
+ * {@code paztport.extensions.acts-on} does not hold {@code intent}, or {@code paztport.origin} is true, since such a
+ * service is handed no facts and would refuse every request; where the annotation names no fact; where a name is not a fact name; or where a bean's method
  * that is not a request-mapping handler method carries the annotation, since nothing would check it.
  *
  * <p>{@link PaztportAutoConfiguration} imports it; it is not for an application to use directly.
@@ -70,13 +70,15 @@ public class IntentConfiguration {
 
     /**
      * Once every singleton is created, so every handler mapping is known, refuses an annotated handler on a service
-     * that does not act on {@code intent}, or whose annotation names no fact or a name that is not a fact name, and
+     * that does not act on {@code intent} or is an origin, or whose annotation names no fact or a name that is not a
+     * fact name, and
      * an annotation on a bean's method that is not a request-mapping handler method, which nothing would check.
      */
     @Bean
-    SmartInitializingSingleton paztportIntentHandlers(ExtensionSettings extensions, ListableBeanFactory beans) {
+    SmartInitializingSingleton paztportIntentHandlers(ExtensionSettings extensions, PaztportProperties props,
+            ListableBeanFactory beans) {
         return () -> {
-            requireActable(annotated(beans), extensions);
+            requireActable(annotated(beans), extensions, props.isOrigin());
             requireOnHandlers(beans);
         };
     }
@@ -165,16 +167,23 @@ public class IntentConfiguration {
 
     /**
      * Refuses the first of {@code annotated} that cannot be acted on: any, where {@code extensions} does not act on
-     * {@code intent}; one that names no fact; one with a name that is not a fact name.
+     * {@code intent} or the service is an origin; one that names no fact; one with a name that is not a fact name.
      *
+     * @param origin whether the service is an origin ({@code paztport.origin}), which ignores every inbound chain
      * @throws IllegalStateException naming the handler
      */
-    static void requireActable(List<Annotated> annotated, ExtensionSettings extensions) {
+    static void requireActable(List<Annotated> annotated, ExtensionSettings extensions, boolean origin) {
         for (Annotated handler : annotated) {
             if (!extensions.actsOn().contains(Intent.NAME)) {
                 throw new IllegalStateException("the handler " + handler.handler() + " is annotated @RequiresIntent, "
                         + "but paztport.extensions.acts-on does not hold intent, so this service is handed no facts "
                         + "and would refuse every request to it; add intent to paztport.extensions.acts-on");
+            }
+            if (origin) {
+                throw new IllegalStateException("the handler " + handler.handler() + " is annotated @RequiresIntent, "
+                        + "but paztport.origin is true, so this service ignores every inbound chain, is handed no "
+                        + "facts and would refuse every request to it; an origin states facts, it does not require "
+                        + "them");
             }
             if (handler.names().isEmpty()) {
                 throw new IllegalStateException("the handler " + handler.handler() + " is annotated @RequiresIntent "

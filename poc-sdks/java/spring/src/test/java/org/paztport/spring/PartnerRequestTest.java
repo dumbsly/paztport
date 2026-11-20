@@ -41,6 +41,8 @@ import org.paztport.core.influence.BoundaryInfluence;
 import org.paztport.core.influence.Influence;
 import org.paztport.core.influence.InfluenceClass;
 import org.paztport.core.influence.InfluenceEntry;
+import org.paztport.core.intent.Intent;
+import org.paztport.core.intent.IntentFacts;
 import org.paztport.core.policy.KeyringFile;
 import org.paztport.core.policy.PolicyBuilder;
 import org.paztport.core.session.ReplyCert;
@@ -80,7 +82,8 @@ import org.springframework.web.client.RestClient;
  * The partner's request path through the real container under mutual TLS: a boundary chain verifies only in the
  * attested session of the peer that sent it, and an unsafe session, or none, reaches the handlers with nothing handed
  * on and no verified chain, and never reaches an endpoint switched off for it. The partner acts on influence, so in
- * an attested session its handlers are handed the boundary block's entries. The partner's entry is named
+ * an attested session its handlers are handed the boundary block's entries, and on intent, so it refuses any intent
+ * item a boundary block holds, since the origin's facts do not cross. The partner's entry is named
  * {@code localhost}, after the fixture certificate it serves; the shop's egress is the fixture {@code orders}.
  */
 @SpringBootTest(classes = PartnerRequestTest.App.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
@@ -149,6 +152,7 @@ class PartnerRequestTest {
         registry.add("paztport.partner.unsafe-disabled[0]", () -> "POST /refund");
         registry.add("paztport.partner.unsafe-disabled[1]", () -> "GET /statement");
         registry.add("paztport.extensions.acts-on[0]", () -> "influence");
+        registry.add("paztport.extensions.acts-on[1]", () -> "intent");
     }
 
     @AfterAll
@@ -288,9 +292,14 @@ class PartnerRequestTest {
 
     /** The headers of a boundary call from {@code orders} in {@code sess}, carrying {@link #INFLUENCE_BLOCK}. */
     private static Map<String, String> boundary(String sess, String rid, String path, byte[] body) {
+        return boundary(sess, rid, path, body, INFLUENCE_BLOCK);
+    }
+
+    /** The same, its boundary stamp committing to {@code block}, which travels as its one block. */
+    private static Map<String, String> boundary(String sess, String rid, String path, byte[] body, Block block) {
         Stamper.Stamped stamped = orders().boundary(internal(rid), sess, PARTNER,
-                RequestBinding.compute("POST", path, body), INFLUENCE_BLOCK, SHOP_BUILT.bundles().get("orders"));
-        return headers(sess, stamped.chain(), stamped, List.of(INFLUENCE_BLOCK));
+                RequestBinding.compute("POST", path, body), block, SHOP_BUILT.bundles().get("orders"));
+        return headers(sess, stamped.chain(), stamped, List.of(block));
     }
 
     /** The headers of a call carrying {@code chain} and its {@code blocks}, one per stamp. */
@@ -342,6 +351,28 @@ class PartnerRequestTest {
         assertEquals("attested", seen.get("session").asText());
         assertThat(lines("PAZTPORT_TRACE request ")).containsExactly("PAZTPORT_TRACE request rid=rid-a reason=OK "
                 + "receiver=localhost ✓ peer=orders (mTLS) classes=private,third-party session=attested");
+    }
+
+    /**
+     * spec intent.md, Anything across the boundary: an intent item in a boundary block would be the egress's own
+     * statement, so the partner refuses it before any handler runs, though the call verified; a block that names
+     * intent with no item is served.
+     */
+    @Test
+    void anIntentItemAtTheBoundaryIsRefused() throws Exception {
+        RestClient orders = client("orders");
+        String sess = handshake(orders, true);
+        String facts = IntentFacts.builder().put("amount", 100).build().toItem();
+        Block stated = Block.of(Map.of(Influence.NAME, List.of(), Intent.NAME, List.of(facts)), List.of());
+        Block named = Block.of(Map.of(Influence.NAME, List.of(), Intent.NAME, List.of()), List.of());
+
+        Answer refused = post(orders, "/charge", boundary(sess, "rid-n1", "/charge", REFUND, stated), REFUND);
+        assertEquals(400, refused.status());
+        assertEquals("{\"reason\":\"INTENT_MISMATCH\"}", refused.body());
+
+        Answer served = post(orders, "/charge", boundary(sess, "rid-n2", "/charge", REFUND, named), REFUND);
+        assertEquals(200, served.status(), served.body());
+        assertTrue(served.json().get("verified").asBoolean());
     }
 
     @Test

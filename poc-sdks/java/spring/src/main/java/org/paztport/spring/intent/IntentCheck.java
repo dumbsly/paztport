@@ -20,8 +20,9 @@ import org.springframework.web.servlet.HandlerInterceptor;
  * Checks, as a handler method annotated {@link RequiresIntent} is about to run, that the request's verified origin
  * stated each fact it requires (spec intent.md, The receiver's part, P2), by {@link OriginIntent#require}. On any
  * answer but {@code OK} it refuses the request, {@code 400 INTENT_MISMATCH} or {@code 403 INTENT_MISSING}, and the
- * handler does not run. A request served without verifying, in audit mode after a failure or with Paztport off, has
- * no facts, so it is refused {@code INTENT_MISSING} in every mode. The refusal is the service's own answer, so it is
+ * handler does not run. A request served without verifying, in audit mode after a failure, with Paztport off, or at a
+ * service that verifies only to attest and whose chain failed there, has no facts, so it is refused
+ * {@code INTENT_MISSING} in every mode. The refusal is the service's own answer, so it is
  * written in place of the handler's ({@link Refusals#writeInPlaceOfHandler}) and never attested; for a handler
  * reached by an include, which cannot set the status, the inbound filter writes it once the chain returns, as it
  * does the dispatch check's. A handler without the annotation is not touched.
@@ -32,8 +33,10 @@ import org.springframework.web.servlet.HandlerInterceptor;
  * handler is checked, another handler reached by an async dispatch included, and one that reaches it outside the
  * request's scope is refused, as nothing verified was handed on there.
  *
- * <p>Where the inbound filter did not run, on a path in {@code paztport.unverified-paths}, nothing writes the refusal
- * an included handler owes: the handler still does not run, and nothing is attested.
+ * <p>Where the inbound filter does not run, on a path in {@code paztport.unverified-paths} or at a partner's entry,
+ * whose {@code PartnerFilter} runs in its place, nothing writes the refusal an included handler owes: the handler
+ * still does not run, and nothing is attested. A partner is handed no facts (spec intent.md, Anything across the
+ * boundary), so there an annotated handler refuses every call {@code INTENT_MISSING}.
  */
 final class IntentCheck implements HandlerInterceptor {
 

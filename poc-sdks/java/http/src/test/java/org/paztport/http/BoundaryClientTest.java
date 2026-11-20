@@ -46,6 +46,8 @@ import org.paztport.core.influence.ContentLabel;
 import org.paztport.core.influence.Influence;
 import org.paztport.core.influence.InfluenceClass;
 import org.paztport.core.influence.InfluenceEntry;
+import org.paztport.core.intent.Intent;
+import org.paztport.core.intent.IntentFacts;
 import org.paztport.core.internal.JsonReader;
 import org.paztport.core.internal.JsonValue;
 import org.paztport.core.internal.JsonWriter;
@@ -227,6 +229,12 @@ class BoundaryClientTest {
      */
     private <T> T verified(String rid, List<Block> blocks, List<InfluenceEntry> added, Callable<T> call)
             throws Exception {
+        return verified(rid, blocks, added, ACTS_ON_INFLUENCE, call);
+    }
+
+    /** As above, payment handed on what it is handed when it acts on what {@code settings} says. */
+    private <T> T verified(String rid, List<Block> blocks, List<InfluenceEntry> added, ExtensionSettings settings,
+            Callable<T> call) throws Exception {
         String bind = RequestBinding.compute("POST", "/pay", CHARGE);
         List<Stamp> chain = new Stamper("gateway", "gw-1", gateway.getPrivate(), true, () -> rid,
                 System::currentTimeMillis).next(null, blocks.size() == 1 ? "payment" : "orders", bind,
@@ -237,7 +245,7 @@ class BoundaryClientTest {
         }
         try (RequestContext.Scope scope = RequestContext.open()) {
             RequestContext.markVerified(chain);
-            RequestContext.handOn(new HandOver(true, chain, blocks, ACTS_ON_INFLUENCE));
+            RequestContext.handOn(new HandOver(true, chain, blocks, settings));
             RequestContext.addInfluence(added.toArray(InfluenceEntry[]::new));
             return call.call();
         }
@@ -508,6 +516,28 @@ class BoundaryClientTest {
 
         assertEquals(Block.EMPTY, block(partner.calls().get(0)));
         assertEquals(List.of(), heard);
+    }
+
+    /**
+     * intent.md, The origin's part: an egress MUST NOT put an intent item in the boundary block, so the origin's facts
+     * do not cross, even from an egress that acts on intent and is handed them verified.
+     */
+    @Test
+    void theBoundaryBlockOfAnEgressThatActsOnIntentHoldsNoFacts() throws Exception {
+        ExtensionSettings both = ExtensionSettings.of(Set.of(Influence.NAME, Intent.NAME), null);
+        String facts = IntentFacts.builder().put("amount", 100).put("order", "123").build().toItem();
+        Block stated = Block.of(Map.of(Influence.NAME, List.of(), Intent.NAME, List.of(facts)), List.of());
+        try (BoundaryClient egress = egress(partner, tls()).extensions(both).build()) {
+            assertEquals(200, verified("rid-1", List.of(stated), List.of(), both,
+                    () -> egress.post("/charge", CHARGE)).status());
+        }
+
+        Block sent = block(partner.calls().get(0));
+        assertNull(sent.itemsUnder(Intent.NAME), "the boundary block names no intent item");
+        assertEquals(NAMED, sent);
+        String wire = new String(Base64Url.decode(partner.calls().get(0).header(PaztportHeaders.EXTENSIONS)),
+                StandardCharsets.UTF_8);
+        assertFalse(wire.contains("facts"), "no fact crossed the boundary");
     }
 
     /**

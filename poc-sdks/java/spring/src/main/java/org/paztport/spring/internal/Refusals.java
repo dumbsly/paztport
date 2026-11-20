@@ -25,8 +25,9 @@ public final class Refusals {
      * Whether a refusal was made in place of the handler's answer, and the refusal itself while it is owed. One object
      * that a check marks, rather than an attribute it sets, because the DispatcherServlet removes the attributes an
      * include adds once the include returns, as the dispatch check's record is kept for the same reason. The inbound
-     * filter holds the one it prepared and reads that, so a filter that later removes or replaces the attribute
-     * cannot unmark the request.
+     * filter holds the one it prepared and reads that, so once a check has marked it, a filter that removes or
+     * replaces the attribute cannot unmark the request. A filter that removes or replaces it before the check makes
+     * the check mark a fresh object, which the inbound filter never reads, so the request is then not marked.
      */
     public static final class Mark {
         private boolean marked;

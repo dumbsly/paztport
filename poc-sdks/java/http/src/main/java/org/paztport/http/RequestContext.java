@@ -206,7 +206,8 @@ public final class RequestContext {
      * Seals the origin's facts for this request (spec intent.md, The origin's part): every call the scope makes from
      * now on puts them in its own block under {@code intent}. Only an origin seals facts, and only a service that acts
      * on {@code intent}; {@link HttpCaller} refuses a call that would send them otherwise. They are sealed once, so
-     * every call of the request states the same facts, and they end with the scope.
+     * every call of the request states the same facts, and they end with the scope. Sealing signs the facts into the
+     * origin's block; it hides nothing, and every hop after the origin reads them.
      *
      * @param facts the values the application acts on, such as the amount a customer was shown; at least one
      * @throws IllegalStateException when no scope is open, when facts were already sealed in this scope, or when

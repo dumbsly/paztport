@@ -56,6 +56,8 @@ import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.filter.OncePerRequestFilter;
@@ -63,11 +65,12 @@ import org.springframework.web.filter.OncePerRequestFilter;
 /**
  * On the real servlet container, payment acts on {@code intent} and its handler {@code charge} requires the fact
  * {@code amount}: a request whose verified origin stated it runs the handler, which reads it; one that did not state
- * it, or that was served without verifying (audit mode after a failed chain, mode off), is refused
- * {@code 403 INTENT_MISSING} before the handler runs; a handler that requires nothing is served as before. The
- * refusal is never attested, with an operation table or without one, while the handler's own answer on the same
- * service is. The dispatch check answers before the intent check, and a service whose handlers are annotated but that
- * does not act on intent, or that names no fact or a bad one, does not start.
+ * it, or that was served without verifying (audit mode after a failed chain, mode off, a service that verifies only
+ * to attest), is refused {@code 403 INTENT_MISSING} before the handler runs; a handler that requires nothing is
+ * served as before. The refusal is never attested, with an operation table or without one, while the handler's own
+ * answer on the same service is, its own {@code INTENT_DENIED} included. The dispatch check answers before the intent
+ * check, and a service whose handlers are annotated but that does not act on intent, that is an origin, or that names
+ * no fact or a bad one, does not start.
  */
 class IntentCheckTest {
 
@@ -93,6 +96,9 @@ class IntentCheckTest {
 
     /** A property that gives payment its own table, so that its chains may name its operations. */
     private static final String WITH_TABLE = "with-table";
+
+    /** A property that leaves {@code paztport.verify} and the mode unset, so payment verifies only to attest. */
+    private static final String ATTEST_ONLY = "attest-only";
 
     @BeforeEach
     void forget() {
@@ -167,6 +173,27 @@ class IntentCheckTest {
         }
     }
 
+    /**
+     * A service that verifies only to attest, as the demo's {@code orders} runs ({@code paztport.verify} unset):
+     * a chain that fails there is served unverified, so it has no facts, and a handler that requires one refuses
+     * it; a chain that passes is handed the facts, and the handler runs.
+     */
+    @Test
+    void aServiceThatVerifiesOnlyToAttestRefusesAChainThatFails(@TempDir Path dir) throws Exception {
+        try (Service payment = Service.start(dir, App.class, "enforce", ATTEST_ONLY)) {
+            HttpResponse<String> refused = payment.sendTampered("/charge", "payment", AMOUNT);
+            assertThat(refused.statusCode()).isEqualTo(403);
+            assertThat(refused.body()).isEqualTo("{\"reason\":\"INTENT_MISSING\"}");
+            assertThat(RAN).as("the handler never ran").isEmpty();
+
+            HttpResponse<String> served = payment.send("/charge", "payment", AMOUNT);
+            assertThat(served.statusCode()).isEqualTo(200);
+            assertThat(served.body()).isEqualTo("charged");
+            assertThat(RAN).containsExactly("charge");
+            assertThat(SEEN.get()).isEqualTo(100L);
+        }
+    }
+
     @Test
     void aServiceWithPaztportOffRefusesAnAnnotatedHandler(@TempDir Path dir) throws Exception {
         try (Service payment = Service.start(dir, App.class, "off")) {
@@ -225,6 +252,26 @@ class IntentCheckTest {
         HttpResponse<String> charged = payment.send("/charge", operation ? named + "charge" : named, AMOUNT);
         assertThat(charged.statusCode()).isEqualTo(200);
         assertThat(attestation(charged)).as(named + ": as is the annotated handler's").isNotNull();
+    }
+
+    /**
+     * {@code INTENT_DENIED} is the handler's own answer, as {@code INFLUENCE_DENIED} is, so it is attested, while
+     * {@code INTENT_MISSING}, which Paztport writes in place of the handler's answer, is not.
+     */
+    @Test
+    void theHandlersOwnDenialIsAttested(@TempDir Path dir) throws Exception {
+        try (Service payment = Service.start(dir, App.class, "enforce")) {
+            HttpResponse<String> denied = payment.send("/deny", "payment", AMOUNT);
+            assertThat(denied.statusCode()).isEqualTo(403);
+            assertThat(denied.body()).isEqualTo("{\"reason\":\"INTENT_DENIED\"}");
+            assertThat(attestation(denied)).as("the handler's own refusal is attested").isNotNull();
+
+            HttpResponse<String> missing = payment.send("/deny", "payment", NO_AMOUNT);
+            assertThat(missing.statusCode()).isEqualTo(403);
+            assertThat(missing.body()).isEqualTo("{\"reason\":\"INTENT_MISSING\"}");
+            assertThat(attestation(missing)).as("Paztport's refusal is not").isNull();
+            assertThat(RAN).containsExactly("deny");
+        }
     }
 
     /**
@@ -288,6 +335,16 @@ class IntentCheckTest {
         }
     }
 
+    /** An origin ignores every inbound chain, so it is handed no facts and would refuse every request to it. */
+    @Test
+    void startupFailsOnAnOrigin(@TempDir Path dir) throws Exception {
+        Throwable failed = catchThrowable(() -> Service.start(dir, App.class, "enforce", "paztport.origin=true")
+                .close());
+
+        assertThat(messages(failed)).anySatisfy(message -> assertThat(message)
+                .contains(Handlers.class.getName() + "#charge").contains("paztport.origin"));
+    }
+
     @Test
     void startupFailsOnAnEmptyOrBadName(@TempDir Path dir) throws Exception {
         Throwable empty = catchThrowable(() -> Service.start(dir.resolve("empty"), EmptyApp.class, "enforce")
@@ -341,15 +398,18 @@ class IntentCheckTest {
             Files.writeString(dir.resolve("proofs-payment.json"), built.bundles().get("payment").toFile());
             Files.writeString(dir.resolve("ops-payment.json"), PAYMENT.toFile());
 
+            List<String> extra = new ArrayList<>(List.of(more));
             List<String> props = new ArrayList<>(List.of("server.port=0", "spring.main.banner-mode=off",
-                    "paztport.service-name=payment", "paztport.origins=gateway", "paztport.verify=true",
-                    "paztport.mode=" + mode,
+                    "paztport.service-name=payment", "paztport.origins=gateway",
                     "paztport.key-path=" + dir.resolve("payment.key"),
                     "paztport.proofs-path=" + dir.resolve("proofs-payment.json"),
                     "paztport.keyring-path=" + dir.resolve("keyring.json"),
                     "paztport.root-path=" + dir.resolve("root.json"),
                     "paztport.policy-key-path=" + dir.resolve("policy.pub")));
-            List<String> extra = new ArrayList<>(List.of(more));
+            if (!extra.remove(ATTEST_ONLY)) {
+                props.add("paztport.verify=true");
+                props.add("paztport.mode=" + mode);
+            }
             if (extra.remove(WITH_TABLE)) {
                 props.add("paztport.operations.table-path=" + dir.resolve("ops-payment.json"));
             }
@@ -484,6 +544,15 @@ class IntentCheckTest {
             RAN.add("charge");
             SEEN.set(intent.facts().integer("amount"));
             return "charged";
+        }
+
+        /** Compares the request with the facts and finds a difference, as every request here differs. */
+        @PostMapping("/deny")
+        @RequiresIntent("amount")
+        ResponseEntity<String> deny() {
+            RAN.add("deny");
+            return ResponseEntity.status(403).contentType(MediaType.APPLICATION_JSON)
+                    .body("{\"reason\":\"" + intent.deny() + "\"}");
         }
 
         @PostMapping("/plain")

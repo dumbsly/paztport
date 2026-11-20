@@ -28,6 +28,8 @@ import org.paztport.core.encoding.Base64Url;
 import org.paztport.core.influence.Influence;
 import org.paztport.core.influence.InfluenceClass;
 import org.paztport.core.influence.InfluenceEntry;
+import org.paztport.core.intent.Intent;
+import org.paztport.core.intent.IntentFacts;
 import org.paztport.core.policy.KeyringFile;
 import org.paztport.core.policy.PolicyBuilder;
 import org.paztport.core.session.ReplyCert;
@@ -74,23 +76,28 @@ class PartnerReceiverTest {
 
     private final KeyPair pspPolicy = Crypto.generateEd25519KeyPair();
     private final KeyPair pspKey = Crypto.generateEd25519KeyPair();
-    private final PartnerSessions sessions = PartnerSessions.builder()
-            .ownRoot(PolicyBuilder.build(List.of(List.of("psp", "ledger")), 4, NOT_AFTER, pspPolicy.getPrivate())
-                    .signedRoot())
-            .ownKeyring(KeyringFile.sign(Map.of("psp", pub(pspKey)), pub(pspPolicy), NOT_AFTER,
-                    pspPolicy.getPrivate()))
-            .ownPolicyKey(pub(pspPolicy))
-            .ownService("psp")
-            .ownServiceKey(pspKey.getPrivate())
-            .ownReplyCert(ReplyCert.issue(pub(pspPolicy), "psp", pub(pspKey),
-                    System.currentTimeMillis() + 7 * 86_400_000L, pspPolicy.getPrivate()))
-            .pinnedClientKeys(Set.of(pub(shopPolicy)))
-            .clientOrigins(Set.of("orders"))
-            .unsafeDisabled(List.of("POST /refund"))
-            .callMaxAgeMs(5000)
-            .extensions(PARTNER)
-            .build();
+    private final PartnerSessions sessions = sessions(PARTNER);
     private final PartnerReceiver receiver = new PartnerReceiver(sessions, "psp");
+
+    /** The PSP's sessions, acting on and carrying what {@code extensions} says. */
+    private PartnerSessions sessions(ExtensionSettings extensions) {
+        return PartnerSessions.builder()
+                .ownRoot(PolicyBuilder.build(List.of(List.of("psp", "ledger")), 4, NOT_AFTER,
+                        pspPolicy.getPrivate()).signedRoot())
+                .ownKeyring(KeyringFile.sign(Map.of("psp", pub(pspKey)), pub(pspPolicy), NOT_AFTER,
+                        pspPolicy.getPrivate()))
+                .ownPolicyKey(pub(pspPolicy))
+                .ownService("psp")
+                .ownServiceKey(pspKey.getPrivate())
+                .ownReplyCert(ReplyCert.issue(pub(pspPolicy), "psp", pub(pspKey),
+                        System.currentTimeMillis() + 7 * 86_400_000L, pspPolicy.getPrivate()))
+                .pinnedClientKeys(Set.of(pub(shopPolicy)))
+                .clientOrigins(Set.of("orders"))
+                .unsafeDisabled(List.of("POST /refund"))
+                .callMaxAgeMs(5000)
+                .extensions(extensions)
+                .build();
+    }
 
     private final ListAppender<ILoggingEvent> traces = new ListAppender<>();
     private final Logger traceLog = (Logger) LoggerFactory.getLogger("PAZTPORT_TRACE");
@@ -120,7 +127,12 @@ class PartnerReceiverTest {
 
     /** An attested session opened by {@code orders} under the shop's CA. */
     private String attestedSession() {
-        return sessions.open(SessionRequest.of(shopBuilt.signedRoot(), pub(shopPolicy), shopKeyring,
+        return attestedSession(sessions);
+    }
+
+    /** The same, in {@code in}. */
+    private String attestedSession(PartnerSessions in) {
+        return in.open(SessionRequest.of(shopBuilt.signedRoot(), pub(shopPolicy), shopKeyring,
                 Sessions.newNonce()), SHOP_CA, "orders").sess();
     }
 
@@ -400,5 +412,69 @@ class PartnerReceiverTest {
         assertEquals(400, accepted.refusal().status());
         assertEquals("{\"reason\":\"INFLUENCE_MISMATCH\"}", text(accepted.refusal()));
         assertFalse(accepted.attested(), "an item that does not read is believed by no one");
+    }
+
+    /**
+     * spec intent.md, Anything across the boundary: the origin's facts do not cross, and an item in the boundary
+     * block would be the egress's own statement, read as the first stamp's. So a partner that acts on intent refuses
+     * any item under it, though the item reads and the call verified, and a block that names intent with none is
+     * served. A partner that does not act on intent reads nothing under it, and carries the item as before.
+     */
+    @Test
+    void aPartnerThatActsOnIntentRefusesAnyIntentItem() {
+        ExtensionSettings both = ExtensionSettings.of(Set.of(Influence.NAME, Intent.NAME),
+                Set.of(Influence.NAME, Intent.NAME));
+        PartnerSessions intentSessions = sessions(both);
+        PartnerReceiver actsOnIntent = new PartnerReceiver(intentSessions, "psp");
+        String facts = IntentFacts.builder().put("amount", 100).build().toItem();
+        Block stated = Block.of(Map.of(Influence.NAME, List.of(), Intent.NAME, List.of(facts)), List.of());
+        Block named = Block.of(Map.of(Influence.NAME, List.of(), Intent.NAME, List.of()), List.of());
+        String sess = attestedSession(intentSessions);
+
+        PartnerAccepted refused = actsOnIntent.accept(charge(boundary(sess, "rid-1", REFUND, stated), REFUND),
+                cert(SHOP_CA, "orders"));
+        assertEquals(400, refused.refusal().status());
+        assertEquals("{\"reason\":\"INTENT_MISMATCH\"}", text(refused.refusal()));
+        assertFalse(refused.attested(), "an item at the boundary is believed by no one");
+
+        PartnerAccepted served = actsOnIntent.accept(charge(boundary(sess, "rid-2", REFUND, named), REFUND),
+                cert(SHOP_CA, "orders"));
+        assertNull(served.refusal());
+        assertTrue(served.attested());
+        assertEquals(List.of(new HandOver.StampItems("orders", List.of())), served.handOver().under(Intent.NAME));
+
+        PartnerSessions carrying = sessions(ExtensionSettings.of(Set.of(Influence.NAME),
+                Set.of(Influence.NAME, Intent.NAME)));
+        PartnerAccepted carried = new PartnerReceiver(carrying, "psp").accept(charge(boundary(
+                attestedSession(carrying), "rid-3", REFUND, stated), REFUND), cert(SHOP_CA, "orders"));
+        assertNull(carried.refusal());
+        assertTrue(carried.attested());
+        assertNull(carried.handOver().under(Intent.NAME), "read by no one");
+        assertEquals(List.of(stated), carried.blocks());
+    }
+
+    /** A call refused for an intent item opens no scope that holds facts: the handler is never reached. */
+    @Test
+    void aPartnerThatActsOnIntentHandsNoFactsToTheContext() {
+        PartnerSessions intentSessions = sessions(ExtensionSettings.of(Set.of(Intent.NAME), null));
+        String facts = IntentFacts.builder().put("amount", 100).build().toItem();
+        Block stated = Block.of(Map.of(Intent.NAME, List.of(facts)), List.of());
+        Block named = Block.of(Map.of(Intent.NAME, List.of()), List.of());
+        OriginIntent intent = new OriginIntent("psp");
+        String sess = attestedSession(intentSessions);
+        PartnerReceiver actsOnIntent = new PartnerReceiver(intentSessions, "psp");
+
+        try (RequestContext.Entered<PartnerAccepted> entered = RequestContext.accept(actsOnIntent,
+                charge(boundary(sess, "rid-1", REFUND, stated), REFUND), cert(SHOP_CA, "orders"))) {
+            assertNotNull(entered.result().refusal());
+            assertNull(RequestContext.handedOn());
+            assertEquals(IntentFacts.NONE, intent.facts());
+        }
+        try (RequestContext.Entered<PartnerAccepted> entered = RequestContext.accept(actsOnIntent,
+                charge(boundary(sess, "rid-2", REFUND, named), REFUND), cert(SHOP_CA, "orders"))) {
+            assertTrue(entered.result().attested());
+            assertEquals(IntentFacts.NONE, intent.facts());
+            assertEquals(ReasonCode.INTENT_MISSING, intent.require(List.of("amount")));
+        }
     }
 }
