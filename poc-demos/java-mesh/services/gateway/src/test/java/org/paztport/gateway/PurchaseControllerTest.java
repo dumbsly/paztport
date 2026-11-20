@@ -96,6 +96,14 @@ class PurchaseControllerTest {
                 "BAD_AMOUNT");
     }
 
+    // A fact's string is text the wire reader takes, so an order with a lone surrogate or a noncharacter is no order
+    // the customer could have been shown, and it is refused before anything is sealed or sent.
+    @Test
+    void anOrderNoFactCanHoldIsRefused() {
+        assertRefused(new PurchaseController.Purchase("12\ud8003", "4242 4242 4242 4242", 100L), "BAD_ORDER");
+        assertRefused(new PurchaseController.Purchase("12￿", "4242 4242 4242 4242", 100L), "BAD_ORDER");
+    }
+
     // The largest protocol integer is a price the gateway can state; orders then compares it with its book.
     @Test
     void theLargestProtocolIntegerIsSealed() {

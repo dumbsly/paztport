@@ -148,12 +148,15 @@ influence on whatever the caller does next; the one exception, a response that f
 check 9c, is refused ([Response attestation](#response-attestation)).
 
 The path is the core alone: the chain, the proof, the binding, the blocks matched to
-their stamps, and the peer. It decides the checkout, every attack row but 17a, the
-operations rows and the quarantine, and it is all `search` runs. The extension
+their stamps, and the peer. It decides the checkout, every attack row outside row 17,
+the operations rows and the quarantine, and it is all `search` runs. The extension
 `influence` is on at the services on the model's chains to a guarded write, in the
 storyline below. The extension `intent` is on at the three services a purchase passes
-through, and it decides rows 17a to 17e: row 17a's call passes every check of the
-path, and `payment` refuses it by the facts.
+through, and it decides rows 17a and 17b: row 17a's call passes every check of the
+path, and `payment` refuses it by the facts; in row 17b `orders` refuses an amount
+its order book does not give. Rows 17c and 17e are the gateway's own checks of a
+purchase, made before it states any fact, and row 17d is an attack nothing decides:
+the card is not a fact, so the charge goes through.
 
 ## The support-assistant storyline
 

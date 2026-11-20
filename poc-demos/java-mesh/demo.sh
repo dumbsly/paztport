@@ -396,11 +396,18 @@ check_reason "14b unsafe session: charge" 200 CHARGED
 # charge orders sends. These run after 13b, whose refund to card 4000 0000 0000 0002 needs that card to have no
 # owner: 17d's charge registers it to alice. They run before 9, which needs the quarantine and ends the run.
 # 17a — code in orders changes the next charge's amount to 9900, after orders compared the facts. The call is the one
-# its route allows, from a hop whose stamp verifies; payment refuses it because its amount is not the fact's.
+# its route allows, from a hop whose stamp verifies; payment refuses it because its amount is not the fact's. Orders
+# would answer the same code, so payment's own trace line, naming orders as the last signer, says which refused it.
 mreq POST "https://orders:8080/attack/alter-amount"
 mreq POST "https://gateway:8080/purchase" -H 'Authorization: Bearer alice-token' \
   -H 'Content-Type: application/json' -d '{"order":"123","card":"4242 4242 4242 4242","amount":100}'
-check_reason "17a intent: orders changes the amount" 403 INTENT_DENIED
+denied=$(docker compose logs --no-log-prefix payment 2>/dev/null | sed -n 's/.*\(PAZTPORT_TRACE intent .*\)/\1/p' | tail -n1)
+if [ "$CODE" = "403" ] && printf '%s' "$BODY" | grep -q INTENT_DENIED \
+  && printf '%s' "$denied" | grep -qE 'reason=INTENT_DENIED last=orders( |$)'; then
+  record PASS "17a intent: orders changes the amount" "HTTP $CODE INTENT_DENIED, at payment"
+else
+  record FAIL "17a intent: orders changes the amount" "expected HTTP 403/INTENT_DENIED from payment, got $CODE ($BODY) [${denied:-no intent trace at payment}]"
+fi
 # 17b — alice names an amount the order book does not give order 123, so orders refuses it before calling payment
 mreq POST "https://gateway:8080/purchase" -H 'Authorization: Bearer alice-token' \
   -H 'Content-Type: application/json' -d '{"order":"123","card":"4242 4242 4242 4242","amount":1}'

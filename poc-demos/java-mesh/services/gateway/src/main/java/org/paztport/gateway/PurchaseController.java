@@ -25,8 +25,9 @@ import org.springframework.web.client.RestClient;
  * <p>The gateway is the origin, and it states the purchase as facts ({@code intent}): the customer, the order and the
  * amount the customer was shown. Payment, two hops on, compares the charge it is asked for with them, so a hop
  * between that changes the amount, the order or the customer is refused there. A purchase with no card is refused
- * {@code 400 NO_CARD}, one with no amount {@code 400 NO_AMOUNT}, and one whose amount is outside 0 to 2^53 &minus; 1,
- * which no fact can hold, {@code 400 BAD_AMOUNT}; none of them reaches orders.
+ * {@code 400 NO_CARD}, one with no amount {@code 400 NO_AMOUNT}, one whose amount is outside 0 to 2^53 &minus; 1,
+ * which no fact can hold, {@code 400 BAD_AMOUNT}, and one whose order is text no fact can hold, such as a lone
+ * surrogate or a noncharacter, {@code 400 BAD_ORDER}; none of them reaches orders.
  */
 @RestController
 public class PurchaseController {
@@ -70,12 +71,15 @@ public class PurchaseController {
             // Not a value a fact can hold, so no price the customer could have been shown.
             return ResponseEntity.status(400).body(Map.of("reason", "BAD_AMOUNT"));
         }
+        IntentFacts.Builder facts = IntentFacts.builder().put("customer", customer).put("amount", purchase.amount());
+        try {
+            facts.put("order", purchase.order());
+        } catch (IllegalArgumentException e) {
+            // Text no reader takes, such as a lone surrogate or a noncharacter: no order the customer was shown.
+            return ResponseEntity.status(400).body(Map.of("reason", "BAD_ORDER"));
+        }
         // Every call this request makes from here states these facts in the gateway's block.
-        RequestContext.sealIntent(IntentFacts.builder()
-                .put("customer", customer)
-                .put("order", purchase.order())
-                .put("amount", purchase.amount())
-                .build());
+        RequestContext.sealIntent(facts.build());
         Map<String, String> body = new LinkedHashMap<>();
         body.put("customer", customer);
         body.put("order", purchase.order());

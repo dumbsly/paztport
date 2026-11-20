@@ -122,6 +122,17 @@ class PartnerControllerTest {
         verify(client, never()).post(any(), any());
     }
 
+    // The customer is a fact too, and the PSP registers a card to the customer of its first attested charge, so a
+    // charge of the same order and amount for another customer is refused.
+    @Test
+    void anotherCustomerIsDenied() throws Exception {
+        verified(charge(charge("mallory", "123", ALICE_CARD, 100)))
+                .andExpect(status().isForbidden())
+                .andExpect(content().string("{\"reason\":\"INTENT_DENIED\"}"));
+
+        verify(client, never()).post(any(), any());
+    }
+
     // The body orders sent is spelt differently, its members in another order and spaced, so a relay of its bytes
     // is told apart from a body built from the compared values.
     @Test
