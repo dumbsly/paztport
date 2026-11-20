@@ -1,5 +1,5 @@
 {
-  "about" : "Paztport intent conformance vectors (spec intent.md): how an item reads, and what the checks P1 and P2 answer for the items a service is handed under `intent`. Every answer is written by hand from the spec. `items` gives an `item` as the text a block carries, and its `facts`: each fact name to the JCS text of its value as a JSON string, so the integer 100 is \"100\" and the string x is \"\\\"x\\\"\", or null when the item does not read as an intent item, whether the wire reader refuses its text or its schema does. `requests` gives, for a service that handles a request, whether the hand-over is `verified` and whether the service acts on `intent` (`actsOn`); when it does, `stamps` lists each stamp of the chain in order with its signer `svc` and the `items` its block holds under `intent`, null when the block does not name it and [] when it names it with none, and when it does not, `stamps` is null and nothing is handed over. Each item in `stamps` is wire-valid JSON, so a block can hold it. `needs` is the names of the facts the handler requires. `read` is the answer of check P1 over the items, `OK` or `INTENT_MISMATCH`, and `unreadSigner` the signer of the block holding items that do not read, null when they read. `require` is the answer of check P2 for `needs`: `OK`, `INTENT_MISSING` or `INTENT_MISMATCH`, the last when the items of a verified hand-over do not read. Cases may be added; a recorded answer changes only with a protocol change.",
+  "about" : "Paztport intent conformance vectors (spec intent.md): how an item reads, and what the checks P1 and P2 answer for the items a service is handed under `intent`. Every answer is written by hand from the spec. `items` gives an `item` as the text a block carries, and its `facts`: each fact name to the JCS text of its value as a JSON string, so the integer 100 is \"100\" and the string x is \"\\\"x\\\"\", or null when the item does not read as an intent item, whether the wire reader refuses its text or its schema does. `requests` gives, for a service that handles a request, whether the hand-over is `verified` and whether the service acts on `intent` (`actsOn`); when it does, `stamps` lists each stamp of the chain in order with its signer `svc` and the `items` its block holds under `intent`, null when the block does not name it and [] when it names it with none. `stamps` null means nothing is handed over: with `actsOn` true there is no hand-over at all (the chain did not read, or the service is an origin), and with `actsOn` false the service does not act on `intent`. Each item in `stamps` is wire-valid JSON, so a block can hold it. `needs` is the names of the facts the handler requires. `read` is the answer of check P1 over the items, `OK` or `INTENT_MISMATCH`, and `unreadSigner` the signer of the block holding items that do not read, null when they read. `require` is the answer of check P2 for `needs`: `OK`, `INTENT_MISSING` or `INTENT_MISMATCH`, the last when the items of a verified hand-over do not read. `read` and `require` are what each check answers on its own, and a request's answer is the first of `read` then `require` that is not `OK`: a receiver runs the read first and refuses with its answer, so an unverified hand-over whose items do not read has `require` `INTENT_MISSING` and is refused `INTENT_MISMATCH`. Cases may be added; a recorded answer changes only with a protocol change.",
   "items" : [ {
     "name" : "string",
     "item" : "{\"facts\":{\"customer\":\"c-42\"}}",
@@ -354,6 +354,36 @@
     "needs" : [ "amount", "order" ],
     "read" : "OK",
     "unreadSigner" : null,
+    "require" : "INTENT_MISSING"
+  }, {
+    "name" : "no hand-over",
+    "verified" : false,
+    "actsOn" : true,
+    "stamps" : null,
+    "needs" : [ "amount" ],
+    "read" : "OK",
+    "unreadSigner" : null,
+    "require" : "INTENT_MISSING"
+  }, {
+    "name" : "no hand-over, no fact required",
+    "verified" : false,
+    "actsOn" : true,
+    "stamps" : null,
+    "needs" : [ ],
+    "read" : "OK",
+    "unreadSigner" : null,
+    "require" : "OK"
+  }, {
+    "name" : "a hand-over not verified, the origin's item does not read",
+    "verified" : false,
+    "actsOn" : true,
+    "stamps" : [ {
+      "svc" : "origin",
+      "items" : [ "{\"facts\":{}}" ]
+    } ],
+    "needs" : [ "amount" ],
+    "read" : "INTENT_MISMATCH",
+    "unreadSigner" : "origin",
     "require" : "INTENT_MISSING"
   } ]
 }

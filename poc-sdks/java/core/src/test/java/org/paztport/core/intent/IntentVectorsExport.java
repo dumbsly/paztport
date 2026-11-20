@@ -50,12 +50,16 @@ class IntentVectorsExport {
             + " reader refuses its text or its schema does. `requests` gives, for a service that handles a request,"
             + " whether the hand-over is `verified` and whether the service acts on `intent` (`actsOn`); when it does,"
             + " `stamps` lists each stamp of the chain in order with its signer `svc` and the `items` its block holds"
-            + " under `intent`, null when the block does not name it and [] when it names it with none, and when it"
-            + " does not, `stamps` is null and nothing is handed over. Each item in `stamps` is wire-valid JSON, so a"
+            + " under `intent`, null when the block does not name it and [] when it names it with none. `stamps` null means"
+            + " nothing is handed over: with `actsOn` true there is no hand-over at all (the chain did not read, or the"
+            + " service is an origin), and with `actsOn` false the service does not act on `intent`. Each item in `stamps` is wire-valid JSON, so a"
             + " block can hold it. `needs` is the names of the facts the handler requires. `read` is the answer of"
             + " check P1 over the items, `OK` or `INTENT_MISMATCH`, and `unreadSigner` the signer of the block holding"
             + " items that do not read, null when they read. `require` is the answer of check P2 for `needs`: `OK`,"
-            + " `INTENT_MISSING` or `INTENT_MISMATCH`, the last when the items of a verified hand-over do not read."
+            + " `INTENT_MISSING` or `INTENT_MISMATCH`, the last when the items of a verified hand-over do not read. `read` and"
+            + " `require` are what each check answers on its own, and a request's answer is the first of `read` then"
+            + " `require` that is not `OK`: a receiver runs the read first and refuses with its answer, so an unverified"
+            + " hand-over whose items do not read has `require` `INTENT_MISSING` and is refused `INTENT_MISMATCH`."
             + " Cases may be added; a recorded answer changes only with a protocol change.";
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
@@ -104,10 +108,15 @@ class IntentVectorsExport {
 
     private static ObjectNode request(String name, boolean verified, List<ObjectNode> stamps, List<String> needs,
             String read, String unreadSigner, String require) {
+        return request(name, verified, stamps != null, stamps, needs, read, unreadSigner, require);
+    }
+
+    private static ObjectNode request(String name, boolean verified, boolean actsOn, List<ObjectNode> stamps,
+            List<String> needs, String read, String unreadSigner, String require) {
         ObjectNode c = JsonNodeFactory.instance.objectNode();
         c.put("name", name);
         c.put("verified", verified);
-        c.put("actsOn", stamps != null);
+        c.put("actsOn", actsOn);
         if (stamps == null) {
             c.putNull("stamps");
         } else {
@@ -209,6 +218,11 @@ class IntentVectorsExport {
         requests.add(reads("two facts required, one stated", true, List.of(stamp("origin", WITHOUT_AMOUNT)),
                 List.of("amount", "order"), "INTENT_MISSING"));
 
+        requests.add(request("no hand-over", false, true, null, amount, "OK", null, "INTENT_MISSING"));
+        requests.add(request("no hand-over, no fact required", false, true, null, List.of(), "OK", null, "OK"));
+        requests.add(unreads("a hand-over not verified, the origin's item does not read", false,
+                List.of(stamp("origin", NOT_AN_ITEM)), amount, "origin", "INTENT_MISSING"));
+
         // Replay what was just built, read back from the text it is written as.
         assertAll(Vectors.read(new String(render(out), StandardCharsets.UTF_8)));
         return out;
@@ -233,10 +247,11 @@ class IntentVectorsExport {
         }
         for (JsonNode c : vectors.get("requests")) {
             String name = c.get("name").asText();
-            HandOver handOver = handOver(c);
+            boolean none = c.get("actsOn").asBoolean() && c.get("stamps").isNull();
+            HandOver handOver = none ? null : handOver(c);
             List<String> needs = new ArrayList<>();
             c.get("needs").forEach(n -> needs.add(n.asText()));
-            RequestIntent read = Intent.readRequest(handOver.under(Intent.NAME));
+            RequestIntent read = Intent.readRequest(handOver == null ? null : handOver.under(Intent.NAME));
             assertEquals(c.get("read").asText(), read.reads() ? "OK" : read.reason().name(), name + ": read");
             assertEquals(c.get("unreadSigner").isNull() ? null : c.get("unreadSigner").asText(), read.unreadSigner(),
                     name + ": unreadSigner");

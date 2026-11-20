@@ -208,11 +208,13 @@ its owner in the blocks ([influence.md](influence.md#entries)).
 
 The vectors file [`vectors/intent.json`](vectors/intent.json), written by the Java SDK and replayed by Java and Go,
 pins the extension's checks. Its `items` give the text of an item and the facts it reads as, or that it does not read:
-the kinds of value a fact holds, and each way an item fails to read. Its `requests` give the items a service is handed,
-whether the hand-over is verified and whether the service acts on `intent`, with the names of the facts the handler
-requires, and record the answer of P1 and the signer named for an item that does not read, and of P2: a chain of one
-and of three stamps, a later block that holds an item or names `intent` with none, a hand-over not verified, a service
-that does not act on `intent`, a handler that requires no fact, and one that requires two. The file records
-`INTENT_MISMATCH` and `INTENT_MISSING` as the codes the checks give. It holds no case for `INTENT_DENIED`, which is the
-handler's, nor for a refusal's status and body, nor for a verifier whose `allowedExtensions` lacks `intent`, nor for a
-block altered after its stamp: those are the core's, and `http-v4.json` pins them.
+the kinds of value a fact holds, and each way an item fails to read. Its `requests` give the items a service is
+handed, whether the hand-over is verified and whether the service acts on `intent`, with the names of the facts the
+handler requires, and record the answer of P1 and the signer named for an item that does not read, and of P2: a chain
+of one and of three stamps, a later block that holds an item or names `intent` with none, no hand-over, a hand-over
+not verified (with items that read and with items that do not), a service that does not act on `intent`, a handler
+that requires no fact, and one that requires two. It records P1 and P2 apart, since a receiver runs P1 first and a
+request's answer is the first of the two that is not `OK`. The file records `INTENT_MISMATCH` and `INTENT_MISSING` as
+the codes the checks give. It holds no case for `INTENT_DENIED`, which is the handler's, nor for a refusal's status
+and body, nor for a verifier whose `allowedExtensions` lacks `intent`, nor for a block altered after its stamp: those
+are the core's, and `http-v4.json` pins them.
