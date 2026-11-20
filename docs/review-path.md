@@ -104,8 +104,8 @@ receives, and the Go package holds them as functions a service calls.
 | Read | What to look for | Lines |
 |---|---|---|
 | [intent.md](../poc-sdks/spec/intent.md) | Facts and the item; the origin's part; checks P1 and P2 at a receiver, and the refusal of any item at a partner; why a fact is believed only from a verified hand-over; the codes, and which are attested; what every hop learns. | 234 |
-| [intent/intent.go](../poc-sdks/go/intent/intent.go) | `ParseItem`, the item's schema; `ReadRequest`, check P1 over what a service is handed; `Require`, check P2, which believes no fact from a hand-over that is not verified. | 152 |
-| **Total** | | 386 |
+| [intent/intent.go](../poc-sdks/go/intent/intent.go) | `ParseItem`, the item's schema; `ReadRequest`, check P1 over what a service is handed; `Require`, check P2, which believes no fact from a hand-over that is not verified. | 154 |
+| **Total** | | 388 |
 
 ## Sessions
 

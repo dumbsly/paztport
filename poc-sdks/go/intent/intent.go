@@ -8,7 +8,9 @@
 //
 // The package reads no request and compares nothing: which value a fact is compared with is the handler's to
 // say, and a refusal of the comparison, INTENT_DENIED, is the handler's. The Go receiver in paztporthttp does not
-// run these checks; a service that acts on intent calls them from its own code.
+// run these checks; a service that acts on intent calls them from its own code. Nor does the partner receiver
+// refuse an intent item in a session, as intent.md has a partner do: a partner that acts on intent refuses any
+// item under it itself and does not pass a session's hand-over to these functions.
 package intent
 
 import (

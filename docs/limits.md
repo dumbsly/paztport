@@ -321,7 +321,11 @@ What any design of this kind meets, and what this one has not yet tackled.
   partner handler that requires one refuses every call `INTENT_MISSING`. The last
   comparison is on this side: in the Java mesh, `payment`, the egress, compares the
   charge with the facts and sends the PSP one built from them. The partner relies on
-  the egress for the request, as it does today.
+  the egress for the request, as it does today. Only the Java partner receiver makes
+  that refusal. The Go one runs no `intent` check and hands a session's verified
+  hand-over to the application, so a Go partner that called the `intent` functions on
+  it would read an item in the boundary block as the origin's facts. A Go partner that
+  acts on `intent` must refuse any item under it in its own code.
 
 ## Limits of this proof of concept
 
