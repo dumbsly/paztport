@@ -81,20 +81,23 @@ A verifier that sets `allowedExtensions` refuses a block that names `intent` unl
 ## The receiver's part
 
 A service that acts on `intent`, one whose `actsOn` holds it ([verification.md](verification.md#inputs)), runs these
-checks on each request once the live order has given `OK` and the service has confirmed its operation
-([the receiver's operation](verification.md#http-requests-and-responses)), and before the handler runs. They read what
-the verifier hands over under `intent`: for each stamp, in chain order, that its block does not name `intent`, or the
-items its block holds under it ([the live order](verification.md#the-live-order)). Each check runs only when the one
-before it held.
+checks on each request before the handler runs. They read what the service is handed under `intent`, verified or not:
+for each stamp, in chain order, that its block does not name `intent`, or the items its block holds under it
+([the live order](verification.md#the-live-order)). Each check runs only when the one before it held.
 
 | # | Check | Refusal |
 |---|---|---|
-| P1 | The items handed over read: the first stamp's block holds at most one item under `intent`, and that item reads as [an intent item](#facts-and-the-item); every later stamp's block holds none. | `400 INTENT_MISMATCH` |
-| P2 | Every fact the handler requires ([below](#how-a-receiver-knows-a-fact-is-required)) is named in the item's `facts`. With no item, no fact is named. | `403 INTENT_MISSING` |
+| P1 | The items handed over read, whether or not the hand-over is verified: the first stamp's block holds at most one item under `intent`, and that item reads as [an intent item](#facts-and-the-item); every later stamp's block holds none. | `400 INTENT_MISMATCH` |
+| P2 | Every fact the handler requires ([below](#how-a-receiver-knows-a-fact-is-required)) is named in the item's `facts`, in a verified hand-over, checked once the service knows the handler the request will run ([the receiver's operation](verification.md#http-requests-and-responses)). With no item, or with no verified hand-over, no fact is named ([A request that did not verify](#a-request-that-did-not-verify)). | `403 INTENT_MISSING` |
 
 An item that does not read is one with another member, with no `facts`, with `facts` that is not an object or is
 empty, or with a fact name the name rule refuses. Two items in the origin's block, or any item in a later block, fail
-P1 too. P1 runs at every operation of a service that acts on `intent`, one that requires no fact included.
+P1 too. P1 runs at every operation of a service that acts on `intent`, one that requires no fact included, and in
+either mode, so an item that does not read is refused the same way whether or not the chain verified, as `influence`
+refuses its own ([influence.md](influence.md#entries)). Where the chain did not read, or its blocks failed check 9a,
+nothing is handed on ("What a request served without verifying is handed", in
+[the live order](verification.md#the-live-order)), so P1 has nothing to read. A service that acts on both extensions
+runs `influence`'s item check first, then P1.
 
 Then the handler compares the request it was sent with the facts, and refuses a difference with
 `403 INTENT_DENIED`. Which value of the request a fact is compared with is the handler's to say: the extension knows
@@ -123,10 +126,11 @@ not in `facts` is one the origin did not state, and a handler can rely on that a
 ## A request that did not verify
 
 A fact is believed only from a hand-over that is verified: one the verifier made because the live order gave `OK` at
-this hop. A request served without that has no facts, and no item is read from it, so P1 does not run on it. That is a
-request served in audit mode after a failure, or at a service that verifies no requests under a mode, where its live
-order did not give `OK` or it runs none ([the live order](verification.md#the-live-order)), and a call in an unsafe
-session, where nothing is handed on.
+this hop. A request served without that has no facts: P1 still reads the items it is handed
+([The receiver's part](#the-receivers-part)), but P2 and the handler believe none of them. That is a request served
+in audit mode after a failure, or at a service that verifies no requests under a mode, where its live order did not
+give `OK` or it runs none ([the live order](verification.md#the-live-order)), and a call in an unsafe session, where
+nothing is handed on.
 
 At a handler that requires a fact, such a request is refused `403 INTENT_MISSING`, in either mode. Serving it would let
 the handler act on values that no verified origin stated, which is what the requirement is there to refuse. At a
@@ -138,7 +142,7 @@ the live order first, with that check's code, and a request whose blocks fail ch
 
 | Code | HTTP | Given when |
 |---|---|---|
-| `INTENT_MISMATCH` | `400` | P1 fails: the items handed over under `intent` do not read. |
+| `INTENT_MISMATCH` | `400` | P1 fails: the items handed over under `intent`, verified or not, do not read. |
 | `INTENT_MISSING` | `403` | P2 fails, or a request with no verified hand-over reaches a handler that requires a fact. |
 | `INTENT_DENIED` | `403` | The handler compared its request with the facts and refused. |
 
