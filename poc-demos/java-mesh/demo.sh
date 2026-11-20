@@ -393,8 +393,8 @@ check_reason "14b unsafe session: charge" 200 CHARGED
 
 # 17 — intent: the gateway, the origin, states a purchase's customer, order and amount as facts in its own block,
 # which orders forwards unchanged. Orders compares them with the purchase and its order book, and payment with the
-# charge orders sends. These run after 13, whose refund to card 4000 0000 0000 0002 needs that card registered to
-# nobody: 17d's charge registers it to alice.
+# charge orders sends. These run after 13b, whose refund to card 4000 0000 0000 0002 needs that card to have no
+# owner: 17d's charge registers it to alice. They run before 9, which needs the quarantine and ends the run.
 # 17a — code in orders changes the next charge's amount to 9900, after orders compared the facts. The call is the one
 # its route allows, from a hop whose stamp verifies; payment refuses it because its amount is not the fact's.
 mreq POST "https://orders:8080/attack/alter-amount"
@@ -409,6 +409,10 @@ check_reason "17b intent: the customer names a wrong amount" 403 INTENT_DENIED
 mreq POST "https://gateway:8080/purchase" -H 'Authorization: Bearer alice-token' \
   -H 'Content-Type: application/json' -d '{"order":"123","card":"4242 4242 4242 4242"}'
 check_reason "17c intent: no amount" 400 NO_AMOUNT
+# 17e — an amount below 0 is no value a fact can hold, nor a price anyone was shown, so the gateway refuses it
+mreq POST "https://gateway:8080/purchase" -H 'Authorization: Bearer alice-token' \
+  -H 'Content-Type: application/json' -d '{"order":"123","card":"4242 4242 4242 4242","amount":-1}'
+check_reason "17e intent: an amount no fact can hold" 400 BAD_AMOUNT
 # 17d — the same code swaps the card. The card is not a fact, so the PSP charges the card orders chose; intent
 # narrows only the values the origin states.
 mreq POST "https://orders:8080/attack/swap-card"

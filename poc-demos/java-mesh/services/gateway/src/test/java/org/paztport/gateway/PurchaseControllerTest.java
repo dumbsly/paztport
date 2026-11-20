@@ -84,14 +84,53 @@ class PurchaseControllerTest {
     // With no amount there is nothing for payment to compare a charge with, so the gateway sends nothing.
     @Test
     void aPurchaseWithNoAmountIsRefused() {
+        assertRefused(new PurchaseController.Purchase("123", "4242 4242 4242 4242", null), "NO_AMOUNT");
+    }
+
+    // A fact's integer is from 0 to 2^53 - 1, so an amount outside that is no price the customer was shown, and it
+    // is refused before anything is sealed or sent.
+    @Test
+    void anAmountNoFactCanHoldIsRefused() {
+        assertRefused(new PurchaseController.Purchase("123", "4242 4242 4242 4242", -1L), "BAD_AMOUNT");
+        assertRefused(new PurchaseController.Purchase("123", "4242 4242 4242 4242", 9_007_199_254_740_992L),
+                "BAD_AMOUNT");
+    }
+
+    // The largest protocol integer is a price the gateway can state; orders then compares it with its book.
+    @Test
+    void theLargestProtocolIntegerIsSealed() {
+        AtomicReference<String> blocks = new AtomicReference<>();
+        orders.expect(requestTo("https://orders:8080/purchase"))
+                .andExpect(request -> blocks.set(request.getHeaders().getFirst(PaztportHeaders.EXTENSIONS)))
+                .andRespond(withSuccess("{\"status\":\"CHARGED\"}", MediaType.APPLICATION_JSON));
+
+        try (RequestContext.Scope scope = RequestContext.open()) {
+            controller.purchase("Bearer alice-token",
+                    new PurchaseController.Purchase("123", "4242 4242 4242 4242", 9_007_199_254_740_991L));
+        }
+
+        orders.verify();
+        assertEquals(List.of("{\"facts\":{\"amount\":9007199254740991,\"customer\":\"alice\",\"order\":\"123\"}}"),
+                Block.parseAll(HttpWire.decodeBlocks(blocks.get())).get(0).itemsUnder(Intent.NAME));
+    }
+
+    // The card is not a fact, but a purchase without one is no purchase, so it is refused here rather than as a
+    // charge payment cannot read.
+    @Test
+    void aPurchaseWithNoCardIsRefused() {
+        assertRefused(new PurchaseController.Purchase("123", null, 100L), "NO_CARD");
+        assertRefused(new PurchaseController.Purchase("123", " ", 100L), "NO_CARD");
+    }
+
+    /** Asserts {@code purchase} is answered {@code 400} with {@code reason}, and orders is not called. */
+    private void assertRefused(PurchaseController.Purchase purchase, String reason) {
         ResponseEntity<?> response;
         try (RequestContext.Scope scope = RequestContext.open()) {
-            response = controller.purchase("Bearer alice-token",
-                    new PurchaseController.Purchase("123", "4242 4242 4242 4242", null));
+            response = controller.purchase("Bearer alice-token", purchase);
         }
 
         assertEquals(400, response.getStatusCode().value());
-        assertEquals(Map.of("reason", "NO_AMOUNT"), response.getBody());
+        assertEquals(Map.of("reason", reason), response.getBody());
         orders.verify();
     }
 }

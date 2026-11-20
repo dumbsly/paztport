@@ -7,7 +7,7 @@ quarantines offending containers. The idea and the concepts are in the
 
 Quick start: `./run java-mesh` from the repository root builds the SDK and the mesh
 and runs every scenario. It needs JDK 25 or newer, Maven and Docker with Compose
-([Running it](#running-it)). A green run ends with `31 passed, 0 failed`; the mesh
+([Running it](#running-it)). A green run ends with `32 passed, 0 failed`; the mesh
 stays up afterwards, and `docker compose down` in this folder stops it.
 
 Contents: [The system at a glance](#the-system-at-a-glance) · [A request, end to end](#a-request-end-to-end) · [The support-assistant storyline](#the-support-assistant-storyline) · [Least knowledge](#least-knowledge-who-holds-what) · [The verification pipeline](#the-verification-pipeline) · [Response attestation](#response-attestation) · [Threat model](#threat-model) · [Operations](#operations) · [Response](#response-quarantine-not-deletion) · [Modes and rollout](#modes-and-rollout) · [Design choices](#design-choices-and-the-failures-they-avoid) · [Measurements](#measurements) · [Running it](#running-it) · [Configuration](#configuration)
@@ -148,11 +148,12 @@ influence on whatever the caller does next; the one exception, a response that f
 check 9c, is refused ([Response attestation](#response-attestation)).
 
 The path is the core alone: the chain, the proof, the binding, the blocks matched to
-their stamps, and the peer. It decides the checkout, every attack row, the operations
-rows and the quarantine, and it is all `search` runs. The extension `influence` is on
-at the services on the model's chains to a guarded write, in the storyline below, and
-the extension `intent` at the three services a purchase passes through, for rows 17a
-to 17d.
+their stamps, and the peer. It decides the checkout, every attack row but 17a, the
+operations rows and the quarantine, and it is all `search` runs. The extension
+`influence` is on at the services on the model's chains to a guarded write, in the
+storyline below. The extension `intent` is on at the three services a purchase passes
+through, and it decides rows 17a to 17e: row 17a's call passes every check of the
+path, and `payment` refuses it by the facts.
 
 ## The support-assistant storyline
 
@@ -478,7 +479,9 @@ flowchart TD
     S13 -->|no| R13["400 INFLUENCE_MISMATCH"]
     S13 -->|yes| S14["every intent item it is handed reads?<br/>(payment acts on intent)"]
     S14 -->|no| R14["400 INTENT_MISMATCH"]
-    S14 -->|yes| OK["200: handled, response attested"]
+    S14 -->|yes| S15["the handler requires facts (charge):<br/>each one named in the verified hand-over?"]
+    S15 -->|no| R15["403 INTENT_MISSING"]
+    S15 -->|yes| OK["200: handled, response attested"]
 
     U["a request that did not pass the live order here:<br/>it failed in audit, or failed at orders, which verifies<br/>only to decide attestation, or came in off"] --> U9a["blocks pass check 9a?"]
     U9a -->|no| RU9a["400 EXTENSION_MISMATCH"]
@@ -491,9 +494,9 @@ flowchart TD
     classDef plain fill:#f2f2f2,stroke:#6e6a86,color:#1f1d2e,stroke-width:1px
     classDef reject fill:#eb6f92,stroke:#b4637a,color:#ffffff
     classDef pass fill:#3e8f6e,stroke:#2a6b52,color:#ffffff
-    class R0,R1,R2,R3a,R3b,R4,R5,R6,R7,R8,R9a,R9b,R9c,R10,R11,R12,R13,R14,RU9a,RU13,RU14 reject
+    class R0,R1,R2,R3a,R3b,R4,R5,R6,R7,R8,R9a,R9b,R9c,R10,R11,R12,R13,R14,R15,RU9a,RU13,RU14 reject
     class OK,UOK pass
-    class A,S0,S1,S2,S3,S4,S5,S6,S7,S8,S9a,S9b,S9c,S10,S11,S12,S13,S14,U,U9a,U13,U14 plain
+    class A,S0,S1,S2,S3,S4,S5,S6,S7,S8,S9a,S9b,S9c,S10,S11,S12,S13,S14,S15,U,U9a,U13,U14 plain
 ```
 
 Notes on the ordering:
@@ -810,9 +813,9 @@ In every mode a service that acts on `influence` also answers an item it cannot 
 `400 INFLUENCE_MISMATCH`, and one that acts on `intent` `400 INTENT_MISMATCH`. A
 handler that requires a fact, as `payment`'s `charge` does, refuses a request that
 did not verify there `403 INTENT_MISSING`, in every mode: in `audit` a chain that
-failed, and in `off` every request, since `off` verifies none. The mode governs `payment`'s check of requests and, in
-`off`, its attestation of responses: with Paztport off, `payment` vouches for nothing
-it answers. That is
+failed, and in `off` every request, since `off` verifies none. The mode governs
+`payment`'s check of requests and, in `off`, its attestation of responses: with
+Paztport off, `payment` vouches for nothing it answers. That is
 fail-safe, since `orders` records an unattested answer as `local-untrusted`, so
 switching a hop off can only add caution downstream. Callers check every response
 they get in every mode, and a response check refuses only a response that fails
@@ -1122,7 +1125,7 @@ those and before row 9, which needs the quarantine and ends the run:
 | 14a | an unsafe session at the PSP: a refund | 403 `UNSAFE_SESSION` |
 | 14b | the same session: a charge | 200 `CHARGED` |
 
-Rows 17a to 17d are the [intent](#which-services-act-on-influence-and-intent) checks on
+Rows 17a to 17e are the [intent](#which-services-act-on-influence-and-intent) checks on
 a purchase. They run after row 14b and before row 9: row 17d's charge registers
 the card that row 13b's refund names, which row 13b needs to have no owner.
 
@@ -1132,8 +1135,9 @@ the card that row 13b's refund names, which row 13b needs to have no owner.
 | 17b | alice names the amount 1 for order 123, which costs 100 | 403 `INTENT_DENIED`, at `orders` |
 | 17c | alice names no amount | 400 `NO_AMOUNT`, at the gateway |
 | 17d | code in orders swaps the next charge's card; alice buys order 123 for 100 | 200 `CHARGED` |
+| 17e | alice names the amount -1, which no fact can hold | 400 `BAD_AMOUNT`, at the gateway |
 
-`demo.sh` ends with `31 passed, 0 failed`. Row 12 depends on row 11, because the
+`demo.sh` ends with `32 passed, 0 failed`. Row 12 depends on row 11, because the
 charge is what registers alice's card to her.
 
 The attacks run inside the mesh, from `search`'s `/attack/*` endpoints (enabled
@@ -1184,10 +1188,11 @@ after it carries. Only the gateway port is exposed to the host.
 The extension settings are not variables either: each service's `application.yml`
 sets them, and Compose does not override them. Every service on the starter but
 `search`, the PSP included, acts on
-`influence` (`paztport.extensions.acts-on: [influence]`), `gateway`, `orders` and
+`influence` (`paztport.extensions.acts-on: [influence]`). `gateway`, `orders` and
 `payment` act on `intent` as well (`[influence, intent]`;
-[Which services act on influence and intent](#which-services-act-on-influence-and-intent)),
-and `payment` requires `influence` of the PSP (`paztport.boundary.requires: [influence]`). Each service
+[Which services act on influence and intent](#which-services-act-on-influence-and-intent)).
+`payment` requires `influence` of the PSP
+(`paztport.boundary.requires: [influence]`). Each service
 that uses the starter, the PSP included, sets `server.max-http-request-header-size:
 2MB`, which admits the chain, the
 proof and the blocks together at the largest the wire allows, where Tomcat's default
