@@ -191,6 +191,28 @@ What Paztport needs from a deployment, and what it deliberately doesn't cover ye
   the rule passes what it cannot see. A partner must therefore list its public
   writes among the endpoints it refuses in an unsafe session (in the Java SDK,
   `paztport.partner.unsafe-disabled`).
+- **A requirement lives in the receiver's own code.** The facts a handler requires
+  are named in that service's configuration, beside the handler (in the Spring
+  starter, an annotation on it), not in the signed policy. A change to them is a
+  deployment of that service. A receiver deployed without its requirement serves
+  every request, and nothing outside the service, its callers included, can see what
+  it requires or check that the requirement is there
+  ([intent](../poc-sdks/spec/intent.md#how-a-receiver-knows-a-fact-is-required)).
+- **A fact's name means one thing across a system.** A fact is good at every handler
+  that requires its name, so a name the origin states for one purpose is the same
+  fact to every receiver that requires it. No signed policy records the names, so the
+  deployment keeps them apart.
+- **A handler that requires a fact refuses what `audit` would serve.** A request that
+  did not verify at the hop, such as one served in `audit` after a failure or with
+  Paztport off there, has no facts the handler can believe, so it is refused
+  `403 INTENT_MISSING` in every mode
+  ([intent](../poc-sdks/spec/intent.md#a-request-that-did-not-verify)).
+- **Every verifier allows `intent` before an origin states a fact.** A verifier that
+  sets `allowedExtensions` refuses a block that names `intent` until the set holds
+  it, and the origin's block reaches every hop after it. So a deployment adds
+  `intent` to every such set first, and only then has origins state facts and
+  receivers require them
+  ([intent](../poc-sdks/spec/intent.md#the-origins-part)).
 
 ## Limits of the concept
 
@@ -203,11 +225,36 @@ What any design of this kind meets, and what this one has not yet tackled.
   through the entry point can trigger as many of those as the entry point lets in
   (see the Java demo's
   [threat model](../poc-demos/java-mesh/README.md#threat-model)).
-- **A hop chooses what it sends.** A stamp binds the request its signer sends, so a
-  compromised hop can make the calls its route allows with any arguments. The
-  origin's stamp binds what the origin sent, but later receivers do not see that
-  request, so they cannot check their own against it. That would need the origin to
-  sign the facts a receiver acts on ([where this could go](directions.md)).
+- **A hop chooses what it sends, except what the origin signed.** A stamp binds the
+  request its signer sends, so a compromised hop can make the calls its route allows
+  with any arguments. With the extension `intent`, the origin states facts about the
+  request, such as the amount a customer was shown, in its own block, which its stamp
+  commits to and every later hop forwards unchanged. A handler that requires a fact
+  runs only when a verified origin stated it, and refuses a request whose value
+  differs ([intent](../poc-sdks/spec/intent.md)). Everything else is still the
+  hop's: every argument of a call to a handler that requires no fact, every field no
+  fact covers, and any amount up to a ceiling the origin states as a fact.
+- **A fact is a constraint, not a budget.** It says what a call may carry, not how
+  often the call is made: calls that each match the facts each pass the comparison.
+  How often a hop calls a receiver in one request tree is the nonce key's to limit,
+  and the nonce cache is per replica (see "Replay state is per replica, and a call
+  is made once" above). A service that must hold a request to one charge keeps its
+  own record under the request's `rid`.
+- **A hop that withholds a call is refused by no one,** and nothing reports it. A
+  compromised hop can leave uncalled the receiver that would compare. Finding that
+  needs something that knows which calls a request should have made ("Detecting
+  misuse on allowed routes", in [where this could go](directions.md)).
+- **Intent is as good as the comparison.** The `intent` checks keep a handler that
+  requires a fact from running without it, and hand the handler the facts. Comparing
+  them with the request, for every field that matters, is the receiving
+  application's, and so is acting on the values it compared: a handler that compares
+  what it parsed and then relays the bytes has checked nothing for whoever parses
+  them next ([the receiver's part](../poc-sdks/spec/intent.md#the-receivers-part)).
+- **The origin signs for the user.** The facts are the entry point's statement of
+  what the user asked for, not the user's own. A compromised origin states whatever
+  facts it likes, as it can already start any route an entry point may, and so can
+  any other origin whose routes reach the same receiver. Signing in the user's own
+  client would move that trust, and is a direction, not built.
 - **A hop chooses the influence it forwards.** Each call's stamp commits to that
   call's influence, so no entry is dropped on the way, but the hop that signs
   decides what it forwards: a compromised hop can leave out a `third-party` entry it
@@ -259,6 +306,19 @@ What any design of this kind meets, and what this one has not yet tackled.
   relays the reply passes it on as untrusted. A response stamp under the partner's
   keyring, which the egress already holds from the session reply, would attest it;
   that is a spec addition.
+- **Every hop after the origin reads every fact.** The origin's block travels
+  unchanged to every later hop on every branch of the request tree, and every record
+  of the blocks keeps it, so a value that must stay out of evidence, such as a card
+  number, cannot be a fact. In the Java mesh the card is not one, so code in `orders`
+  that swaps it is served (row 17d of
+  [the scenarios](../poc-demos/java-mesh/README.md#running-it)). Keeping a fact from
+  the hops that do not need it is a direction.
+- **Intent stops at the egress.** The origin's block does not cross the boundary,
+  and an egress puts no `intent` item in its boundary block, so a partner is handed
+  no facts, and a partner handler that requires one refuses every call
+  `INTENT_MISSING`. The last comparison is on this side: in the Java mesh, `payment`,
+  the egress, compares the charge with the facts and sends the PSP one built from
+  them. The partner relies on the egress for the request, as it does today.
 
 ## Limits of this proof of concept
 
@@ -300,6 +360,12 @@ Engineering shortcuts of this repository, not of the design.
   answers do not change. Letting an operator choose the provider, with the SDK
   refusing to start unless that provider answers the vectors that separate the
   equations, would lift this.
+- **Only the Java SDK runs the `intent` checks on a request.** Its HTTP receiver runs
+  the item check, the Spring starter the check of a handler's required facts, and the
+  Java mesh uses both. The Go SDK has them as functions and replays their vectors,
+  but its HTTP receiver does not run them: a Go service calls them from its own code.
+  The TypeScript SDK does not implement `intent`, and the extension has no MCP form
+  ([intent](../poc-sdks/spec/intent.md)).
 - **The demo includes a replay harness.** The Java demo's `payment` can retain its
   last request (`/debug/last-request`, only when `MESH_CAPTURE=true`) so the
   demo can replay and mutate a genuinely valid request. The harness lives in the

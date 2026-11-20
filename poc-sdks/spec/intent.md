@@ -23,11 +23,12 @@ Contents: [What it is for](#what-it-is-for) · [Facts and the item](#facts-and-t
 ## What it is for
 
 A stamp binds the request its signer sends, so a compromised hop can make the calls its route allows with any
-arguments ("A hop chooses what it sends", in the [known limits](../../docs/limits.md#limits-of-the-concept)). The
-origin's stamp binds what the origin sent, but a later receiver does not see that request, so it cannot check its own
-against it. Intent narrows that limit for the values the origin states as facts: a receiver that requires a fact
-refuses a request whose own value differs from it. A compromised hop can still choose any value that is not a fact,
-and can still make or withhold the calls its route allows ([What it does not do](#what-it-does-not-do)).
+arguments ("A hop chooses what it sends, except what the origin signed", in the
+[known limits](../../docs/limits.md#limits-of-the-concept)). The origin's stamp binds what the origin sent, but a
+later receiver does not see that request, so it cannot check its own against it. Intent narrows that limit for the
+values the origin states as facts: a receiver that requires a fact refuses a request whose own value differs from it.
+A compromised hop can still choose any value that is not a fact, and can still make or withhold the calls its route
+allows ([What it does not do](#what-it-does-not-do)).
 
 For example, a customer buys order `123` for 100. The entry point, which is the origin, states the facts `amount`,
 `customer` and `order`. The order service then calls the payment service, which requires all three. The payment
@@ -118,9 +119,8 @@ the one the comparison is there to check. This is the application's duty, and no
 
 A receiver MUST take the facts a handler requires from its own configuration, never from the request or its caller.
 It holds, beside each handler that compares, the names of the facts that handler requires, so the requirement and the
-comparison change together. Nothing is signed by the
-policy owner and nothing is pinned: a change is a deployment of that service, and the root and keyrings stay as they
-are.
+comparison change together. Nothing is signed by the policy owner and nothing is pinned: a change is a deployment of
+that service, and the root and keyrings stay as they are.
 
 A fact that is only sometimes present needs no rule. The origin's signature covers the whole item, so a name that is
 not in `facts` is one the origin did not state, and a handler can rely on that absence in a verified hand-over.

@@ -25,15 +25,25 @@ These are design directions, except where a bullet says what is built.
   handshake, influence tracking and response attestation are built in the
   TypeScript SDK and [the agents demo](../poc-demos/agents-mcp/README.md), against a
   mock MCP server. Still open: running it in a production agent runtime.
-- **Origin-signed intent.** A compromised hop on an allowed route chooses the
-  arguments of the calls it makes ([limits](limits.md#limits-of-the-concept)). If
-  the origin, or the user's own client, signed the facts a downstream service acts
-  on (who, what, how much) into the chain, a receiver could check its request
-  against them, and the arguments would no longer be the hop's to choose. The user's
-  identity in that intent would also let a receiver apply per-user limits a
-  compromised hop could not evade. OAuth Transaction Tokens and the authorization
-  details of RFC 9396 carry facts like these from a central issuer; here they would
-  travel with the chain, signed by its origin.
+- **Origin intent, further.** The extension `intent` is built: the origin states
+  facts about a request in its own block, and a receiver whose handler requires a
+  fact refuses a request that lacks it or differs from it
+  ([intent](../poc-sdks/spec/intent.md),
+  [limits](limits.md#limits-of-the-concept)). What remains is open. Every hop after
+  the origin reads every fact; sealing, with the construction of SD-JWT (RFC 9901),
+  could keep each fact from the hops not on the way to a receiver that requires it:
+  the origin would sign one salted digest per fact, and a value and its salt would
+  travel only on that way. The item is closed, so that would be a format change for
+  every implementation that acts on `intent`. A value worked out mid-request, such
+  as a total a pricing service computes, has no signer but the hop that sends it;
+  signed by the service that derived it, it could be required under that service's
+  key. The origin's signature could cross the boundary, so that a partner could
+  compare its request with the facts itself instead of relying on the egress. The
+  user's own client could sign the facts, making them the user's statement rather
+  than the entry point's, and letting a receiver apply per-user limits a
+  compromised hop could not evade. A hop that withholds the call that would compare
+  is caught by nothing yet; a detector over the logged chains could flag it
+  ("Detecting misuse on allowed routes", below). And `intent` has no MCP form.
 - **Influence carried forward.** Each call could carry the influence its signer
   received as well as the influence it sends, each part committed by the stamp that
   sent it, so a receiver could check that no entry was dropped along the chain. A

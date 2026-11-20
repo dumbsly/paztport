@@ -85,7 +85,7 @@ sitting reads it; its spec is [intent.md](../poc-sdks/spec/intent.md).
 
 | Read | What to look for | Lines |
 |---|---|---|
-| [influence.md](../poc-sdks/spec/influence.md) | Classes, entries and labels; the every-stamp rule; the owner-aware rule and trusted records; influence over MCP; blinded influence at the boundary, which the TypeScript core does not implement. | 447 |
+| [influence.md](../poc-sdks/spec/influence.md) | Classes, entries and labels; the every-stamp rule; the owner-aware rule and trusted records; influence over MCP; blinded influence at the boundary, which the TypeScript core does not implement. | 446 |
 | [influence/influence.ts](../poc-sdks/typescript/core/src/influence/influence.ts) | The classes, and an entry's schema. | 105 |
 | [influence/label.ts](../poc-sdks/typescript/core/src/influence/label.ts) | A content label's schema. | 32 |
 | [influence/label-entry.ts](../poc-sdks/typescript/core/src/influence/label-entry.ts) | A label as the entry a caller records. | 14 |
@@ -93,7 +93,7 @@ sitting reads it; its spec is [intent.md](../poc-sdks/spec/intent.md).
 | [influence/response.ts](../poc-sdks/typescript/core/src/influence/response.ts) | The labels a response over MCP carries, or one `local-untrusted` entry. | 61 |
 | [influence/influence-rule.ts](../poc-sdks/typescript/core/src/influence/influence-rule.ts) | The owner-aware rule, the every-stamp rule before it, and the condition for a trusted record. | 44 |
 | [influence/server-decision.ts](../poc-sdks/typescript/core/src/influence/server-decision.ts) | An MCP server's decision on a verified call, with the classes it served in the session. | 47 |
-| **Total** | | 823 |
+| **Total** | | 822 |
 
 ## Sessions
 

@@ -223,10 +223,9 @@ which its stamp commits to and every later hop forwards unchanged. The core's pa
 - **At an origin.** The handler seals the facts with `RequestContext.sealIntent(facts)`,
   once per request, and every call its scope makes then puts them in its own block under
   `intent`; the function form, which touches no thread-local, is
-  `HttpCaller.stamp(..., intent)`. Only an
-  origin seals facts, on a service that acts on `intent`: a call with an inbound chain,
-  or from a service that does not act on it, throws `IllegalStateException` before
-  anything is signed.
+  `HttpCaller.stamp(..., intent)`. Only an origin seals facts, on a service that acts on
+  `intent`: a call with an inbound chain, or from a service that does not act on it,
+  throws `IllegalStateException` before anything is signed.
 - **At a receiver.** A service that acts on `intent` refuses items under it that do not
   read, `400 {"reason":"INTENT_MISMATCH"}`, verified or not and in every mode, after
   `influence`'s own item check. A Spring handler annotated `@RequiresIntent` is checked
@@ -244,7 +243,9 @@ handler that does not, or whose annotation names no fact or a name that is not a
 name, does not start. Only a request-mapping handler method (`@RequestMapping`,
 `@PostMapping` and the like) can carry `@RequiresIntent`: the check sees no other handler,
 so a service that puts it on any other bean method, such as a helper or a method a router
-function refers to, does not start either.
+function refers to, does not start either. A bean created lazily or per request is looked
+at by the type its definition declares, so an annotation on a method that type does not
+show is not found at the start.
 
 ```java
 // The origin (paztport.origin=true): the facts are the values it acts on.

@@ -75,7 +75,7 @@ the block above, all of its documentation ([How it was built](#how-it-was-built)
 
 `./run java-mesh` builds the Java SDK and the mesh demo, then runs every
 scenario. It needs Maven on Java 25 or newer, and Docker, its daemon running,
-with Compose. A green run ends `27 passed, 0 failed`, and the mesh stays up.
+with Compose. A green run ends `32 passed, 0 failed`, and the mesh stays up.
 `./run test` runs the repository's checks and every suite, with no Docker and no
 model. `./run test --container` runs the same suites in a container, needing only
 Docker and git. [Running it](#running-it) has the other demos and what each
@@ -127,11 +127,12 @@ with a clean copy, automatically, within seconds.
 
 - It limits what a break-in is worth. A compromised component keeps its position and
   nothing more: the calls its routes allow, once for each live request that reaches
-  it, though it chooses what those calls carry. An attacker who takes over the
-  search service gets the search service, not the payment system behind it, and one
-  who takes over `orders` can ask `payment` to pay only inside a request that came
-  in to create an order. Paztport doesn't make the compromised machine trustworthy;
-  it limits how far the compromise can travel, and
+  it, though it chooses what those calls carry, beyond the facts the origin stated
+  that a receiver requires ([Origin intent](#origin-intent)). An attacker who takes
+  over the search service gets the search service, not the payment system behind it,
+  and one who takes over `orders` can ask `payment` to pay only inside a request that
+  came in to create an order. Paztport doesn't make the compromised machine
+  trustworthy; it limits how far the compromise can travel, and
   [What it doesn't do](#what-it-doesnt-do) says what it leaves open.
 - It carries calls between organisations, with the sender's internal route kept
   inside. The Java and Go SDKs implement this over HTTP; in the Java mesh, a payment
@@ -166,11 +167,11 @@ with a clean copy, automatically, within seconds.
   destination owner's own data (not measured in this demo).
   [Where this could go](docs/directions.md) says what is still
   open.
-- It is checked end to end. The Java mesh's `demo.sh` makes 27 checks, among them
+- It is checked end to end. The Java mesh's `demo.sh` makes 32 checks, among them
   forged stamps, replays, altered bodies and blocks, expired requests, routes the
-  policy does not list, `audit` mode, and the responder's quarantine with its limit on
-  how often it acts; a green run ends `27 passed, 0 failed`
-  ([the scenarios](poc-demos/java-mesh/README.md#running-it)).
+  policy does not list, an amount changed on the way, `audit` mode, and the
+  responder's quarantine with its limit on how often it acts; a green run ends
+  `32 passed, 0 failed` ([the scenarios](poc-demos/java-mesh/README.md#running-it)).
 - Its cost is measured, on one host. Checking a request takes a few Ed25519
   verifications and SHA-256 hashes. In the
   [Java mesh](poc-demos/java-mesh/README.md#measurements), `enforce` adds about
@@ -483,10 +484,11 @@ would bring the cost of a change close to a list's while keeping the root.
 ### Beyond routes
 
 The stamps and the tree prove which services a request passed through, and that its
-route is allowed. Five more ideas carry the rest of the protocol: which handler each
+route is allowed. Six more ideas carry the rest of the protocol: which handler each
 hop was asked to run, what content shaped a request, which public writes that
-content may make, whether an answer can be believed, and how far one side trusts
-another's calls. Each ends in a link to the spec section that states it in full.
+content may make, what the origin stated about a request, whether an answer can be
+believed, and how far one side trusts another's calls. Each ends in a link to the
+spec section that states it in full.
 
 #### Operations
 
@@ -533,6 +535,21 @@ untrusted content can still steer a customer's own data to that customer, but ne
 someone else's data, or data whose owner nobody knows. The service applying the rule
 takes the destination's owner from its own records, never from the request
 ([the owner-aware rule](poc-sdks/spec/influence.md#the-owner-aware-rule)).
+
+#### Origin intent
+
+A stamp binds what its signer sends, so a compromised hop chooses the arguments of
+its calls. The extension `intent` narrows that: the origin states facts about the
+request, such as the amount a customer was shown, in its own block, which its stamp
+commits to and every later hop forwards unchanged, and a receiver whose handler
+requires a fact refuses a request that lacks it or differs from it. In the Java mesh
+the gateway states a purchase's customer, order and amount, and `payment` refuses a
+charge whose amount `orders` changed, `403 INTENT_DENIED`, though the call came on a
+valid route from a hop whose stamp verifies. Every hop after the origin reads every
+fact, so a value that must stay private, such as the card number, is not one, and a
+swapped card is still served
+([intent](poc-sdks/spec/intent.md),
+[the scenarios](poc-demos/java-mesh/README.md#running-it)).
 
 #### Response attestation
 
@@ -685,10 +702,12 @@ for Paztport to hold and sets out
 
 - A compromised service on an allowed route keeps that route. On each live request
   that reaches it, it can make the calls its route allows with arguments it chooses,
-  and forward only the part of the request's influence it chooses; an attacker who
-  can send requests through the entry point can trigger as many as the entry point
-  lets in. Paztport checks a request's position, not whether the services on its
-  route behave ([limits of the concept](docs/limits.md#limits-of-the-concept);
+  except the facts the origin stated where a receiver requires them
+  ([Origin intent](#origin-intent)), and forward only the part of the request's
+  influence it chooses; an attacker who can send requests through the entry point can
+  trigger as many as the entry point lets in. Paztport checks a request's position,
+  not whether the services on its route behave
+  ([limits of the concept](docs/limits.md#limits-of-the-concept);
   [where this could go](docs/directions.md) has what could narrow it).
 - Whoever holds a service's keys is that service. Proving that a workload is a
   legitimate deployment is left to the workload-identity layer
