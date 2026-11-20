@@ -93,8 +93,8 @@ public enum ReasonCode {
     INFLUENCE_DENIED,
     /**
      * No check of the live order: the extension {@code intent} refused the items handed over under it, which do not
-     * read as one item of facts in the origin's block and none in any later block. 400 over HTTP in either mode; live
-     * only.
+     * read as at most one item of facts in the origin's block and none in any later block. 400 over HTTP in either
+     * mode; live only.
      */
     INTENT_MISMATCH,
     /**

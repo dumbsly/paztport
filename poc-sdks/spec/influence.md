@@ -20,11 +20,12 @@ Contents: [Where influence applies](#where-influence-applies) · [What it does n
 
 Influence guards a component that can be steered by what it reads: a model. An ordinary, deterministic service is
 not steered by content, and has simpler means of its own, such as validating its inputs and authorising its
-callers, so in a mesh of ordinary services the path is the whole of what Paztport says. Influence has work to do
-only around a model: at the service that hosts it, at the services that hand it content, and at the services that
-guard a public write it can reach, possibly several hops later. Every service on a chain that reaches such a write
-acts on `influence`, even one with nothing to add, or [the every-stamp rule](#the-every-stamp-rule) refuses the
-write. Services elsewhere run the core alone, and a mesh with no model runs none of this extension.
+callers, so in a mesh of ordinary services the path is the whole of what the core says, and [`intent`](intent.md) is
+an extension for such a mesh. Influence has work to do only around a model: at the service that hosts it, at the
+services that hand it content, and at the services that guard a public write it can reach, possibly several hops
+later. Every service on a chain that reaches such a write acts on `influence`, even one with nothing to add, or
+[the every-stamp rule](#the-every-stamp-rule) refuses the write. Services elsewhere run the core alone, and a mesh
+with no model runs none of this extension.
 
 Influence is not a general control for backend services: it is for systems with a model in them.
 

@@ -90,14 +90,15 @@ for each stamp, in chain order, that its block does not name `intent`, or the it
 | P1 | The items handed over read, whether or not the hand-over is verified: the first stamp's block holds at most one item under `intent`, and that item reads as [an intent item](#facts-and-the-item); every later stamp's block holds none. | `400 INTENT_MISMATCH` |
 | P2 | Every fact the handler requires ([below](#how-a-receiver-knows-a-fact-is-required)) is named in the item's `facts`, in a verified hand-over, checked once the service knows the handler the request will run ([the receiver's operation](verification.md#http-requests-and-responses)). With no item, or with no verified hand-over, no fact is named ([A request that did not verify](#a-request-that-did-not-verify)). | `403 INTENT_MISSING` |
 
-An item that does not read is one with another member, with no `facts`, with `facts` that is not an object or is
-empty, or with a fact name the name rule refuses. Two items in the origin's block, or any item in a later block, fail
-P1 too. P1 runs at every operation of a service that acts on `intent`, one that requires no fact included, and in
-either mode, so an item that does not read is refused the same way whether or not the chain verified, as `influence`
-refuses its own ([influence.md](influence.md#entries)). Where the chain did not read, or its blocks failed check 9a,
-nothing is handed on ("What a request served without verifying is handed", in
-[the live order](verification.md#the-live-order)), so P1 has nothing to read. A service that acts on both extensions
-runs `influence`'s item check first, then P1.
+An item that does not read is one that is not an object, one with another member, one with no `facts`, one whose
+`facts` is not an object or is empty, or one with a fact name the name rule refuses. Two items in the origin's block,
+or any item in a later block, fail P1 too. P1 runs at every operation of a service that acts on `intent`, one that
+requires no fact included, and in either mode, so an item that does not read is refused the same way whether or not
+the chain verified, as `influence` refuses its own ([influence.md](influence.md#entries)). Where the chain did not
+read, nothing is handed on ("What a request served without verifying is handed", in
+[the live order](verification.md#the-live-order)), so P1 has nothing to read. A request whose blocks fail check 9a is
+never served over HTTP ([HTTP requests](verification.md#http-requests-and-responses)), so P1 never runs on it. A
+service that acts on both extensions runs `influence`'s item check first, then P1.
 
 Then the handler compares the request it was sent with the facts, and refuses a difference with
 `403 INTENT_DENIED`. Which value of the request a fact is compared with is the handler's to say: the extension knows
@@ -115,13 +116,14 @@ the one the comparison is there to check. This is the application's duty, and no
 
 ## How a receiver knows a fact is required
 
-From its own configuration, never from the request. A receiver holds, beside each handler that compares, the names of
-the facts that handler requires, so the requirement and the comparison change together. Nothing is signed by the
+A receiver MUST take the facts a handler requires from its own configuration, never from the request or its caller.
+It holds, beside each handler that compares, the names of the facts that handler requires, so the requirement and the
+comparison change together. Nothing is signed by the
 policy owner and nothing is pinned: a change is a deployment of that service, and the root and keyrings stay as they
 are.
 
 A fact that is only sometimes present needs no rule. The origin's signature covers the whole item, so a name that is
-not in `facts` is one the origin did not state, and a handler can rely on that absence.
+not in `facts` is one the origin did not state, and a handler can rely on that absence in a verified hand-over.
 
 ## A request that did not verify
 
@@ -167,9 +169,8 @@ its owner in the blocks ([influence.md](influence.md#entries)).
 ## What it does not do
 
 - **Privacy between hops.** Every hop reads every fact, and every record of the blocks keeps it. A value that must stay
-  out of evidence cannot be a fact.
-- **Sealing.** Facts are not hidden from hops that do not act on them. A sealed form would be a second member of the
-  item, which every reader of this one refuses, so adding it is a format change for every implementation.
+  out of evidence cannot be a fact. The item is closed, so any further member is a format change for every
+  implementation that acts on `intent`.
 - **A requirement the policy owner signs.** It lives in each receiver's configuration, so nobody outside the service
   can see from the policy what it requires. A receiver deployed without its requirement serves every request, and
   nothing on the caller's side guards against that: `requires` is the direct caller's setting
@@ -178,7 +179,8 @@ its owner in the blocks ([influence.md](influence.md#entries)).
   fact. A ceiling can: `amount-max` is a fact like any other, and a handler refuses an amount above it.
 - **Anything across the boundary.** The origin's block does not cross, and an egress puts no intent item in the
   boundary block ([The origin's part](#the-origins-part)). A partner is handed no facts, so a partner handler that
-  requires one refuses every call `INTENT_MISSING`.
+  requires one refuses every call `INTENT_MISSING`. This rests on the egress keeping that MUST NOT: an item in a
+  boundary block would be the egress's own statement, and a partner's P1 would read it as the first stamp's.
 - **A budget.** A fact is a constraint, not a budget: it says what a request may ask for, not how often. Calls that
   each match the facts each pass the comparison. How often a hop may call a receiver in one request tree is the
   core's to limit, by the nonce key ([freshness and replay](verification.md#freshness-and-replay)).
