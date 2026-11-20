@@ -385,5 +385,17 @@
     "read" : "INTENT_MISMATCH",
     "unreadSigner" : "origin",
     "require" : "INTENT_MISSING"
+  }, {
+    "name" : "the origin states the fact as null",
+    "verified" : true,
+    "actsOn" : true,
+    "stamps" : [ {
+      "svc" : "origin",
+      "items" : [ "{\"facts\":{\"amount\":null}}" ]
+    } ],
+    "needs" : [ "amount" ],
+    "read" : "OK",
+    "unreadSigner" : null,
+    "require" : "OK"
   } ]
 }

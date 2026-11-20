@@ -1,11 +1,11 @@
 # Review path
 
-This is a reading path for a reviewer judging whether Paztport's core holds. The
-core attests the path a request took; the profiles and the two extensions,
-`influence` and `intent`, are built on it
-([the protocol](../poc-sdks/spec/README.md#the-protocol)). The first sitting reads
-the spec's sections on path attestation, then the TypeScript core that implements
-them. Each add-on after it is a further sitting, read the same way. The shared vectors
+This is a reading path for a reviewer judging whether Paztport's core holds. The core
+attests the path a request took; the profiles and the two extensions, `influence` and
+`intent`, are built on it ([the protocol](../poc-sdks/spec/README.md#the-protocol)).
+The first sitting reads the spec's sections on path attestation, then the TypeScript
+core that implements them. Each add-on after it is a further sitting, read the same
+way: its spec, then the code that implements it. The shared vectors
 ([Conformance](../poc-sdks/spec/README.md#conformance)) are the recorded answers the
 SDKs replay. To report a break you find, see [SECURITY.md](../SECURITY.md); anything
 else, see [CONTRIBUTING.md](../CONTRIBUTING.md).
@@ -80,8 +80,7 @@ an add-on uses, its row says so.
 
 The first extension: a record of what content shaped a request, and the rules a
 guarded public write and a trusted record are held to. The core carries its items
-and never reads them. The second, `intent`, is not in the TypeScript core, so no
-sitting reads it; its spec is [intent.md](../poc-sdks/spec/intent.md).
+and never reads them.
 
 | Read | What to look for | Lines |
 |---|---|---|
@@ -94,6 +93,19 @@ sitting reads it; its spec is [intent.md](../poc-sdks/spec/intent.md).
 | [influence/influence-rule.ts](../poc-sdks/typescript/core/src/influence/influence-rule.ts) | The owner-aware rule, the every-stamp rule before it, and the condition for a trusted record. | 44 |
 | [influence/server-decision.ts](../poc-sdks/typescript/core/src/influence/server-decision.ts) | An MCP server's decision on a verified call, with the classes it served in the session. | 47 |
 | **Total** | | 822 |
+
+## Intent
+
+The second extension: facts the origin states about a request in its own block,
+which a receiver several hops on compares with the request it is sent. It is not in
+the TypeScript core. The Java SDK runs its checks on each request a service
+receives, and the Go package holds them as functions a service calls.
+
+| Read | What to look for | Lines |
+|---|---|---|
+| [intent.md](../poc-sdks/spec/intent.md) | Facts and the item; the origin's part; checks P1 and P2 at a receiver, and the refusal of any item at a partner; why a fact is believed only from a verified hand-over; the codes, and which are attested; what every hop learns. | 234 |
+| [intent/intent.go](../poc-sdks/go/intent/intent.go) | `ParseItem`, the item's schema; `ReadRequest`, check P1 over what a service is handed; `Require`, check P2, which believes no fact from a hand-over that is not verified. | 152 |
+| **Total** | | 386 |
 
 ## Sessions
 
@@ -196,7 +208,7 @@ sitting's spec row.
 | Read | What to look for | Lines |
 |---|---|---|
 | [wire.md: HTTP](../poc-sdks/spec/wire.md#http) | The headers a request and a response carry. | 58 |
-| [verification.md: HTTP requests and responses](../poc-sdks/spec/verification.md#http-requests-and-responses) | The receiver's and the caller's checks around the live order, and who attests. | 186 |
+| [verification.md: HTTP requests and responses](../poc-sdks/spec/verification.md#http-requests-and-responses) | The receiver's and the caller's checks around the live order, and who attests. | 188 |
 | [verification.md: Modes and refusals](../poc-sdks/spec/verification.md#modes-and-refusals) | Enforce and audit, and what a refusal carries. | 48 |
 | [spec: The HTTP rules in http-v4.json](../poc-sdks/spec/README.md#the-http-rules-in-http-v4json) | The rules the HTTP vectors pin, kind by kind. | 109 |
 | [wire/doc.go](../poc-sdks/go/paztporthttp/wire/doc.go) | The package's overview. | 29 |
@@ -223,4 +235,4 @@ sitting's spec row.
 | [unsafe.go](../poc-sdks/go/paztporthttp/unsafe.go) | The endpoints an unsafe session refuses. | 29 |
 | [boundary/doc.go](../poc-sdks/go/paztporthttp/boundary/doc.go) | The egress's steps, in order. | 58 |
 | [boundary/egress.go](../poc-sdks/go/paztporthttp/boundary/egress.go) | The egress: the session, the boundary stamp and blinded influence. | 675 |
-| **Total** | | 3,593 |
+| **Total** | | 3,595 |

@@ -417,6 +417,10 @@ cd poc-sdks/java && mvn -q -pl core test -Dtest=IntentVectorsExport -Dpaztport.e
 - `requests`: the items a service is handed, whether they are verified, whether the service acts on `intent` and the
   facts its handler requires, with the answers of checks P1 (`read`, `unreadSigner`) and P2 (`require`).
 
+No shared vector pins the status and body of an `intent` refusal, and `http-v4.json` holds no `INTENT_*` case:
+[intent.md](intent.md#reason-codes) states them, and the Java SDK's own tests hold them (`HttpReceiverTest`,
+`IntentCheckTest`).
+
 ### json.json
 
 `json.json` is written by a generator, `poc-sdks/typescript/core/test/vectors-json-export.ts`. Every answer in the

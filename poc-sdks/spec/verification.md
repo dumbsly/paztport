@@ -465,9 +465,11 @@ served at all, at a service that runs the live order only to attest as at any ot
 request stamp, so attesting a chain nobody checked would let anyone mint stamps under the service's key: on a forged
 one-stamp chain with an empty `sig`, the response is a valid origin stamp from the answering service. So a service
 with nothing to verify with never attests, and an origin, which starts each request tree afresh, never attests. Nor
-is a refusal attested, or a request that failed in audit mode. Where a service confirms its operation a second time,
-it attests only an answer whose handler it confirmed ([The receiver's operation](#http-requests-and-responses)). A
-service runs the live order at most once per request, since it spends the request's nonce key.
+is a refusal the service writes in place of the handler's answer attested, or a request that failed in audit mode; a
+handler's own answer is, a refusal it makes itself included, such as `INFLUENCE_DENIED` or `INTENT_DENIED`. Where a
+service confirms its operation a second time, it attests only an answer whose handler it confirmed
+([The receiver's operation](#http-requests-and-responses)). A service runs the live order at most once per request,
+since it spends the request's nonce key.
 
 **A response, at the caller.** The caller checks `X-Path-Response` with `stamps` = the chain it sent then the
 response stamp, `blocks` = the blocks it sent then the response's `block`, its own `allowedExtensions` and
@@ -631,7 +633,7 @@ relies on every recorded time. No edit to a record moves a `notAfter`, because t
 | `UNSAFE_SESSION` | server decision | The tool is disabled in an unsafe session. |
 | `INFLUENCE_MISMATCH` | extension, live and offline | Its extension refused an item on a request's block that does not read ([influence.md](influence.md#entries)). |
 | `INFLUENCE_DENIED` | extension | Its extension refused a public write, at a service or in the client's local gate: [the every-stamp rule](influence.md#the-every-stamp-rule) or [the owner-aware rule](influence.md#the-owner-aware-rule). |
-| `INTENT_MISMATCH` | extension, live | Its extension refused the items handed over under it, which do not read ([intent.md](intent.md#the-receivers-part)). |
+| `INTENT_MISMATCH` | extension, live | Its extension refused the items handed over under it, which do not read, or, at a partner, any item under it ([intent.md](intent.md#the-receivers-part)). |
 | `INTENT_MISSING` | extension | Its extension refused a request that lacks, in a verified hand-over, a fact the handler requires ([intent.md](intent.md#the-receivers-part), [a request that did not verify](intent.md#a-request-that-did-not-verify)). |
 | `INTENT_DENIED` | extension | The receiving application compared its request with the facts of its extension and refused ([intent.md](intent.md#the-receivers-part)). |
 | `SCOPE_DENIED` | client local ([MCP profile](README.md#the-mcp-profile)) | The local gate: a path or program outside the signed rules. |

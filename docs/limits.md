@@ -224,17 +224,18 @@ What any design of this kind meets, and what this one has not yet tackled.
   through the entry point can trigger as many of those as the entry point lets in
   (see the Java demo's
   [threat model](../poc-demos/java-mesh/README.md#threat-model)).
-- **A hop chooses what it sends, except what the origin signed.** A stamp binds the
-  request its signer sends, so a compromised hop can make the calls its route allows
-  with any arguments. With the extension `intent`, the origin states facts about the
-  request, such as the amount a customer was shown, in its own block, which its stamp
-  commits to and every later hop forwards unchanged. A handler that requires a fact
-  runs only when a verified origin stated it; a handler that compares the fact with
-  its request refuses a value that differs
-  ([intent](../poc-sdks/spec/intent.md#the-receivers-part)). Everything else is still
-  the hop's: every argument of a call to a handler that requires no fact; every field
-  no fact covers; every value a handler does not compare, or compares and then relays
-  as the bytes it parsed; and any amount up to a ceiling the origin states as a fact.
+- **A hop chooses what it sends, except the values a receiver compares with facts the
+  origin stated.** A stamp binds the request its signer sends, so a compromised hop
+  can make the calls its route allows with any arguments. With the extension
+  `intent`, the origin states facts about the request, such as the amount a customer
+  was shown, in its own block, which its stamp commits to and every later hop
+  forwards unchanged. A handler that requires a fact runs only when a verified origin
+  stated it; a handler that compares the fact with its request refuses a value that
+  differs ([intent](../poc-sdks/spec/intent.md#the-receivers-part)). Everything else
+  is still the hop's: every argument of a call to a handler that requires no fact;
+  every field no fact covers; every value a handler does not compare, or compares and
+  then relays as the bytes it parsed; and any amount up to a ceiling the origin
+  states as a fact.
 - **A fact is a constraint, not a budget.** It says what a call may carry, not how
   often the call is made: calls that each match the facts each pass the comparison.
   How often a hop calls a receiver in one request tree is the nonce key's to limit,
@@ -314,12 +315,13 @@ What any design of this kind meets, and what this one has not yet tackled.
   that swaps it is served (row 17d of
   [the scenarios](../poc-demos/java-mesh/README.md#running-it)). Keeping a fact from
   the hops that do not need it is a direction.
-- **Intent stops at the egress.** The origin's block does not cross the boundary,
-  and an egress puts no `intent` item in its boundary block, so a partner is handed
-  no facts, and a partner handler that requires one refuses every call
-  `INTENT_MISSING`. The last comparison is on this side: in the Java mesh, `payment`,
-  the egress, compares the charge with the facts and sends the PSP one built from
-  them. The partner relies on the egress for the request, as it does today.
+- **Intent stops at the egress.** The origin's block does not cross the boundary, and
+  an egress puts no `intent` item in its boundary block, which a partner that acts on
+  `intent` would refuse `INTENT_MISMATCH`, so a partner is handed no facts, and a
+  partner handler that requires one refuses every call `INTENT_MISSING`. The last
+  comparison is on this side: in the Java mesh, `payment`, the egress, compares the
+  charge with the facts and sends the PSP one built from them. The partner relies on
+  the egress for the request, as it does today.
 
 ## Limits of this proof of concept
 
