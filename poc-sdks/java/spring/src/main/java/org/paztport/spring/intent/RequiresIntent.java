@@ -16,9 +16,12 @@ import java.lang.annotation.Target;
  * the facts from {@link org.paztport.http.OriginIntent#facts}, compares them with its request, and answers a
  * difference {@code 403 INTENT_DENIED} ({@link org.paztport.http.OriginIntent#deny}).
  *
- * <p>A service with an annotated handler acts on {@code intent} ({@code paztport.extensions.acts-on}), and each name
- * is a fact name: 1 to 32 of {@code a} to {@code z}, {@code 0} to {@code 9} and {@code -}. Otherwise the context does
- * not start ({@link IntentConfiguration}).
+ * <p>Only a request-mapping handler method, one a {@code @RequestMapping} annotation or its shortcuts such as
+ * {@code @PostMapping} map, can carry it: {@link IntentCheck} sees no other handler, so on any other method of a bean,
+ * a helper the handler calls or a method a router function refers to, nothing would check it. A service with an
+ * annotated handler acts on {@code intent} ({@code paztport.extensions.acts-on}), and each name is a fact name: 1 to
+ * 32 of {@code a} to {@code z}, {@code 0} to {@code 9} and {@code -}. Otherwise, or where the annotation is on a
+ * method that is not a request-mapping handler, the context does not start ({@link IntentConfiguration}).
  */
 @Target(ElementType.METHOD)
 @Retention(RetentionPolicy.RUNTIME)

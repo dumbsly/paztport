@@ -222,7 +222,8 @@ which its stamp commits to and every later hop forwards unchanged. The core's pa
   is not verified, since a fact is believed only from a verified one.
 - **At an origin.** The handler seals the facts with `RequestContext.sealIntent(facts)`,
   once per request, and every call its scope makes then puts them in its own block under
-  `intent` (`HttpCaller.stamp(..., intent)` is the function the binding calls). Only an
+  `intent`; the function form, which touches no thread-local, is
+  `HttpCaller.stamp(..., intent)`. Only an
   origin seals facts, on a service that acts on `intent`: a call with an inbound chain,
   or from a service that does not act on it, throws `IllegalStateException` before
   anything is signed.
@@ -240,7 +241,10 @@ which its stamp commits to and every later hop forwards unchanged. The core's pa
 
 Both services set `paztport.extensions.acts-on: [intent]`; a service with an annotated
 handler that does not, or whose annotation names no fact or a name that is not a fact
-name, does not start.
+name, does not start. Only a request-mapping handler method (`@RequestMapping`,
+`@PostMapping` and the like) can carry `@RequiresIntent`: the check sees no other handler,
+so a service that puts it on any other bean method, such as a helper or a method a router
+function refers to, does not start either.
 
 ```java
 // The origin (paztport.origin=true): the facts are the values it acts on.

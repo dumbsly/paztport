@@ -12,6 +12,7 @@ import org.paztport.core.verify.ReasonCode;
 import org.paztport.http.HttpAnswer;
 import org.paztport.http.OriginIntent;
 import org.paztport.spring.internal.Refusals;
+import org.springframework.web.context.request.async.WebAsyncUtils;
 import org.springframework.web.method.HandlerMethod;
 import org.springframework.web.servlet.HandlerInterceptor;
 
@@ -25,14 +26,18 @@ import org.springframework.web.servlet.HandlerInterceptor;
  * reached by an include, which cannot set the status, the inbound filter writes it once the chain returns, as it
  * does the dispatch check's. A handler without the annotation is not touched.
  *
- * <p>The async dispatch that resumes a handler's work is not checked again where that handler passed this check on
- * the request's dispatch; the request's scope, and its facts, have ended by then. Any other dispatch to an annotated
- * handler is checked, and one that reaches it outside the request's scope is refused, as nothing verified was handed
- * on there.
+ * <p>The async dispatch that resumes a handler's work, where Spring hands it the result its async work produced and
+ * does not run the method again, is not checked again when that same handler method passed this check on the
+ * request's own dispatch; the request's scope, and its facts, have ended by then. Any other dispatch to an annotated
+ * handler is checked, another handler reached by an async dispatch included, and one that reaches it outside the
+ * request's scope is refused, as nothing verified was handed on there.
+ *
+ * <p>Where the inbound filter did not run, on a path in {@code paztport.unverified-paths}, nothing writes the refusal
+ * an included handler owes: the handler still does not run, and nothing is attested.
  */
 final class IntentCheck implements HandlerInterceptor {
 
-    /** The request attribute that marks a request whose handler passed this check. */
+    /** The request attribute that holds the handler method that passed this check on the request's own dispatch. */
     private static final String PASSED = IntentCheck.class.getName() + ".passed";
 
     private final OriginIntent intent;
@@ -49,17 +54,26 @@ final class IntentCheck implements HandlerInterceptor {
             return true;
         }
         RequiresIntent requires = method.getMethodAnnotation(RequiresIntent.class);
-        if (requires == null
-                || (request.getDispatcherType() == DispatcherType.ASYNC && request.getAttribute(PASSED) != null)) {
+        if (requires == null || resumes(request, method)) {
             return true;
         }
         ReasonCode reason = intent.require(List.of(requires.value()));
         if (reason == ReasonCode.OK) {
-            request.setAttribute(PASSED, Boolean.TRUE);
+            request.setAttribute(PASSED, method.getMethod());
             return true;
         }
         Refusals.writeInPlaceOfHandler(request, response,
                 HttpAnswer.refusal(reason == ReasonCode.INTENT_MISMATCH ? 400 : 403, reason));
         return false;
+    }
+
+    /**
+     * Whether this is the async dispatch that hands {@code method} the result of the work it started, after that same
+     * method passed this check: Spring then does not run the method again, it only returns the result.
+     */
+    private static boolean resumes(HttpServletRequest request, HandlerMethod method) {
+        return request.getDispatcherType() == DispatcherType.ASYNC
+                && method.getMethod().equals(request.getAttribute(PASSED))
+                && WebAsyncUtils.getAsyncManager(request).hasConcurrentResult();
     }
 }

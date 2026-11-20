@@ -269,7 +269,7 @@ public final class InboundFilter extends OncePerRequestFilter {
                 return;
             }
             // Set before any handler runs, so a check that refuses one in an include can still mark it.
-            Refusals.prepareInPlaceOfHandler(request);
+            Refusals.Mark mark = Refusals.prepareInPlaceOfHandler(request);
             VerifiedOperation verified = null;
             if (accepted.operation() != null && request.getDispatcherType() == DispatcherType.REQUEST) {
                 // Read as the handler is about to run, which catches a later filter that changes the handler or item.
@@ -283,10 +283,10 @@ public final class InboundFilter extends OncePerRequestFilter {
             }
             if (!accepted.attests()) {
                 chain.doFilter(wrapped, response);
-                writeOwedRefusal(request, verified, response);
+                writeOwedRefusal(mark, verified, response);
                 return;
             }
-            Pending pending = new Pending(accepted, verified, new ContentCachingResponseWrapper(response));
+            Pending pending = new Pending(accepted, verified, mark, new ContentCachingResponseWrapper(response));
             // A forward finishes the answer when it returns (see doFilter); one the chain leaves unfinished, because
             // a handler threw, is never finished by a dispatch that comes later, such as the error page's.
             request.setAttribute(PENDING, pending);
@@ -332,7 +332,7 @@ public final class InboundFilter extends OncePerRequestFilter {
         ContentCachingResponseWrapper cached = pending.cached;
         VerifiedOperation verified = pending.verified;
         // Written before an async start returns, so an include a filter then follows with async work is refused.
-        writeOwedRefusal(request, verified, cached);
+        writeOwedRefusal(pending.mark, verified, cached);
         if (request.isAsyncStarted()) {
             // The handler returned before writing its body, so there is nothing yet to attest. The body is written
             // into the wrapper later, on another thread, and must still reach the caller whole.
@@ -344,7 +344,7 @@ public final class InboundFilter extends OncePerRequestFilter {
         // operation's, or that an interceptor wrote before the handler was reached, is not the confirmed
         // operation's, so it is not attested. A refusal Paztport wrote in place of the handler's answer is not the
         // handler's either, operation or none.
-        if (attestable && !cached.isCommitted() && !Refusals.inPlaceOfHandler(request) && (verified == null
+        if (attestable && !cached.isCommitted() && !pending.mark.marked() && (verified == null
                 || (verified.checked() && verified.reached() && !verified.contradicted()))) {
             String attestation = pending.accepted.attest(cached.getStatus(), cached.getContentAsByteArray(),
                     RequestContext.labels());
@@ -361,13 +361,13 @@ public final class InboundFilter extends OncePerRequestFilter {
      * place of anything a filter after this one wrote around the include. A response already committed has gone out
      * with what that filter sent and cannot be refused; its handler did not run, and nothing is attested for it.
      */
-    private static void writeOwedRefusal(HttpServletRequest request, VerifiedOperation verified,
+    private static void writeOwedRefusal(Refusals.Mark mark, VerifiedOperation verified,
             HttpServletResponse response) throws IOException {
         if (verified != null && verified.refusalOwed() && !response.isCommitted()) {
             response.resetBuffer();
             Refusals.write(response, VerifiedOperation.REFUSAL);
         }
-        Refusals.writeOwedInPlaceOfHandler(request, response);
+        Refusals.writeOwedInPlaceOfHandler(mark, response);
     }
 
     /**
@@ -405,17 +405,20 @@ public final class InboundFilter extends OncePerRequestFilter {
 
     /**
      * An answer held for attestation until it is finished: the receiver's decision, the operation recorded for the
-     * check or null, and the wrapper holding the body.
+     * check or null, the mark a refusal in place of the handler's answer sets, and the wrapper holding the body.
      */
     private static final class Pending {
         private final Accepted accepted;
         private final VerifiedOperation verified;
+        private final Refusals.Mark mark;
         private final ContentCachingResponseWrapper cached;
         private boolean finished;
 
-        Pending(Accepted accepted, VerifiedOperation verified, ContentCachingResponseWrapper cached) {
+        Pending(Accepted accepted, VerifiedOperation verified, Refusals.Mark mark,
+                ContentCachingResponseWrapper cached) {
             this.accepted = accepted;
             this.verified = verified;
+            this.mark = mark;
             this.cached = cached;
         }
     }

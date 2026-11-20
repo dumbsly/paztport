@@ -341,32 +341,48 @@ class HttpCallerTest {
         assertEquals(1, sent.blocks().size());
     }
 
+    /** A stamper for {@code svc} that counts each stamp it signs in {@code signed}, by the times it reads its clock. */
+    private static Stamper counting(String svc, KeyPair key, boolean origin, AtomicInteger signed) {
+        return new Stamper(svc, svc + "-1", key.getPrivate(), origin, () -> "rid-1", () -> {
+            signed.incrementAndGet();
+            return 2000L;
+        });
+    }
+
     @Test
     void aLaterHopCannotSealIntent() {
         Stamper.Stamped received = gatewayStamper().next(null, "orders", "b", Block.EMPTY,
                 policy.bundles().get("gateway"));
-        HttpCaller orders = HttpCaller.builder("orders", ordersStamper()).bundle(policy.bundles().get("orders"))
-                .extensions(ACTS_ON_INTENT).build();
+        AtomicInteger signed = new AtomicInteger();
+        HttpCaller orders = HttpCaller.builder("orders", counting("orders", this.orders, false, signed))
+                .bundle(policy.bundles().get("orders")).extensions(ACTS_ON_INTENT).build();
+        URI payment = URI.create("http://payment:8080/pay");
 
         IllegalStateException refused = assertThrows(IllegalStateException.class, () -> orders.stamp("POST",
-                URI.create("http://payment:8080/pay"), NO_BODY, received.chain(), null, List.of(), FACTS));
+                payment, NO_BODY, received.chain(), null, List.of(), FACTS));
         assertTrue(refused.getMessage().contains("only an origin"), refused.getMessage());
 
-        // The context's binding refuses the same, before anything is signed.
+        // The context's binding refuses the same.
         try (RequestContext.Scope scope = RequestContext.open()) {
             RequestContext.setInboundChain(received.chain());
             RequestContext.sealIntent(FACTS);
-            assertThrows(IllegalStateException.class, () -> orders.stampFromContext("POST",
-                    URI.create("http://payment:8080/pay"), NO_BODY));
+            assertThrows(IllegalStateException.class, () -> orders.stampFromContext("POST", payment, NO_BODY));
         }
+        assertEquals(0, signed.get(), "nothing is signed");
+
+        orders.stamp("POST", payment, NO_BODY, received.chain(), null, List.of());
+        assertEquals(1, signed.get(), "the same call without facts is signed, so the count would have seen one");
     }
 
     @Test
     void sealingNeedsTheServiceToActOnIntent() {
         for (ExtensionSettings settings : List.of(ACTS_ON_INFLUENCE, ExtensionSettings.NONE)) {
-            HttpCaller caller = originActingOn(settings);
+            AtomicInteger signed = new AtomicInteger();
+            HttpCaller caller = HttpCaller.builder("gateway", counting("gateway", gateway, true, signed))
+                    .bundle(policy.bundles().get("gateway")).extensions(settings).build();
             assertThrows(IllegalStateException.class, () -> caller.stamp("POST", ORDERS, NO_BODY, null, null,
                     List.of(), FACTS), settings.actsOn().toString());
+            assertEquals(0, signed.get(), "nothing is signed: " + settings.actsOn());
         }
     }
 
@@ -375,10 +391,13 @@ class HttpCallerTest {
         for (ExtensionSettings settings : List.of(ExtensionSettings.NONE, ACTS_ON_INFLUENCE, ACTS_ON_INTENT,
                 ExtensionSettings.of(Set.of(Influence.NAME, Intent.NAME), null))) {
             HttpCaller caller = originActingOn(settings);
+            // The block as it was built before intent: influence's where the service acts on it, else the empty one.
+            Block before = settings.actsOn().contains(Influence.NAME) ? Influence.block(List.of(MINE), List.of())
+                    : Block.EMPTY;
             Block withNull = caller.stamp("POST", ORDERS, NO_BODY, null, null, List.of(MINE), null).blocks().get(0);
             Block sixArguments = caller.stamp("POST", ORDERS, NO_BODY, null, null, List.of(MINE)).blocks().get(0);
-            assertEquals(sixArguments, withNull, settings.actsOn().toString());
-            assertNull(withNull.itemsUnder(Intent.NAME), "no facts, no item: " + settings.actsOn());
+            assertEquals(before, withNull, settings.actsOn().toString());
+            assertEquals(before, sixArguments, settings.actsOn().toString());
         }
     }
 

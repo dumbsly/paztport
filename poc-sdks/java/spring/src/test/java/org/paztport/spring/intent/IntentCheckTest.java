@@ -117,7 +117,11 @@ class IntentCheckTest {
         }
     }
 
-    /** A handler that answers from async work is checked on the request's own dispatch, not again as it resumes. */
+    /**
+     * A handler that answers from async work is checked on the request's own dispatch, not again as it resumes. A
+     * handler that passed and then async-dispatches the request to another annotated handler does not let that one
+     * through: it is checked, outside the request's scope, so it is refused and does not run.
+     */
     @Test
     void anAsyncHandlerIsCheckedOnTheRequestsOwnDispatch(@TempDir Path dir) throws Exception {
         try (Service payment = Service.start(dir, App.class, "enforce")) {
@@ -129,6 +133,12 @@ class IntentCheckTest {
             assertThat(refused.statusCode()).isEqualTo(403);
             assertThat(refused.body()).isEqualTo("{\"reason\":\"INTENT_MISSING\"}");
             assertThat(RAN).containsExactly("later");
+
+            RAN.clear();
+            HttpResponse<String> other = payment.send("/hop", "payment", AMOUNT);
+            assertThat(other.statusCode()).isEqualTo(403);
+            assertThat(other.body()).isEqualTo("{\"reason\":\"INTENT_MISSING\"}");
+            assertThat(RAN).as("hop passed and ran; the handler it dispatched to did not").containsExactly("hop");
         }
     }
 
@@ -253,6 +263,15 @@ class IntentCheckTest {
             assertThat(served.body()).isEqualTo("charged");
             assertThat(RAN).containsExactly("charge");
         }
+    }
+
+    /** An annotation on a bean's method that no request mapping maps would be checked by nothing. */
+    @Test
+    void startupFailsOnAMisplacedAnnotation(@TempDir Path dir) throws Exception {
+        Throwable failed = catchThrowable(() -> Service.start(dir, MisplacedApp.class, "enforce").close());
+
+        assertThat(messages(failed)).anySatisfy(message -> assertThat(message)
+                .contains(Pricing.class.getName() + "#price").contains("not a request-mapping handler method"));
     }
 
     @Test
@@ -479,6 +498,22 @@ class IntentCheckTest {
             RAN.add("later");
             return () -> "later";
         }
+
+        /** Passes on {@code amount}, then dispatches the request's async work to {@code other}. */
+        @PostMapping("/hop")
+        @RequiresIntent("amount")
+        void hop(HttpServletRequest request) {
+            RAN.add("hop");
+            request.startAsync().dispatch("/other");
+        }
+
+        /** Requires a fact {@code hop} does not, so it must be checked on its own. */
+        @PostMapping("/other")
+        @RequiresIntent("customer")
+        String other() {
+            RAN.add("other");
+            return "other";
+        }
     }
 
     @SpringBootConfiguration
@@ -512,6 +547,21 @@ class IntentCheckTest {
         @RequiresIntent("Amount")
         String capital() {
             return "capital";
+        }
+    }
+
+    @SpringBootConfiguration
+    @EnableAutoConfiguration
+    @Import({Handlers.class, Pricing.class})
+    static class MisplacedApp {
+    }
+
+    /** A helper bean whose method carries the annotation, though no request mapping maps it. */
+    static class Pricing {
+
+        @RequiresIntent("amount")
+        long price(long amount) {
+            return amount;
         }
     }
 }
