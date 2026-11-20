@@ -225,22 +225,32 @@ which its stamp commits to and every later hop forwards unchanged. The core's pa
   `intent`; the function form, which touches no thread-local, is
   `HttpCaller.stamp(..., intent)`. Only an origin seals facts, on a service that acts on
   `intent`: a call with an inbound chain, or from a service that does not act on it,
-  throws `IllegalStateException` before anything is signed.
+  throws `IllegalStateException` before anything is signed. Sealing signs the facts
+  into the origin's block; it hides nothing, and every hop after the origin reads them.
 - **At a receiver.** A service that acts on `intent` refuses items under it that do not
   read, `400 {"reason":"INTENT_MISMATCH"}`, verified or not and in every mode, after
   `influence`'s own item check. A Spring handler annotated `@RequiresIntent` is checked
   as it is about to run: a request whose verified origin did not state each name, or that
-  was served without verifying (in `audit` after a failure, or in `off`), is refused
+  was served without verifying (in `audit` after a failure, in `off`, or where a service
+  that verifies only to attest found the chain failed), is refused
   `403 {"reason":"INTENT_MISSING"}`, the handler does not run, and the refusal is never
   attested. The handler reads the facts from `OriginIntent.facts()`, compares them with
   its request, and answers a difference `403 {"reason":"INTENT_DENIED"}`, the code
-  `OriginIntent.deny()` returns. Each answer that is not `OK` logs one
-  `PAZTPORT_TRACE intent` line naming the request, the service, the code and the last
-  signer, never a fact.
+  `OriginIntent.deny()` returns. That is the handler's own answer, so it is attested as
+  any answer of the handler is; `INTENT_MISMATCH` and `INTENT_MISSING`, which Paztport
+  writes in place of the handler's answer, never are. Each answer that is not `OK` logs
+  one `PAZTPORT_TRACE intent` line naming the request, the service, the code and the
+  last signer, never a fact.
+- **At a partner.** The origin's facts do not cross the boundary, so a partner that acts
+  on `intent` refuses a call whose blocks hold any item under it, in any stamp,
+  `400 {"reason":"INTENT_MISMATCH"}`, after `influence`'s item check; a block that names
+  `intent` with no items is served. A partner handler is handed no facts, so one
+  annotated `@RequiresIntent` refuses every call `INTENT_MISSING`.
 
 Both services set `paztport.extensions.acts-on: [intent]`; a service with an annotated
-handler that does not, or whose annotation names no fact or a name that is not a fact
-name, does not start. Only a request-mapping handler method (`@RequestMapping`,
+handler that does not, that is an origin (`paztport.origin=true`), which is handed no
+facts, or whose annotation names no fact or a name that is not a fact name, does not
+start. Only a request-mapping handler method (`@RequestMapping`,
 `@PostMapping` and the like) can carry `@RequiresIntent`: the check sees no other handler,
 so a service that puts it on any other bean method, such as a helper or a method a router
 function refers to, does not start either. A bean created lazily or per request is looked
@@ -336,7 +346,10 @@ refusal, and a chain that did not read).
 `PartnerReceiver.accept(InboundRequest, PeerCert)` does the same for a partner, in the session the caller names: in
 an attested session the session's verifier, which carries the partner's settings, verifies the call, and the handler
 gets the verified chain, its one block and the verified hand-over; in an unsafe session nothing is verified or
-handed on, and the blocks a call carries are not read, so check 9a is not applied to them.
+handed on, and the blocks a call carries are not read, so check 9a is not applied to them. In an attested session a
+partner that acts on `influence` refuses an item that does not read, as above, and one that acts on `intent` then
+refuses any item under it, in any stamp, `400 {"reason":"INTENT_MISMATCH"}`, since the origin's facts do not cross
+the boundary; a block that names `intent` with no items is served.
 `Accepted.result()` is the verification result the decision rests on, or null where none ran, for an adapter to
 report; `PartnerAccepted.result()` is the same for a partner's call. The caller is never told it.
 `Accepted.delivery()` is the request's `Delivery` (`rid`, the last signer's `svc`, the receiver the last stamp names
@@ -673,9 +686,11 @@ receives or calls for the service: both verifiers, the inbound filter's receiver
 stamping interceptor, the egress and a partner's sessions. So a service cannot verify
 under one `acts-on` and build its blocks or read what it is handed under another.
 
-Unset, a service acts on no extension. That is the right setting for a service no model's
-content can reach: the [spec](../spec/influence.md#where-influence-applies) keeps
-`influence` for the services around a model, and a service elsewhere runs the core alone.
+Unset, a service acts on no extension and runs the core alone. That is the right setting
+for a service that no model's content can reach and that neither states the origin's
+facts nor requires them: the [spec](../spec/influence.md#where-influence-applies) keeps
+`influence` for the services around a model, and `intent` is for an origin that states
+facts and a receiver that compares them.
 A service on a chain to a guarded write acts on `influence`, even with nothing to add, or
 [the every-stamp rule](../spec/influence.md#the-every-stamp-rule) refuses the write; so does
 one that labels its answers, uses `PublicWrites`, or takes a labelled answer from a service
@@ -902,7 +917,8 @@ reached, so an application interceptor ordered after it is not told apart. It is
 registered through Spring MVC's configuration, so a handler mapping that an
 application declares as a bean of its own does not run it, and that mapping's answers
 to a chain naming an operation are not attested. A refusal here counts as served in
-the `paztport.request` observation, which ends before the handler runs. Spring's
+the `paztport.request` observation, which ends before the handler runs, and so does
+the intent check's ([The extension `intent`](#the-extension-intent)). Spring's
 method-override filter, `HiddenHttpMethodFilter`
 (`spring.mvc.hiddenmethod.filter.enabled`), is also refused at start: a service with
 its own table does not start beside it.
@@ -1331,10 +1347,12 @@ apart by their distinguished name, not by the CA's key) is `403 SESSION_UNKNOWN`
 In an attested session the chain is verified by that session's own verifier, which
 carries the partner's extension settings (`paztport.extensions.*`, as on any service),
 and the handler is handed the boundary block's items as verified, owners included,
-for the extensions the partner acts on, and the verified chain; in an unsafe session
-nothing is verified or handed on, and the blocks a call carries are not read. Every reply, attested
-or unsafe, lists the extensions the partner acts on, so a client that requires one
-can tell whether it may call. The client's boundary chain is
+for the extensions the partner acts on, and the verified chain, except that a partner
+that acts on `intent` refuses any item under it `400 INTENT_MISMATCH`, so its handlers
+are handed no facts; in an unsafe session nothing is verified or handed on, and the
+blocks a call carries are not read. Every reply, attested or unsafe, lists the
+extensions the partner acts on, so a client that requires one can tell whether it may
+call. The client's boundary chain is
 also the handler's `inboundChain()`, so a partner entry should not call into its
 own mesh from a partner request: its stamps would append to the client's chain.
 `PartnerGate`, a handler interceptor, refuses with `403 UNSAFE_SESSION` any request
@@ -1432,8 +1450,10 @@ meter. The names, keys and values are those of `PaztportObservation`:
 switched `off`, an unsafe or unknown partner session, a caller with no verifier to
 check its response, or a decision that threw. A service that does not verify requests
 has `mode` `none` but records the reason of the check that decides whether it
-attests. `outcome` is `refused` when the request is answered with a refusal in
-place of the handler's answer, or when the decision threw, otherwise `served`.
+attests. `outcome` is `refused` when the receiver answers the request with a refusal
+in place of the handler's answer, or when the decision threw, otherwise `served`. A
+refusal the dispatch check or the intent check writes as the handler is about to run
+counts as `served`, since the observation ends before the handler runs.
 It is there because the reason alone does not show every refusal: under `audit`,
 a request whose blocks fail check 9a is refused `400` while its reason is the
 verifier's code, `EXTENSION_MISMATCH` unless an earlier check failed, a code

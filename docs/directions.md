@@ -29,15 +29,15 @@ These are design directions, except where a bullet says what is built.
   facts about a request in its own block, a receiver whose handler requires a fact
   refuses a request that lacks it, and a handler that compares the fact with its
   request refuses a value that differs ([intent](../poc-sdks/spec/intent.md),
-  [limits](limits.md#limits-of-the-concept)). Still open: hiding a fact from the
-  hops that do not need it, which every hop after the origin now reads, by the
-  construction of SD-JWT (RFC 9901), one salted digest per fact, a format change
-  since the item is closed; a value worked out mid-request, such as a total, signed
-  by the service that derived it; the origin's signature crossing the boundary, so
-  a partner could compare its request with the facts; the user's own client
-  signing the facts, which would also let a receiver apply per-user limits a
-  compromised hop could not evade; a detector for withheld calls ("Detecting misuse
-  on allowed routes", below); and intent over MCP.
+  [limits](limits.md#limits-of-the-concept)). Every hop after the origin reads every
+  fact; hiding a fact from the hops that do not need it would take the construction
+  of SD-JWT (RFC 9901), one salted digest per fact, and a format change, since the
+  item is closed. Also open: a value worked out mid-request, such as a total, signed
+  by the service that derived it; the origin's signature crossing the boundary, so a
+  partner could compare its request with the facts; the user's own client signing the
+  facts, which would also let a receiver apply per-user limits a compromised hop
+  could not evade; a detector for withheld calls ("Detecting misuse on allowed
+  routes", below); and intent over MCP.
 - **Influence carried forward.** Each call could carry the influence its signer
   received as well as the influence it sends, each part committed by the stamp that
   sent it, so a receiver could check that no entry was dropped along the chain. A
