@@ -1,8 +1,8 @@
 # Review path
 
 This is a reading path for a reviewer judging whether Paztport's core holds. The
-core attests the path a request took; the profiles and the one extension,
-`influence`, are built on it
+core attests the path a request took; the profiles and the two extensions,
+`influence` and `intent`, are built on it
 ([the protocol](../poc-sdks/spec/README.md#the-protocol)). The first sitting reads
 the spec's sections on path attestation, then the TypeScript core that implements
 them. Each add-on after it is a further sitting, read the same way. The shared vectors
@@ -31,7 +31,7 @@ an add-on uses, its row says so.
 
 | Read | What to look for | Lines |
 |---|---|---|
-| [spec: The protocol](../poc-sdks/spec/README.md#the-protocol) | What the core is, what a profile and an extension are, and the design choices: the receiver check, operations, one version, one byte form, the signed keyring, the transport peer, extensions. | 50 |
+| [spec: The protocol](../poc-sdks/spec/README.md#the-protocol) | What the core is, what a profile and an extension are, and the design choices: the receiver check, operations, one version, one byte form, the signed keyring, the transport peer, extensions. | 52 |
 | [wire.md: Encodings](../poc-sdks/spec/wire.md#encodings) | Base64url, the domain prefixes, and the signature rule that every signature check applies (check 3). | 55 |
 | [wire.md: JSON](../poc-sdks/spec/wire.md#json) | How an object is read strictly from its bytes and written as one byte form; check 1 reads the chain this way. | 173 |
 | [wire.md: Keys and files](../poc-sdks/spec/wire.md#keys-and-files) | The one key form, and the files a service loads its material from. | 35 |
@@ -49,7 +49,7 @@ an add-on uses, its row says so.
 | [verification.md: The live order](../poc-sdks/spec/verification.md#the-live-order) | Checks 0 to 12, why they run in this order, and what a service is handed on `OK`. | 79 |
 | [verification.md: Freshness and replay](../poc-sdks/spec/verification.md#freshness-and-replay) | The time limits (check 7), the nonce keys and the cache (check 11), and duplicate delivery across replicas. | 51 |
 | [verification.md: Receivers, the peer and attribution](../poc-sdks/spec/verification.md#receivers-the-peer-and-attribution) | Naming the receiver (check 4), the peer (check 10), and whom each result names as suspect. | 56 |
-| [verification.md: Reason codes](../poc-sdks/spec/verification.md#reason-codes) | Every code and where it is given; only the live order's belong to this sitting. | 40 |
+| [verification.md: Reason codes](../poc-sdks/spec/verification.md#reason-codes) | Every code and where it is given; only the live order's belong to this sitting. | 43 |
 | [verify/verify-chain.ts](../poc-sdks/typescript/core/src/verify/verify-chain.ts) | The live order in one function: check 0 before any token is read, then checks 7, 10 and 11, the attribution rule, and the hand-over on `OK`. | 221 |
 | [internal/chain-checks.ts](../poc-sdks/typescript/core/src/internal/chain-checks.ts) | Checks 1 to 6, 8, 9a to 9c and 12, shared with the offline verifier; `signers` and the `live` flag are there for offline verification and local steps. | 253 |
 | [encoding/json.ts](../poc-sdks/typescript/core/src/encoding/json.ts) | The reader check 1 relies on: a token's length first, then its bytes as exactly their canonical form. `readFile` reads files, not tokens. | 296 |
@@ -74,13 +74,14 @@ an add-on uses, its row says so.
 | [policy/validity.ts](../poc-sdks/typescript/core/src/policy/validity.ts) | A valid `notAfter`, and `policyNotAfter` from several keyrings and roots (check 0). | 34 |
 | [policy/policy.ts](../poc-sdks/typescript/core/src/policy/policy.ts) | How the owner builds a tree: random slots, a fresh `rootId`, and each service's proof bundle. | 106 |
 | [verify/reason.ts](../poc-sdks/typescript/core/src/verify/reason.ts) | The codes as types; only the live order's belong to this sitting. | 131 |
-| **Total** | | 3,458 |
+| **Total** | | 3,463 |
 
 ## Influence and the owner-aware rule
 
-The one extension: a record of what content shaped a request, and the rules a
+The first extension: a record of what content shaped a request, and the rules a
 guarded public write and a trusted record are held to. The core carries its items
-and never reads them.
+and never reads them. The second, `intent`, is not in the TypeScript core, so no
+sitting reads it; its spec is [intent.md](../poc-sdks/spec/intent.md).
 
 | Read | What to look for | Lines |
 |---|---|---|
@@ -123,7 +124,7 @@ handshake's MCP form is in the sessions sitting's spec row.
 | Read | What to look for | Lines |
 |---|---|---|
 | [wire.md: MCP](../poc-sdks/spec/wire.md#mcp) | How a call carries its chain over MCP, and a result its attestation. | 37 |
-| [verification.md: The MCP server and client](../poc-sdks/spec/verification.md#the-mcp-server-and-client) | The server's checks of a call and the client's of a response, around the live order. | 67 |
+| [verification.md: The MCP server and client](../poc-sdks/spec/verification.md#the-mcp-server-and-client) | The server's checks of a call and the client's of a response, around the live order. | 68 |
 | [mcp/src/index.ts](../poc-sdks/typescript/mcp/src/index.ts) | The package's exports. | 10 |
 | [mcp/src/meta.ts](../poc-sdks/typescript/mcp/src/meta.ts) | The `_meta` names a call and a result carry, and the handshake's method. | 20 |
 | [mcp/src/binding.ts](../poc-sdks/typescript/mcp/src/binding.ts) | `bindMcpCall`: what a tools/call's last stamp binds (check 8). | 12 |
@@ -133,7 +134,7 @@ handshake's MCP form is in the sessions sitting's spec row.
 | [mcp/src/client.ts](../poc-sdks/typescript/mcp/src/client.ts) | Opening a session and replacing one, stamping a call, and reading a result and what it adds to influence. | 394 |
 | [mcp/src/server.ts](../poc-sdks/typescript/mcp/src/server.ts) | The server's checks of its own policy, the handshake, `McpServerSession.checkCall` and its response stamps, and `handleToolCall`. | 489 |
 | [policy/own-material.ts](../poc-sdks/typescript/core/src/policy/own-material.ts) | `checkOwnMaterial`, the server's checks of its own keyring and root, signature then window, before it serves; and the warnings when one nears expiry. | 77 |
-| **Total** | | 1,341 |
+| **Total** | | 1,342 |
 
 ## Response attestation
 

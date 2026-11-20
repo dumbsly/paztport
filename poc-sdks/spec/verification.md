@@ -298,8 +298,9 @@ when it is one of these codes, and MUST replace anything else, `OK` included, wi
 `EXTENSION_REQUIRED`, `CLIENT_PATH_NOT_ALLOWED`, `INFLUENCE_MISMATCH`, `INFLUENCE_DENIED`, `UNSAFE_SESSION`,
 `SCOPE_DENIED`, `UNCHECKABLE`, `PEER_MISMATCH`, `POLICY_EXPIRED`.
 
-That is every [reason code](#reason-codes) except `OK` and the offline-only `TIME_MISMATCH`,
-`PROMPT_MISMATCH`, `OUTSIDE_SESSION`, `PROOF_MISMATCH`, `RULES_MISMATCH` and `VERDICT_MISMATCH`.
+That is every [reason code](#reason-codes) except `OK`; the offline-only `TIME_MISMATCH`, `PROMPT_MISMATCH`,
+`OUTSIDE_SESSION`, `PROOF_MISMATCH`, `RULES_MISMATCH` and `VERDICT_MISMATCH`; and `INTENT_MISMATCH`, `INTENT_MISSING`
+and `INTENT_DENIED`, which are given over HTTP only ([intent.md](intent.md)).
 
 ## HTTP requests and responses
 
@@ -630,6 +631,9 @@ relies on every recorded time. No edit to a record moves a `notAfter`, because t
 | `UNSAFE_SESSION` | server decision | The tool is disabled in an unsafe session. |
 | `INFLUENCE_MISMATCH` | extension, live and offline | Its extension refused an item on a request's block that does not read ([influence.md](influence.md#entries)). |
 | `INFLUENCE_DENIED` | extension | Its extension refused a public write, at a service or in the client's local gate: [the every-stamp rule](influence.md#the-every-stamp-rule) or [the owner-aware rule](influence.md#the-owner-aware-rule). |
+| `INTENT_MISMATCH` | extension, live | Its extension refused the items handed over under it, which do not read ([intent.md](intent.md#the-receivers-part)). |
+| `INTENT_MISSING` | extension | Its extension refused a request that lacks, in a verified hand-over, a fact the handler requires ([intent.md](intent.md#the-receivers-part), [a request that did not verify](intent.md#a-request-that-did-not-verify)). |
+| `INTENT_DENIED` | extension | The receiving application compared its request with the facts of its extension and refused ([intent.md](intent.md#the-receivers-part)). |
 | `SCOPE_DENIED` | client local ([MCP profile](README.md#the-mcp-profile)) | The local gate: a path or program outside the signed rules. |
 | `UNCHECKABLE` | client local ([MCP profile](README.md#the-mcp-profile)) | The local gate could not tell what the call would touch. |
 

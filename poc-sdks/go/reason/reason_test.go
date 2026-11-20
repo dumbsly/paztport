@@ -19,7 +19,8 @@ var codes = []reason.Code{
 	reason.RIDMismatch, reason.BindingMismatch, reason.Replay, reason.PathNotAllowed, reason.SessionUnknown,
 	reason.InfluenceMismatch, reason.PeerMismatch, reason.PolicyExpired, reason.TimeMismatch,
 	reason.PromptMismatch, reason.OutsideSession, reason.InfluenceDenied, reason.UnsafeSession,
-	reason.ExtensionMismatch, reason.ExtensionNotAllowed, reason.ExtensionRequired,
+	reason.ExtensionMismatch, reason.ExtensionNotAllowed, reason.ExtensionRequired, reason.IntentMismatch,
+	reason.IntentMissing, reason.IntentDenied,
 }
 
 // profile are the codes only the MCP profile and the client's local gate give, which the module leaves

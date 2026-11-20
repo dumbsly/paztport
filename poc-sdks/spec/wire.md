@@ -386,7 +386,7 @@ first `#`, the operation after it. A policy owner MUST NOT sign a keyring that n
 An **extension** is a named kind of claim that a hop attaches at its own point on the path, and an **item** is one
 such claim. Each stamp's signer attaches its items in a **block**, to which its stamp's `ext` commits. The core
 guarantees who made a claim and that it arrived intact, and never reads an item: what an item means is its
-extension's to say. [influence.md](influence.md) defines one extension.
+extension's to say. [influence.md](influence.md) and [intent.md](intent.md) each define one extension.
 
 **Names.** An extension name is 1 to 32 characters, each one of `a` to `z`, `0` to `9` and `-`. A lookup of an
 extension name in a block's `items`, or in a verifier's `actsOn` or `allowedExtensions`

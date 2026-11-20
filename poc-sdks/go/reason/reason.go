@@ -54,11 +54,21 @@ const (
 	ExtensionRequired Code = "EXTENSION_REQUIRED"
 )
 
-// The code of an extension's own rule, outside the live order.
+// The codes of an extension's own rules, outside the live order.
 const (
 	// InfluenceMismatch means the influence extension refused an item on a request's block that does not read.
 	// It is given live and offline; over HTTP it is a 400 in either mode.
 	InfluenceMismatch Code = "INFLUENCE_MISMATCH"
+	// IntentMismatch means the intent extension refused the items handed over under it: they do not read as one
+	// item of facts in the origin's block and none in any later block. It is given live only, over HTTP, as a
+	// 400 in either mode.
+	IntentMismatch Code = "INTENT_MISMATCH"
+	// IntentMissing means the intent extension refused a request that lacks, in a verified hand-over, a fact the
+	// receiving operation requires. It is given over HTTP only, as a 403 in either mode.
+	IntentMissing Code = "INTENT_MISSING"
+	// IntentDenied means the receiving application compared its request with the intent facts and refused. It is
+	// given over HTTP only, as a 403 in either mode.
+	IntentDenied Code = "INTENT_DENIED"
 )
 
 // The codes only an offline verifier gives. A client never accepts one as a server's verdict.

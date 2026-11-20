@@ -12,6 +12,7 @@ The key words MUST, MUST NOT, SHOULD, SHOULD NOT and MAY are to be read as descr
 | [verification.md](verification.md) | The live order of checks, checks 9a to 9c on the blocks, freshness and nonce keys, the receiver and peer checks, attribution, the MCP wrappers, HTTP requests and responses, the two modes and what a refusal carries, offline verification, the reason codes, receiving an event, and guidance for a responder. |
 | [sessions.md](sessions.md) | Sessions, a profile: the handshake over MCP and over HTTP, the extensions a server's reply says it acts on, the session id, status and unsafe sessions, the server's decision, recorded handshakes, and the boundary attestation between organisations. |
 | [influence.md](influence.md) | The extension `influence`: where it applies and what it does not cover, its classes, entries and content labels, the every-stamp rule, the owner-aware rule, trusted records, influence over MCP, and blinded influence at the boundary. |
+| [intent.md](intent.md) | The extension `intent`, over HTTP: what it is for, facts and the item, the origin's part, the receiver's checks and comparison, how a receiver knows a fact is required, a request that did not verify, its reason codes, what every hop learns and what it does not do. |
 | [vectors/](vectors) | The conformance vectors. |
 
 ## The protocol
@@ -28,10 +29,12 @@ freshness, the binding of each stamp to what its hop sent and to the hop it was 
 events ([verification.md](verification.md#receiving-an-event)) and offline verification
 ([verification.md](verification.md#offline-verification)). An **extension** is a named kind of claim that a hop
 attaches at its own point on the path, in a [block](wire.md#blocks) its stamp's `ext` commits to; the core
-guarantees who made the claim and that it arrived intact, and never reads it. One extension exists, `influence`
-([influence.md](influence.md)): a record of what content the context held when an action was decided. It guards a
-component that can be steered by what it reads, a model, so it is for systems with a model in them; a mesh of
-ordinary services runs the core alone.
+guarantees who made the claim and that it arrived intact, and never reads it. Two extensions exist. `influence`
+([influence.md](influence.md)) is a record of what content the context held when an action was decided. It guards a
+component that can be steered by what it reads, a model, so it is for systems with a model in them. `intent`
+([intent.md](intent.md)) is a set of facts the origin states about a request, such as an amount, which a receiver
+several hops on compares with the request it is sent; it is specified for HTTP only. A mesh that needs neither runs
+the core alone.
 
 Design choices:
 

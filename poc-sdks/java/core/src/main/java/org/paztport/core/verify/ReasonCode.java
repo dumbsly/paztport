@@ -92,6 +92,22 @@ public enum ReasonCode {
      */
     INFLUENCE_DENIED,
     /**
+     * No check of the live order: the extension {@code intent} refused the items handed over under it, which do not
+     * read as one item of facts in the origin's block and none in any later block. 400 over HTTP in either mode; live
+     * only.
+     */
+    INTENT_MISMATCH,
+    /**
+     * No check of the live order: the extension {@code intent} refused a request that lacks, in a verified hand-over, a
+     * fact the receiving operation requires. 403 over HTTP in either mode.
+     */
+    INTENT_MISSING,
+    /**
+     * No check of the live order: the receiving application compared its request with the facts of the extension
+     * {@code intent} and refused. The handler answers the request: 403 over HTTP in either mode.
+     */
+    INTENT_DENIED,
+    /**
      * No check of the live order: in an unsafe session, the call reached an endpoint disabled there. 403.
      */
     UNSAFE_SESSION,
