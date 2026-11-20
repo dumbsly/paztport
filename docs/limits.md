@@ -195,23 +195,22 @@ What Paztport needs from a deployment, and what it deliberately doesn't cover ye
   are named in that service's configuration, beside the handler (in the Spring
   starter, an annotation on it), not in the signed policy. A change to them is a
   deployment of that service. A receiver deployed without its requirement serves
-  every request, and nothing outside the service, its callers included, can see what
-  it requires or check that the requirement is there
+  every request, and nothing outside the service, its callers included, can see from
+  the policy what it requires or check that the requirement is there
   ([intent](../poc-sdks/spec/intent.md#how-a-receiver-knows-a-fact-is-required)).
-- **A fact's name means one thing across a system.** A fact is good at every handler
-  that requires its name, so a name the origin states for one purpose is the same
-  fact to every receiver that requires it. No signed policy records the names, so the
-  deployment keeps them apart.
+- **A fact's name means one thing across a system.** A fact is accepted at every
+  handler that requires its name, so a name the origin states for one purpose is the
+  same fact to every receiver that requires it. No signed policy records the names,
+  so the deployment keeps them apart.
 - **A handler that requires a fact refuses what `audit` would serve.** A request that
   did not verify at the hop, such as one served in `audit` after a failure or with
   Paztport off there, has no facts the handler can believe, so it is refused
   `403 INTENT_MISSING` in every mode
   ([intent](../poc-sdks/spec/intent.md#a-request-that-did-not-verify)).
-- **Every verifier allows `intent` before an origin states a fact.** A verifier that
-  sets `allowedExtensions` refuses a block that names `intent` until the set holds
-  it, and the origin's block reaches every hop after it. So a deployment adds
-  `intent` to every such set first, and only then has origins state facts and
-  receivers require them
+- **Allowing `intent` comes first.** A verifier that sets `allowedExtensions` refuses
+  a block that names `intent` until the set holds it, and the origin's block reaches
+  every hop after it. So a deployment adds `intent` to every such set first, and only
+  then has origins state facts and receivers require them
   ([intent](../poc-sdks/spec/intent.md#the-origins-part)).
 
 ## Limits of the concept
@@ -230,10 +229,12 @@ What any design of this kind meets, and what this one has not yet tackled.
   with any arguments. With the extension `intent`, the origin states facts about the
   request, such as the amount a customer was shown, in its own block, which its stamp
   commits to and every later hop forwards unchanged. A handler that requires a fact
-  runs only when a verified origin stated it, and refuses a request whose value
-  differs ([intent](../poc-sdks/spec/intent.md)). Everything else is still the
-  hop's: every argument of a call to a handler that requires no fact, every field no
-  fact covers, and any amount up to a ceiling the origin states as a fact.
+  runs only when a verified origin stated it; a handler that compares the fact with
+  its request refuses a value that differs
+  ([intent](../poc-sdks/spec/intent.md#the-receivers-part)). Everything else is still
+  the hop's: every argument of a call to a handler that requires no fact; every field
+  no fact covers; every value a handler does not compare, or compares and then relays
+  as the bytes it parsed; and any amount up to a ceiling the origin states as a fact.
 - **A fact is a constraint, not a budget.** It says what a call may carry, not how
   often the call is made: calls that each match the facts each pass the comparison.
   How often a hop calls a receiver in one request tree is the nonce key's to limit,
@@ -308,7 +309,7 @@ What any design of this kind meets, and what this one has not yet tackled.
   that is a spec addition.
 - **Every hop after the origin reads every fact.** The origin's block travels
   unchanged to every later hop on every branch of the request tree, and every record
-  of the blocks keeps it, so a value that must stay out of evidence, such as a card
+  of the blocks keeps it. So a value that must stay out of evidence, such as a card
   number, cannot be a fact. In the Java mesh the card is not one, so code in `orders`
   that swaps it is served (row 17d of
   [the scenarios](../poc-demos/java-mesh/README.md#running-it)). Keeping a fact from

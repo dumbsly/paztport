@@ -127,12 +127,12 @@ with a clean copy, automatically, within seconds.
 
 - It limits what a break-in is worth. A compromised component keeps its position and
   nothing more: the calls its routes allow, once for each live request that reaches
-  it, though it chooses what those calls carry, beyond the facts the origin stated
-  that a receiver requires ([Origin intent](#origin-intent)). An attacker who takes
-  over the search service gets the search service, not the payment system behind it,
-  and one who takes over `orders` can ask `payment` to pay only inside a request that
-  came in to create an order. Paztport doesn't make the compromised machine
-  trustworthy; it limits how far the compromise can travel, and
+  it, though it chooses what those calls carry, except the values a receiver compares
+  with facts the origin stated ([Origin intent](#origin-intent)). An attacker who
+  takes over the search service gets the search service, not the payment system
+  behind it, and one who takes over `orders` can ask `payment` to pay only inside a
+  request that came in to create an order. Paztport doesn't make the compromised
+  machine trustworthy; it limits how far the compromise can travel, and
   [What it doesn't do](#what-it-doesnt-do) says what it leaves open.
 - It carries calls between organisations, with the sender's internal route kept
   inside. The Java and Go SDKs implement this over HTTP; in the Java mesh, a payment
@@ -541,15 +541,17 @@ takes the destination's owner from its own records, never from the request
 A stamp binds what its signer sends, so a compromised hop chooses the arguments of
 its calls. The extension `intent` narrows that: the origin states facts about the
 request, such as the amount a customer was shown, in its own block, which its stamp
-commits to and every later hop forwards unchanged, and a receiver whose handler
-requires a fact refuses a request that lacks it or differs from it. In the Java mesh
-the gateway states a purchase's customer, order and amount, and `payment` refuses a
-charge whose amount `orders` changed, `403 INTENT_DENIED`, though the call came on a
-valid route from a hop whose stamp verifies. Every hop after the origin reads every
-fact, so a value that must stay private, such as the card number, is not one, and a
-swapped card is still served
-([intent](poc-sdks/spec/intent.md),
-[the scenarios](poc-demos/java-mesh/README.md#running-it)).
+commits to and every later hop forwards unchanged. A receiver whose handler requires
+a fact refuses a request that lacks it, and a handler that compares the fact with
+its request refuses a value that differs. In the Java mesh the gateway states a
+purchase's customer, order and amount, and `payment` refuses a charge whose amount
+`orders` changed, `403 INTENT_DENIED`, though the call came on a valid route from a
+hop whose stamp verifies. Every hop after the origin reads every fact, so a value
+that must stay private, such as the card number, is not one, and a swapped card is
+still served. A withheld call, a repeated call and a compromised origin are left
+open too ([intent](poc-sdks/spec/intent.md),
+[the scenarios](poc-demos/java-mesh/README.md#running-it),
+[limits of the concept](docs/limits.md#limits-of-the-concept)).
 
 #### Response attestation
 
@@ -702,7 +704,7 @@ for Paztport to hold and sets out
 
 - A compromised service on an allowed route keeps that route. On each live request
   that reaches it, it can make the calls its route allows with arguments it chooses,
-  except the facts the origin stated where a receiver requires them
+  except the values a receiver compares with facts the origin stated
   ([Origin intent](#origin-intent)), and forward only the part of the request's
   influence it chooses; an attacker who can send requests through the entry point can
   trigger as many as the entry point lets in. Paztport checks a request's position,
