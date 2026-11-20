@@ -83,6 +83,7 @@ answers.
 | [`v4.json`](#v4json) | Version 4: stamps and blocks, the live and offline verifiers and sessions, the [MCP profile](#the-mcp-profile), and the extension `influence` in its member `influence` | Written and replayed by TypeScript (`@paztport/core` for the session id, the prompt and response bindings, the block commitment and the Merkle tree, and `@paztport/mcp` for the rest). Replayed by Java (`paztport-core`) and by Go (`poc-sdks/go`, its protocol packages) for every section but the MCP profile's, `influence.response` and the `influence.request` cases whose `served` is not empty. |
 | [`http-v4.json`](#http-v4json) | Version 4 over HTTP | Written and replayed by Java (`paztport-http`), every section, and replayed by Go (`poc-sdks/go`), every section: `paztporthttp` and its two packages, and `policy` for `operations` but its `receive` cases, and `influence` for `boundaryInfluence`. The TypeScript SDK does not speak HTTP and does not replay it. |
 | [`events.json`](#eventsjson) | Responder events | Written and replayed by Java (`paztport-core`), and replayed by TypeScript (`@paztport/core`) and Go (`poc-sdks/go`). |
+| [`intent.json`](#intentjson) | The extension `intent`: reading an item, and checks P1 and P2 ([intent.md](intent.md#the-receivers-part)) | Written and replayed by Java (`paztport-core`), and replayed by Go (`poc-sdks/go`). The TypeScript SDK does not implement `intent` and does not replay it. |
 | [`json.json`](#jsonjson) | Reading and writing JSON ([wire.md](wire.md#json)) | Written by a generator in `@paztport/core`'s tests. Replayed by TypeScript (`@paztport/core`, and `@paztport/mcp` for `toolsCall`), every section but the `http` cases of `bindings`, and by Java (`paztport-core`, and `paztport-http` for `http`) and Go (`poc-sdks/go`) for every section but `jcs` and the MCP profile's `bindings` (`toolsCall`, `result`, `localTool`), which belong to the [MCP profile](#the-mcp-profile); Go replays the `http` bindings in `paztporthttp/wire`. |
 | [`ed25519.json`](#ed25519json) | The [signature rule](wire.md#signatures) | Written by a generator in `@paztport/core`'s tests, and replayed in full by TypeScript (`@paztport/core`), Java (`paztport-core`) and Go (`poc-sdks/go`). |
 
@@ -96,6 +97,7 @@ answers.
 | Operations over HTTP: reading tables, naming operations and their keys | yes | no | yes |
 | Operations over HTTP: confirming them from the receiver's routing | yes | no | no |
 | Responder events | yes | yes | yes |
+| The extension `intent` (`intent.json`) | core | no | yes |
 | Reading and writing JSON (`json.json`) | yes | yes | yes |
 | The signature rule (`ed25519.json`) | yes | yes | yes |
 
@@ -397,6 +399,23 @@ cd poc-sdks/java && mvn -q -pl core test -Dtest=EventVectorsExport -Dpaztport.ex
   instance, with whether a responder may act on it.
 
 Its keys, `payment-next` among them, are derived by the rule of `v4.json`'s `about`.
+
+### intent.json
+
+`intent.json` is written by Java's exporter,
+`poc-sdks/java/core/src/test/java/org/paztport/core/intent/IntentVectorsExport.java`. Its answers are written by hand
+from [intent.md](intent.md), and the replay alone calls the SDK. An implementation that acts on `intent` MUST pass it;
+TypeScript does not implement `intent`. To regenerate the file:
+
+```bash
+cd poc-sdks/java && mvn -q -pl core test -Dtest=IntentVectorsExport -Dpaztport.exportIntentVectors=true \
+  -Dvectors.out="$PWD/../spec/vectors/intent.json" -Dsurefire.failIfNoSpecifiedTests=false
+```
+
+- `items`: an item's text and the facts it reads as, each fact name to the JCS text of its value as a string, or null
+  when it does not read.
+- `requests`: the items a service is handed, whether they are verified, whether the service acts on `intent` and the
+  facts its handler requires, with the answers of checks P1 (`read`, `unreadSigner`) and P2 (`require`).
 
 ### json.json
 

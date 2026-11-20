@@ -5,6 +5,7 @@ package org.paztport.core.intent;
 
 import java.util.Collection;
 import java.util.List;
+import java.util.Objects;
 import org.paztport.core.verify.HandOver;
 import org.paztport.core.verify.ReasonCode;
 
@@ -56,9 +57,11 @@ public final class Intent {
      * among the facts; {@code INTENT_MISMATCH} when the items do not read, which comes before a missing name.
      *
      * @param handOver what the verifier handed the service; null for none
-     * @param needs the names of the facts the handler requires, from the service's own configuration
+     * @param needs the names of the facts the handler requires, from the service's own configuration; not null
+     * @throws NullPointerException {@code needs} null
      */
     public static ReasonCode require(HandOver handOver, Collection<String> needs) {
+        Objects.requireNonNull(needs, "needs");
         if (needs.isEmpty()) {
             return ReasonCode.OK;
         }

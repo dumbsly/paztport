@@ -1,0 +1,359 @@
+{
+  "about" : "Paztport intent conformance vectors (spec intent.md): how an item reads, and what the checks P1 and P2 answer for the items a service is handed under `intent`. Every answer is written by hand from the spec. `items` gives an `item` as the text a block carries, and its `facts`: each fact name to the JCS text of its value as a JSON string, so the integer 100 is \"100\" and the string x is \"\\\"x\\\"\", or null when the item does not read as an intent item, whether the wire reader refuses its text or its schema does. `requests` gives, for a service that handles a request, whether the hand-over is `verified` and whether the service acts on `intent` (`actsOn`); when it does, `stamps` lists each stamp of the chain in order with its signer `svc` and the `items` its block holds under `intent`, null when the block does not name it and [] when it names it with none, and when it does not, `stamps` is null and nothing is handed over. Each item in `stamps` is wire-valid JSON, so a block can hold it. `needs` is the names of the facts the handler requires. `read` is the answer of check P1 over the items, `OK` or `INTENT_MISMATCH`, and `unreadSigner` the signer of the block holding items that do not read, null when they read. `require` is the answer of check P2 for `needs`: `OK`, `INTENT_MISSING` or `INTENT_MISMATCH`, the last when the items of a verified hand-over do not read. Cases may be added; a recorded answer changes only with a protocol change.",
+  "items" : [ {
+    "name" : "string",
+    "item" : "{\"facts\":{\"customer\":\"c-42\"}}",
+    "facts" : {
+      "customer" : "\"c-42\""
+    }
+  }, {
+    "name" : "integer",
+    "item" : "{\"facts\":{\"amount\":100}}",
+    "facts" : {
+      "amount" : "100"
+    }
+  }, {
+    "name" : "null",
+    "item" : "{\"facts\":{\"note\":null}}",
+    "facts" : {
+      "note" : "null"
+    }
+  }, {
+    "name" : "nested",
+    "item" : "{\"facts\":{\"lines\":{\"k\":[1,\"a\"],\"z\":null}}}",
+    "facts" : {
+      "lines" : "{\"k\":[1,\"a\"],\"z\":null}"
+    }
+  }, {
+    "name" : "non-ASCII text",
+    "item" : "{\"facts\":{\"city\":\"Zürich\"}}",
+    "facts" : {
+      "city" : "\"Zürich\""
+    }
+  }, {
+    "name" : "several facts",
+    "item" : "{\"facts\":{\"amount\":100,\"customer\":\"c-42\",\"order\":\"123\"}}",
+    "facts" : {
+      "amount" : "100",
+      "customer" : "\"c-42\"",
+      "order" : "\"123\""
+    }
+  }, {
+    "name" : "no facts",
+    "item" : "{\"facts\":{}}",
+    "facts" : null
+  }, {
+    "name" : "empty object",
+    "item" : "{}",
+    "facts" : null
+  }, {
+    "name" : "not an object",
+    "item" : "[]",
+    "facts" : null
+  }, {
+    "name" : "facts is an array",
+    "item" : "{\"facts\":[]}",
+    "facts" : null
+  }, {
+    "name" : "another member",
+    "item" : "{\"facts\":{\"a\":1},\"more\":1}",
+    "facts" : null
+  }, {
+    "name" : "upper-case name",
+    "item" : "{\"facts\":{\"A\":1}}",
+    "facts" : null
+  }, {
+    "name" : "empty name",
+    "item" : "{\"facts\":{\"\":1}}",
+    "facts" : null
+  }, {
+    "name" : "name of 33 characters",
+    "item" : "{\"facts\":{\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\":1}}",
+    "facts" : null
+  }, {
+    "name" : "non-integer number",
+    "item" : "{\"facts\":{\"a\":1.5}}",
+    "facts" : null
+  }, {
+    "name" : "repeated fact",
+    "item" : "{\"facts\":{\"a\":1,\"a\":2}}",
+    "facts" : null
+  }, {
+    "name" : "not JSON",
+    "item" : "not json",
+    "facts" : null
+  }, {
+    "name" : "a space inside",
+    "item" : "{\"facts\": {\"a\":1}}",
+    "facts" : null
+  }, {
+    "name" : "members out of order",
+    "item" : "{\"facts\":{\"b\":1,\"a\":2}}",
+    "facts" : null
+  } ],
+  "requests" : [ {
+    "name" : "the origin states the fact",
+    "verified" : true,
+    "actsOn" : true,
+    "stamps" : [ {
+      "svc" : "origin",
+      "items" : [ "{\"facts\":{\"amount\":100,\"order\":\"123\"}}" ]
+    } ],
+    "needs" : [ "amount" ],
+    "read" : "OK",
+    "unreadSigner" : null,
+    "require" : "OK"
+  }, {
+    "name" : "the origin does not state the fact",
+    "verified" : true,
+    "actsOn" : true,
+    "stamps" : [ {
+      "svc" : "origin",
+      "items" : [ "{\"facts\":{\"order\":\"123\"}}" ]
+    } ],
+    "needs" : [ "amount" ],
+    "read" : "OK",
+    "unreadSigner" : null,
+    "require" : "INTENT_MISSING"
+  }, {
+    "name" : "no stamp names intent",
+    "verified" : true,
+    "actsOn" : true,
+    "stamps" : [ {
+      "svc" : "origin",
+      "items" : null
+    } ],
+    "needs" : [ "amount" ],
+    "read" : "OK",
+    "unreadSigner" : null,
+    "require" : "INTENT_MISSING"
+  }, {
+    "name" : "the origin names intent with no items",
+    "verified" : true,
+    "actsOn" : true,
+    "stamps" : [ {
+      "svc" : "origin",
+      "items" : [ ]
+    } ],
+    "needs" : [ "amount" ],
+    "read" : "OK",
+    "unreadSigner" : null,
+    "require" : "INTENT_MISSING"
+  }, {
+    "name" : "the origin holds two items",
+    "verified" : true,
+    "actsOn" : true,
+    "stamps" : [ {
+      "svc" : "origin",
+      "items" : [ "{\"facts\":{\"amount\":100,\"order\":\"123\"}}", "{\"facts\":{\"order\":\"123\"}}" ]
+    } ],
+    "needs" : [ "amount" ],
+    "read" : "INTENT_MISMATCH",
+    "unreadSigner" : "origin",
+    "require" : "INTENT_MISMATCH"
+  }, {
+    "name" : "the origin's item does not read",
+    "verified" : true,
+    "actsOn" : true,
+    "stamps" : [ {
+      "svc" : "origin",
+      "items" : [ "{\"facts\":{}}" ]
+    } ],
+    "needs" : [ "amount" ],
+    "read" : "INTENT_MISMATCH",
+    "unreadSigner" : "origin",
+    "require" : "INTENT_MISMATCH"
+  }, {
+    "name" : "the origin's item has a name that is refused",
+    "verified" : true,
+    "actsOn" : true,
+    "stamps" : [ {
+      "svc" : "origin",
+      "items" : [ "{\"facts\":{\"Order\":1}}" ]
+    } ],
+    "needs" : [ "amount", "order" ],
+    "read" : "INTENT_MISMATCH",
+    "unreadSigner" : "origin",
+    "require" : "INTENT_MISMATCH"
+  }, {
+    "name" : "a later stamp holds an item",
+    "verified" : true,
+    "actsOn" : true,
+    "stamps" : [ {
+      "svc" : "origin",
+      "items" : [ "{\"facts\":{\"amount\":100,\"order\":\"123\"}}" ]
+    }, {
+      "svc" : "second",
+      "items" : [ "{\"facts\":{\"amount\":100,\"order\":\"123\"}}" ]
+    } ],
+    "needs" : [ "amount" ],
+    "read" : "INTENT_MISMATCH",
+    "unreadSigner" : "second",
+    "require" : "INTENT_MISMATCH"
+  }, {
+    "name" : "a later stamp names intent with no items",
+    "verified" : true,
+    "actsOn" : true,
+    "stamps" : [ {
+      "svc" : "origin",
+      "items" : [ "{\"facts\":{\"amount\":100,\"order\":\"123\"}}" ]
+    }, {
+      "svc" : "second",
+      "items" : [ ]
+    } ],
+    "needs" : [ "amount" ],
+    "read" : "OK",
+    "unreadSigner" : null,
+    "require" : "OK"
+  }, {
+    "name" : "three stamps, the origin's facts reach the receiver",
+    "verified" : true,
+    "actsOn" : true,
+    "stamps" : [ {
+      "svc" : "origin",
+      "items" : [ "{\"facts\":{\"amount\":100,\"order\":\"123\"}}" ]
+    }, {
+      "svc" : "second",
+      "items" : [ ]
+    }, {
+      "svc" : "third",
+      "items" : null
+    } ],
+    "needs" : [ "amount" ],
+    "read" : "OK",
+    "unreadSigner" : null,
+    "require" : "OK"
+  }, {
+    "name" : "three stamps, the third holds an item",
+    "verified" : true,
+    "actsOn" : true,
+    "stamps" : [ {
+      "svc" : "origin",
+      "items" : [ "{\"facts\":{\"amount\":100,\"order\":\"123\"}}" ]
+    }, {
+      "svc" : "second",
+      "items" : [ ]
+    }, {
+      "svc" : "third",
+      "items" : [ "{\"facts\":{\"amount\":100,\"order\":\"123\"}}" ]
+    } ],
+    "needs" : [ "amount" ],
+    "read" : "INTENT_MISMATCH",
+    "unreadSigner" : "third",
+    "require" : "INTENT_MISMATCH"
+  }, {
+    "name" : "a hand-over not verified believes no fact",
+    "verified" : false,
+    "actsOn" : true,
+    "stamps" : [ {
+      "svc" : "origin",
+      "items" : [ "{\"facts\":{\"amount\":100,\"order\":\"123\"}}" ]
+    } ],
+    "needs" : [ "amount" ],
+    "read" : "OK",
+    "unreadSigner" : null,
+    "require" : "INTENT_MISSING"
+  }, {
+    "name" : "a hand-over not verified still reads its items",
+    "verified" : false,
+    "actsOn" : true,
+    "stamps" : [ {
+      "svc" : "origin",
+      "items" : [ "{\"facts\":{}}" ]
+    } ],
+    "needs" : [ ],
+    "read" : "INTENT_MISMATCH",
+    "unreadSigner" : "origin",
+    "require" : "OK"
+  }, {
+    "name" : "a service that does not act on intent",
+    "verified" : true,
+    "actsOn" : false,
+    "stamps" : null,
+    "needs" : [ "amount" ],
+    "read" : "OK",
+    "unreadSigner" : null,
+    "require" : "INTENT_MISSING"
+  }, {
+    "name" : "a service that does not act on intent, and no fact required",
+    "verified" : true,
+    "actsOn" : false,
+    "stamps" : null,
+    "needs" : [ ],
+    "read" : "OK",
+    "unreadSigner" : null,
+    "require" : "OK"
+  }, {
+    "name" : "no fact required, the item has facts",
+    "verified" : true,
+    "actsOn" : true,
+    "stamps" : [ {
+      "svc" : "origin",
+      "items" : [ "{\"facts\":{\"amount\":100,\"order\":\"123\"}}" ]
+    } ],
+    "needs" : [ ],
+    "read" : "OK",
+    "unreadSigner" : null,
+    "require" : "OK"
+  }, {
+    "name" : "no fact required, no stamp names intent",
+    "verified" : true,
+    "actsOn" : true,
+    "stamps" : [ {
+      "svc" : "origin",
+      "items" : null
+    } ],
+    "needs" : [ ],
+    "read" : "OK",
+    "unreadSigner" : null,
+    "require" : "OK"
+  }, {
+    "name" : "no fact required, hand-over not verified",
+    "verified" : false,
+    "actsOn" : true,
+    "stamps" : [ {
+      "svc" : "origin",
+      "items" : [ "{\"facts\":{\"order\":\"123\"}}" ]
+    } ],
+    "needs" : [ ],
+    "read" : "OK",
+    "unreadSigner" : null,
+    "require" : "OK"
+  }, {
+    "name" : "no fact required, the item does not read",
+    "verified" : true,
+    "actsOn" : true,
+    "stamps" : [ {
+      "svc" : "origin",
+      "items" : [ "{\"facts\":{}}" ]
+    } ],
+    "needs" : [ ],
+    "read" : "INTENT_MISMATCH",
+    "unreadSigner" : "origin",
+    "require" : "OK"
+  }, {
+    "name" : "two facts required, both stated",
+    "verified" : true,
+    "actsOn" : true,
+    "stamps" : [ {
+      "svc" : "origin",
+      "items" : [ "{\"facts\":{\"amount\":100,\"order\":\"123\"}}" ]
+    } ],
+    "needs" : [ "amount", "order" ],
+    "read" : "OK",
+    "unreadSigner" : null,
+    "require" : "OK"
+  }, {
+    "name" : "two facts required, one stated",
+    "verified" : true,
+    "actsOn" : true,
+    "stamps" : [ {
+      "svc" : "origin",
+      "items" : [ "{\"facts\":{\"order\":\"123\"}}" ]
+    } ],
+    "needs" : [ "amount", "order" ],
+    "read" : "OK",
+    "unreadSigner" : null,
+    "require" : "INTENT_MISSING"
+  } ]
+}

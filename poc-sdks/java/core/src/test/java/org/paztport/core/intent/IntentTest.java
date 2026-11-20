@@ -5,6 +5,7 @@ package org.paztport.core.intent;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.ArrayList;
@@ -146,5 +147,10 @@ class IntentTest {
     void anUnreadItemIsMismatchBeforeAMissingName() {
         HandOver h = handOver(true, List.of("{\"facts\":{\"Order\":1}}"), null);
         assertEquals(ReasonCode.INTENT_MISMATCH, Intent.require(h, List.of("amount", "order")));
+    }
+
+    @Test
+    void nullNeedsIsRefused() {
+        assertThrows(NullPointerException.class, () -> Intent.require(handOver(true, List.of(WITH_AMOUNT), null), null));
     }
 }

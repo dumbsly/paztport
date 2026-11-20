@@ -852,7 +852,7 @@ paztport/
 ├── docs/                     limits.md, the known limits in full; directions.md, where this could go; review-path.md, a reviewer's reading path
 ├── run                       front door: java-mesh, envoy-gateway, agents-mcp, test, bench
 ├── poc-sdks/
-│   ├── spec/                 the protocol spec, and vectors/: v4.json, TypeScript's, and Java's and Go's but the MCP profile's sections; http-v4.json, Java's and Go's; events.json, all three's; json.json, TypeScript's but its http bindings, Java's and Go's but the MCP profile's sections; ed25519.json, all three's
+│   ├── spec/                 the protocol spec, and vectors/: v4.json, TypeScript's, and Java's and Go's but the MCP profile's sections; http-v4.json, Java's and Go's; events.json, all three's; intent.json, Java's and Go's; json.json, TypeScript's but its http bindings, Java's and Go's but the MCP profile's sections; ed25519.json, all three's
 │   ├── scripts/              name check, link check, import check, review path count check, jar check, tests for ./run, THIRD-PARTY.txt regeneration
 │   ├── java/                 core, http, spring (paztport-core, paztport-http, paztport-spring), tools/keygen, tools/policy-tool, tools/bench
 │   ├── typescript/           core, mcp (@paztport/core, @paztport/mcp), policy-tool

@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -38,8 +39,8 @@ class IntentFactsTest {
 
     @Test
     void namesAreSortedAndNoneIsEmpty() {
-        assertEquals(java.util.List.of("a", "b"),
-                java.util.List.copyOf(IntentFacts.builder().put("b", 1).putNull("a").build().names()));
+        assertEquals(List.of("a", "b"),
+                List.copyOf(IntentFacts.builder().put("b", 1).putNull("a").build().names()));
         assertTrue(IntentFacts.NONE.isEmpty());
         assertTrue(IntentFacts.NONE.names().isEmpty());
     }
@@ -47,7 +48,8 @@ class IntentFactsTest {
     @ParameterizedTest
     @ValueSource(strings = {"{\"facts\":{}}", "{}", "[]", "{\"facts\":[]}", "{\"facts\":{\"a\":1},\"more\":1}",
         "{\"facts\":{\"A\":1}}", "{\"facts\":{\"\":1}}", "{\"facts\":{\"a\":1.5}}", "{\"facts\":{\"a\":1,\"a\":2}}",
-        "{\"facts\":{\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\":1}}", "not json"})
+        "{\"facts\":{\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\":1}}", "not json",
+        "{\"facts\": {\"a\":1}}", "{\"facts\":{\"b\":1,\"a\":2}}"})
     void refusesAnItemThatDoesNotRead(String item) {
         assertThrows(IllegalArgumentException.class, () -> IntentFacts.parse(item));
     }

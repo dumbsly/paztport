@@ -15,7 +15,7 @@ policy, verification, influence and sessions. The demos in
   replays `v4.json`. Java replays `v4.json` in `paztport-core`, but for what belongs to the MCP profile, and
   `http-v4.json` in `paztport-http`. The Go SDK replays `v4.json`, but for its MCP profile sections and the
   MCP-only parts of `influence`, and `http-v4.json` in full. All three replay `events.json`, `json.json` and
-  `ed25519.json`.
+  `ed25519.json`. Java and Go replay `intent.json`.
 - `scripts/`: the checks that `./run test` runs (links, imports, the review path's line counts
   and jars), the tests for `./run`, and `third-party.sh`, which regenerates `THIRD-PARTY.txt`
   from both Java trees.
