@@ -264,7 +264,8 @@ check_reason "15a operation: getOrder steered to pay" 403 PATH_NOT_ALLOWED
 # A service-level stamp would name payment alone, and the call would pass the binding, the /charge request's own,
 # and the route. Only the replay check would stop it, because orders has already called payment in this request
 # tree; redirecting that one call would have passed every check. Here payment refuses the call before replay is
-# checked, since it dispatches charge and the stamp names pay.
+# checked, since it dispatches charge and the stamp names pay. Charge also requires the gateway's intent facts, which
+# this call does not carry, but verification refuses it first, in enforce mode, so the answer is the operation's.
 mreq POST "https://gateway:8080/checkout" -H 'Content-Type: application/json' -d '{}'
 mreq POST "https://orders:8080/attack/misname"
 check_reason "15b operation: pay named, charge called" 403 BINDING_MISMATCH
@@ -292,9 +293,10 @@ mreq POST "https://orders:8080/attack/encoded-hold"
 check_reason "16c keys: an encoded item" 403 BINDING_MISMATCH
 
 # 11 — alice pays for order 123: gateway->orders->payment, then payment, the shop's egress, charges the
-# PSP across the boundary in an attested session, which registers her card to her.
+# PSP across the boundary in an attested session, which registers her card to her. She names the amount she was
+# shown, which the gateway states as a fact beside her and the order; orders and payment compare it (scenario 17).
 mreq POST "https://gateway:8080/purchase" -H 'Authorization: Bearer alice-token' \
-  -H 'Content-Type: application/json' -d '{"order":"123","card":"4242 4242 4242 4242"}'
+  -H 'Content-Type: application/json' -d '{"order":"123","card":"4242 4242 4242 4242","amount":100}'
 boundary=$(docker compose logs --no-log-prefix payment 2>/dev/null | sed -n 's/.*\(PAZTPORT_TRACE boundary .*\)/\1/p' | tail -n1)
 if [ "$CODE" = "200" ] && printf '%s' "$BODY" | grep -q CHARGED && printf '%s' "$boundary" | grep -q 'session=attested'; then
   record PASS "11 charge across the boundary, attested" "HTTP $CODE CHARGED, session=attested"
@@ -388,6 +390,31 @@ fi
 preq POST "https://psp:8080/charge" -H "X-Path-Session: $sess" -H 'Content-Type: application/json' \
   -d '{"customer":"mallory","order":"456","card":"4000 0000 0000 0002","amount":40}'
 check_reason "14b unsafe session: charge" 200 CHARGED
+
+# 17 — intent: the gateway, the origin, states a purchase's customer, order and amount as facts in its own block,
+# which orders forwards unchanged. Orders compares them with the purchase and its order book, and payment with the
+# charge orders sends. These run after 13, whose refund to card 4000 0000 0000 0002 needs that card registered to
+# nobody: 17d's charge registers it to alice.
+# 17a — code in orders changes the next charge's amount to 9900, after orders compared the facts. The call is the one
+# its route allows, from a hop whose stamp verifies; payment refuses it because its amount is not the fact's.
+mreq POST "https://orders:8080/attack/alter-amount"
+mreq POST "https://gateway:8080/purchase" -H 'Authorization: Bearer alice-token' \
+  -H 'Content-Type: application/json' -d '{"order":"123","card":"4242 4242 4242 4242","amount":100}'
+check_reason "17a intent: orders changes the amount" 403 INTENT_DENIED
+# 17b — alice names an amount the order book does not give order 123, so orders refuses it before calling payment
+mreq POST "https://gateway:8080/purchase" -H 'Authorization: Bearer alice-token' \
+  -H 'Content-Type: application/json' -d '{"order":"123","card":"4242 4242 4242 4242","amount":1}'
+check_reason "17b intent: the customer names a wrong amount" 403 INTENT_DENIED
+# 17c — with no amount there is no fact to compare a charge with, so the gateway sends nothing on
+mreq POST "https://gateway:8080/purchase" -H 'Authorization: Bearer alice-token' \
+  -H 'Content-Type: application/json' -d '{"order":"123","card":"4242 4242 4242 4242"}'
+check_reason "17c intent: no amount" 400 NO_AMOUNT
+# 17d — the same code swaps the card. The card is not a fact, so the PSP charges the card orders chose; intent
+# narrows only the values the origin states.
+mreq POST "https://orders:8080/attack/swap-card"
+mreq POST "https://gateway:8080/purchase" -H 'Authorization: Bearer alice-token' \
+  -H 'Content-Type: application/json' -d '{"order":"123","card":"4242 4242 4242 4242","amount":100}'
+check_reason "17d intent: orders swaps the card, which is not a fact" 200 CHARGED
 
 # 9 — three illicit calls quarantine search; a clean replacement takes over.
 # The responder is only enabled here, so scenarios 1-8/10 don't pollute its counts.

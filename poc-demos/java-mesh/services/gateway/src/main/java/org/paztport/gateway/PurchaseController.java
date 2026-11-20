@@ -5,6 +5,8 @@ package org.paztport.gateway;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
+import org.paztport.core.intent.IntentFacts;
+import org.paztport.http.RequestContext;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -19,12 +21,16 @@ import org.springframework.web.client.RestClient;
  * A customer pays for an order: gateway, orders, payment, and from payment across the boundary to the PSP. The
  * customer comes from the bearer token, never from the body, since the PSP registers each card to the customer of
  * its first attested charge. The answer from downstream is relayed as it is, refusals included.
+ *
+ * <p>The gateway is the origin, and it states the purchase as facts ({@code intent}): the customer, the order and the
+ * amount the customer was shown. Payment, two hops on, compares the charge it is asked for with them, so a hop
+ * between that changes the amount, the order or the customer is refused there.
  */
 @RestController
 public class PurchaseController {
 
-    /** What the customer sends: the order and the card to pay with. */
-    public record Purchase(String order, String card) {
+    /** What the customer sends: the order, the card to pay with, and the amount the customer was shown for it. */
+    public record Purchase(String order, String card, Long amount) {
     }
 
     private final RestClient http;
@@ -45,6 +51,19 @@ public class PurchaseController {
         if (customer == null) {
             return ResponseEntity.status(401).body(Map.of("reason", "UNAUTHORIZED"));
         }
+        if (purchase.order() == null) {
+            // As orders answers an order it does not hold; with no order there is no fact to state.
+            return ResponseEntity.status(404).body(Map.of("reason", "NO_ORDER"));
+        }
+        if (purchase.amount() == null) {
+            return ResponseEntity.status(400).body(Map.of("reason", "NO_AMOUNT"));
+        }
+        // Every call this request makes from here states these facts in the gateway's block.
+        RequestContext.sealIntent(IntentFacts.builder()
+                .put("customer", customer)
+                .put("order", purchase.order())
+                .put("amount", purchase.amount())
+                .build());
         Map<String, String> body = new LinkedHashMap<>();
         body.put("customer", customer);
         body.put("order", purchase.order());

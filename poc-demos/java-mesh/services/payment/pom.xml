@@ -40,6 +40,14 @@
             <artifactId>spring-boot-starter-test</artifactId>
             <scope>test</scope>
         </dependency>
+        <!-- TestScopes: a hand-opened request scope whose chain verified, with the gateway's facts handed on. -->
+        <dependency>
+            <groupId>org.paztport</groupId>
+            <artifactId>paztport-http</artifactId>
+            <version>${paztport.sdk.version}</version>
+            <type>test-jar</type>
+            <scope>test</scope>
+        </dependency>
         <!-- @AutoConfigureMockMvc, which Spring Boot 4 keeps apart from its core test support. -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

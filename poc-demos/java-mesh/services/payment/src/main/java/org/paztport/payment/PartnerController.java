@@ -4,20 +4,34 @@
 package org.paztport.payment;
 
 import java.util.Map;
+import org.paztport.core.intent.IntentFacts;
 import org.paztport.core.verify.ReasonCode;
+import org.paztport.http.OriginIntent;
 import org.paztport.http.boundary.BoundaryClient;
 import org.paztport.http.boundary.RequirementUnmetException;
+import org.paztport.spring.intent.RequiresIntent;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 /**
  * Payment as the shop's egress: charges and refunds go on to the PSP, another organisation, through the
- * {@link BoundaryClient}, which is the only way out. The body goes on unchanged, so what the shop's chain bound is
- * what the PSP is asked to do, and the PSP's answer comes back as it is.
+ * {@link BoundaryClient}, which is the only way out. A refund's body goes on unchanged, so what the shop's chain bound
+ * is what the PSP is asked to do. A charge's body does not: payment compares it with the gateway's facts and sends
+ * one built from the values it compared. The PSP's answer comes back as it is.
+ *
+ * <p>The gateway states the customer, the order and the amount the customer was shown as facts ({@code intent}), and
+ * {@code charge} requires all three. A charge that does not read as one is refused {@code 400 BAD_CHARGE}, and one
+ * whose customer, order or amount differs from the facts {@code 403 INTENT_DENIED}, before the PSP is asked: orders,
+ * the hop that wrote the charge, is the one the comparison checks. The charge sent on takes those three from the facts
+ * and the card from the body, since the card is not a fact. Payment never relays the bytes it compared, because
+ * another reader of them, the PSP, might read another amount from them.
  *
  * <p>Payment verifies every request in enforce mode, so a handler here runs only for a chain that verified; the
  * boundary client signs nothing over anything else. Without a configured partner there is nowhere to send these.
@@ -30,20 +44,61 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 public class PartnerController {
 
-    private final ObjectProvider<BoundaryClient> boundary;
+    /** A charge as orders sends it. */
+    public record Charge(String customer, String order, String card, Long amount) {
+    }
 
-    public PartnerController(ObjectProvider<BoundaryClient> boundary) {
+    private static final JsonMapper JSON = new JsonMapper();
+
+    private final ObjectProvider<BoundaryClient> boundary;
+    private final OriginIntent intent;
+
+    public PartnerController(ObjectProvider<BoundaryClient> boundary, OriginIntent intent) {
         this.boundary = boundary;
+        this.intent = intent;
     }
 
     @PostMapping("/charge")
+    @RequiresIntent({"amount", "customer", "order"})
     public ResponseEntity<?> charge(@RequestBody(required = false) byte[] body) {
-        return relay("/charge", body);
+        Charge charge = read(body);
+        if (charge == null) {
+            return ResponseEntity.status(400).body(Map.of("reason", "BAD_CHARGE"));
+        }
+        IntentFacts facts = intent.facts();
+        if (!charge.customer().equals(facts.string("customer")) || !charge.order().equals(facts.string("order"))
+                || !charge.amount().equals(facts.integer("amount"))) {
+            return ResponseEntity.status(403).body(Map.of("reason", intent.deny().name()));
+        }
+        ObjectNode sent = JSON.createObjectNode();
+        sent.put("customer", facts.string("customer"));
+        sent.put("order", facts.string("order"));
+        sent.put("card", charge.card());
+        sent.put("amount", facts.integer("amount"));
+        return relay("/charge", JSON.writeValueAsBytes(sent));
     }
 
     @PostMapping("/refund")
     public ResponseEntity<?> refund(@RequestBody(required = false) byte[] body) {
         return relay("/refund", body);
+    }
+
+    /** The charge {@code body} reads as, or null when it is not JSON of that shape or lacks any of its members. */
+    private static Charge read(byte[] body) {
+        if (body == null) {
+            return null;
+        }
+        Charge charge;
+        try {
+            charge = JSON.readValue(body, Charge.class);
+        } catch (JacksonException e) {
+            return null;
+        }
+        if (charge == null || charge.customer() == null || charge.order() == null || charge.card() == null
+                || charge.amount() == null) {
+            return null;
+        }
+        return charge;
     }
 
     private ResponseEntity<?> relay(String path, byte[] body) {

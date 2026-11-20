@@ -6,6 +6,7 @@ package org.paztport.orders;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.content;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
@@ -17,8 +18,10 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.paztport.core.influence.ContentLabel;
 import org.paztport.core.influence.InfluenceClass;
+import org.paztport.core.intent.IntentFacts;
 import org.paztport.core.stamp.Block;
 import org.paztport.core.stamp.Stamp;
+import org.paztport.http.OriginIntent;
 import org.paztport.http.RequestContext;
 import org.springframework.beans.factory.support.StaticListableBeanFactory;
 import org.springframework.http.HttpMethod;
@@ -36,8 +39,10 @@ class OrdersControllerTest {
     void start() {
         RestClient.Builder http = RestClient.builder();
         payment = MockRestServiceServer.bindTo(http).build();
+        StaticListableBeanFactory none = new StaticListableBeanFactory();
         controller = new OrdersController(http.build(), new OrderBook(), "https://payment:8080",
-                new StaticListableBeanFactory().getBeanProvider(StolenChainStore.class));
+                none.getBeanProvider(StolenChainStore.class), new OriginIntent("orders"),
+                none.getBeanProvider(ChargeTamper.class));
     }
 
     // The PSP registers a card to whoever pays for an order, so only the order's own customer may pay for it.
@@ -51,13 +56,42 @@ class OrdersControllerTest {
         payment.verify();
     }
 
+    // The gateway seals the amount the customer was shown; the order book says what the order costs. A difference
+    // is the customer's or a hop's, and orders charges neither.
     @Test
-    void purchaseOfOwnOrderGoesToPayment() {
+    void anAmountThatIsNotTheBooksIsDenied() {
+        ResponseEntity<?> response = OriginFacts.servedWith(OriginFacts.alicePays(1), () -> controller.purchase(
+                new OrdersController.Purchase("alice", "123", "4242 4242 4242 4242")));
+
+        assertEquals(403, response.getStatusCode().value());
+        assertEquals(Map.of("reason", "INTENT_DENIED"), response.getBody());
+        payment.verify();
+    }
+
+    @Test
+    void anotherCustomersFactsAreDenied() {
+        IntentFacts mallorys = IntentFacts.builder().put("customer", "mallory").put("order", "123").put("amount", 100)
+                .build();
+
+        ResponseEntity<?> response = OriginFacts.servedWith(mallorys, () -> controller.purchase(
+                new OrdersController.Purchase("alice", "123", "4242 4242 4242 4242")));
+
+        assertEquals(403, response.getStatusCode().value());
+        assertEquals(Map.of("reason", "INTENT_DENIED"), response.getBody());
+        payment.verify();
+    }
+
+    // Orders acts on the values it compared: the customer, order and amount of the charge are the facts', and only
+    // the card, which is not a fact, is the request's.
+    @Test
+    void theChargeIsBuiltFromTheFacts() {
         payment.expect(requestTo("https://payment:8080/charge")).andExpect(method(HttpMethod.POST))
+                .andExpect(content().string(
+                        "{\"customer\":\"alice\",\"order\":\"123\",\"card\":\"4242 4242 4242 4242\",\"amount\":100}"))
                 .andRespond(withSuccess("{\"status\":\"CHARGED\"}", MediaType.APPLICATION_JSON));
 
-        ResponseEntity<?> response = controller.purchase(
-                new OrdersController.Purchase("alice", "123", "4242 4242 4242 4242"));
+        ResponseEntity<?> response = OriginFacts.servedWith(OriginFacts.alicePays(100), () -> controller.purchase(
+                new OrdersController.Purchase("alice", "123", "4242 4242 4242 4242")));
 
         assertEquals(200, response.getStatusCode().value());
         payment.verify();
@@ -82,9 +116,10 @@ class OrdersControllerTest {
     @Test
     void anOrderReadIsRecordedWhenTheAttackDemoIsEnabled() throws Exception {
         StolenChainStore store = new StolenChainStore();
+        StaticListableBeanFactory beans = new StaticListableBeanFactory(Map.of("store", store));
         OrdersController recording = new OrdersController(RestClient.builder().build(), new OrderBook(),
-                "https://payment:8080", new StaticListableBeanFactory(Map.of("store", store))
-                        .getBeanProvider(StolenChainStore.class));
+                "https://payment:8080", beans.getBeanProvider(StolenChainStore.class), new OriginIntent("orders"),
+                beans.getBeanProvider(ChargeTamper.class));
         List<Stamp> chain = List.of(Stamp.sign("gateway", "gw-1", "rid-1", 1, "", "orders#getOrder", "bind", "", "",
                 KeyPairGenerator.getInstance("Ed25519").generateKeyPair().getPrivate()));
 

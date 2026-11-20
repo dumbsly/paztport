@@ -29,9 +29,10 @@ spring:
 paztport:
   service-name: gateway
   # The origin: its block starts every chain, and a guarded write downstream needs every stamp to name
-  # influence; it also takes orders' answers, which are labelled private.
+  # influence; it also takes orders' answers, which are labelled private. It states a purchase's customer, order
+  # and amount as intent facts, which orders and payment compare with what they are asked for.
   extensions:
-    acts-on: [influence]
+    acts-on: [influence, intent]
   origin: true
   key-path: ${PAZTPORT_KEY_PATH:/config/keys/gateway.key}
   proofs-path: ${PAZTPORT_PROOFS_PATH:/config/policy/proofs-gateway.json}

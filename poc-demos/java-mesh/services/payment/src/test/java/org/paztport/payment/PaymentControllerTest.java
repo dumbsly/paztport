@@ -35,11 +35,20 @@ class PaymentControllerTest {
                 .andExpect(jsonPath("$.status").value("PAID"));
     }
 
-    // The boundary client exists only where compose names a partner, so a charge here has nowhere to go.
+    // The boundary client exists only where compose names a partner, so a refund here has nowhere to go.
     @Test
-    void chargeWithNoPartnerIsUnavailable() throws Exception {
-        mvc.perform(post("/charge").contentType(MediaType.APPLICATION_JSON).content("{\"order\":\"123\"}"))
+    void refundWithNoPartnerIsUnavailable() throws Exception {
+        mvc.perform(post("/refund").contentType(MediaType.APPLICATION_JSON).content("{\"order\":\"123\"}"))
                 .andExpect(status().isServiceUnavailable())
                 .andExpect(jsonPath("$.reason").value("NO_PARTNER"));
+    }
+
+    // Charge requires the gateway's facts, and a request served without verifying has none (spec intent.md, A
+    // request that did not verify), so it is refused before the handler runs.
+    @Test
+    void aChargeServedWithoutVerifyingIsIntentMissing() throws Exception {
+        mvc.perform(post("/charge").contentType(MediaType.APPLICATION_JSON).content("{\"order\":\"123\"}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.reason").value("INTENT_MISSING"));
     }
 }

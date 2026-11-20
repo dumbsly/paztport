@@ -37,9 +37,10 @@ spring:
 paztport:
   service-name: payment
   # The PSP's guarded write needs every stamp, payment's boundary stamp included, to name influence, and the
-  # egress names it in the boundary block only where it acts on it.
+  # egress names it in the boundary block only where it acts on it. Its charge requires the gateway's intent facts
+  # and compares the charge orders sends with them; the facts do not cross the boundary.
   extensions:
-    acts-on: [influence]
+    acts-on: [influence, intent]
   # Required of the PSP, so the PSP judges a refund by what the shop's chain read: a session whose reply does
   # not list it gets no call (502 EXTENSION_REQUIRED).
   boundary:

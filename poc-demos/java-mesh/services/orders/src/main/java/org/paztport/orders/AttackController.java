@@ -29,8 +29,9 @@ import org.springframework.web.client.RestClient;
 /**
  * Code running in orders that misuses its calls to payment, enabled only when {@code attack.enabled=true}. It holds
  * what orders holds, its stamp key and its proofs, and signs as orders. Each endpoint steers one call at payment and
- * mirrors payment's status and body back to the caller so the demo can assert the verdict. The honest endpoints are
- * unaffected.
+ * mirrors payment's status and body back to the caller so the demo can assert the verdict. Two more arm a change to
+ * the next charge the honest purchase sends ({@link ChargeTamper}), whose answer reaches the demo through that
+ * purchase. The honest endpoints are otherwise unaffected.
  */
 @RestController
 @ConditionalOnProperty(name = "attack.enabled", havingValue = "true")
@@ -51,28 +52,34 @@ public class AttackController {
     private final ProofBundle proofs;
     private final StolenChainStore stolenChains;
     private final String paymentUrl;
+    private final ChargeTamper tamper;
 
-    /** The endpoints over orders' stamp key and proofs, sending on the starter's pooled client as orders. */
+    /**
+     * The endpoints over orders' stamp key and proofs, sending on the starter's pooled client as orders, and arming
+     * {@code tamper}.
+     */
     @Autowired
     public AttackController(
             Stamper stamper,
             ProofBundle proofs,
             StolenChainStore stolenChains,
             @Value("${downstream.payment-url}") String paymentUrl,
-            PooledTlsClient tls) {
+            PooledTlsClient tls,
+            ChargeTamper tamper) {
         // Built apart from the shared builder, so it never gets the stamping interceptor, but on the starter's
         // pooled client: payment requires a client certificate, and every steered call arrives as orders.
-        this(stamper, proofs, stolenChains, paymentUrl, tls.builder().build());
+        this(stamper, proofs, stolenChains, paymentUrl, tls.builder().build(), tamper);
     }
 
     /** As the public constructor, sending on {@code rawClient}, which must not stamp; for tests. */
     AttackController(Stamper stamper, ProofBundle proofs, StolenChainStore stolenChains, String paymentUrl,
-            RestClient rawClient) {
+            RestClient rawClient, ChargeTamper tamper) {
         this.rawClient = rawClient;
         this.stamper = stamper;
         this.proofs = proofs;
         this.stolenChains = stolenChains;
         this.paymentUrl = paymentUrl;
+        this.tamper = tamper;
     }
 
     /**
@@ -120,6 +127,26 @@ public class AttackController {
                     .body("{\"reason\":\"NO_STOLEN_CHAIN\",\"hint\":\"call gateway POST /holds first\"}");
         }
         return steer(stolen, "payment#hold", "/holds/%41", new byte[0], HOLD_ITEMS_HOLD);
+    }
+
+    /**
+     * Scenario 17a: the next charge orders sends payment goes for 9900, whatever the order book and the facts say.
+     * Orders has compared the facts by then, so the change reaches payment, which compares the amount itself.
+     */
+    @PostMapping("/attack/alter-amount")
+    public ResponseEntity<Void> alterAmount() {
+        tamper.armAmount(9900);
+        return ResponseEntity.ok().build();
+    }
+
+    /**
+     * Scenario 17d: the next charge orders sends payment goes to the card {@code 4000 0000 0000 0002}. The card is not
+     * a fact, so nothing on the way can tell it from the customer's.
+     */
+    @PostMapping("/attack/swap-card")
+    public ResponseEntity<Void> swapCard() {
+        tamper.armCard("4000 0000 0000 0002");
+        return ResponseEntity.ok().build();
     }
 
     /**

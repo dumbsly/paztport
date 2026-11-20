@@ -8,7 +8,10 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.paztport.core.influence.InfluenceClass;
+import org.paztport.core.intent.IntentFacts;
+import org.paztport.http.OriginIntent;
 import org.paztport.http.RequestContext;
+import org.paztport.spring.intent.RequiresIntent;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
@@ -43,17 +46,21 @@ public class OrdersController {
     private final OrderBook book;
     private final String paymentUrl;
     private final ObjectProvider<StolenChainStore> stolenChains;
+    private final OriginIntent intent;
+    private final ObjectProvider<ChargeTamper> tampers;
 
     /**
      * {@code stolenChains} has a store only with the attack demo on; each order read or placed gives it its chain and
-     * the blocks that came with it.
+     * the blocks that came with it. {@code tampers} has a {@link ChargeTamper} only with the attack demo on.
      */
     public OrdersController(RestClient http, OrderBook book, @Value("${downstream.payment-url}") String paymentUrl,
-            ObjectProvider<StolenChainStore> stolenChains) {
+            ObjectProvider<StolenChainStore> stolenChains, OriginIntent intent, ObjectProvider<ChargeTamper> tampers) {
         this.http = http;
         this.book = book;
         this.paymentUrl = paymentUrl;
         this.stolenChains = stolenChains;
+        this.intent = intent;
+        this.tampers = tampers;
     }
 
     /** One order, labelled with its customer; {@code 404} when there is none. */
@@ -92,12 +99,17 @@ public class OrdersController {
     }
 
     /**
-     * Charges an order through payment, which takes it to the PSP. The amount comes from the order book, not the
-     * request. Only the order's own customer may pay for it, refused {@code 403 NOT_YOUR_ORDER} otherwise: the PSP
-     * takes whoever pays for an order as the one a refund of it may go to. Payment's answer is relayed as it is,
-     * refusals included.
+     * Charges an order through payment, which takes it to the PSP. Only the order's own customer may pay for it,
+     * refused {@code 403 NOT_YOUR_ORDER} otherwise: the PSP takes whoever pays for an order as the one a refund of it
+     * may go to. Payment's answer is relayed as it is, refusals included.
+     *
+     * <p>The gateway states the customer, the order and the amount the customer was shown as facts ({@code intent}).
+     * A purchase whose facts name another customer or order, or an amount that is not the order book's, is refused
+     * {@code 403 INTENT_DENIED}: the customer was shown another price, or a hop changed the request. The charge is
+     * built from the facts, the values compared, and the card from the request, which is not a fact.
      */
     @PostMapping("/purchase")
+    @RequiresIntent({"amount", "customer", "order"})
     public ResponseEntity<?> purchase(@RequestBody Purchase purchase) {
         OrderBook.Order order = book.byId(purchase.order());
         if (order == null) {
@@ -106,11 +118,18 @@ public class OrdersController {
         if (!order.customer().equals(purchase.customer())) {
             return ResponseEntity.status(403).body(Map.of("reason", "NOT_YOUR_ORDER"));
         }
+        IntentFacts facts = intent.facts();
+        if (!purchase.customer().equals(facts.string("customer")) || !purchase.order().equals(facts.string("order"))
+                || !Long.valueOf(order.amount()).equals(facts.integer("amount"))) {
+            return ResponseEntity.status(403).body(Map.of("reason", intent.deny().name()));
+        }
         Map<String, Object> charge = new LinkedHashMap<>();
-        charge.put("customer", purchase.customer());
-        charge.put("order", order.id());
+        charge.put("customer", facts.string("customer"));
+        charge.put("order", facts.string("order"));
         charge.put("card", purchase.card());
-        charge.put("amount", order.amount());
+        charge.put("amount", facts.integer("amount"));
+        // Only with the attack demo on: code in a compromised orders changing the charge after the comparison.
+        tampers.ifAvailable(tamper -> tamper.apply(charge));
         // exchange applies no status handlers, so a refusal downstream is relayed rather than thrown.
         return http.post()
                 .uri(paymentUrl + "/charge")
