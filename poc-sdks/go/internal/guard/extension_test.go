@@ -19,16 +19,21 @@ var core = []string{
 }
 
 // TestTheCoreImportsNoExtension reads the imports of every non-test file in the module: no file of the core's
-// packages imports influence. Tests may: a replay can check the core and the extension together.
+// packages imports an extension's package. Tests may: a replay can check the core and the extension together.
 func TestTheCoreImportsNoExtension(t *testing.T) {
-	const extension = module + "/influence"
+	extensions := []string{module + "/influence", module + "/intent"}
 	influenceReadsStamp := false
 	files := eachImport(t, func(rel, pkg, imp string) {
-		if pkg == extension && imp == module+"/stamp" {
+		if pkg == module+"/influence" && imp == module+"/stamp" {
 			influenceReadsStamp = true
 		}
-		if slices.Contains(core, pkg) && within(imp, extension) {
-			t.Errorf("%s imports %s: the core reads no extension's items", rel, imp)
+		if !slices.Contains(core, pkg) {
+			return
+		}
+		for _, extension := range extensions {
+			if within(imp, extension) {
+				t.Errorf("%s imports %s: the core reads no extension's items", rel, imp)
+			}
 		}
 	})
 	// The extension builds its blocks with stamp, so not seeing that import, or seeing few files, means the walk

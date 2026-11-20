@@ -66,7 +66,13 @@ replace github.com/dumbsly/paztport/poc-sdks/go => ../path/to/poc-sdks/go
   `ParseLabel`), the request and response blocks, `ReadRequest` and `Decide`, the
   every-stamp and owner-aware rules (`GuardedWriteRefused`, `ShapedOnlyByTrusted`),
   `ResponseEntries`, `Items`, and blinded boundary influence and its openings. A test in
-  `internal/guard` keeps `stamp`, `verify`, `offline` and `session` from importing it.
+  `internal/guard` keeps `stamp`, `verify`, `offline` and `session` from importing it or `intent`.
+- `intent`: the second extension, also over what the verifier hands on, which no core
+  package imports: `ParseItem` reads the origin's facts, `ReadRequest` reads the items a
+  service is handed (check P1), and `Require` asks whether a verified hand-over states the
+  facts a handler requires (check P2). Its test replays `spec/vectors/intent.json`. The
+  Go receiver in `paztporthttp` does not run these checks: a service that acts on
+  `intent` calls them from its own code, and compares its request with the facts itself.
 - `verify`: the live verifier, its checks 0 to 12 in the spec's order, with the
   extension checks 9a to 9c and the peer before the nonce; `Extensions`, which says
   what a verifier acts on and allows (the zero value acts on nothing); the `HandOver`
