@@ -16,6 +16,8 @@ import java.util.Set;
 import java.util.TreeSet;
 import org.paztport.core.influence.Influence;
 import org.paztport.core.influence.InfluenceEntry;
+import org.paztport.core.intent.Intent;
+import org.paztport.core.intent.IntentFacts;
 import org.paztport.core.policy.OperationTable;
 import org.paztport.core.policy.ProofBundle;
 import org.paztport.core.policy.Routes;
@@ -49,10 +51,12 @@ import org.slf4j.LoggerFactory;
  * the request received, unchanged, one empty block per stamp where it received none, then this service's own, which
  * its stamp commits to. A service that acts on influence names it in its own block with the entries it added for
  * this request itself, the responses to its own calls ({@link RequestContext#added}), {@code []} when it has added
- * none, and never the entries it was handed; one that does not signs the empty block. Either puts in the block's
- * {@code requires} what {@link Builder#requires} asks of the receiver. A call whose blocks would pass the wire limit,
- * 256 KiB, is refused before anything is signed: nothing is dropped to make room, and a deployment whose influence
- * grows that large raises its servers' header limit, which is reached long before.
+ * none, and never the entries it was handed; one that does not signs the empty block. An origin that acts on
+ * intent puts the facts it states for the request in the same block, as its one item under {@code intent}
+ * ({@link RequestContext#sealIntent}, or the seven-argument {@code stamp}); no later hop may. Either puts in the
+ * block's {@code requires} what {@link Builder#requires} asks of the receiver. A call whose blocks would pass the
+ * wire limit, 256 KiB, is refused before anything is signed: nothing is dropped to make room, and a deployment whose
+ * influence grows that large raises its servers' header limit, which is reached long before.
  *
  * <p>What a response says becomes part of the request that made the call. Its attestation is checked by the live
  * order on the chain and the blocks that were sent, then the response stamp and its own block (nonce key
@@ -380,14 +384,34 @@ public final class HttpCaller {
      */
     public Outbound stamp(String method, URI uri, byte[] body, List<Stamp> inbound, List<Block> inboundBlocks,
             List<InfluenceEntry> added) {
-        return stamp(method, uri, body, inbound, inboundBlocks, added, null);
+        return stamp(method, uri, body, inbound, inboundBlocks, added, null, null);
     }
 
     /**
-     * The blocking binding of {@link #stamp(String, URI, byte[], List, List, List)}: inside a scope, the call is
-     * stamped after the request's inbound chain, forwards its blocks and signs what the request added so far; outside
-     * one, with none of them, and its response will not be recorded.
+     * {@link #stamp(String, URI, byte[], List, List, List)}, with the origin's facts (spec intent.md, The origin's
+     * part): where {@code intent} is not null, this service's own block holds them as its one item under
+     * {@code intent}, beside its influence where it acts on that too. Only an origin seals facts, so a call with an
+     * inbound chain is refused, as is one from a service that does not act on {@code intent}. With {@code intent}
+     * null the call is stamped exactly as the six-argument form stamps it. This touches no thread-local.
      *
+     * @param intent the facts the origin states for the request, or null for none
+     * @throws IllegalStateException when {@code intent} is not null and {@code inbound} holds a stamp, this service
+     *     does not act on {@code intent}, or {@code intent} holds no facts; nothing is signed
+     * @throws IllegalArgumentException as the six-argument form
+     */
+    public Outbound stamp(String method, URI uri, byte[] body, List<Stamp> inbound, List<Block> inboundBlocks,
+            List<InfluenceEntry> added, IntentFacts intent) {
+        return stamp(method, uri, body, inbound, inboundBlocks, added, intent, null);
+    }
+
+    /**
+     * The blocking binding of {@link #stamp(String, URI, byte[], List, List, List, IntentFacts)}: inside a scope,
+     * the call is stamped after the request's inbound chain, forwards its blocks, signs what the request added so far
+     * and states the facts sealed for it, if any ({@link RequestContext#sealIntent}); outside one, with none of them,
+     * and its response will not be recorded.
+     *
+     * @throws IllegalStateException when facts are sealed and the call is not an origin's, or the service does not
+     *     act on {@code intent}; nothing is signed
      * @throws IllegalArgumentException when the method is null or empty, the URI's host has no receiver name, the
      *     receiver or this service is not a route node, or no operation of the receiver's table matches, or the
      *     keyed operation it matches has no key value in the call, or the blocks would pass the wire limit; nothing is
@@ -396,15 +420,18 @@ public final class HttpCaller {
     public Outbound stampFromContext(String method, URI uri, byte[] body) {
         // Outside a scope the context belongs to no unit of work, so it is neither read nor written.
         RequestContext.Scope scope = RequestContext.current();
-        return scope == null ? stamp(method, uri, body, null, null, List.of(), null)
+        return scope == null ? stamp(method, uri, body, null, null, List.of(), null, null)
                 : stamp(method, uri, body, RequestContext.inboundChain(), RequestContext.inboundBlocks(),
-                        RequestContext.added(), scope);
+                        RequestContext.added(), RequestContext.sealedIntent(), scope);
     }
 
     private Outbound stamp(String method, URI uri, byte[] body, List<Stamp> inbound, List<Block> inboundBlocks,
-            List<InfluenceEntry> added, RequestContext.Scope scope) {
+            List<InfluenceEntry> added, IntentFacts intent, RequestContext.Scope scope) {
         if (method == null || method.isEmpty()) {
             throw new IllegalArgumentException("the method of a call must not be empty");
+        }
+        if (intent != null) {
+            requireOrigin(inbound, intent);
         }
         // One block per inbound stamp (spec wire.md, Blocks): a list of another length, or one beside no chain, would
         // be signed into a call the next hop refuses at check 9a, so it is refused here, before anything is signed.
@@ -440,7 +467,7 @@ public final class HttpCaller {
             }
         }
         String bind = RequestBinding.compute(method, target, body);
-        Block own = ownBlock(receiver, added);
+        Block own = ownBlock(receiver, added, intent);
         List<Block> blocks = new ArrayList<>();
         if (inbound != null) {
             blocks.addAll(inboundBlocks != null ? inboundBlocks : Collections.nCopies(inbound.size(), Block.EMPTY));
@@ -462,14 +489,40 @@ public final class HttpCaller {
     /**
      * This service's own block for a call to {@code receiver} (spec influence.md, The every-stamp rule): where it acts
      * on influence, influence named with {@code added}, {@code []} when it has added nothing; otherwise the empty
-     * block, or one that names nothing and only requires, where something is required of the receiver.
+     * block, or one that names nothing and only requires, where something is required of the receiver. Where
+     * {@code intent} is not null, the block also names intent with the facts as its one item (spec intent.md, The
+     * origin's part), in the same block.
      */
-    private Block ownBlock(String receiver, List<InfluenceEntry> added) {
+    private Block ownBlock(String receiver, List<InfluenceEntry> added, IntentFacts intent) {
         List<String> required = requires.getOrDefault(receiver, List.of());
+        Map<String, List<String>> items = new HashMap<>();
         if (extensions.actsOn().contains(Influence.NAME)) {
-            return Influence.block(added, required);
+            items.put(Influence.NAME, added.stream().map(InfluenceEntry::toJson).toList());
         }
-        return required.isEmpty() ? Block.EMPTY : Block.of(Map.of(), required);
+        if (intent != null) {
+            items.put(Intent.NAME, List.of(intent.toItem()));
+        }
+        return items.isEmpty() && required.isEmpty() ? Block.EMPTY : Block.of(items, required);
+    }
+
+    /**
+     * Refuses to seal {@code intent} into a call that is not an origin's, or from a service that does not act on
+     * {@code intent}, or with no facts, before anything is signed (spec intent.md, The origin's part). A later hop
+     * forwards the origin's block; a block of its own that held facts would be its own statement, which every
+     * receiver refuses {@code INTENT_MISMATCH}.
+     */
+    private void requireOrigin(List<Stamp> inbound, IntentFacts intent) {
+        if (inbound != null && !inbound.isEmpty()) {
+            throw new IllegalStateException("only an origin seals intent: this call carries an inbound chain, whose"
+                    + " origin's block holds the facts; nothing is sent");
+        }
+        if (!extensions.actsOn().contains(Intent.NAME)) {
+            throw new IllegalStateException("sealing intent needs the service to act on intent"
+                    + " (its extension settings' actsOn); nothing is sent");
+        }
+        if (intent.isEmpty()) {
+            throw new IllegalStateException("no facts to seal: an origin with none puts no item; nothing is sent");
+        }
     }
 
     /**

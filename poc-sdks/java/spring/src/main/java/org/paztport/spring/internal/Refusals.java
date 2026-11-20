@@ -3,6 +3,8 @@
 
 package org.paztport.spring.internal;
 
+import jakarta.servlet.DispatcherType;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import org.paztport.http.HttpAnswer;
@@ -13,7 +15,71 @@ import org.paztport.http.HttpAnswer;
  */
 public final class Refusals {
 
+    /** The request attribute that holds the request's {@link Mark}. */
+    private static final String IN_PLACE_OF_HANDLER = Refusals.class.getName() + ".inPlaceOfHandler";
+
     private Refusals() {
+    }
+
+    /**
+     * Whether a refusal was made in place of the handler's answer, and the refusal itself while it is owed. One object
+     * that a check marks, rather than an attribute it sets, because the DispatcherServlet removes the attributes an
+     * include adds once the include returns, as the dispatch check's record is kept for the same reason.
+     */
+    private static final class Mark {
+        private boolean marked;
+        private HttpAnswer owed;
+    }
+
+    /**
+     * Gives the request the mark {@link #writeInPlaceOfHandler} sets, before any handler runs, so a mark made in an
+     * include outlives it. The inbound filter calls this before it passes the request on.
+     */
+    public static void prepareInPlaceOfHandler(HttpServletRequest request) {
+        if (!(request.getAttribute(IN_PLACE_OF_HANDLER) instanceof Mark)) {
+            request.setAttribute(IN_PLACE_OF_HANDLER, new Mark());
+        }
+    }
+
+    /**
+     * Writes {@code refusal} as {@link #write} does, and marks the request as answered by a refusal Paztport wrote in
+     * place of the handler's answer, so the inbound filter does not attest it, whether or not the request names an
+     * operation. For a check that runs as the handler is about to run and stops it. A handler reached by an include
+     * cannot set the status, so there the refusal is only marked owed, and the inbound filter, which holds the
+     * response, writes it once the chain returns ({@link #writeOwedInPlaceOfHandler}), as it does the dispatch
+     * check's.
+     */
+    public static void writeInPlaceOfHandler(HttpServletRequest request, HttpServletResponse response,
+            HttpAnswer refusal) throws IOException {
+        prepareInPlaceOfHandler(request);
+        Mark mark = (Mark) request.getAttribute(IN_PLACE_OF_HANDLER);
+        mark.marked = true;
+        if (request.getDispatcherType() == DispatcherType.INCLUDE) {
+            mark.owed = refusal;
+            return;
+        }
+        write(response, refusal);
+    }
+
+    /** Whether {@link #writeInPlaceOfHandler} answered {@code request}, so its answer is not the handler's. */
+    public static boolean inPlaceOfHandler(HttpServletRequest request) {
+        return request.getAttribute(IN_PLACE_OF_HANDLER) instanceof Mark mark && mark.marked;
+    }
+
+    /**
+     * Writes the refusal {@link #writeInPlaceOfHandler} marked owed for a handler reached by an include, in place of
+     * anything written around the include, once. A response already committed has gone out and cannot be refused;
+     * its handler did not run, and nothing is attested for it.
+     */
+    public static void writeOwedInPlaceOfHandler(HttpServletRequest request, HttpServletResponse response)
+            throws IOException {
+        if (request.getAttribute(IN_PLACE_OF_HANDLER) instanceof Mark mark && mark.owed != null
+                && !response.isCommitted()) {
+            HttpAnswer owed = mark.owed;
+            mark.owed = null;
+            response.resetBuffer();
+            write(response, owed);
+        }
     }
 
     /**

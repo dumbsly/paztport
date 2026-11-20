@@ -36,6 +36,8 @@ import org.paztport.core.influence.ContentLabel;
 import org.paztport.core.influence.Influence;
 import org.paztport.core.influence.InfluenceClass;
 import org.paztport.core.influence.InfluenceEntry;
+import org.paztport.core.intent.Intent;
+import org.paztport.core.intent.IntentFacts;
 import org.paztport.core.internal.JsonFields;
 import org.paztport.core.internal.JsonReader;
 import org.paztport.core.internal.JsonWriter;
@@ -1102,6 +1104,103 @@ class HttpReceiverTest {
         assertEquals(1, logged.size());
         assertTrue(logged.get(0).contains("unreadSigner=orders"), logged.get(0));
         assertFalse(logged.get(0).contains("not an entry"), "the item is never logged");
+    }
+
+    // --- Intent's item check (spec intent.md, The receiver's part, P1) ---
+
+    private static final ExtensionSettings ACTS_ON_INTENT = ExtensionSettings.of(Set.of(Intent.NAME), null);
+    private static final ExtensionSettings ACTS_ON_BOTH =
+            ExtensionSettings.of(Set.of(Influence.NAME, Intent.NAME), null);
+    /** An intent item with no facts, which does not read. */
+    private static final Block UNREAD_FACTS = Block.of(Map.of(Intent.NAME, List.of("{\"facts\":{}}")), List.of());
+    /** An intent item that reads. */
+    private static final Block FACTS = Block.of(Map.of(Intent.NAME,
+            List.of(IntentFacts.builder().put("amount", 100).build().toItem())), List.of());
+
+    /** gateway to orders to payment, gateway's block {@code origin} and orders' {@code own}, each signed over. */
+    private Headers headersWithBlocks(Block origin, Block own) {
+        Stamper.Stamped gw = new Stamper("gateway", "gw-1", gateway.getPrivate(), true, () -> "rid-1", () -> NOW)
+                .next(null, "orders", RequestBinding.compute("POST", "/orders", "{}".getBytes()), origin,
+                        policy.bundles().get("gateway"));
+        Stamper.Stamped ord = new Stamper("orders", "ord-1", orders.getPrivate(), false, () -> "x", () -> NOW)
+                .next(gw.chain(), "payment", RequestBinding.compute("POST", "/pay", TO_PAYMENT), own,
+                        policy.bundles().get("orders"));
+        return new Headers(HttpWire.encodeChain(ord.chain()), HttpWire.encodeProof(ord.proof()),
+                HttpWire.encodeBlocks(List.of(origin, own)));
+    }
+
+    /** Payment verifying requests under the mode, acting on {@code settings}, with a fresh nonce cache. */
+    private HttpReceiver verifyingActingOn(ExtensionSettings settings) {
+        return HttpReceiver.builder("payment").verifier(paymentVerifier(new InMemoryNonceCache(), settings))
+                .verifyRequests(true).publisher(events).build();
+    }
+
+    /**
+     * The answer of payment, acting on {@code settings}, to {@code h}: verified under enforce and under audit, served
+     * unverified under audit after the body changed, and under off; one answer per case, in that order.
+     */
+    private List<Accepted> everyMode(ExtensionSettings settings, Headers h) {
+        return List.of(
+                verifyingActingOn(settings).accept(paymentRequest(h, TO_PAYMENT), null, VerificationMode.ENFORCE),
+                verifyingActingOn(settings).accept(paymentRequest(h, TO_PAYMENT), null, VerificationMode.AUDIT),
+                verifyingActingOn(settings).accept(paymentRequest(h, TAMPERED), null, VerificationMode.AUDIT),
+                verifyingActingOn(settings).accept(paymentRequest(h, TO_PAYMENT), null, VerificationMode.OFF));
+    }
+
+    @Test
+    void anIntentItemThatDoesNotReadIsRefused400() {
+        captureReceiverLog();
+        List<Accepted> answers = everyMode(ACTS_ON_INTENT, headersWithBlocks(UNREAD_FACTS, Block.EMPTY));
+
+        for (Accepted accepted : answers) {
+            assertEquals(400, accepted.refusal().status());
+            assertEquals("{\"reason\":\"INTENT_MISMATCH\"}", text(accepted.refusal()));
+        }
+        assertEquals(ReasonCode.OK, answers.get(1).result().reason(), "refused though the chain verified");
+        List<String> logged = receiverWarnings();
+        assertEquals(4, logged.size(), logged.toString());
+        for (String line : logged) {
+            assertTrue(line.contains("unreadSigner=gateway"), line);
+            assertFalse(line.contains("facts"), "the item is never logged: " + line);
+        }
+    }
+
+    @Test
+    void anItemInALaterBlockIsRefused400() {
+        for (Accepted accepted : everyMode(ACTS_ON_INTENT, headersWithBlocks(Block.EMPTY, FACTS))) {
+            assertEquals(400, accepted.refusal().status());
+            assertEquals("{\"reason\":\"INTENT_MISMATCH\"}", text(accepted.refusal()));
+        }
+        // A later block may name intent with no items; that reads.
+        Block namesIt = Block.of(Map.of(Intent.NAME, List.of()), List.of());
+        for (Accepted accepted : everyMode(ACTS_ON_INTENT, headersWithBlocks(FACTS, namesIt))) {
+            assertNull(accepted.refusal());
+        }
+    }
+
+    @Test
+    void influenceIsReadBeforeIntent() {
+        for (Accepted accepted : everyMode(ACTS_ON_BOTH, headersWithBlocks(UNREAD_FACTS, UNREAD_ITEM))) {
+            assertEquals(400, accepted.refusal().status());
+            assertEquals("{\"reason\":\"INFLUENCE_MISMATCH\"}", text(accepted.refusal()));
+        }
+    }
+
+    @Test
+    void aServiceThatDoesNotActOnIntentCarriesIt() {
+        for (Block origin : List.of(UNREAD_FACTS, FACTS)) {
+            Headers h = headersWithBlocks(origin, Block.EMPTY);
+            for (ExtensionSettings settings : List.of(ACTS_ON_INFLUENCE, ExtensionSettings.NONE)) {
+                for (Accepted accepted : everyMode(settings, h)) {
+                    assertNull(accepted.refusal(), settings.actsOn().toString());
+                    assertEquals(List.of(origin, Block.EMPTY), accepted.blocks(),
+                            "the blocks are forwarded as received");
+                }
+            }
+            Accepted unverifying = plain().accept(paymentRequest(h, TO_PAYMENT), null, VerificationMode.OFF);
+            assertNull(unverifying.refusal());
+            assertEquals(List.of(origin, Block.EMPTY), unverifying.blocks());
+        }
     }
 
     // The receiver's settings reach the rule through the scope, so a receiver that does not act on influence

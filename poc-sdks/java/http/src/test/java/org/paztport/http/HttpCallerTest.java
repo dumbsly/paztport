@@ -39,6 +39,8 @@ import org.paztport.core.influence.ContentLabel;
 import org.paztport.core.influence.Influence;
 import org.paztport.core.influence.InfluenceClass;
 import org.paztport.core.influence.InfluenceEntry;
+import org.paztport.core.intent.Intent;
+import org.paztport.core.intent.IntentFacts;
 import org.paztport.core.policy.Keyring;
 import org.paztport.core.policy.OperationTable;
 import org.paztport.core.policy.PolicyBuilder;
@@ -302,6 +304,92 @@ class HttpCallerTest {
 
         assertEquals(List.of(Block.EMPTY), blocksOf(sent.headers()));
         assertEquals("", chainOf(sent.headers()).get(0).ext());
+    }
+
+    // --- Intent ---
+
+    private static final ExtensionSettings ACTS_ON_INTENT = ExtensionSettings.of(Set.of(Intent.NAME), null);
+    private static final IntentFacts FACTS = IntentFacts.builder().put("amount", 100).put("order", "123").build();
+
+    /** Gateway's caller, the origin, acting on {@code settings}. */
+    private HttpCaller originActingOn(ExtensionSettings settings) {
+        return HttpCaller.builder("gateway", gatewayStamper()).bundle(policy.bundles().get("gateway"))
+                .extensions(settings).build();
+    }
+
+    @Test
+    void anOriginPutsTheFactsInItsBlock() {
+        HttpCaller.Outbound sent = originActingOn(ACTS_ON_INTENT).stamp("POST", ORDERS, NO_BODY, null, null,
+                List.of(), FACTS);
+
+        Block own = sent.blocks().get(0);
+        assertEquals(List.of(FACTS.toItem()), own.itemsUnder(Intent.NAME));
+        assertEquals(Set.of(Intent.NAME), own.names());
+        assertEquals(own.commit(), chainOf(sent.headers()).get(0).ext(), "the origin's stamp commits to the facts");
+        assertEquals(List.of(own), blocksOf(sent.headers()));
+    }
+
+    @Test
+    void anOriginThatActsOnBothSendsOneBlockWithBoth() {
+        HttpCaller.Outbound sent = originActingOn(ExtensionSettings.of(Set.of(Influence.NAME, Intent.NAME), null))
+                .stamp("POST", ORDERS, NO_BODY, null, null, List.of(MINE), FACTS);
+
+        Block own = sent.blocks().get(0);
+        assertEquals(Set.of(Influence.NAME, Intent.NAME), own.names());
+        assertEquals(List.of(MINE.toJson()), own.itemsUnder(Influence.NAME));
+        assertEquals(List.of(FACTS.toItem()), own.itemsUnder(Intent.NAME));
+        assertEquals(1, sent.blocks().size());
+    }
+
+    @Test
+    void aLaterHopCannotSealIntent() {
+        Stamper.Stamped received = gatewayStamper().next(null, "orders", "b", Block.EMPTY,
+                policy.bundles().get("gateway"));
+        HttpCaller orders = HttpCaller.builder("orders", ordersStamper()).bundle(policy.bundles().get("orders"))
+                .extensions(ACTS_ON_INTENT).build();
+
+        IllegalStateException refused = assertThrows(IllegalStateException.class, () -> orders.stamp("POST",
+                URI.create("http://payment:8080/pay"), NO_BODY, received.chain(), null, List.of(), FACTS));
+        assertTrue(refused.getMessage().contains("only an origin"), refused.getMessage());
+
+        // The context's binding refuses the same, before anything is signed.
+        try (RequestContext.Scope scope = RequestContext.open()) {
+            RequestContext.setInboundChain(received.chain());
+            RequestContext.sealIntent(FACTS);
+            assertThrows(IllegalStateException.class, () -> orders.stampFromContext("POST",
+                    URI.create("http://payment:8080/pay"), NO_BODY));
+        }
+    }
+
+    @Test
+    void sealingNeedsTheServiceToActOnIntent() {
+        for (ExtensionSettings settings : List.of(ACTS_ON_INFLUENCE, ExtensionSettings.NONE)) {
+            HttpCaller caller = originActingOn(settings);
+            assertThrows(IllegalStateException.class, () -> caller.stamp("POST", ORDERS, NO_BODY, null, null,
+                    List.of(), FACTS), settings.actsOn().toString());
+        }
+    }
+
+    @Test
+    void withNoFactsTheBlockIsWhatItWasBefore() {
+        for (ExtensionSettings settings : List.of(ExtensionSettings.NONE, ACTS_ON_INFLUENCE, ACTS_ON_INTENT,
+                ExtensionSettings.of(Set.of(Influence.NAME, Intent.NAME), null))) {
+            HttpCaller caller = originActingOn(settings);
+            Block withNull = caller.stamp("POST", ORDERS, NO_BODY, null, null, List.of(MINE), null).blocks().get(0);
+            Block sixArguments = caller.stamp("POST", ORDERS, NO_BODY, null, null, List.of(MINE)).blocks().get(0);
+            assertEquals(sixArguments, withNull, settings.actsOn().toString());
+            assertNull(withNull.itemsUnder(Intent.NAME), "no facts, no item: " + settings.actsOn());
+        }
+    }
+
+    @Test
+    void theContextCarriesTheSealedFactsToTheOriginsCalls() {
+        HttpCaller.Outbound sent;
+        try (RequestContext.Scope scope = RequestContext.open()) {
+            RequestContext.sealIntent(FACTS);
+            sent = originActingOn(ACTS_ON_INTENT).stampFromContext("POST", ORDERS, NO_BODY);
+        }
+        assertEquals(List.of(FACTS.toItem()), sent.blocks().get(0).itemsUnder(Intent.NAME));
     }
 
     @Test

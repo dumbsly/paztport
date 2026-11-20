@@ -35,6 +35,7 @@ import org.paztport.core.influence.ContentLabel;
 import org.paztport.core.influence.Influence;
 import org.paztport.core.influence.InfluenceClass;
 import org.paztport.core.influence.InfluenceEntry;
+import org.paztport.core.intent.IntentFacts;
 import org.paztport.core.policy.Keyring;
 import org.paztport.core.policy.PolicyBuilder;
 import org.paztport.core.stamp.Block;
@@ -185,6 +186,48 @@ class RequestContextTest {
         assertNull(RequestContext.inboundChain());
         assertTrue(RequestContext.added().isEmpty());
         assertTrue(RequestContext.labels().isEmpty());
+    }
+
+    private static final IntentFacts FACTS = IntentFacts.builder().put("amount", 100).build();
+
+    @Test
+    void sealedFactsEndWithTheScope() {
+        try (RequestContext.Scope scope = RequestContext.open()) {
+            RequestContext.sealIntent(FACTS);
+            assertEquals(FACTS, RequestContext.sealedIntent());
+        }
+        assertNull(RequestContext.sealedIntent(), "closing the scope drops them");
+
+        try (RequestContext.Scope scope = RequestContext.open()) {
+            assertNull(RequestContext.sealedIntent(), "a new scope starts without them");
+            RequestContext.sealIntent(FACTS);
+            RequestContext.clear();
+            assertNull(RequestContext.sealedIntent(), "clear() drops them");
+            RequestContext.sealIntent(FACTS);
+        }
+
+        RequestContext.Scope leaked = RequestContext.open();
+        RequestContext.sealIntent(FACTS);
+        RequestContext.reset();
+        assertNull(RequestContext.sealedIntent(), "ending a leaked scope drops them");
+        leaked.close();
+    }
+
+    @Test
+    void sealingTwiceOrOutsideAScopeIsRefused() {
+        assertThrows(IllegalStateException.class, () -> RequestContext.sealIntent(FACTS), "no scope is open");
+        assertNull(RequestContext.sealedIntent());
+
+        try (RequestContext.Scope scope = RequestContext.open()) {
+            assertThrows(IllegalStateException.class, () -> RequestContext.sealIntent(IntentFacts.NONE),
+                    "no facts is no item, so nothing to seal");
+            assertNull(RequestContext.sealedIntent());
+
+            RequestContext.sealIntent(FACTS);
+            IntentFacts other = IntentFacts.builder().put("amount", 999).build();
+            assertThrows(IllegalStateException.class, () -> RequestContext.sealIntent(other), "sealed once");
+            assertEquals(FACTS, RequestContext.sealedIntent(), "the first facts stand");
+        }
     }
 
     @Test

@@ -21,7 +21,9 @@ public enum VerificationMode {
 
     /**
      * Run every check, refuse nothing and report the result: publish an event, marked audit, for each failure, and
-     * pass the request through. Influence that cannot be read is still answered 400, since it may not be dropped.
+     * pass the request through. Influence or intent that cannot be read is still answered 400, since it may not be
+     * dropped. A request passed through after a failure is handed no verified facts, so a handler that requires the
+     * origin's facts still refuses it {@code 403 INTENT_MISSING}.
      */
     AUDIT,
 

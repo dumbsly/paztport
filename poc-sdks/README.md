@@ -1,7 +1,7 @@
 # Paztport SDKs
 
 The SDKs hold the Paztport pieces: stamps, chains, request binding, proofs,
-policy, verification, influence and sessions. The demos in
+policy, verification, influence, intent and sessions. The demos in
 [poc-demos](../poc-demos/README.md) only wire them together.
 
 - [java](java/README.md): `paztport-core`, the `paztport-http` and
@@ -45,7 +45,10 @@ A stamp is a JSON object, and a chain is an array of them, origin first:
 A block holds the claims a hop attaches, `{ "items": { "<extension>": [ ... ] }, "requires": [ ... ] }`: its
 items under each extension's name, which the core carries without reading, and the extensions it requires the next
 hop to act on ([wire.md](spec/wire.md#blocks)). Influence is the extension `influence`, whose entries are items
-in each hop's block ([influence.md](spec/influence.md)).
+in each hop's block ([influence.md](spec/influence.md)). Intent is the extension `intent`: facts the origin states
+about a request, such as the amount a customer was shown, as one item in the origin's own block, which a receiver
+several hops on compares with the request it is sent ([intent.md](spec/intent.md)). Java's `paztport-http` and
+`paztport-spring` seal them at an origin and require them at a handler.
 
 Every Paztport object travels as its JCS bytes, or as their base64url, its token, and each SDK reads it from
 those bytes with its own strict reader, never through a transport's JSON parser ([wire.md](spec/wire.md#json)).

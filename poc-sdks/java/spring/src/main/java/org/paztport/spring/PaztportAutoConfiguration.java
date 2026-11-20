@@ -14,6 +14,7 @@ import org.paztport.http.ReceivedRequestListener;
 import org.paztport.http.boundary.BoundaryClient;
 import org.paztport.http.event.EventPublisher;
 import org.paztport.spring.event.EventConfiguration;
+import org.paztport.spring.intent.IntentConfiguration;
 import org.paztport.spring.operation.OperationConfiguration;
 import org.paztport.spring.operation.OperationResolver;
 import org.paztport.spring.outbound.OutboundConfiguration;
@@ -77,15 +78,20 @@ import org.springframework.core.Ordered;
  * {@link TrustConfiguration} builds the one {@link ExtensionSettings} from them, and that instance goes to both
  * verifiers, the inbound filter's receiver, the caller, the partner's sessions and the egress. Unset, the service acts
  * on none, so {@link PublicWrites} denies every guarded write; a service whose handlers use it, or label what they
- * answer, acts on {@code influence}.
+ * answer, acts on {@code influence}. A service whose handlers require the origin's facts
+ * ({@link org.paztport.spring.intent.RequiresIntent}), or an origin that seals them, acts on {@code intent};
+ * {@link IntentConfiguration} refuses to start a service with such a handler that does not.
  *
  * <p>Each feature's beans are built by a configuration class of its own, which this imports. The request path's
  * own beans are defined here: the two filters, which adapt the receivers, and the public-writes rule.
  */
 @AutoConfiguration
 @EnableConfigurationProperties(PaztportProperties.class)
+// IntentConfiguration comes after OperationConfiguration: a handler mapping runs MappedInterceptor beans in the order
+// their definitions were registered, which follows this list, and the dispatch check must answer before the intent
+// check. IntentCheckTest.theDispatchCheckAnswersFirst is what holds that order.
 @Import({TrustConfiguration.class, OutboundConfiguration.class, PartnerConfiguration.class, EventConfiguration.class,
-        OperationConfiguration.class})
+        OperationConfiguration.class, IntentConfiguration.class})
 public class PaztportAutoConfiguration {
 
     /**

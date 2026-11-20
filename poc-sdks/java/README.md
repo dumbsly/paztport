@@ -202,6 +202,79 @@ empty) and `Influence.recordedCallReason` (`recordedCall`). `influence.response`
 the `request` cases whose `served` is not empty are the extension over MCP, which Java
 does not implement.
 
+### The extension `intent`
+
+`intent` ([intent.md](../spec/intent.md)) is a set of facts the origin states about a
+request, such as the amount a customer was shown, which a receiver several hops on
+compares with the request it is sent. The facts are one item in the origin's own block,
+which its stamp commits to and every later hop forwards unchanged. The core's part is in
+`org.paztport.core.intent`, and its verifier reads none of it.
+
+- **Facts.** `IntentFacts.builder()` builds them a name at a time (`put`, `putNull`,
+  `putJson`), refusing at once what a reader would refuse; `parse` reads one item and
+  `toItem` writes it, `{"facts":{...}}`. A value is held as its JCS text, and read back
+  as `json`, `string` or `integer`.
+- **The checks.** `Intent.readRequest(stamps)` reads the items handed on under `intent`
+  (check P1): one item in the first stamp's block at most, none in a later one, or
+  `INTENT_MISMATCH` and the signer of the block holding them, for the operator's log.
+  `Intent.require(handOver, needs)` answers a handler that requires the facts `needs`
+  (check P2): `INTENT_MISSING` when a name is not among them, and whenever the hand-over
+  is not verified, since a fact is believed only from a verified one.
+- **At an origin.** The handler seals the facts with `RequestContext.sealIntent(facts)`,
+  once per request, and every call its scope makes then puts them in its own block under
+  `intent` (`HttpCaller.stamp(..., intent)` is the function the binding calls). Only an
+  origin seals facts, on a service that acts on `intent`: a call with an inbound chain,
+  or from a service that does not act on it, throws `IllegalStateException` before
+  anything is signed.
+- **At a receiver.** A service that acts on `intent` refuses items under it that do not
+  read, `400 {"reason":"INTENT_MISMATCH"}`, verified or not and in every mode, after
+  `influence`'s own item check. A Spring handler annotated `@RequiresIntent` is checked
+  as it is about to run: a request whose verified origin did not state each name, or that
+  was served without verifying (in `audit` after a failure, or in `off`), is refused
+  `403 {"reason":"INTENT_MISSING"}`, the handler does not run, and the refusal is never
+  attested. The handler reads the facts from `OriginIntent.facts()`, compares them with
+  its request, and answers a difference `403 {"reason":"INTENT_DENIED"}`, the code
+  `OriginIntent.deny()` returns. Each answer that is not `OK` logs one
+  `PAZTPORT_TRACE intent` line naming the request, the service, the code and the last
+  signer, never a fact.
+
+Both services set `paztport.extensions.acts-on: [intent]`; a service with an annotated
+handler that does not, or whose annotation names no fact or a name that is not a fact
+name, does not start.
+
+```java
+// The origin (paztport.origin=true): the facts are the values it acts on.
+@PostMapping("/checkout")
+String checkout(@RequestBody Checkout checkout) {
+    RequestContext.sealIntent(IntentFacts.builder()
+            .put("amount", checkout.amount())
+            .put("order", checkout.order())
+            .build());
+    return orders.post().uri("http://orders/orders").body(checkout).retrieve().body(String.class);
+}
+
+// Payment, two hops on. The names it requires sit beside the comparison.
+@PostMapping("/charge")
+@RequiresIntent({"amount", "order"})
+ResponseEntity<String> charge(@RequestBody Charge charge) {
+    IntentFacts facts = intent.facts();
+    if (!Long.valueOf(charge.amount()).equals(facts.integer("amount"))
+            || !charge.order().equals(facts.string("order"))) {
+        return ResponseEntity.status(403).contentType(MediaType.APPLICATION_JSON)
+                .body("{\"reason\":\"" + intent.deny() + "\"}");
+    }
+    // Charge with the values compared, never by relaying the body they were parsed from.
+    return ResponseEntity.ok(psp.charge(charge.order(), charge.amount()));
+}
+```
+
+A handler acts on the value it compared: it uses that value, and builds whatever it
+sends on from compared values. It never compares a parsed value and then relays the
+bytes it parsed, since another reader of those bytes may read another value from them
+([intent.md](../spec/intent.md#the-receivers-part)). No SDK can check this for it.
+
+`intent.json` pins the facts and both checks; Java writes it and Java and Go replay it.
+
 ## paztport-http
 
 Version 4 over HTTP, with no web framework. `VectorsHttpV4Test` replays `spec/vectors/http-v4.json`, every section,
@@ -237,13 +310,15 @@ unless set.
 The receivers decide a request with no framework and keep no per-request state.
 `HttpReceiver.accept(InboundRequest, Peer, VerificationMode)` decides one request for a service and returns an
 `Accepted`: either a refusal to send in place of the handler's answer (an `HttpAnswer`, `{"reason":"<code>"}`), or
-what the handler starts from and whether its answer is attested. Besides the 503 below, a refusal is one of three
+what the handler starts from and whether its answer is attested. Besides the 503 below, a refusal is one of four
 answers: `403` with the code where verification refuses under `ENFORCE`; `400 {"reason":"EXTENSION_MISMATCH"}` where
 the service would serve a request it did not verify (under `AUDIT` after a failure, `OFF`, or with no mode) and its
 blocks fail check 9a, as `ServedUnverified.of` applies it, or, where the chain did not read, do not read as an array
 of blocks; and `400 {"reason":"INFLUENCE_MISMATCH"}` where the service acts on `influence` and an item it is handed,
 verified or not, does not read as an entry (`Influence.readRequest`), with a warning naming the signer of the first
-block that holds one. A service that does not act on `influence` reads no item and refuses nothing for one.
+block that holds one; and `400 {"reason":"INTENT_MISMATCH"}` where the service acts on `intent` and the items it is
+handed under it, verified or not, do not read (`Intent.readRequest`), checked after `influence`'s. A service that
+does not act on an extension reads no item of it and refuses nothing for one.
 
 A request a receiver serves carries its chain, `Accepted.inbound()`, and the blocks the chain came with,
 `Accepted.blocks()`, one per stamp (one `Block.EMPTY` per stamp where no header came), which the handler's own calls
@@ -557,7 +632,7 @@ refuses: set `enableServiceLinks: false` on the pod, or name the Service otherwi
 | `paztport.run-max-age-ms` | `max-age-ms` | No | How old the origin's stamp may be, in milliseconds; unset, it is `max-age-ms`, since inside one mesh a request tree is a single call. |
 | `paztport.unverified-paths` | none | No; each entry must be one first path segment, or the service does not start | Path prefixes that are neither verified nor attested ([Unverified paths](#unverified-paths)). |
 | `paztport.receiver-names.<host>` | none | No | The policy name of the receiver at a host that is not its name ([Outbound calls and response checks](#outbound-calls-and-response-checks)). |
-| `paztport.extensions.acts-on` | none | No; a name that is not an extension name stops the start | The extensions this service acts on, such as `influence`; unset, it acts on none ([Extensions](#extensions)). |
+| `paztport.extensions.acts-on` | none | No; a name that is not an extension name stops the start | The extensions this service acts on, such as `influence` or `intent`; unset, it acts on none ([Extensions](#extensions)). |
 | `paztport.extensions.allowed` | absent, so any name | No; a name that is not an extension name, or a list that does not hold every `acts-on` name (an empty one beside any), stops the start | The extension names the service carries, check 9b's `allowedExtensions`: absent, any name; present and empty, none. |
 | `paztport.extensions.requires.<receiver>` | none | No; read where `key-path` is set, and a `<receiver>` that is not a service name, or a name that is not an extension name, then stops the start. Where `proofs-path` is set, so does a `<receiver>` that no route in the bundle ends at; without proofs the starter cannot know the receivers, so the key is not checked against them and must be the receiver's policy name | What the service's calls to `<receiver>`, by its policy name, require of it in their own block; a receiver that does not act on each fails the call at check 9c (`EXTENSION_REQUIRED`), refusing it under `enforce` and serving it under `audit`, as any failure. Empty requires nothing. It covers calls inside the organisation only: what the egress requires of a partner is `paztport.boundary.requires`, and a partner's entry named here binds no call. |
 | `paztport.tls-bundle` | none | No | The SSL bundle the service presents on its calls and its events; `false` is the same as unset ([Mutual TLS](#mutual-tls)). |
@@ -606,6 +681,10 @@ that does not signs a block that holds no items (and requires only what
 `paztport.extensions.requires.<receiver>` names), reads no item, refuses a labelled
 answer at check 9c where it checks responses, and is refused every guarded write.
 
+An origin that seals facts, and a service whose handlers require them with
+`@RequiresIntent`, act on `intent` ([The extension `intent`](#the-extension-intent)). A
+hop between them need not: it forwards the origin's block unchanged.
+
 ### The inbound filter
 
 The inbound filter caches the body, runs `HttpReceiver` through
@@ -615,7 +694,7 @@ handed. Where `paztport.verify=true` it verifies the request in the current mode
 service also needs a keyring, a root and the policy pin (`paztport.policy-key-path`) and
 the entry points it accepts (`paztport.origins`, required wherever those three paths are
 set), or it refuses to start. Besides the `503` of a nonce cache that cannot answer, a
-refusal is one of three answers, each `{"reason":"<code>"}`:
+refusal is one of four answers, each `{"reason":"<code>"}`:
 - `403` with the code of the first check that failed, where verification refuses the
   request under `enforce`;
 - `400 {"reason":"EXTENSION_MISMATCH"}` where a service other than an origin would serve a
@@ -623,7 +702,9 @@ refusal is one of three answers, each `{"reason":"<code>"}`:
   verifies only to decide attestation, or not at all) and its blocks fail check 9a, since no
   hop serves a request whose blocks it could not forward unchanged;
 - `400 {"reason":"INFLUENCE_MISMATCH"}` where the service acts on `influence` and an item it
-  is handed, verified or not, does not read.
+  is handed, verified or not, does not read;
+- `400 {"reason":"INTENT_MISMATCH"}` where the service acts on `intent` and the items it is
+  handed under it, verified or not, do not read ([The extension `intent`](#the-extension-intent)).
 
 An origin (`paztport.origin=true`) starts every request tree afresh: it ignores the chain
 and the blocks a request brings.

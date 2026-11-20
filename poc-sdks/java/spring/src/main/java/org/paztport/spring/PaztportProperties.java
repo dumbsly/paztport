@@ -370,12 +370,14 @@ public class PaztportProperties implements InitializingBean, EnvironmentAware {
      * {@code paztport.extensions.*}: the service's extension settings, stated once and given to everything that
      * verifies, receives or calls for it (spec verification.md, Inputs). Unset, the service acts on no extension and
      * carries any name, as a mesh with no model runs none of them (spec influence.md). A service whose handlers use
-     * {@code PublicWrites} or label what they answer acts on {@code influence}. The names are checked, and the start
-     * refused, where the settings are built ({@code ExtensionSettings.of}).
+     * {@code PublicWrites} or label what they answer acts on {@code influence}. An origin that seals facts for its
+     * calls, and a service whose handlers require them ({@code @RequiresIntent}), act on {@code intent}; a service
+     * with such a handler that does not is refused the start. The names are checked, and the start refused, where the
+     * settings are built ({@code ExtensionSettings.of}).
      */
     public static class Extensions {
 
-        /** The extensions this service acts on, such as influence; empty, the default, for none. */
+        /** The extensions this service acts on, such as influence or intent; empty, the default, for none. */
         private Set<String> actsOn = new LinkedHashSet<>();
 
         /**

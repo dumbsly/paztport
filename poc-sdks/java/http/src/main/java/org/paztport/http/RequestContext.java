@@ -5,10 +5,12 @@ package org.paztport.http;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.function.Supplier;
 import org.paztport.core.influence.ContentLabel;
 import org.paztport.core.influence.InfluenceClass;
 import org.paztport.core.influence.InfluenceEntry;
+import org.paztport.core.intent.IntentFacts;
 import org.paztport.core.stamp.Block;
 import org.paztport.core.stamp.Stamp;
 import org.paztport.core.verify.ExtensionSettings;
@@ -24,9 +26,10 @@ import org.slf4j.LoggerFactory;
  * ({@link HttpReceiver}, {@link PartnerReceiver}) decide each request without it; a framework's adapter runs them
  * through it ({@link #accept(HttpReceiver, InboundRequest, Peer, VerificationMode)}), which opens the request's scope
  * and stores the chain the service received, the blocks that came with it and what the service is handed
- * ({@link #handedOn}); the handler adds the influence of whatever else it reads ({@link #addInfluence}), and labels
- * what it produces; the caller reads the chain and its blocks to append the next stamp and forward them, and builds
- * its own block from what the service added. A reactive binding, or another language's (Go would use
+ * ({@link #handedOn}); the handler adds the influence of whatever else it reads ({@link #addInfluence}), labels
+ * what it produces, and at an origin seals the facts its calls state ({@link #sealIntent}); the caller reads the
+ * chain and its blocks to append the next stamp and forward them, and builds its own block from what the service
+ * added. A reactive binding, or another language's (Go would use
  * {@code context.Context}), carries the same values its own way around the same receiver functions.
  *
  * <p>Calls are synchronous on the request thread, so a thread-local is sufficient. Threads are pooled, so what one
@@ -52,6 +55,7 @@ public final class RequestContext {
     private static final ThreadLocal<Delivery> DELIVERY = new ThreadLocal<>();
     private static final ThreadLocal<List<InfluenceEntry>> ADDED = ThreadLocal.withInitial(ArrayList::new);
     private static final ThreadLocal<List<ContentLabel>> LABELS = ThreadLocal.withInitial(ArrayList::new);
+    private static final ThreadLocal<IntentFacts> SEALED = new ThreadLocal<>();
     private static final ThreadLocal<Scope> CURRENT = new ThreadLocal<>();
 
     private RequestContext() {
@@ -196,6 +200,40 @@ public final class RequestContext {
     /** The labels added so far, in order; a read-only copy. */
     public static List<ContentLabel> labels() {
         return List.copyOf(LABELS.get());
+    }
+
+    /**
+     * Seals the origin's facts for this request (spec intent.md, The origin's part): every call the scope makes from
+     * now on puts them in its own block under {@code intent}. Only an origin seals facts, and only a service that acts
+     * on {@code intent}; {@link HttpCaller} refuses a call that would send them otherwise. They are sealed once, so
+     * every call of the request states the same facts, and they end with the scope.
+     *
+     * @param facts the values the application acts on, such as the amount a customer was shown; at least one
+     * @throws IllegalStateException when no scope is open, when facts were already sealed in this scope, or when
+     *     {@code facts} is empty; nothing is sealed
+     * @throws NullPointerException when {@code facts} is null
+     */
+    public static void sealIntent(IntentFacts facts) {
+        Objects.requireNonNull(facts, "facts");
+        if (!isOpen()) {
+            throw new IllegalStateException("no paztport context scope is open, so there is no request to seal facts"
+                    + " for");
+        }
+        if (SEALED.get() != null) {
+            throw new IllegalStateException("this request's facts are already sealed");
+        }
+        if (facts.isEmpty()) {
+            throw new IllegalStateException("no facts to seal: an origin with none puts no item");
+        }
+        SEALED.set(facts);
+    }
+
+    /**
+     * The facts sealed in this scope ({@link #sealIntent}), or null where none were; package-private, for
+     * {@link HttpCaller#stampFromContext}.
+     */
+    static IntentFacts sealedIntent() {
+        return SEALED.get();
     }
 
     /**
@@ -367,5 +405,6 @@ public final class RequestContext {
         DELIVERY.remove();
         ADDED.remove();
         LABELS.remove();
+        SEALED.remove();
     }
 }

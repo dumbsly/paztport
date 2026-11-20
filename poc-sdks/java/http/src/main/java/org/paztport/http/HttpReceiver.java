@@ -12,6 +12,8 @@ import org.paztport.core.event.AttestationEvent;
 import org.paztport.core.influence.Influence;
 import org.paztport.core.influence.InfluenceEntry;
 import org.paztport.core.influence.RequestInfluence;
+import org.paztport.core.intent.Intent;
+import org.paztport.core.intent.RequestIntent;
 import org.paztport.core.policy.OperationTable;
 import org.paztport.core.stamp.Block;
 import org.paztport.core.stamp.Chains;
@@ -66,7 +68,9 @@ import org.slf4j.LoggerFactory;
  * {@code 400 {"reason":"EXTENSION_MISMATCH"}} where verification has not refused them first. Where the chain passed
  * the live order here, the verifier's hand-over ({@link Accepted#handOver}) holds what the blocks hold for the names
  * the service acts on, read from its verifier ({@link Builder#extensions}); a request served without verifying is
- * handed its items as not verified, where its chain read and its blocks passed check 9a.
+ * handed its items as not verified, where its chain read and its blocks passed check 9a. A service that acts on
+ * {@code influence} or {@code intent} refuses items under it that do not read, {@code 400} with the extension's
+ * code, verified or not and in every mode, influence's first.
  *
  * <p>A chain may name this service's operation ({@code rcv} {@code <service>#<operation>}). The adapter passes the
  * operation its framework will dispatch the request to ({@link InboundRequest#operation}), and the request is
@@ -376,6 +380,9 @@ public final class HttpReceiver {
             handOver = unverified.handOver();
         }
         HttpAnswer unread = unreadInfluence(extensions, handOver, rid);
+        if (unread == null) {
+            unread = unreadIntent(extensions, handOver, rid);
+        }
         if (unread != null) {
             return Accepted.refused(unread, checked);
         }
@@ -402,6 +409,28 @@ public final class HttpReceiver {
             return null;
         }
         LOG.warn("request refused, an influence item does not read: rid={} unreadSigner={}", LogSafe.of(rid),
+                LogSafe.of(read.unreadSigner()));
+        return HttpAnswer.refusal(400, read.reason());
+    }
+
+    /**
+     * The refusal of a service that acts on {@code intent} and is handed items under it that do not read (spec
+     * intent.md, The receiver's part, P1), {@code 400 INTENT_MISMATCH}, verified or not, in every mode; null
+     * otherwise. It runs after {@link #unreadInfluence}, so a request whose items of both do not read is answered for
+     * influence. A service that does not act on intent reads nothing and refuses nothing for it. The log names the
+     * signer of the first block holding such items, never an item.
+     *
+     * @param handOver what the service is handed, or null for nothing
+     */
+    static HttpAnswer unreadIntent(ExtensionSettings settings, HandOver handOver, String rid) {
+        if (handOver == null || !settings.actsOn().contains(Intent.NAME)) {
+            return null;
+        }
+        RequestIntent read = Intent.readRequest(handOver.under(Intent.NAME));
+        if (read.reads()) {
+            return null;
+        }
+        LOG.warn("request refused, an intent item does not read: rid={} unreadSigner={}", LogSafe.of(rid),
                 LogSafe.of(read.unreadSigner()));
         return HttpAnswer.refusal(400, read.reason());
     }

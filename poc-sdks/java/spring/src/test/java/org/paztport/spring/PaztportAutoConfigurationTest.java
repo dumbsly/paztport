@@ -1194,12 +1194,15 @@ class PaztportAutoConfigurationTest {
     @Test
     void theBeansEachPropertySetCreatesAreAsBefore(@TempDir Path dir) throws Exception {
         writeWorld(dir);
-        // None: every service has the inbound filter and the public-writes rule.
+        // None: every service has the inbound filter, the public-writes rule and the intent check.
         assertStarterBeans(runner,
                 "paztport-org.paztport.spring.PaztportProperties",
                 "paztportBoundaryRequirement",
                 "paztportExtensionSettings",
                 "paztportInboundFilterRegistration",
+                "paztportIntentCheck",
+                "paztportIntentHandlers",
+                "paztportOriginIntent",
                 "paztportPublicWrites");
         // A caller: a key and its proofs.
         assertStarterBeans(runner.withPropertyValues(
@@ -1211,6 +1214,9 @@ class PaztportAutoConfigurationTest {
                 "paztportBoundaryRequirement",
                 "paztportExtensionSettings",
                 "paztportInboundFilterRegistration",
+                "paztportIntentCheck",
+                "paztportIntentHandlers",
+                "paztportOriginIntent",
                 "paztportProofBundle",
                 "paztportPublicWrites",
                 "paztportRestClientCustomizer",
@@ -1223,8 +1229,11 @@ class PaztportAutoConfigurationTest {
                 "paztportEventPublisher",
                 "paztportExtensionSettings",
                 "paztportInboundFilterRegistration",
+                "paztportIntentCheck",
+                "paztportIntentHandlers",
                 "paztportModeHolder",
                 "paztportNonceCache",
+                "paztportOriginIntent",
                 "paztportPublicWrites",
                 "paztportResponseVerifier",
                 "paztportRestClientCustomizer",
@@ -1238,8 +1247,11 @@ class PaztportAutoConfigurationTest {
                 "paztportEventPublisher",
                 "paztportExtensionSettings",
                 "paztportInboundFilterRegistration",
+                "paztportIntentCheck",
+                "paztportIntentHandlers",
                 "paztportModeHolder",
                 "paztportNonceCache",
+                "paztportOriginIntent",
                 "paztportPublicWrites",
                 "paztportResponseVerifier",
                 "paztportRestClientCustomizer",
@@ -1272,7 +1284,10 @@ class PaztportAutoConfigurationTest {
                 "paztportBoundaryRequirement",
                 "paztportExtensionSettings",
                 "paztportInboundFilterRegistration",
+                "paztportIntentCheck",
+                "paztportIntentHandlers",
                 "paztportNonceCache",
+                "paztportOriginIntent",
                 "paztportProofBundle",
                 "paztportPublicWrites",
                 "paztportResponseVerifier",
@@ -1286,7 +1301,10 @@ class PaztportAutoConfigurationTest {
                 "paztport-org.paztport.spring.PaztportProperties",
                 "paztportBoundaryRequirement",
                 "paztportExtensionSettings",
+                "paztportIntentCheck",
+                "paztportIntentHandlers",
                 "paztportNonceCache",
+                "paztportOriginIntent",
                 "paztportPartnerFilterRegistration",
                 "paztportPartnerGate",
                 "paztportPartnerSessionController",

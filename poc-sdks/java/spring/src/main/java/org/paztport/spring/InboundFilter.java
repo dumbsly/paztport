@@ -90,7 +90,9 @@ import org.springframework.web.util.ContentCachingResponseWrapper;
  *
  * <ul>
  *   <li>the receiver attests it: the chain passed the live order here;</li>
- *   <li>the response is not committed when the answer is finished; and</li>
+ *   <li>the response is not committed when the answer is finished;</li>
+ *   <li>no check of Paztport's refused the request as its handler was about to run, writing a refusal in place of
+ *       the handler's answer (the intent check, {@link org.paztport.spring.intent.RequiresIntent}); and</li>
  *   <li>where the chain named an operation and the filter recorded it on the request's own dispatch, its handler was
  *       checked as it was about to run, was reached, and was not contradicted: it is the recorded operation and, for
  *       a keyed operation, reads the recorded key value.</li>
@@ -108,13 +110,17 @@ import org.springframework.web.util.ContentCachingResponseWrapper;
  *       handler the check never saw (one a filter wrote itself, or another registered servlet's) is not the
  *       operation's, nor is one an interceptor wrote when it stopped the request before the handler was reached:
  *       Paztport's last interceptor records that it was.</li>
+ *   <li>A refusal Paztport writes as the handler is about to run is the service's own answer, not the handler's, so
+ *       it is not attested on any service, one with no table included; it marks the request so
+ *       ({@code Refusals.writeInPlaceOfHandler}). An application interceptor's own answer is still attested where the
+ *       chain names no operation, as the next paragraph says.</li>
  * </ul>
  *
  * <p>A chain that names no operation is still attested, there being no operation to vouch for. So is the answer to a
  * forward this filter verifies afresh, one an unverified path's handler starts: the filter records no operation there,
  * so that answer is attested when its chain passes, with no dispatch check. A handler reached by an include cannot set
- * the status, so where the check refuses one, this filter writes the refusal once the chain returns, in place of
- * anything written before it, unless the response is already committed.
+ * the status, so where the dispatch check or the intent check refuses one, this filter writes the refusal once the
+ * chain returns, in place of anything written before it, unless the response is already committed.
  *
  * <p>A path listed in {@code paztport.unverified-paths} ({@link #unverified}) is not filtered, so it is not observed.
  * None is listed unless the application lists it.
@@ -262,6 +268,8 @@ public final class InboundFilter extends OncePerRequestFilter {
                 Refusals.write(response, accepted.refusal());
                 return;
             }
+            // Set before any handler runs, so a check that refuses one in an include can still mark it.
+            Refusals.prepareInPlaceOfHandler(request);
             VerifiedOperation verified = null;
             if (accepted.operation() != null && request.getDispatcherType() == DispatcherType.REQUEST) {
                 // Read as the handler is about to run, which catches a later filter that changes the handler or item.
@@ -275,7 +283,7 @@ public final class InboundFilter extends OncePerRequestFilter {
             }
             if (!accepted.attests()) {
                 chain.doFilter(wrapped, response);
-                writeOwedRefusal(verified, response);
+                writeOwedRefusal(request, verified, response);
                 return;
             }
             Pending pending = new Pending(accepted, verified, new ContentCachingResponseWrapper(response));
@@ -324,7 +332,7 @@ public final class InboundFilter extends OncePerRequestFilter {
         ContentCachingResponseWrapper cached = pending.cached;
         VerifiedOperation verified = pending.verified;
         // Written before an async start returns, so an include a filter then follows with async work is refused.
-        writeOwedRefusal(verified, cached);
+        writeOwedRefusal(request, verified, cached);
         if (request.isAsyncStarted()) {
             // The handler returned before writing its body, so there is nothing yet to attest. The body is written
             // into the wrapper later, on another thread, and must still reach the caller whole.
@@ -334,8 +342,9 @@ public final class InboundFilter extends OncePerRequestFilter {
         // Committed means the container has sent something the handler did not finish with: leave it alone. Where
         // an operation was verified, an answer whose handler the check never saw, or found to be another
         // operation's, or that an interceptor wrote before the handler was reached, is not the confirmed
-        // operation's, so it is not attested.
-        if (attestable && !cached.isCommitted() && (verified == null
+        // operation's, so it is not attested. A refusal Paztport wrote in place of the handler's answer is not the
+        // handler's either, operation or none.
+        if (attestable && !cached.isCommitted() && !Refusals.inPlaceOfHandler(request) && (verified == null
                 || (verified.checked() && verified.reached() && !verified.contradicted()))) {
             String attestation = pending.accepted.attest(cached.getStatus(), cached.getContentAsByteArray(),
                     RequestContext.labels());
@@ -347,17 +356,18 @@ public final class InboundFilter extends OncePerRequestFilter {
     }
 
     /**
-     * Writes the refusal the check owes for a handler reached by an include ({@link VerifiedOperation#refusalOwed}),
-     * which could not set the status itself, in place of anything a filter after this one wrote around the include.
-     * A response already committed has gone out with what that filter sent and cannot be refused; its handler did
-     * not run, and nothing is attested for it.
+     * Writes the refusal a check owes for a handler reached by an include ({@link VerifiedOperation#refusalOwed}, or
+     * the intent check's, {@link Refusals#writeOwedInPlaceOfHandler}), which could not set the status itself, in
+     * place of anything a filter after this one wrote around the include. A response already committed has gone out
+     * with what that filter sent and cannot be refused; its handler did not run, and nothing is attested for it.
      */
-    private static void writeOwedRefusal(VerifiedOperation verified, HttpServletResponse response)
-            throws IOException {
+    private static void writeOwedRefusal(HttpServletRequest request, VerifiedOperation verified,
+            HttpServletResponse response) throws IOException {
         if (verified != null && verified.refusalOwed() && !response.isCommitted()) {
             response.resetBuffer();
             Refusals.write(response, VerifiedOperation.REFUSAL);
         }
+        Refusals.writeOwedInPlaceOfHandler(request, response);
     }
 
     /**
